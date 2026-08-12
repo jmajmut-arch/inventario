@@ -200,12 +200,13 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
   };
   if(prefer) headers['Prefer'] = prefer;
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body?JSON.stringify(body):null });
+  const text = await res.text(); // POST/PATCH con Prefer: return=minimal responden 200/201 con cuerpo vacío, no 204 — no asumir JSON siempre presente
+  let data = null;
+  if(text){ try{ data = JSON.parse(text); }catch(e){ /* respuesta no-JSON */ } }
   if(!res.ok){
-    const err = await res.json().catch(()=>({message:res.statusText}));
-    throw new Error(err.message || 'Error de base de datos');
+    throw new Error((data && data.message) || res.statusText || 'Error de base de datos');
   }
-  if(res.status === 204) return null;
-  return res.json();
+  return data;
 }
 
 async function storageUpload(path, file){
@@ -478,6 +479,7 @@ const ICONS = {
   camera:'<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11a1 1 0 01-1 1H5a1 1 0 01-1-1V8z"/><circle cx="12" cy="13.5" r="3.5"/></svg>',
   logout:'<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>',
   x:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>',
+  conteo:'<svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9"/></svg>',
 };
 
 /* =======================================================================
