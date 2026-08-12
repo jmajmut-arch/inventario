@@ -142,6 +142,11 @@ textarea{resize:vertical;min-height:60px;}
 .sku-pick button{background:var(--amber);color:#1a1204;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;}
 .selected-sku{background:var(--surface-2);border:1px solid var(--amber-dim);border-radius:8px;padding:12px;margin-bottom:6px;}
 .selected-sku .code{font-family:'IBM Plex Mono';font-weight:700;font-size:15px;color:var(--amber);}
+
+.foto-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.foto-item{position:relative;display:block;border-radius:8px;overflow:hidden;border:1px solid var(--line);aspect-ratio:1;background:var(--surface-2);}
+.foto-item img{width:100%;height:100%;object-fit:cover;display:block;}
+.foto-item .foto-meta{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.78));padding:4px 6px 5px;display:flex;flex-direction:column;gap:1px;font-size:9.5px;line-height:1.3;color:#fff;}
 </style>
 </head>
 <body>
@@ -173,6 +178,7 @@ let state = {
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [] },
   ultimosConteos: [],
+  fotos: [],
 };
 
 function setState(patch){ Object.assign(state, patch); render(); }
@@ -284,7 +290,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotos:[], skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
   render();
 }
 
@@ -292,7 +298,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarFotos()]);
 }
 
 async function cargarSkus(){
@@ -306,7 +312,7 @@ async function cargarDashboard(){
   try{
     const [total, diario, semanal, mensual] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
-      rest(`/avance_diario?order=dia.desc&limit=12`),
+      rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
       rest(`/avance_mensual?order=mes.desc&limit=6`),
     ]);
@@ -318,6 +324,13 @@ async function cargarUltimosConteos(){
   try{
     const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion)&order=fecha_conteo.desc&limit=15`);
     setState({ultimosConteos: rows||[]});
+  }catch(e){ /* silencioso */ }
+}
+
+async function cargarFotos(){
+  try{
+    const rows = await rest(`/conteos?foto_url=not.is.null&select=*,skus(sku_code,descripcion)&order=fecha_conteo.desc&limit=40`);
+    setState({fotos: rows||[]});
   }catch(e){ /* silencioso */ }
 }
 
@@ -522,6 +535,79 @@ function renderLogin(){
    ======================================================================= */
 function pct(n){ return n===null||n===undefined? '0' : Number(n).toFixed(1); }
 
+/* =======================================================================
+   GRÁFICOS — SVG plano, sin librerías externas
+   ======================================================================= */
+function fmtDiaCorto(iso){ if(!iso) return ''; const d=new Date(iso); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}).replace('.',''); }
+
+// Suma el avance diario (que viene por bodega) en un total por día calendario.
+function agregarPorDia(diario, dias=14){
+  const map = new Map();
+  diario.forEach(r=>{
+    const key = (r.dia||'').slice(0,10);
+    if(!key) return;
+    const cur = map.get(key) || { dia:key, contados:0, diferencias:0 };
+    cur.contados += r.skus_contados||0;
+    cur.diferencias += r.con_diferencia||0;
+    map.set(key, cur);
+  });
+  return Array.from(map.values()).sort((a,b)=> a.dia.localeCompare(b.dia)).slice(-dias);
+}
+
+function renderBarChart(datos, valueKey, color){
+  if(!datos.length) return `<div class="empty">Sin datos todavía.</div>`;
+  const max = Math.max(1, ...datos.map(d=>d[valueKey]||0));
+  const barW = 24, gap = 12, padTop = 16, padBottom = 20;
+  const plotH = 90;
+  const w = datos.length*(barW+gap)+gap;
+  const h = plotH + padTop + padBottom;
+  const baseline = padTop + plotH;
+  const bars = datos.map((d,i)=>{
+    const val = d[valueKey]||0;
+    const barH = Math.round((val/max)*plotH);
+    const x = gap + i*(barW+gap);
+    const y = baseline - barH;
+    return `<g>
+      <rect x="${x}" y="${Math.max(y,padTop)}" width="${barW}" height="${Math.max(barH,val>0?2:0)}" rx="4" fill="${color}"><title>${esc(fmtDiaCorto(d.dia))}: ${val}</title></rect>
+      <text x="${x+barW/2}" y="${baseline+13}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">${esc(fmtDiaCorto(d.dia))}</text>
+    </g>`;
+  }).join('');
+  return `<div class="table-wrap"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block">
+    <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"/>
+    ${bars}
+  </svg></div>`;
+}
+
+function renderDiffChart(sinDif, conDif){
+  const total = sinDif + conDif;
+  if(!total) return `<div class="empty">Sin conteos todavía en este período.</div>`;
+  const fila = (label, val, color) => {
+    const p = Math.round(val/total*100);
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-dim)">
+          <span style="width:9px;height:9px;border-radius:2px;background:${color};display:inline-block;flex-shrink:0"></span>${label}
+        </span>
+        <span class="mono" style="font-size:12.5px;color:var(--text)">${val} · ${p}%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${p}%;background:${color}"></div></div>
+    </div>`;
+  };
+  return fila('Sin diferencia', sinDif, 'var(--ok)') + fila('Con diferencia', conDif, 'var(--warn)');
+}
+
+function renderGaleriaFotos(){
+  if(!state.fotos.length) return `<div class="empty"><div class="glyph">◫</div>Aún no hay conteos con respaldo fotográfico.</div>`;
+  return `<div class="foto-grid">${state.fotos.map(f=>`
+    <a class="foto-item" href="${f.foto_url}" target="_blank" rel="noopener">
+      <img src="${f.foto_url}" loading="lazy" alt="Respaldo fotográfico ${esc(f.skus?f.skus.sku_code:'')}">
+      <div class="foto-meta">
+        <span class="mono" style="font-weight:700">${esc(f.skus?f.skus.sku_code:'—')}</span>
+        <span>${fmtFechaHora(f.fecha_conteo)}</span>
+      </div>
+    </a>`).join('')}</div>`;
+}
+
 function renderDashboard(){
   const t = state.dash.total;
   const totUniverso = t.reduce((s,r)=>s+(r.skus_universo||0),0);
@@ -553,6 +639,11 @@ function renderDashboard(){
     </table></div>`;
   };
 
+  const diarioAgg = agregarPorDia(state.dash.diario, 14);
+  const totConDif = diarioAgg.reduce((s,d)=>s+d.diferencias,0);
+  const totContadosPeriodo = diarioAgg.reduce((s,d)=>s+d.contados,0);
+  const totSinDif = Math.max(0, totContadosPeriodo - totConDif);
+
   return `
     <div class="section-head"><div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div></div>
     <div class="kpi-grid">
@@ -568,8 +659,17 @@ function renderDashboard(){
       </div>
     </div>
 
+    <div class="section-head"><div><span class="eyebrow">Últimos 14 días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
+    <div class="card">${renderBarChart(diarioAgg, 'contados', 'var(--amber)')}</div>
+
+    <div class="section-head"><div><span class="eyebrow">Últimos 14 días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
+    <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>
+
     <div class="section-head"><h2 style="font-size:17px">Avance por bodega</h2></div>
     ${filasBodega}
+
+    <div class="section-head"><div><span class="eyebrow">${state.fotos.length}</span><h2 style="font-size:17px">Respaldo fotográfico</h2></div></div>
+    <div class="card">${renderGaleriaFotos()}</div>
 
     <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
     <div class="card">${periodTable(state.dash.diario,'Día','dia')}</div>
