@@ -389,17 +389,18 @@ async function cargarSkusMasivo(file){
   const {data} = parseCSV(text);
   if(!data.length){ toast('El archivo no tiene filas de datos','err'); return; }
   let ok=0, error=0; const errores=[];
-  const lote = [];
+  const porCodigo = new Map();
   data.forEach((r,idx)=>{
     const mapeada = mapearFilaSku(r);
     if(!mapeada){ error++; errores.push({fila:idx+2, motivo:'Material / sku_code vacío'}); return; }
-    ok++; lote.push(mapeada);
+    ok++; porCodigo.set(mapeada.sku_code, mapeada); // el maestro SAP trae una fila por planta/ubicación; nos quedamos con la última por sku_code para no repetir el conflict target en el mismo lote
   });
+  const lote = Array.from(porCodigo.values());
 
   try{
     if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
     await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
-    toast(`Carga completa: ${ok} SKUs cargados${error?`, ${error} con error`:''}`);
+    toast(`Carga completa: ${lote.length} SKUs cargados${error?`, ${error} con error`:''}`);
     cargarSkus();
   }catch(e){
     await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
