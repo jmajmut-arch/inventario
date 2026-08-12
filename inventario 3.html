@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Control de Inventario — Toma Física</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#161a20;
+  --surface:#1e242c;
+  --surface-2:#252c36;
+  --line:#333c48;
+  --amber:#f0a030;
+  --amber-dim:#8a6224;
+  --steel:#5b8fb0;
+  --ok:#4caf6d;
+  --warn:#e0b23c;
+  --danger:#e0554a;
+  --text:#eef1f4;
+  --text-dim:#a3adb8;
+  --text-faint:#6b7684;
+  --radius:10px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+body{min-height:100vh;display:flex;flex-direction:column;}
+h1,h2,h3,.display{font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:0.01em;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+button{font-family:inherit;cursor:pointer;}
+input,select,textarea{font-family:inherit;}
+
+/* ---------- barcode tick divider (signature element) ---------- */
+.ticks{height:14px;display:flex;align-items:flex-end;gap:2px;overflow:hidden;opacity:0.55;}
+.ticks span{display:block;width:2px;background:var(--amber);}
+.ticks span:nth-child(3n){height:14px;} .ticks span:nth-child(3n+1){height:8px;} .ticks span:nth-child(3n+2){height:11px;}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px 0;}
+.topbar-row{display:flex;align-items:center;justify-content:space-between;padding-bottom:10px;}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-badge{width:34px;height:34px;border-radius:8px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#1a1204;flex-shrink:0;}
+.brand-text h1{font-size:18px;margin:0;line-height:1.1;}
+.brand-text span{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.08em;}
+.user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);}
+.user-chip button{background:none;border:1px solid var(--line);color:var(--text-dim);border-radius:6px;padding:5px 9px;font-size:11px;}
+.user-chip button:active{background:var(--surface-2);}
+
+/* ---------- layout ---------- */
+main{flex:1;max-width:720px;width:100%;margin:0 auto;padding:18px 16px 96px;}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 0 10px;}
+.section-head:first-child{margin-top:0;}
+.section-head h2{font-size:22px;margin:0;}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--amber);font-weight:600;margin-bottom:2px;display:block;}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+.card + .card{margin-top:10px;}
+
+/* bin-tag card: torn top edge motif for KPI cards */
+.tag-card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);padding:14px 14px 12px;overflow:hidden;}
+.tag-card::before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:repeating-linear-gradient(-55deg,var(--amber) 0 6px,transparent 6px 12px);opacity:0.85;}
+.tag-card .kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-faint);margin-bottom:6px;}
+.tag-card .kpi-value{font-family:'Barlow Condensed';font-weight:800;font-size:30px;line-height:1;}
+.tag-card .kpi-sub{font-size:12px;color:var(--text-dim);margin-top:4px;}
+
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+.progress-track{height:8px;border-radius:5px;background:var(--surface-2);overflow:hidden;margin-top:8px;}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--amber-dim),var(--amber));border-radius:5px;transition:width .4s ease;}
+
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;color:var(--text-faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;padding:6px 8px;border-bottom:1px solid var(--line);}
+td{padding:8px;border-bottom:1px solid var(--line);color:var(--text-dim);}
+tr:last-child td{border-bottom:none;}
+td.num,th.num{text-align:right;font-family:'IBM Plex Mono';}
+.table-wrap{overflow-x:auto;}
+
+label{display:block;font-size:12px;color:var(--text-dim);margin:12px 0 5px;font-weight:500;}
+label:first-child{margin-top:0;}
+input[type=text],input[type=number],input[type=password],input[type=email],select,textarea{
+  width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+  padding:11px 12px;border-radius:8px;font-size:15px;outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--amber);}
+textarea{resize:vertical;min-height:60px;}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:8px;padding:12px 16px;font-size:14px;font-weight:600;width:100%;}
+.btn-primary{background:var(--amber);color:#1a1204;}
+.btn-primary:active{background:#d68e26;}
+.btn-secondary{background:var(--surface-2);color:var(--text);border:1px solid var(--line);}
+.btn-secondary:active{background:#2c3441;}
+.btn-danger{background:transparent;color:var(--danger);border:1px solid #5a2f2c;}
+.btn:disabled{opacity:0.45;pointer-events:none;}
+.btn-row{display:flex;gap:8px;}
+.btn-row .btn{width:auto;flex:1;}
+
+.file-input{border:1.5px dashed var(--line);border-radius:8px;padding:16px;text-align:center;color:var(--text-dim);font-size:13px;position:relative;}
+.file-input input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.file-preview{margin-top:10px;border-radius:8px;overflow:hidden;border:1px solid var(--line);max-height:220px;}
+.file-preview img{width:100%;display:block;object-fit:cover;max-height:220px;}
+
+.badge{display:inline-block;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;padding:3px 8px;border-radius:5px;}
+.badge-ok{background:rgba(76,175,109,.15);color:var(--ok);}
+.badge-warn{background:rgba(224,178,60,.15);color:var(--warn);}
+.badge-danger{background:rgba(224,85,74,.15);color:var(--danger);}
+.badge-neutral{background:var(--surface-2);color:var(--text-dim);}
+
+.toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:11px 18px;border-radius:8px;font-size:13.5px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:88%;text-align:center;}
+.toast.err{border-color:#5a2f2c;color:#f3a6a0;}
+.toast.ok{border-color:#2c5a3d;color:#a3e0b8;}
+
+.empty{text-align:center;padding:30px 10px;color:var(--text-faint);}
+.empty .glyph{font-size:28px;margin-bottom:8px;opacity:0.6;}
+
+/* ---------- bottom nav ---------- */
+.tabbar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--line);display:flex;z-index:20;padding-bottom:env(safe-area-inset-bottom);}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px 8px;background:none;border:none;color:var(--text-faint);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;}
+.tab.active{color:var(--amber);}
+.tab svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;}
+
+/* ---------- login ---------- */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.login-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:30px 26px;position:relative;overflow:hidden;}
+.login-card::before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:repeating-linear-gradient(-55deg,var(--amber) 0 6px,transparent 6px 12px);}
+.login-logo{width:52px;height:52px;border-radius:12px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:24px;color:#1a1204;margin:6px auto 14px;}
+.login-title{text-align:center;font-size:22px;margin:0 0 4px;}
+.login-sub{text-align:center;font-size:12.5px;color:var(--text-faint);margin-bottom:22px;}
+.login-toggle{display:flex;font-size:12.5px;color:var(--text-dim);justify-content:center;margin-top:16px;gap:5px;}
+.login-toggle button{background:none;border:none;color:var(--amber);font-weight:600;padding:0;}
+
+.spinner{width:16px;height:16px;border:2px solid rgba(0,0,0,.25);border-top-color:#1a1204;border-radius:50%;animation:spin .7s linear infinite;}
+.spinner.light{border:2px solid var(--line);border-top-color:var(--amber);}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+.hint{font-size:11.5px;color:var(--text-faint);margin-top:6px;line-height:1.5;}
+.sku-pick{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:var(--surface-2);}
+.sku-pick div span{display:block;}
+.sku-pick .code{font-family:'IBM Plex Mono';font-weight:600;font-size:13.5px;}
+.sku-pick .desc{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
+.sku-pick button{background:var(--amber);color:#1a1204;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;}
+.selected-sku{background:var(--surface-2);border:1px solid var(--amber-dim);border-radius:8px;padding:12px;margin-bottom:6px;}
+.selected-sku .code{font-family:'IBM Plex Mono';font-weight:700;font-size:15px;color:var(--amber);}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-root"></div>
+
+<script>
+/* =======================================================================
+   CONFIG — proyecto Supabase "inventario-toma-fisica"
+   ======================================================================= */
+const SUPABASE_URL = 'https://ncvwgsbcvklhbyvurxzz.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE';
+const BUCKET = 'fotos-inventario';
+
+/* =======================================================================
+   ESTADO
+   ======================================================================= */
+let state = {
+  session: null,      // {access_token, refresh_token, user}
+  perfil: null,        // fila de public.usuarios
+  view: 'dashboard',
+  loading: false,
+  authMode: 'login',   // login | signup
+  skus: [],
+  skuSearch: '',
+  skuSeleccionado: null,
+  conteoFoto: null,     // File
+  conteoFotoPreview: null,
+  cargando: {},
+  dash: { total: [], diario: [], semanal: [], mensual: [] },
+  ultimosConteos: [],
+};
+
+function setState(patch){ Object.assign(state, patch); render(); }
+
+/* =======================================================================
+   HELPERS DE RED — REST / AUTH / STORAGE de Supabase (sin SDK externo)
+   ======================================================================= */
+async function authRequest(path, body){
+  const res = await fetch(`${SUPABASE_URL}/auth/v1${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(()=> ({}));
+  if(!res.ok){ throw new Error(data.error_description || data.msg || data.error || 'Error de autenticación'); }
+  return data;
+}
+
+async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={} } = {}){
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+    ...extraHeaders
+  };
+  if(prefer) headers['Prefer'] = prefer;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body?JSON.stringify(body):null });
+  if(!res.ok){
+    const err = await res.json().catch(()=>({message:res.statusText}));
+    throw new Error(err.message || 'Error de base de datos');
+  }
+  if(res.status === 204) return null;
+  return res.json();
+}
+
+async function storageUpload(path, file){
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${path}`, {
+    method:'POST',
+    headers:{
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session.access_token}`,
+      'Content-Type': file.type || 'application/octet-stream',
+      'x-upsert':'true'
+    },
+    body:file
+  });
+  if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err.message||'No se pudo subir la foto'); }
+  return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
+}
+
+/* =======================================================================
+   TOASTS
+   ======================================================================= */
+function toast(msg, type='ok'){
+  const root = document.getElementById('toast-root');
+  const el = document.createElement('div');
+  el.className = `toast ${type==='err'?'err':'ok'}`;
+  el.textContent = msg;
+  root.appendChild(el);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 2600);
+}
+
+/* =======================================================================
+   AUTENTICACIÓN
+   ======================================================================= */
+async function cargarPerfil(){
+  const uid = state.session.user.id;
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol`);
+  if(rows && rows[0]) state.perfil = rows[0];
+  else state.perfil = null;
+}
+
+async function handleLogin(email, password){
+  try{
+    setState({loading:true});
+    const data = await authRequest('/token?grant_type=password', {email, password});
+    state.session = data;
+    await cargarPerfil();
+    setState({loading:false, view:'dashboard'});
+    toast(`Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
+    cargarTodo();
+  }catch(e){
+    setState({loading:false});
+    toast(e.message,'err');
+  }
+}
+
+async function handleSignup(email, password, nombre){
+  try{
+    setState({loading:true});
+    const data = await authRequest('/signup', {email, password, data:{ nombre }});
+    if(data.access_token){
+      state.session = data;
+      // pequeño margen para que el trigger de la BD cree el perfil
+      await new Promise(r=>setTimeout(r,700));
+      await cargarPerfil();
+      setState({loading:false, view:'dashboard'});
+      toast('Cuenta creada. ¡Bienvenido!');
+      cargarTodo();
+    }else{
+      setState({loading:false, authMode:'login'});
+      toast('Cuenta creada. Ya puedes iniciar sesión.');
+    }
+  }catch(e){
+    setState({loading:false});
+    toast(e.message,'err');
+  }
+}
+
+function handleLogout(){
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
+  render();
+}
+
+/* =======================================================================
+   CARGA DE DATOS
+   ======================================================================= */
+async function cargarTodo(){
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos()]);
+}
+
+async function cargarSkus(){
+  try{
+    const rows = await rest(`/skus?activo=eq.true&order=sku_code.asc&limit=500`);
+    setState({skus: rows||[]});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarDashboard(){
+  try{
+    const [total, diario, semanal, mensual] = await Promise.all([
+      rest(`/avance_total?order=bodega.asc`),
+      rest(`/avance_diario?order=dia.desc&limit=12`),
+      rest(`/avance_semanal?order=semana.desc&limit=8`),
+      rest(`/avance_mensual?order=mes.desc&limit=6`),
+    ]);
+    setState({dash:{ total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[] }});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarUltimosConteos(){
+  try{
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion)&order=fecha_conteo.desc&limit=15`);
+    setState({ultimosConteos: rows||[]});
+  }catch(e){ /* silencioso */ }
+}
+
+/* =======================================================================
+   CSV — parser mínimo (soporta comillas y comas dentro de campos)
+   ======================================================================= */
+function parseCSV(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  text = text.replace(/^\uFEFF/, ''); // quita BOM de exportaciones SAP/Excel
+  text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; } else inQuotes = false;
+      } else field += c;
+    }else{
+      if(c === '"') inQuotes = true;
+      else if(c === ','){ row.push(field); field=''; }
+      else if(c === '\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else field += c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  if(!rows.length) return {headers:[], data:[]};
+  const headers = rows[0].map(h=>h.trim().toLowerCase());
+  const data = rows.slice(1).filter(r=>r.some(v=>v && v.trim()!=='')).map(r=>{
+    const obj = {};
+    headers.forEach((h,idx)=> obj[h] = (r[idx]!==undefined? r[idx].trim() : ''));
+    return obj;
+  });
+  return {headers, data};
+}
+
+/* =======================================================================
+   ACCIONES — SKUs
+   ======================================================================= */
+async function crearSkuManual(payload){
+  try{
+    await rest('/skus', {method:'POST', body:[payload], prefer:'return=minimal'});
+    toast('SKU cargado correctamente');
+    cargarSkus();
+    return true;
+  }catch(e){ toast(e.message,'err'); return false; }
+}
+
+// Traduce una fila del maestro SAP (Material, Material Description, Plant,
+// Plant Name, Storage Location, Description of Storage Location,
+// Unrestricted Stock, ...) al formato interno de la tabla skus.
+// También acepta el formato simple (sku_code, descripcion, categoria, ...)
+// si alguien prefiere subir un CSV armado a mano.
+function mapearFilaSku(r){
+  const sku_code = r['material'] || r['sku_code'] || '';
+  if(!sku_code) return null;
+  const stockRaw = r['unrestricted stock'] !== undefined ? r['unrestricted stock'] : r['stock_sistema'];
+  return {
+    sku_code: sku_code,
+    descripcion: r['material description'] || r['descripcion'] || null,
+    categoria: r['plant name'] || r['categoria'] || null,
+    unidad_medida: r['unidad_medida'] || null,
+    ubicacion: r['storage location'] || r['ubicacion'] || null,
+    bodega: r['description of storage location'] || r['bodega'] || null,
+    stock_sistema: (stockRaw !== undefined && stockRaw !== '') ? Number(stockRaw) : null,
+  };
+}
+
+async function cargarSkusMasivo(file){
+  const text = await file.text();
+  const {data} = parseCSV(text);
+  if(!data.length){ toast('El archivo no tiene filas de datos','err'); return; }
+  let ok=0, error=0; const errores=[];
+  const lote = [];
+  data.forEach((r,idx)=>{
+    const mapeada = mapearFilaSku(r);
+    if(!mapeada){ error++; errores.push({fila:idx+2, motivo:'Material / sku_code vacío'}); return; }
+    ok++; lote.push(mapeada);
+  });
+
+  try{
+    if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+    await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
+    toast(`Carga completa: ${ok} SKUs cargados${error?`, ${error} con error`:''}`);
+    cargarSkus();
+  }catch(e){
+    await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
+    toast(e.message,'err');
+  }
+}
+
+async function cargarRespaldoMasivo(file){
+  const text = await file.text();
+  const {data} = parseCSV(text);
+  if(!data.length){ toast('El archivo no tiene filas de datos','err'); return; }
+  let ok=0, error=0; const errores=[];
+  for(const [idx,r] of data.entries()){
+    const sku_code = r['material'] || r['sku_code'] || '';
+    const stockRaw = r['unrestricted stock'] !== undefined ? r['unrestricted stock'] : r['stock_sistema'];
+    if(!sku_code || stockRaw === undefined || stockRaw===''){ error++; errores.push({fila:idx+2, motivo:'faltan Material/sku_code o Unrestricted Stock/stock_sistema'}); continue; }
+    try{
+      await rest(`/skus?sku_code=eq.${encodeURIComponent(sku_code)}`, {method:'PATCH', body:{stock_sistema:Number(stockRaw)}, prefer:'return=minimal'});
+      ok++;
+    }catch(e){ error++; errores.push({fila:idx+2, motivo:e.message}); }
+  }
+  await registrarCarga(file.name, 'respaldo', data.length, ok, error, errores);
+  toast(`Respaldo procesado: ${ok} SKUs actualizados${error?`, ${error} con error`:''}`);
+  cargarSkus();
+}
+
+async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores){
+  try{
+    await rest('/cargas_masivas', {method:'POST', body:[{
+      nombre_archivo, tipo, usuario_id: state.perfil?state.perfil.id:null,
+      filas_totales, filas_ok, filas_error, detalle_errores: detalle_errores.slice(0,50)
+    }], prefer:'return=minimal'});
+  }catch(e){ /* no bloquea el flujo */ }
+}
+
+/* =======================================================================
+   ACCIONES — Toma de inventario
+   ======================================================================= */
+async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
+  if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
+  if(cantidad === '' || cantidad === null || isNaN(Number(cantidad))){ toast('Ingresa una cantidad contada válida','err'); return; }
+  setState({loading:true});
+  try{
+    let foto_url = null;
+    if(state.conteoFoto){
+      const ext = (state.conteoFoto.name.split('.').pop()||'jpg').toLowerCase();
+      const path = `${state.skuSeleccionado.sku_code}/${Date.now()}.${ext}`;
+      foto_url = await storageUpload(path, state.conteoFoto);
+    }
+    await rest('/conteos', {method:'POST', body:[{
+      sku_id: state.skuSeleccionado.id,
+      usuario_id: state.perfil ? state.perfil.id : null,
+      cantidad_contada: Number(cantidad),
+      ubicacion_contada: ubicacion || null,
+      bodega: bodega || state.skuSeleccionado.bodega || null,
+      foto_url,
+      observacion: observacion || null,
+    }], prefer:'return=minimal'});
+    toast('Conteo registrado');
+    setState({loading:false, skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null, skuSearch:''});
+    cargarDashboard(); cargarUltimosConteos();
+  }catch(e){
+    setState({loading:false});
+    toast(e.message,'err');
+  }
+}
+
+/* =======================================================================
+   ICONOS (inline SVG, sin dependencias)
+   ======================================================================= */
+const ICONS = {
+  dashboard:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  skus:'<svg viewBox="0 0 24 24"><path d="M4 7l8-4 8 4-8 4-8-4z"/><path d="M4 7v10l8 4 8-4V7"/><path d="M12 11v10"/></svg>',
+  upload:'<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>',
+  camera:'<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11a1 1 0 01-1 1H5a1 1 0 01-1-1V8z"/><circle cx="12" cy="13.5" r="3.5"/></svg>',
+  logout:'<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>',
+  x:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>',
+};
+
+/* =======================================================================
+   RENDER — LOGIN
+   ======================================================================= */
+function renderLogin(){
+  const isSignup = state.authMode === 'signup';
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="ticks" style="position:absolute;top:5px;left:0;right:0;opacity:0">${'<span></span>'.repeat(40)}</div>
+      <div class="login-logo">IT</div>
+      <h1 class="login-title">Toma Física de Inventario</h1>
+      <div class="login-sub">Bodega · Cadena de suministro minera</div>
+      <form id="auth-form">
+        ${isSignup? `
+        <label for="f-nombre">Nombre completo</label>
+        <input type="text" id="f-nombre" placeholder="Ej. Joel Majmut" required>
+        `:''}
+        <label for="f-email">Correo</label>
+        <input type="email" id="f-email" placeholder="nombre@empresa.cl" required>
+        <label for="f-pass">Contraseña</label>
+        <input type="password" id="f-pass" placeholder="••••••••" required minlength="6">
+        <div style="margin-top:20px">
+          <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>
+            ${state.loading? '<span class="spinner"></span>' : (isSignup?'Crear cuenta':'Ingresar')}
+          </button>
+        </div>
+      </form>
+      <div class="login-toggle">
+        ${isSignup? 'Ya tienes cuenta?' : 'Primera vez aquí?'}
+        <button id="toggle-auth">${isSignup? 'Inicia sesión' : 'Regístrate'}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* =======================================================================
+   RENDER — DASHBOARD
+   ======================================================================= */
+function pct(n){ return n===null||n===undefined? '0' : Number(n).toFixed(1); }
+
+function renderDashboard(){
+  const t = state.dash.total;
+  const totUniverso = t.reduce((s,r)=>s+(r.skus_universo||0),0);
+  const totContados = t.reduce((s,r)=>s+(r.skus_contados||0),0);
+  const avanceGlobal = totUniverso? (totContados/totUniverso*100) : 0;
+
+  const filasBodega = t.map(r=>`
+    <div class="tag-card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span class="kpi-label">${esc(r.bodega||'Sin bodega')}</span>
+        <span class="mono" style="font-size:12px;color:var(--text-dim)">${r.skus_contados||0} / ${r.skus_universo||0} SKU</span>
+      </div>
+      <div class="kpi-value">${pct(r.porcentaje_avance)}%</div>
+      <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100,r.porcentaje_avance||0)}%"></div></div>
+    </div>
+  `).join('') || `<div class="empty"><div class="glyph">◧</div>Aún no hay SKUs cargados para calcular avance.</div>`;
+
+  const periodTable = (rows, keyLabel, keyField) => {
+    if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
+    return `<div class="table-wrap"><table>
+      <thead><tr><th>${keyLabel}</th><th>Bodega</th><th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td class="mono">${fmtFecha(r[keyField])}</td>
+        <td>${esc(r.bodega||'—')}</td>
+        <td class="num">${r.skus_contados||0}</td>
+        <td class="num">${r.con_diferencia? `<span class="badge badge-warn">${r.con_diferencia}</span>` : '0'}</td>
+        <td class="num">${r.total_unidades_contadas!==null? Number(r.total_unidades_contadas).toLocaleString('es-CL') : '—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  };
+
+  return `
+    <div class="section-head"><div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div></div>
+    <div class="kpi-grid">
+      <div class="tag-card">
+        <div class="kpi-label">Avance global</div>
+        <div class="kpi-value">${pct(avanceGlobal)}%</div>
+        <div class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</div>
+      </div>
+      <div class="tag-card">
+        <div class="kpi-label">Conteos recientes</div>
+        <div class="kpi-value">${state.ultimosConteos.length}</div>
+        <div class="kpi-sub">últimos registrados</div>
+      </div>
+    </div>
+
+    <div class="section-head"><h2 style="font-size:17px">Avance por bodega</h2></div>
+    ${filasBodega}
+
+    <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
+    <div class="card">${periodTable(state.dash.diario,'Día','dia')}</div>
+
+    <div class="section-head"><h2 style="font-size:17px">Semanal</h2></div>
+    <div class="card">${periodTable(state.dash.semanal,'Semana','semana')}</div>
+
+    <div class="section-head"><h2 style="font-size:17px">Mensual</h2></div>
+    <div class="card">${periodTable(state.dash.mensual,'Mes','mes')}</div>
+
+    <div class="section-head"><h2 style="font-size:17px">Últimos conteos</h2></div>
+    <div class="card">
+      ${state.ultimosConteos.length? `<div class="table-wrap"><table>
+        <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th></tr></thead>
+        <tbody>${state.ultimosConteos.map(c=>`<tr>
+          <td class="mono">${esc(c.skus? c.skus.sku_code : '—')}</td>
+          <td class="num">${c.cantidad_contada}</td>
+          <td>${estadoBadge(c.estado, c.diferencia)}</td>
+          <td class="mono" style="font-size:11.5px">${fmtFechaHora(c.fecha_conteo)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
+    </div>
+  `;
+}
+
+function estadoBadge(estado, diferencia){
+  if(diferencia && Number(diferencia)!==0) return `<span class="badge badge-warn">Diferencia ${diferencia>0?'+':''}${diferencia}</span>`;
+  if(estado==='pendiente_revision') return `<span class="badge badge-neutral">Pendiente</span>`;
+  return `<span class="badge badge-ok">${esc(estado||'ok')}</span>`;
+}
+
+function fmtFecha(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'}); }
+function fmtFechaHora(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
+function esc(s){ return (s===null||s===undefined)? '' : String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* =======================================================================
+   RENDER — SKUs (alta manual)
+   ======================================================================= */
+function renderSkus(){
+  return `
+    <div class="section-head"><div><span class="eyebrow">Maestro de materiales</span><h2>Cargar SKU</h2></div></div>
+    <div class="card">
+      <form id="form-sku">
+        <label for="s-code">Código SKU *</label>
+        <input type="text" id="s-code" placeholder="Ej. 4400-1123" required>
+        <label for="s-desc">Descripción</label>
+        <input type="text" id="s-desc" placeholder="Ej. Filtro hidraulico 3 pulgadas">
+        <div class="row2">
+          <div><label for="s-cat">Categoría</label><input type="text" id="s-cat" placeholder="Repuestos"></div>
+          <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" placeholder="UN, KG, LT..."></div>
+        </div>
+        <div class="row2">
+          <div><label for="s-bodega">Bodega</label><input type="text" id="s-bodega" placeholder="Bodega Central"></div>
+          <div><label for="s-ubic">Ubicación</label><input type="text" id="s-ubic" placeholder="Rack A-12"></div>
+        </div>
+        <label for="s-stock">Stock según sistema</label>
+        <input type="number" id="s-stock" step="0.01" placeholder="0">
+        <div style="margin-top:16px">
+          <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar SKU'}</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="section-head"><h2 style="font-size:17px">SKU activos (${state.skus.length})</h2></div>
+    <div class="card">
+      ${state.skus.length? `<div class="table-wrap"><table>
+        <thead><tr><th>Código</th><th>Descripción</th><th>Bodega</th><th class="num">Stock</th></tr></thead>
+        <tbody>${state.skus.slice(0,50).map(s=>`<tr>
+          <td class="mono">${esc(s.sku_code)}</td>
+          <td>${esc(s.descripcion||'—')}</td>
+          <td>${esc(s.bodega||'—')}</td>
+          <td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>${state.skus.length>50? `<div class="hint" style="margin-top:8px">Mostrando 50 de ${state.skus.length}.</div>`:''}` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
+    </div>
+  `;
+}
+
+/* =======================================================================
+   RENDER — Carga masiva
+   ======================================================================= */
+function renderCargaMasiva(){
+  return `
+    <div class="section-head"><div><span class="eyebrow">Datos masivos</span><h2>Carga masiva</h2></div></div>
+
+    <div class="card">
+      <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de SKU</h3>
+      <div class="hint">Sube directamente el maestro de materiales exportado de SAP (.csv), con columnas: <b>Material</b>, <b>Material Description</b>, <b>Plant Name</b>, <b>Storage Location</b>, <b>Description of Storage Location</b>, <b>Unrestricted Stock</b>. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
+      <div class="file-input" style="margin-top:12px">
+        <input type="file" id="file-skus" accept=".csv">
+        ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
+        <div>Toca para elegir un archivo .csv</div>
+      </div>
+      <div id="file-skus-name" class="hint"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de respaldo (para análisis)</h3>
+      <div class="hint">Para un respaldo posterior (ej. un nuevo corte de SAP), sube el mismo tipo de archivo — columnas <b>Material</b> y <b>Unrestricted Stock</b> — y solo actualiza el stock de referencia de los SKU existentes, sin tocar descripción ni ubicación, para comparar contra el conteo físico.</div>
+      <div class="file-input" style="margin-top:12px">
+        <input type="file" id="file-respaldo" accept=".csv">
+        ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
+        <div>Toca para elegir un archivo .csv</div>
+      </div>
+      <div id="file-respaldo-name" class="hint"></div>
+    </div>
+  `;
+}
+
+/* =======================================================================
+   RENDER — Toma de inventario
+   ======================================================================= */
+function renderConteo(){
+  const q = state.skuSearch.trim().toLowerCase();
+  const resultados = q.length? state.skus.filter(s =>
+    s.sku_code.toLowerCase().includes(q) || (s.descripcion||'').toLowerCase().includes(q)
+  ).slice(0,8) : [];
+
+  return `
+    <div class="section-head"><div><span class="eyebrow">Terreno · Bodega</span><h2>Tomar inventario</h2></div></div>
+
+    ${!state.skuSeleccionado? `
+      <div class="card">
+        <label for="sku-search">Buscar SKU por código o descripción</label>
+        <input type="text" id="sku-search" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(state.skuSearch)}" autocomplete="off">
+        <div style="margin-top:10px">
+          ${q.length===0? `<div class="hint">Escribe para buscar entre ${state.skus.length} SKU activos.</div>` :
+            resultados.length? resultados.map(s=>`
+              <div class="sku-pick" data-pick="${s.id}">
+                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}</span></div>
+                <button data-pick-btn="${s.id}">Elegir</button>
+              </div>`).join('') :
+            `<div class="hint">No se encontraron coincidencias.</div>`}
+        </div>
+      </div>
+    ` : `
+      <div class="selected-sku">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
+            <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
+            <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Stock sistema: ${state.skuSeleccionado.stock_sistema!==null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
+          </div>
+          <button id="btn-quitar-sku" style="background:none;border:none;color:var(--text-faint)">${ICONS.x}</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <form id="form-conteo">
+          <label for="c-cant">Cantidad contada *</label>
+          <input type="number" id="c-cant" step="0.01" placeholder="0" required>
+          <div class="row2">
+            <div><label for="c-bodega">Bodega</label><input type="text" id="c-bodega" value="${esc(state.skuSeleccionado.bodega||'')}"></div>
+            <div><label for="c-ubic">Ubicación contada</label><input type="text" id="c-ubic" placeholder="Rack A-12" value="${esc(state.skuSeleccionado.ubicacion||'')}"></div>
+          </div>
+          <label for="c-obs">Observación</label>
+          <textarea id="c-obs" placeholder="Notas del conteo (opcional)"></textarea>
+
+          <label>Respaldo fotográfico</label>
+          <div class="file-input">
+            <input type="file" id="c-foto" accept="image/*" capture="environment">
+            ${ICONS.camera.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
+            <div>Tomar o adjuntar foto</div>
+          </div>
+          ${state.conteoFotoPreview? `<div class="file-preview"><img src="${state.conteoFotoPreview}"></div>` : ''}
+
+          <div style="margin-top:18px">
+            <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar conteo'}</button>
+          </div>
+        </form>
+      </div>
+    `}
+  `;
+}
+
+/* =======================================================================
+   RENDER — SHELL
+   ======================================================================= */
+function viewTitle(v){
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario'}[v];
+}
+
+function renderShell(){
+  const content = {
+    dashboard: renderDashboard,
+    skus: renderSkus,
+    carga: renderCargaMasiva,
+    conteo: renderConteo,
+  }[state.view]();
+
+  return `
+    <div class="topbar">
+      <div class="topbar-row">
+        <div class="brand">
+          <div class="brand-badge">IT</div>
+          <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>Toma física de inventario</span></div>
+        </div>
+        <div class="user-chip">
+          <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}</span>
+          <button id="btn-logout">${ICONS.logout} Salir</button>
+        </div>
+      </div>
+    </div>
+    <main>${content}</main>
+    <nav class="tabbar">
+      ${tabBtn('dashboard','Dashboard')}
+      ${tabBtn('skus','SKUs')}
+      ${tabBtn('carga','Carga')}
+      ${tabBtn('conteo','Contar')}
+    </nav>
+  `;
+}
+
+function tabBtn(view,label){
+  return `<button class="tab ${state.view===view?'active':''}" data-tab="${view}">${ICONS[view==='carga'?'upload':view]}${label}</button>`;
+}
+
+/* =======================================================================
+   RENDER PRINCIPAL + BINDINGS
+   ======================================================================= */
+function render(){
+  const root = document.getElementById('app');
+  root.innerHTML = state.session ? renderShell() : renderLogin();
+  bind();
+}
+
+function bind(){
+  if(!state.session){
+    const form = document.getElementById('auth-form');
+    form.addEventListener('submit', e=>{
+      e.preventDefault();
+      const email = document.getElementById('f-email').value.trim();
+      const pass = document.getElementById('f-pass').value;
+      if(state.authMode==='signup'){
+        const nombre = document.getElementById('f-nombre').value.trim();
+        handleSignup(email, pass, nombre);
+      }else{
+        handleLogin(email, pass);
+      }
+    });
+    document.getElementById('toggle-auth').addEventListener('click', ()=>{
+      setState({authMode: state.authMode==='login'?'signup':'login'});
+    });
+    return;
+  }
+
+  document.getElementById('btn-logout').addEventListener('click', handleLogout);
+  document.querySelectorAll('.tab').forEach(btn=>{
+    btn.addEventListener('click', ()=> setState({view: btn.dataset.tab}));
+  });
+
+  if(state.view==='skus'){
+    document.getElementById('form-sku').addEventListener('submit', async e=>{
+      e.preventDefault();
+      const payload = {
+        sku_code: document.getElementById('s-code').value.trim(),
+        descripcion: document.getElementById('s-desc').value.trim() || null,
+        categoria: document.getElementById('s-cat').value.trim() || null,
+        unidad_medida: document.getElementById('s-um').value.trim() || null,
+        bodega: document.getElementById('s-bodega').value.trim() || null,
+        ubicacion: document.getElementById('s-ubic').value.trim() || null,
+        stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
+      };
+      if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
+      setState({loading:true});
+      const ok = await crearSkuManual(payload);
+      setState({loading:false});
+      if(ok) render();
+    });
+  }
+
+  if(state.view==='carga'){
+    document.getElementById('file-skus').addEventListener('change', async e=>{
+      const file = e.target.files[0]; if(!file) return;
+      document.getElementById('file-skus-name').textContent = `Procesando ${file.name}...`;
+      await cargarSkusMasivo(file);
+    });
+    document.getElementById('file-respaldo').addEventListener('change', async e=>{
+      const file = e.target.files[0]; if(!file) return;
+      document.getElementById('file-respaldo-name').textContent = `Procesando ${file.name}...`;
+      await cargarRespaldoMasivo(file);
+    });
+  }
+
+  if(state.view==='conteo'){
+    if(!state.skuSeleccionado){
+      const search = document.getElementById('sku-search');
+      search.addEventListener('input', e=> setState({skuSearch: e.target.value}));
+      search.focus(); search.selectionStart = search.selectionEnd = search.value.length;
+      document.querySelectorAll('[data-pick-btn]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const sku = state.skus.find(s=>s.id===btn.dataset.pickBtn);
+          setState({skuSeleccionado: sku});
+        });
+      });
+    }else{
+      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null}));
+      document.getElementById('c-foto').addEventListener('change', e=>{
+        const file = e.target.files[0]; if(!file) return;
+        state.conteoFoto = file;
+        const reader = new FileReader();
+        reader.onload = ev => { state.conteoFotoPreview = ev.target.result; render(); };
+        reader.readAsDataURL(file);
+      });
+      document.getElementById('form-conteo').addEventListener('submit', e=>{
+        e.preventDefault();
+        guardarConteo({
+          cantidad: document.getElementById('c-cant').value,
+          bodega: document.getElementById('c-bodega').value.trim(),
+          ubicacion: document.getElementById('c-ubic').value.trim(),
+          observacion: document.getElementById('c-obs').value.trim(),
+        });
+      });
+    }
+  }
+}
+
+render();
+</script>
+</body>
+</html>
