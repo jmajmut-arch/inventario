@@ -183,6 +183,7 @@ let state = {
   ultimosConteos: [],
   fotoModal: null,
   skusPagina: { rows: [], page: 0, total: 0 },
+  reconteos: [],
 };
 
 const SKUS_POR_PAGINA = 50;
@@ -296,7 +297,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
   render();
 }
 
@@ -304,7 +305,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0)]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos()]);
 }
 
 async function cargarSkus(){
@@ -364,6 +365,14 @@ async function cargarUltimosConteos(){
   try{
     const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion)&order=fecha_conteo.desc&limit=50`);
     setState({ultimosConteos: rows||[]});
+  }catch(e){ /* silencioso */ }
+}
+
+// Materiales cuyo último conteo no cuadra con el stock de sistema (ver vista reconteo_pendiente).
+async function cargarReconteos(){
+  try{
+    const rows = await rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=200`);
+    setState({reconteos: rows||[]});
   }catch(e){ /* silencioso */ }
 }
 
@@ -508,7 +517,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
     }], prefer:'return=minimal'});
     toast('Conteo registrado');
     setState({loading:false, skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null, skuSearch:''});
-    cargarDashboard(); cargarUltimosConteos();
+    cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
     setState({loading:false});
     toast(e.message,'err');
@@ -526,6 +535,7 @@ const ICONS = {
   logout:'<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>',
   x:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>',
   conteo:'<svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9"/></svg>',
+  reconteo:'<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>',
 };
 
 /* =======================================================================
@@ -894,10 +904,34 @@ function renderConteo(){
 }
 
 /* =======================================================================
+   RENDER — Reconteo (materiales que no cuadran con el sistema)
+   ======================================================================= */
+function renderReconteo(){
+  const rows = state.reconteos;
+  return `
+    <div class="section-head"><div><span class="eyebrow">${rows.length}</span><h2>Reconteo</h2></div></div>
+    <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo no cuadra con el stock de sistema. Recuenta para corregir o confirmar la diferencia.</div>
+    <div class="card">
+      ${rows.length? `<div class="table-wrap"><table>
+        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Fecha</th><th></th></tr></thead>
+        <tbody>${rows.map(r=>`<tr>
+          <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
+          <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
+          <td class="num">${r.ultima_cantidad_contada}</td>
+          <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
+          <td class="mono" style="font-size:11.5px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
+          <td class="num"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty"><div class="glyph">✓</div>No hay materiales con diferencias pendientes.</div>`}
+    </div>
+  `;
+}
+
+/* =======================================================================
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo'}[v];
 }
 
 function renderShell(){
@@ -906,6 +940,7 @@ function renderShell(){
     skus: renderSkus,
     carga: renderCargaMasiva,
     conteo: renderConteo,
+    reconteo: renderReconteo,
   }[state.view]();
 
   return `
@@ -927,6 +962,7 @@ function renderShell(){
       ${tabBtn('skus','SKUs')}
       ${tabBtn('carga','Carga')}
       ${tabBtn('conteo','Contar')}
+      ${tabBtn('reconteo','Reconteo')}
     </nav>
   `;
 }
@@ -1048,6 +1084,20 @@ function bind(){
         });
       });
     }
+  }
+
+  if(state.view==='reconteo'){
+    document.querySelectorAll('[data-recontar]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const r = state.reconteos.find(x=>x.id===btn.dataset.recontar);
+        if(!r) return;
+        setState({
+          view:'conteo',
+          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, stock_sistema:r.stock_sistema },
+          conteoFoto:null, conteoFotoPreview:null, skuSearch:'',
+        });
+      });
+    });
   }
 }
 
