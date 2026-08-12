@@ -143,10 +143,13 @@ textarea{resize:vertical;min-height:60px;}
 .selected-sku{background:var(--surface-2);border:1px solid var(--amber-dim);border-radius:8px;padding:12px;margin-bottom:6px;}
 .selected-sku .code{font-family:'IBM Plex Mono';font-weight:700;font-size:15px;color:var(--amber);}
 
-.foto-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
-.foto-item{position:relative;display:block;border-radius:8px;overflow:hidden;border:1px solid var(--line);aspect-ratio:1;background:var(--surface-2);}
-.foto-item img{width:100%;height:100%;object-fit:cover;display:block;}
-.foto-item .foto-meta{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.78));padding:4px 6px 5px;display:flex;flex-direction:column;gap:1px;font-size:9.5px;line-height:1.3;color:#fff;}
+.icon-btn{background:none;border:none;padding:4px;color:var(--amber);display:inline-flex;align-items:center;justify-content:center;line-height:0;}
+.icon-btn svg{width:16px;height:16px;}
+.icon-btn.disabled{color:var(--text-faint);opacity:.35;}
+.foto-modal-backdrop{position:fixed;inset:0;background:rgba(10,12,15,.86);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;}
+.foto-modal-card{position:relative;max-width:92vw;max-height:86vh;}
+.foto-modal-card img{max-width:92vw;max-height:86vh;display:block;border-radius:10px;border:1px solid var(--line);}
+.foto-modal-close{position:absolute;top:-14px;right:-14px;width:32px;height:32px;border-radius:50%;background:var(--surface);border:1px solid var(--line);color:var(--text);display:flex;align-items:center;justify-content:center;}
 </style>
 </head>
 <body>
@@ -178,7 +181,7 @@ let state = {
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [] },
   ultimosConteos: [],
-  fotos: [],
+  fotoModal: null,
 };
 
 function setState(patch){ Object.assign(state, patch); render(); }
@@ -290,7 +293,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotos:[], skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
   render();
 }
 
@@ -298,7 +301,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarFotos()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos()]);
 }
 
 async function cargarSkus(){
@@ -322,15 +325,8 @@ async function cargarDashboard(){
 
 async function cargarUltimosConteos(){
   try{
-    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion)&order=fecha_conteo.desc&limit=15`);
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion)&order=fecha_conteo.desc&limit=50`);
     setState({ultimosConteos: rows||[]});
-  }catch(e){ /* silencioso */ }
-}
-
-async function cargarFotos(){
-  try{
-    const rows = await rest(`/conteos?foto_url=not.is.null&select=*,skus(sku_code,descripcion)&order=fecha_conteo.desc&limit=40`);
-    setState({fotos: rows||[]});
   }catch(e){ /* silencioso */ }
 }
 
@@ -596,16 +592,14 @@ function renderDiffChart(sinDif, conDif){
   return fila('Sin diferencia', sinDif, 'var(--ok)') + fila('Con diferencia', conDif, 'var(--warn)');
 }
 
-function renderGaleriaFotos(){
-  if(!state.fotos.length) return `<div class="empty"><div class="glyph">◫</div>Aún no hay conteos con respaldo fotográfico.</div>`;
-  return `<div class="foto-grid">${state.fotos.map(f=>`
-    <a class="foto-item" href="${f.foto_url}" target="_blank" rel="noopener">
-      <img src="${f.foto_url}" loading="lazy" alt="Respaldo fotográfico ${esc(f.skus?f.skus.sku_code:'')}">
-      <div class="foto-meta">
-        <span class="mono" style="font-weight:700">${esc(f.skus?f.skus.sku_code:'—')}</span>
-        <span>${fmtFechaHora(f.fecha_conteo)}</span>
-      </div>
-    </a>`).join('')}</div>`;
+function renderFotoModal(){
+  if(!state.fotoModal) return '';
+  return `<div class="foto-modal-backdrop" id="foto-modal-backdrop">
+    <div class="foto-modal-card">
+      <button id="foto-modal-close" class="foto-modal-close" aria-label="Cerrar">${ICONS.x}</button>
+      <img src="${esc(state.fotoModal)}" alt="Respaldo fotográfico">
+    </div>
+  </div>`;
 }
 
 function renderDashboard(){
@@ -668,9 +662,6 @@ function renderDashboard(){
     <div class="section-head"><h2 style="font-size:17px">Avance por bodega</h2></div>
     ${filasBodega}
 
-    <div class="section-head"><div><span class="eyebrow">${state.fotos.length}</span><h2 style="font-size:17px">Respaldo fotográfico</h2></div></div>
-    <div class="card">${renderGaleriaFotos()}</div>
-
     <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
     <div class="card">${periodTable(state.dash.diario,'Día','dia')}</div>
 
@@ -680,15 +671,18 @@ function renderDashboard(){
     <div class="section-head"><h2 style="font-size:17px">Mensual</h2></div>
     <div class="card">${periodTable(state.dash.mensual,'Mes','mes')}</div>
 
-    <div class="section-head"><h2 style="font-size:17px">Últimos conteos</h2></div>
+    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}</span><h2 style="font-size:17px">Materiales contados</h2></div></div>
     <div class="card">
       ${state.ultimosConteos.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th></tr></thead>
+        <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Foto</th></tr></thead>
         <tbody>${state.ultimosConteos.map(c=>`<tr>
           <td class="mono">${esc(c.skus? c.skus.sku_code : '—')}</td>
           <td class="num">${c.cantidad_contada}</td>
           <td>${estadoBadge(c.estado, c.diferencia)}</td>
           <td class="mono" style="font-size:11.5px">${fmtFechaHora(c.fecha_conteo)}</td>
+          <td class="num">${c.foto_url
+            ? `<button class="icon-btn" data-ver-foto="${esc(c.foto_url)}" aria-label="Ver foto">${ICONS.camera}</button>`
+            : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
     </div>
@@ -892,11 +886,17 @@ function tabBtn(view,label){
    ======================================================================= */
 function render(){
   const root = document.getElementById('app');
-  root.innerHTML = state.session ? renderShell() : renderLogin();
+  root.innerHTML = (state.session ? renderShell() : renderLogin()) + renderFotoModal();
   bind();
 }
 
 function bind(){
+  if(state.fotoModal){
+    document.getElementById('foto-modal-close').addEventListener('click', ()=> setState({fotoModal:null}));
+    document.getElementById('foto-modal-backdrop').addEventListener('click', e=>{
+      if(e.target.id === 'foto-modal-backdrop') setState({fotoModal:null});
+    });
+  }
   if(!state.session){
     const form = document.getElementById('auth-form');
     form.addEventListener('submit', e=>{
@@ -920,6 +920,12 @@ function bind(){
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=> setState({view: btn.dataset.tab}));
   });
+
+  if(state.view==='dashboard'){
+    document.querySelectorAll('[data-ver-foto]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({fotoModal: btn.dataset.verFoto}));
+    });
+  }
 
   if(state.view==='skus'){
     document.getElementById('form-sku').addEventListener('submit', async e=>{
