@@ -326,6 +326,7 @@ async function cargarUltimosConteos(){
 function parseCSV(text){
   const rows = [];
   let row = [], field = '', inQuotes = false;
+  text = text.replace(/^\uFEFF/, ''); // quita BOM de exportaciones SAP/Excel
   text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
   for(let i=0;i<text.length;i++){
     const c = text[i];
@@ -363,27 +364,40 @@ async function crearSkuManual(payload){
   }catch(e){ toast(e.message,'err'); return false; }
 }
 
+// Traduce una fila del maestro SAP (Material, Material Description, Plant,
+// Plant Name, Storage Location, Description of Storage Location,
+// Unrestricted Stock, ...) al formato interno de la tabla skus.
+// También acepta el formato simple (sku_code, descripcion, categoria, ...)
+// si alguien prefiere subir un CSV armado a mano.
+function mapearFilaSku(r){
+  const sku_code = r['material'] || r['sku_code'] || '';
+  if(!sku_code) return null;
+  const stockRaw = r['unrestricted stock'] !== undefined ? r['unrestricted stock'] : r['stock_sistema'];
+  return {
+    sku_code: sku_code,
+    descripcion: r['material description'] || r['descripcion'] || null,
+    categoria: r['plant name'] || r['categoria'] || null,
+    unidad_medida: r['unidad_medida'] || null,
+    ubicacion: r['storage location'] || r['ubicacion'] || null,
+    bodega: r['description of storage location'] || r['bodega'] || null,
+    stock_sistema: (stockRaw !== undefined && stockRaw !== '') ? Number(stockRaw) : null,
+  };
+}
+
 async function cargarSkusMasivo(file){
   const text = await file.text();
   const {data} = parseCSV(text);
   if(!data.length){ toast('El archivo no tiene filas de datos','err'); return; }
   let ok=0, error=0; const errores=[];
-  const lote = data.map((r,idx)=>{
-    if(!r.sku_code){ error++; errores.push({fila:idx+2, motivo:'sku_code vacío'}); return null; }
-    ok++;
-    return {
-      sku_code: r.sku_code,
-      descripcion: r.descripcion || null,
-      categoria: r.categoria || null,
-      unidad_medida: r.unidad_medida || null,
-      ubicacion: r.ubicacion || null,
-      bodega: r.bodega || null,
-      stock_sistema: r.stock_sistema ? Number(r.stock_sistema) : null,
-    };
-  }).filter(Boolean);
+  const lote = [];
+  data.forEach((r,idx)=>{
+    const mapeada = mapearFilaSku(r);
+    if(!mapeada){ error++; errores.push({fila:idx+2, motivo:'Material / sku_code vacío'}); return; }
+    ok++; lote.push(mapeada);
+  });
 
   try{
-    if(lote.length) await rest('/skus', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+    if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
     await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
     toast(`Carga completa: ${ok} SKUs cargados${error?`, ${error} con error`:''}`);
     cargarSkus();
@@ -399,9 +413,11 @@ async function cargarRespaldoMasivo(file){
   if(!data.length){ toast('El archivo no tiene filas de datos','err'); return; }
   let ok=0, error=0; const errores=[];
   for(const [idx,r] of data.entries()){
-    if(!r.sku_code || r.stock_sistema === undefined || r.stock_sistema===''){ error++; errores.push({fila:idx+2, motivo:'faltan sku_code o stock_sistema'}); continue; }
+    const sku_code = r['material'] || r['sku_code'] || '';
+    const stockRaw = r['unrestricted stock'] !== undefined ? r['unrestricted stock'] : r['stock_sistema'];
+    if(!sku_code || stockRaw === undefined || stockRaw===''){ error++; errores.push({fila:idx+2, motivo:'faltan Material/sku_code o Unrestricted Stock/stock_sistema'}); continue; }
     try{
-      await rest(`/skus?sku_code=eq.${encodeURIComponent(r.sku_code)}`, {method:'PATCH', body:{stock_sistema:Number(r.stock_sistema)}, prefer:'return=minimal'});
+      await rest(`/skus?sku_code=eq.${encodeURIComponent(sku_code)}`, {method:'PATCH', body:{stock_sistema:Number(stockRaw)}, prefer:'return=minimal'});
       ok++;
     }catch(e){ error++; errores.push({fila:idx+2, motivo:e.message}); }
   }
@@ -638,7 +654,7 @@ function renderCargaMasiva(){
 
     <div class="card">
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de SKU</h3>
-      <div class="hint">Archivo .csv con columnas: sku_code, descripcion, categoria, unidad_medida, ubicacion, bodega, stock_sistema</div>
+      <div class="hint">Sube directamente el maestro de materiales exportado de SAP (.csv), con columnas: <b>Material</b>, <b>Material Description</b>, <b>Plant Name</b>, <b>Storage Location</b>, <b>Description of Storage Location</b>, <b>Unrestricted Stock</b>. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
       <div class="file-input" style="margin-top:12px">
         <input type="file" id="file-skus" accept=".csv">
         ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
@@ -649,7 +665,7 @@ function renderCargaMasiva(){
 
     <div class="card">
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de respaldo (para análisis)</h3>
-      <div class="hint">Archivo .csv de respaldo/sistema con columnas: sku_code, stock_sistema — actualiza el stock de referencia de los SKU existentes para comparar contra el conteo físico.</div>
+      <div class="hint">Para un respaldo posterior (ej. un nuevo corte de SAP), sube el mismo tipo de archivo — columnas <b>Material</b> y <b>Unrestricted Stock</b> — y solo actualiza el stock de referencia de los SKU existentes, sin tocar descripción ni ubicación, para comparar contra el conteo físico.</div>
       <div class="file-input" style="margin-top:12px">
         <input type="file" id="file-respaldo" accept=".csv">
         ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
