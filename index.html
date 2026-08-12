@@ -182,7 +182,10 @@ let state = {
   dash: { total: [], diario: [], semanal: [], mensual: [] },
   ultimosConteos: [],
   fotoModal: null,
+  skusPagina: { rows: [], page: 0, total: 0 },
 };
+
+const SKUS_POR_PAGINA = 50;
 
 function setState(patch){ Object.assign(state, patch); render(); }
 
@@ -293,7 +296,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
   render();
 }
 
@@ -301,7 +304,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0)]);
 }
 
 async function cargarSkus(){
@@ -309,6 +312,40 @@ async function cargarSkus(){
     const rows = await rest(`/skus?activo=eq.true&order=sku_code.asc&limit=500`);
     setState({skus: rows||[]});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Página del listado de SKUs (tabla "SKU activos"), con conteo exacto vía Prefer: count=exact
+// para poder mostrar Anterior/Siguiente y ver el 100% de los materiales, no solo los primeros 500.
+async function fetchSkusPagina(page){
+  const from = page*SKUS_POR_PAGINA;
+  const to = from + SKUS_POR_PAGINA - 1;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/skus?activo=eq.true&order=sku_code.asc`, {
+    headers:{
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+      'Range-Unit': 'items',
+      'Range': `${from}-${to}`,
+      'Prefer': 'count=exact',
+    }
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : [];
+  if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
+  const range = res.headers.get('content-range'); // ej. "0-49/1410"
+  const total = range && range.includes('/') ? Number(range.split('/')[1]) : data.length;
+  return { data, total };
+}
+
+async function cargarSkusPagina(page=0){
+  try{
+    const { data, total } = await fetchSkusPagina(page);
+    setState({skusPagina: { rows:data||[], page, total: total||0 }});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+function refrescarListaSkus(){
+  cargarSkus();
+  cargarSkusPagina(state.skusPagina.page);
 }
 
 async function cargarDashboard(){
@@ -369,7 +406,7 @@ async function crearSkuManual(payload){
   try{
     await rest('/skus', {method:'POST', body:[payload], prefer:'return=minimal'});
     toast('SKU cargado correctamente');
-    cargarSkus();
+    refrescarListaSkus();
     return true;
   }catch(e){ toast(e.message,'err'); return false; }
 }
@@ -411,7 +448,7 @@ async function cargarSkusMasivo(file){
     if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
     await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
     toast(`Carga completa: ${lote.length} SKUs cargados${error?`, ${error} con error`:''}`);
-    cargarSkus();
+    refrescarListaSkus();
   }catch(e){
     await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
     toast(e.message,'err');
@@ -434,7 +471,7 @@ async function cargarRespaldoMasivo(file){
   }
   await registrarCarga(file.name, 'respaldo', data.length, ok, error, errores);
   toast(`Respaldo procesado: ${ok} SKUs actualizados${error?`, ${error} con error`:''}`);
-  cargarSkus();
+  refrescarListaSkus();
 }
 
 async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores){
@@ -727,17 +764,34 @@ function renderSkus(){
       </form>
     </div>
 
-    <div class="section-head"><h2 style="font-size:17px">SKU activos (${state.skus.length})</h2></div>
+    ${renderTablaSkus()}
+  `;
+}
+
+function renderTablaSkus(){
+  const sp = state.skusPagina;
+  const totalPaginas = Math.max(1, Math.ceil(sp.total/SKUS_POR_PAGINA));
+  const paginaActual = sp.page+1;
+  const desde = sp.total? sp.page*SKUS_POR_PAGINA+1 : 0;
+  const hasta = sp.total? sp.page*SKUS_POR_PAGINA + sp.rows.length : 0;
+
+  return `
+    <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.total})</h2></div>
     <div class="card">
-      ${state.skus.length? `<div class="table-wrap"><table>
+      ${sp.rows.length? `<div class="table-wrap"><table>
         <thead><tr><th>Código</th><th>Descripción</th><th>Bodega</th><th class="num">Stock</th></tr></thead>
-        <tbody>${state.skus.slice(0,50).map(s=>`<tr>
+        <tbody>${sp.rows.map(s=>`<tr>
           <td class="mono">${esc(s.sku_code)}</td>
           <td>${esc(s.descripcion||'—')}</td>
           <td>${esc(s.bodega||'—')}</td>
           <td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>
         </tr>`).join('')}</tbody>
-      </table></div>${state.skus.length>50? `<div class="hint" style="margin-top:8px">Mostrando 50 de ${state.skus.length}.</div>`:''}` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
+      </table></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
+        <button class="btn btn-secondary" id="skus-pag-prev" style="width:auto;flex:none;padding:8px 14px" ${sp.page<=0?'disabled':''}>Anterior</button>
+        <span class="hint" style="margin:0">${desde}–${hasta} de ${sp.total} · pág. ${paginaActual}/${totalPaginas}</span>
+        <button class="btn btn-secondary" id="skus-pag-next" style="width:auto;flex:none;padding:8px 14px" ${paginaActual>=totalPaginas?'disabled':''}>Siguiente</button>
+      </div>` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
     </div>
   `;
 }
@@ -945,6 +999,10 @@ function bind(){
       setState({loading:false});
       if(ok) render();
     });
+    const btnPrev = document.getElementById('skus-pag-prev');
+    const btnNext = document.getElementById('skus-pag-next');
+    if(btnPrev) btnPrev.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page-1));
+    if(btnNext) btnNext.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page+1));
   }
 
   if(state.view==='carga'){
