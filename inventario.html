@@ -23,8 +23,38 @@
   --text-faint:#6b7684;
   --radius:10px;
 }
+
+/* ---------- temas visuales (Configuraciones) ---------- */
+:root[data-tema="acero"]{
+  --bg:#10151c; --surface:#19212b; --surface-2:#212a37; --line:#2d394a;
+  --amber:#4d9fe0; --amber-dim:#2a5578; --steel:#7fc4f0;
+  --ok:#4caf6d; --warn:#e0b23c; --danger:#e0554a;
+  --text:#edf1f5; --text-dim:#a1adba; --text-faint:#66727f; --radius:10px;
+}
+:root[data-tema="verde"]{
+  --bg:#121a15; --surface:#19241c; --surface-2:#212f25; --line:#2d3f33;
+  --amber:#43c07c; --amber-dim:#276b46; --steel:#5b8fb0;
+  --ok:#5cb85c; --warn:#e0b23c; --danger:#e0554a;
+  --text:#edf3ef; --text-dim:#a0b0a6; --text-faint:#647468; --radius:12px;
+}
+:root[data-tema="claro"]{
+  --bg:#f4f5f3; --surface:#ffffff; --surface-2:#eef0ed; --line:#dde0db;
+  --amber:#c9720f; --amber-dim:#f0d4ae; --steel:#3d6d8a;
+  --ok:#2f8f52; --warn:#a8720a; --danger:#c23b2f;
+  --text:#181b1a; --text-dim:#4c5450; --text-faint:#7c8480; --radius:14px;
+}
+:root[data-tema="alto_contraste"]{
+  --bg:#000000; --surface:#0c0c0c; --surface-2:#181818; --line:#3a3a3a;
+  --amber:#ffd400; --amber-dim:#8a7400; --steel:#29b6f6;
+  --ok:#00e676; --warn:#ffd400; --danger:#ff5252;
+  --text:#ffffff; --text-dim:#d4d4d4; --text-faint:#8f8f8f; --radius:4px;
+}
+/* el toast de error/ok usa colores pastel fijos pensados para fondo oscuro; en el tema claro necesitan su propio contraste */
+:root[data-tema="claro"] .toast.err{border-color:#e3b3ae;color:#8a2b20;background:#fdf1f0;}
+:root[data-tema="claro"] .toast.ok{border-color:#b7dcc3;color:#1f6b3d;background:#eef8f1;}
+
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;transition:background-color .2s ease,color .2s ease;}
 body{min-height:100vh;display:flex;flex-direction:column;}
 h1,h2,h3,.display{font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:0.01em;}
 .mono{font-family:'IBM Plex Mono',monospace;}
@@ -150,6 +180,15 @@ textarea{resize:vertical;min-height:60px;}
 .foto-modal-card{position:relative;max-width:92vw;max-height:86vh;}
 .foto-modal-card img{max-width:92vw;max-height:86vh;display:block;border-radius:10px;border:1px solid var(--line);}
 .foto-modal-close{position:absolute;top:-14px;right:-14px;width:32px;height:32px;border-radius:50%;background:var(--surface);border:1px solid var(--line);color:var(--text);display:flex;align-items:center;justify-content:center;}
+
+.tema-opcion{display:flex;align-items:center;gap:12px;padding:12px;border:1.5px solid var(--line);border-radius:var(--radius);background:var(--surface);margin-bottom:10px;cursor:pointer;}
+.tema-opcion.activo{border-color:var(--amber);}
+.tema-swatches{display:flex;gap:3px;flex-shrink:0;}
+.tema-swatches span{width:16px;height:16px;border-radius:4px;display:block;border:1px solid rgba(128,128,128,.35);}
+.tema-info{flex:1;min-width:0;}
+.tema-nombre{font-size:14px;font-weight:600;color:var(--text);}
+.tema-desc{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
+.btn-icon-header{padding:6px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--text-dim);display:inline-flex;align-items:center;justify-content:center;}
 </style>
 </head>
 <body>
@@ -184,7 +223,16 @@ let state = {
   fotoModal: null,
   skusPagina: { rows: [], page: 0, total: 0 },
   reconteos: [],
+  tema: localStorage.getItem('tema_app') || 'ambar',
 };
+
+const TEMAS = [
+  { id:'ambar', nombre:'Ámbar Industrial', desc:'Oscuro con acento ámbar (predeterminado)', colores:['#161a20','#1e242c','#f0a030'] },
+  { id:'acero', nombre:'Acero Nocturno', desc:'Oscuro con acento azul acero', colores:['#10151c','#19212b','#4d9fe0'] },
+  { id:'verde', nombre:'Verde Mina', desc:'Oscuro con acento verde', colores:['#121a15','#19241c','#43c07c'] },
+  { id:'claro', nombre:'Claro Bodega', desc:'Fondo claro, para uso diurno', colores:['#f4f5f3','#ffffff','#c9720f'] },
+  { id:'alto_contraste', nombre:'Alto Contraste', desc:'Negro y amarillo, máxima visibilidad en terreno', colores:['#000000','#0c0c0c','#ffd400'] },
+];
 
 const SKUS_POR_PAGINA = 50;
 
@@ -536,6 +584,7 @@ const ICONS = {
   x:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>',
   conteo:'<svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9"/></svg>',
   reconteo:'<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>',
+  config:'<svg viewBox="0 0 24 24" style="width:16px;height:16px" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
 };
 
 /* =======================================================================
@@ -928,10 +977,34 @@ function renderReconteo(){
 }
 
 /* =======================================================================
+   RENDER — Configuraciones (tema visual)
+   ======================================================================= */
+function renderConfiguraciones(){
+  return `
+    <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
+    <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
+    ${TEMAS.map(t=>`
+      <div class="tema-opcion ${state.tema===t.id?'activo':''}" data-tema-opcion="${t.id}">
+        <div class="tema-swatches">
+          <span style="background:${t.colores[0]}"></span>
+          <span style="background:${t.colores[1]}"></span>
+          <span style="background:${t.colores[2]}"></span>
+        </div>
+        <div class="tema-info">
+          <div class="tema-nombre">${esc(t.nombre)}</div>
+          <div class="tema-desc">${esc(t.desc)}</div>
+        </div>
+        ${state.tema===t.id? `<span class="badge badge-ok">Actual</span>` : ''}
+      </div>
+    `).join('')}
+  `;
+}
+
+/* =======================================================================
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones'}[v];
 }
 
 function renderShell(){
@@ -941,6 +1014,7 @@ function renderShell(){
     carga: renderCargaMasiva,
     conteo: renderConteo,
     reconteo: renderReconteo,
+    config: renderConfiguraciones,
   }[state.view]();
 
   return `
@@ -951,6 +1025,7 @@ function renderShell(){
           <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>Toma física de inventario</span></div>
         </div>
         <div class="user-chip">
+          <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}</span>
           <button id="btn-logout">${ICONS.logout} Salir</button>
         </div>
@@ -975,6 +1050,7 @@ function tabBtn(view,label){
    RENDER PRINCIPAL + BINDINGS
    ======================================================================= */
 function render(){
+  document.documentElement.setAttribute('data-tema', state.tema);
   const root = document.getElementById('app');
   root.innerHTML = (state.session ? renderShell() : renderLogin()) + renderFotoModal();
   bind();
@@ -1007,9 +1083,20 @@ function bind(){
   }
 
   document.getElementById('btn-logout').addEventListener('click', handleLogout);
+  document.getElementById('btn-config').addEventListener('click', ()=> setState({view:'config'}));
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=> setState({view: btn.dataset.tab}));
   });
+
+  if(state.view==='config'){
+    document.querySelectorAll('[data-tema-opcion]').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const tema = el.dataset.temaOpcion;
+        localStorage.setItem('tema_app', tema);
+        setState({tema});
+      });
+    });
+  }
 
   if(state.view==='dashboard'){
     document.querySelectorAll('[data-ver-foto]').forEach(btn=>{
