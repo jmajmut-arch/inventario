@@ -190,6 +190,12 @@ textarea{resize:vertical;min-height:60px;}
 .tema-nombre{font-size:14px;font-weight:600;color:var(--text);}
 .tema-desc{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
 .btn-icon-header{padding:6px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--text-dim);display:inline-flex;align-items:center;justify-content:center;}
+
+.opcion-carga{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1.5px solid var(--line);border-radius:var(--radius);background:var(--surface-2);margin-bottom:8px;cursor:pointer;}
+.opcion-carga.activo{border-color:var(--amber);background:var(--surface);}
+.opcion-carga input[type=radio]{margin-top:2px;flex-shrink:0;}
+.opcion-carga .nombre{font-size:13.5px;font-weight:600;color:var(--text);}
+.opcion-carga .desc{font-size:11.5px;color:var(--text-faint);margin-top:2px;line-height:1.4;}
 </style>
 </head>
 <body>
@@ -570,17 +576,18 @@ async function prepararCargaMasiva(file, tipo){
     if(!headers.length || !data.length){ toast('El archivo no tiene filas de datos','err'); return; }
     const campos = tipo==='skus' ? CAMPOS_SKU : CAMPOS_SKU.filter(c=> c.campo==='sku_code' || c.campo==='stock_sistema');
     const mapeo = detectarMapeo(headers, campos);
-    setState({cargaPreview: { tipo, file, headers, data, campos, mapeo }});
+    setState({cargaPreview: { tipo, file, headers, data, campos, mapeo, modo:'complementar', confirmaReemplazo:false }});
   }catch(e){ toast(e.message,'err'); }
 }
 
 async function confirmarCargaMasiva(){
-  const { tipo, file, data, mapeo } = state.cargaPreview;
+  const { tipo, file, data, mapeo, modo } = state.cargaPreview;
   const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
 
   setState({loading:true});
 
   if(tipo==='skus'){
+    const marcaTiempo = new Date().toISOString();
     let ok=0, error=0; const errores=[];
     const porCodigo = new Map();
     data.forEach((row,idx)=>{
@@ -596,13 +603,19 @@ async function confirmarCargaMasiva(){
         ubicacion: valor(row,'ubicacion') || null,
         bodega: valor(row,'bodega') || null,
         stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
+        activo: true,
+        updated_at: marcaTiempo,
       }); // si el archivo trae una fila por planta/ubicación para el mismo código, nos quedamos con la última
     });
     const lote = Array.from(porCodigo.values());
     try{
       if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+      // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
+      if(modo==='reemplazar' && lote.length){
+        await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
+      }
       await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
-      toast(`Carga completa: ${lote.length} SKUs cargados${error?`, ${error} con error`:''}`);
+      toast(`Carga completa: ${lote.length} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
       refrescarListaSkus();
       setState({loading:false, cargaPreview:null});
     }catch(e){
@@ -985,12 +998,39 @@ function renderCargaMasiva(){
 }
 
 function renderCargaPreview(){
-  const { tipo, headers, data, campos, mapeo } = state.cargaPreview;
+  const { tipo, headers, data, campos, mapeo, modo, confirmaReemplazo } = state.cargaPreview;
   const filasPreview = data.slice(0,5);
   const camposFaltantes = campos.filter(c=>c.obligatorio && !mapeo[c.campo]);
+  const bloqueaReemplazo = tipo==='skus' && modo==='reemplazar' && !confirmaReemplazo;
   return `
     <div class="section-head"><div><span class="eyebrow">${tipo==='skus'?'Carga de SKU':'Carga de respaldo'}</span><h2>Revisa las columnas detectadas</h2></div></div>
     <div class="hint" style="margin-bottom:12px">${data.length} filas encontradas. La app adivinó qué columna corresponde a cada campo — revísalo y corrige lo que haga falta antes de confirmar.</div>
+
+    ${tipo==='skus'? `
+    <div class="section-head"><h2 style="font-size:15px">¿Cómo cargar estos datos?</h2></div>
+    <label class="opcion-carga ${modo==='complementar'?'activo':''}">
+      <input type="radio" name="modo-carga" value="complementar" ${modo==='complementar'?'checked':''}>
+      <div>
+        <div class="nombre">Agregar / complementar</div>
+        <div class="desc">Crea los SKU nuevos y actualiza los que ya existen. No borra ni desactiva nada.</div>
+      </div>
+    </label>
+    <label class="opcion-carga ${modo==='reemplazar'?'activo':''}">
+      <input type="radio" name="modo-carga" value="reemplazar" ${modo==='reemplazar'?'checked':''}>
+      <div>
+        <div class="nombre">Reemplazar completo</div>
+        <div class="desc">Este archivo pasa a ser la lista completa de SKU activos: los que ya existían y NO vengan aquí quedarán inactivos (dejan de listarse, pero conservan su historial de conteos).</div>
+      </div>
+    </label>
+    ${modo==='reemplazar'? `
+      <label style="display:flex;align-items:flex-start;gap:8px;margin:10px 2px 4px;font-size:12.5px;color:var(--text-dim)">
+        <input type="checkbox" id="chk-confirma-reemplazo" style="margin-top:2px" ${confirmaReemplazo?'checked':''}>
+        Entiendo que los SKU activos que no estén en este archivo quedarán inactivos.
+      </label>
+    ` : ''}
+    ` : ''}
+
+    <div class="section-head"><h2 style="font-size:15px">Columnas del archivo</h2></div>
     <div class="card">
       ${campos.map(c=>`
         <label for="map-${c.campo}">${esc(c.etiqueta)}${c.obligatorio?' *':''}</label>
@@ -1016,7 +1056,7 @@ function renderCargaPreview(){
 
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-secondary" id="btn-cancelar-carga">Cancelar</button>
-      <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Confirmar e importar'}</button>
+      <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||bloqueaReemplazo||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Confirmar e importar'}</button>
     </div>
   `;
 }
@@ -1270,6 +1310,18 @@ function bind(){
           state.cargaPreview.mapeo[sel.dataset.campo] = e.target.value || undefined;
           render();
         });
+      });
+      document.querySelectorAll('input[name="modo-carga"]').forEach(r=>{
+        r.addEventListener('change', e=>{
+          state.cargaPreview.modo = e.target.value;
+          state.cargaPreview.confirmaReemplazo = false; // exige reconfirmar cada vez que se elige reemplazar
+          render();
+        });
+      });
+      const chkReemplazo = document.getElementById('chk-confirma-reemplazo');
+      if(chkReemplazo) chkReemplazo.addEventListener('change', e=>{
+        state.cargaPreview.confirmaReemplazo = e.target.checked;
+        render();
       });
       document.getElementById('btn-cancelar-carga').addEventListener('click', ()=> setState({cargaPreview:null}));
       document.getElementById('btn-confirmar-carga').addEventListener('click', confirmarCargaMasiva);
