@@ -6,6 +6,7 @@
 <title>Control de Inventario — Toma Física</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#161a20;
@@ -224,6 +225,7 @@ let state = {
   skusPagina: { rows: [], page: 0, total: 0 },
   reconteos: [],
   tema: localStorage.getItem('tema_app') || 'ambar',
+  cargaPreview: null,
 };
 
 const TEMAS = [
@@ -345,7 +347,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, skuSeleccionado:null, conteoFoto:null, conteoFotoPreview:null };
   render();
 }
 
@@ -447,13 +449,107 @@ function parseCSV(text){
   }
   if(field.length || row.length){ row.push(field); rows.push(row); }
   if(!rows.length) return {headers:[], data:[]};
-  const headers = rows[0].map(h=>h.trim().toLowerCase());
+  const headers = rows[0].map(h=>h.trim());
   const data = rows.slice(1).filter(r=>r.some(v=>v && v.trim()!=='')).map(r=>{
     const obj = {};
     headers.forEach((h,idx)=> obj[h] = (r[idx]!==undefined? r[idx].trim() : ''));
     return obj;
   });
   return {headers, data};
+}
+
+/* =======================================================================
+   EXCEL — lectura de .xlsx/.xls via SheetJS (cargada en el head)
+   ======================================================================= */
+async function leerExcel(file){
+  if(typeof XLSX === 'undefined'){
+    throw new Error('No se pudo cargar el lector de Excel (revisa tu conexion) e intenta de nuevo, o sube el archivo como .csv.');
+  }
+  const buf = await file.arrayBuffer();
+  const libro = XLSX.read(buf, {type:'array'});
+  const hoja = libro.Sheets[libro.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(hoja, {defval:''});
+  if(!filas.length) return {headers:[], data:[]};
+  const headers = Object.keys(filas[0]).map(h=>String(h).trim());
+  const data = filas.map(f=>{
+    const obj = {};
+    headers.forEach(h=> obj[h] = (f[h]!==undefined && f[h]!==null) ? String(f[h]).trim() : '');
+    return obj;
+  });
+  return {headers, data};
+}
+
+async function leerArchivoMasivo(file){
+  const ext = (file.name.split('.').pop()||'').toLowerCase();
+  if(ext==='xlsx' || ext==='xls') return leerExcel(file);
+  const text = await file.text();
+  return parseCSV(text);
+}
+
+/* =======================================================================
+   CLASIFICADOR GENERICO DE COLUMNAS
+   Detecta automaticamente, por nombre de columna (en espanol o ingles, de
+   SAP o de cualquier planilla armada a mano), a que campo de la tabla
+   "skus" corresponde cada una, sin depender de encabezados fijos.
+   ======================================================================= */
+const CAMPOS_SKU = [
+  { campo:'sku_code', obligatorio:true, etiqueta:'Codigo SKU',
+    alias:['material','sku','sku code','codigo','codigo sku','codigo material','cod','cod sku','item','item code','articulo','part number','material number','nro material','n material'] },
+  { campo:'descripcion', obligatorio:false, etiqueta:'Descripcion',
+    alias:['material description','descripcion','descripcion material','texto breve de material','short text','nombre','detalle','desc'] },
+  { campo:'categoria', obligatorio:false, etiqueta:'Categoria',
+    alias:['plant name','categoria','material group','grupo de articulos','familia','grupo','clase'] },
+  { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
+    alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
+  { campo:'ubicacion', obligatorio:false, etiqueta:'Ubicacion',
+    alias:['storage location','ubicacion','location','bin','posicion','rack'] },
+  { campo:'bodega', obligatorio:false, etiqueta:'Bodega',
+    alias:['description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
+  { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
+    alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
+];
+
+function normalizarTexto(s){
+  return String(s||'')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,' ')
+    .trim();
+}
+
+function puntajeColumna(headerNorm, aliases){
+  let mejor = 0;
+  for(const alias of aliases){
+    const a = normalizarTexto(alias);
+    if(headerNorm === a){ mejor = Math.max(mejor, 100); continue; }
+    if(headerNorm.includes(a) || a.includes(headerNorm)){ mejor = Math.max(mejor, 75); continue; }
+    const hw = new Set(headerNorm.split(' '));
+    const comunes = a.split(' ').filter(w=>w && hw.has(w)).length;
+    if(comunes) mejor = Math.max(mejor, 40 + comunes*10);
+  }
+  return mejor;
+}
+
+// Asignacion voraz columna->campo: cada columna del archivo se usa como
+// maximo para un campo, priorizando siempre la coincidencia de mayor puntaje.
+function detectarMapeo(headers, campos){
+  const headersNorm = headers.map(normalizarTexto);
+  const candidatos = [];
+  campos.forEach(campo=>{
+    headers.forEach((h,idx)=>{
+      const p = puntajeColumna(headersNorm[idx], campo.alias);
+      if(p>0) candidatos.push({campo:campo.campo, header:h, puntaje:p});
+    });
+  });
+  candidatos.sort((a,b)=> b.puntaje-a.puntaje);
+  const mapeo = {};
+  const usados = new Set();
+  candidatos.forEach(c=>{
+    if(mapeo[c.campo] || usados.has(c.header) || c.puntaje<35) return;
+    mapeo[c.campo] = c.header;
+    usados.add(c.header);
+  });
+  return mapeo;
 }
 
 /* =======================================================================
@@ -468,67 +564,68 @@ async function crearSkuManual(payload){
   }catch(e){ toast(e.message,'err'); return false; }
 }
 
-// Traduce una fila del maestro SAP (Material, Material Description, Plant,
-// Plant Name, Storage Location, Description of Storage Location,
-// Unrestricted Stock, ...) al formato interno de la tabla skus.
-// También acepta el formato simple (sku_code, descripcion, categoria, ...)
-// si alguien prefiere subir un CSV armado a mano.
-function mapearFilaSku(r){
-  const sku_code = r['material'] || r['sku_code'] || '';
-  if(!sku_code) return null;
-  const stockRaw = r['unrestricted stock'] !== undefined ? r['unrestricted stock'] : r['stock_sistema'];
-  return {
-    sku_code: sku_code,
-    descripcion: r['material description'] || r['descripcion'] || null,
-    categoria: r['plant name'] || r['categoria'] || null,
-    unidad_medida: r['unidad_medida'] || null,
-    ubicacion: r['storage location'] || r['ubicacion'] || null,
-    bodega: r['description of storage location'] || r['bodega'] || null,
-    stock_sistema: (stockRaw !== undefined && stockRaw !== '') ? Number(stockRaw) : null,
-  };
-}
-
-async function cargarSkusMasivo(file){
-  const text = await file.text();
-  const {data} = parseCSV(text);
-  if(!data.length){ toast('El archivo no tiene filas de datos','err'); return; }
-  let ok=0, error=0; const errores=[];
-  const porCodigo = new Map();
-  data.forEach((r,idx)=>{
-    const mapeada = mapearFilaSku(r);
-    if(!mapeada){ error++; errores.push({fila:idx+2, motivo:'Material / sku_code vacío'}); return; }
-    ok++; porCodigo.set(mapeada.sku_code, mapeada); // el maestro SAP trae una fila por planta/ubicación; nos quedamos con la última por sku_code para no repetir el conflict target en el mismo lote
-  });
-  const lote = Array.from(porCodigo.values());
-
+async function prepararCargaMasiva(file, tipo){
   try{
-    if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
-    await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
-    toast(`Carga completa: ${lote.length} SKUs cargados${error?`, ${error} con error`:''}`);
-    refrescarListaSkus();
-  }catch(e){
-    await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
-    toast(e.message,'err');
-  }
+    const {headers, data} = await leerArchivoMasivo(file);
+    if(!headers.length || !data.length){ toast('El archivo no tiene filas de datos','err'); return; }
+    const campos = tipo==='skus' ? CAMPOS_SKU : CAMPOS_SKU.filter(c=> c.campo==='sku_code' || c.campo==='stock_sistema');
+    const mapeo = detectarMapeo(headers, campos);
+    setState({cargaPreview: { tipo, file, headers, data, campos, mapeo }});
+  }catch(e){ toast(e.message,'err'); }
 }
 
-async function cargarRespaldoMasivo(file){
-  const text = await file.text();
-  const {data} = parseCSV(text);
-  if(!data.length){ toast('El archivo no tiene filas de datos','err'); return; }
-  let ok=0, error=0; const errores=[];
-  for(const [idx,r] of data.entries()){
-    const sku_code = r['material'] || r['sku_code'] || '';
-    const stockRaw = r['unrestricted stock'] !== undefined ? r['unrestricted stock'] : r['stock_sistema'];
-    if(!sku_code || stockRaw === undefined || stockRaw===''){ error++; errores.push({fila:idx+2, motivo:'faltan Material/sku_code o Unrestricted Stock/stock_sistema'}); continue; }
-    try{
-      await rest(`/skus?sku_code=eq.${encodeURIComponent(sku_code)}`, {method:'PATCH', body:{stock_sistema:Number(stockRaw)}, prefer:'return=minimal'});
+async function confirmarCargaMasiva(){
+  const { tipo, file, data, mapeo } = state.cargaPreview;
+  const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
+
+  setState({loading:true});
+
+  if(tipo==='skus'){
+    let ok=0, error=0; const errores=[];
+    const porCodigo = new Map();
+    data.forEach((row,idx)=>{
+      const sku_code = valor(row,'sku_code');
+      if(!sku_code){ error++; errores.push({fila:idx+2, motivo:'Código de SKU vacío'}); return; }
       ok++;
-    }catch(e){ error++; errores.push({fila:idx+2, motivo:e.message}); }
+      const stockRaw = valor(row,'stock_sistema');
+      porCodigo.set(sku_code, {
+        sku_code,
+        descripcion: valor(row,'descripcion') || null,
+        categoria: valor(row,'categoria') || null,
+        unidad_medida: valor(row,'unidad_medida') || null,
+        ubicacion: valor(row,'ubicacion') || null,
+        bodega: valor(row,'bodega') || null,
+        stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
+      }); // si el archivo trae una fila por planta/ubicación para el mismo código, nos quedamos con la última
+    });
+    const lote = Array.from(porCodigo.values());
+    try{
+      if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+      await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
+      toast(`Carga completa: ${lote.length} SKUs cargados${error?`, ${error} con error`:''}`);
+      refrescarListaSkus();
+      setState({loading:false, cargaPreview:null});
+    }catch(e){
+      await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
+      setState({loading:false});
+      toast(e.message,'err');
+    }
+  }else{
+    let ok=0, error=0; const errores=[];
+    for(const [idx,row] of data.entries()){
+      const sku_code = valor(row,'sku_code');
+      const stockRaw = valor(row,'stock_sistema');
+      if(!sku_code || stockRaw===''){ error++; errores.push({fila:idx+2, motivo:'Falta el código o el stock'}); continue; }
+      try{
+        await rest(`/skus?sku_code=eq.${encodeURIComponent(sku_code)}`, {method:'PATCH', body:{stock_sistema:Number(stockRaw)}, prefer:'return=minimal'});
+        ok++;
+      }catch(e){ error++; errores.push({fila:idx+2, motivo:e.message}); }
+    }
+    await registrarCarga(file.name, 'respaldo', data.length, ok, error, errores);
+    toast(`Respaldo procesado: ${ok} SKUs actualizados${error?`, ${error} con error`:''}`);
+    refrescarListaSkus();
+    setState({loading:false, cargaPreview:null});
   }
-  await registrarCarga(file.name, 'respaldo', data.length, ok, error, errores);
-  toast(`Respaldo procesado: ${ok} SKUs actualizados${error?`, ${error} con error`:''}`);
-  refrescarListaSkus();
 }
 
 async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores){
@@ -859,29 +956,67 @@ function renderTablaSkus(){
    RENDER — Carga masiva
    ======================================================================= */
 function renderCargaMasiva(){
+  if(state.cargaPreview) return renderCargaPreview();
   return `
     <div class="section-head"><div><span class="eyebrow">Datos masivos</span><h2>Carga masiva</h2></div></div>
 
     <div class="card">
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de SKU</h3>
-      <div class="hint">Sube directamente el maestro de materiales exportado de SAP (.csv), con columnas: <b>Material</b>, <b>Material Description</b>, <b>Plant Name</b>, <b>Storage Location</b>, <b>Description of Storage Location</b>, <b>Unrestricted Stock</b>. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
+      <div class="hint">Sube un archivo <b>Excel (.xlsx)</b> o <b>.csv</b> con el maestro de materiales — de SAP o de cualquier otro formato. La app detecta sola qué columna es el código, descripción, bodega, ubicación, categoría y stock, y te deja revisar y corregir antes de guardar. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
       <div class="file-input" style="margin-top:12px">
-        <input type="file" id="file-skus" accept=".csv">
+        <input type="file" id="file-skus" accept=".csv,.xlsx,.xls">
         ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
-        <div>Toca para elegir un archivo .csv</div>
+        <div>Toca para elegir un archivo .xlsx o .csv</div>
       </div>
       <div id="file-skus-name" class="hint"></div>
     </div>
 
     <div class="card">
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de respaldo (para análisis)</h3>
-      <div class="hint">Para un respaldo posterior (ej. un nuevo corte de SAP), sube el mismo tipo de archivo — columnas <b>Material</b> y <b>Unrestricted Stock</b> — y solo actualiza el stock de referencia de los SKU existentes, sin tocar descripción ni ubicación, para comparar contra el conteo físico.</div>
+      <div class="hint">Para un respaldo posterior (ej. un nuevo corte de stock), sube el archivo con las columnas de código y de stock — solo actualiza el stock de referencia de los SKU existentes, sin tocar descripción ni ubicación, para comparar contra el conteo físico.</div>
       <div class="file-input" style="margin-top:12px">
-        <input type="file" id="file-respaldo" accept=".csv">
+        <input type="file" id="file-respaldo" accept=".csv,.xlsx,.xls">
         ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
-        <div>Toca para elegir un archivo .csv</div>
+        <div>Toca para elegir un archivo .xlsx o .csv</div>
       </div>
       <div id="file-respaldo-name" class="hint"></div>
+    </div>
+  `;
+}
+
+function renderCargaPreview(){
+  const { tipo, headers, data, campos, mapeo } = state.cargaPreview;
+  const filasPreview = data.slice(0,5);
+  const camposFaltantes = campos.filter(c=>c.obligatorio && !mapeo[c.campo]);
+  return `
+    <div class="section-head"><div><span class="eyebrow">${tipo==='skus'?'Carga de SKU':'Carga de respaldo'}</span><h2>Revisa las columnas detectadas</h2></div></div>
+    <div class="hint" style="margin-bottom:12px">${data.length} filas encontradas. La app adivinó qué columna corresponde a cada campo — revísalo y corrige lo que haga falta antes de confirmar.</div>
+    <div class="card">
+      ${campos.map(c=>`
+        <label for="map-${c.campo}">${esc(c.etiqueta)}${c.obligatorio?' *':''}</label>
+        <select id="map-${c.campo}" data-campo="${c.campo}">
+          <option value="">— no usar —</option>
+          ${headers.map(h=>`<option value="${esc(h)}" ${mapeo[c.campo]===h?'selected':''}>${esc(h)}</option>`).join('')}
+        </select>
+      `).join('')}
+    </div>
+
+    <div class="section-head"><h2 style="font-size:15px">Vista previa (primeras ${filasPreview.length} filas)</h2></div>
+    <div class="card">
+      <div class="table-wrap"><table>
+        <thead><tr>${campos.map(c=>`<th>${esc(c.etiqueta)}</th>`).join('')}</tr></thead>
+        <tbody>${filasPreview.map(row=>`<tr>${campos.map(c=>{
+          const h = mapeo[c.campo];
+          return `<td>${h? esc(row[h]) : '<span style="color:var(--text-faint)">—</span>'}</td>`;
+        }).join('')}</tr>`).join('')}</tbody>
+      </table></div>
+    </div>
+
+    ${camposFaltantes.length? `<div class="hint" style="color:var(--danger)">Falta asignar: ${camposFaltantes.map(c=>esc(c.etiqueta)).join(', ')}.</div>` : ''}
+
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn btn-secondary" id="btn-cancelar-carga">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Confirmar e importar'}</button>
     </div>
   `;
 }
@@ -1129,16 +1264,27 @@ function bind(){
   }
 
   if(state.view==='carga'){
-    document.getElementById('file-skus').addEventListener('change', async e=>{
-      const file = e.target.files[0]; if(!file) return;
-      document.getElementById('file-skus-name').textContent = `Procesando ${file.name}...`;
-      await cargarSkusMasivo(file);
-    });
-    document.getElementById('file-respaldo').addEventListener('change', async e=>{
-      const file = e.target.files[0]; if(!file) return;
-      document.getElementById('file-respaldo-name').textContent = `Procesando ${file.name}...`;
-      await cargarRespaldoMasivo(file);
-    });
+    if(state.cargaPreview){
+      document.querySelectorAll('[data-campo]').forEach(sel=>{
+        sel.addEventListener('change', e=>{
+          state.cargaPreview.mapeo[sel.dataset.campo] = e.target.value || undefined;
+          render();
+        });
+      });
+      document.getElementById('btn-cancelar-carga').addEventListener('click', ()=> setState({cargaPreview:null}));
+      document.getElementById('btn-confirmar-carga').addEventListener('click', confirmarCargaMasiva);
+    }else{
+      document.getElementById('file-skus').addEventListener('change', async e=>{
+        const file = e.target.files[0]; if(!file) return;
+        document.getElementById('file-skus-name').textContent = `Leyendo ${file.name}...`;
+        await prepararCargaMasiva(file, 'skus');
+      });
+      document.getElementById('file-respaldo').addEventListener('change', async e=>{
+        const file = e.target.files[0]; if(!file) return;
+        document.getElementById('file-respaldo-name').textContent = `Leyendo ${file.name}...`;
+        await prepararCargaMasiva(file, 'respaldo');
+      });
+    }
   }
 
   if(state.view==='conteo'){
