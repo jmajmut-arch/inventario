@@ -951,7 +951,7 @@ function renderDashboard(){
   const filasBodega = t.map(r=>`
     <div class="tag-card" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span class="kpi-label">${esc(r.bodega||'Sin bodega')}</span>
+        <span class="kpi-label">${esc(r.bodega||'Sin ubicación general')}</span>
         <span class="mono" style="font-size:12px;color:var(--text-dim)">${r.skus_contados||0} / ${r.skus_universo||0} SKU</span>
       </div>
       <div class="kpi-value">${pct(r.porcentaje_avance)}%</div>
@@ -999,7 +999,7 @@ function renderDashboard(){
     <div class="section-head"><div><span class="eyebrow">Últimos 14 días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>
 
-    <div class="section-head"><h2 style="font-size:17px">Avance por bodega</h2></div>
+    <div class="section-head"><h2 style="font-size:17px">Avance por ubicación general</h2></div>
     ${filasBodega}
   `;
 
