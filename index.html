@@ -97,6 +97,10 @@ main{flex:1;max-width:720px;width:100%;margin:0 auto;padding:18px 16px 96px;}
 
 .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 
+.segmented{display:flex;background:var(--surface-2);border-radius:10px;padding:3px;margin-bottom:16px;gap:2px;}
+.segmented-btn{flex:1;border:none;background:none;padding:9px 4px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--text-dim);}
+.segmented-btn.active{background:var(--amber);color:#1a1204;}
+
 .progress-track{height:8px;border-radius:5px;background:var(--surface-2);overflow:hidden;margin-top:8px;}
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--amber-dim),var(--amber));border-radius:5px;transition:width .4s ease;}
 
@@ -206,6 +210,12 @@ textarea{resize:vertical;min-height:60px;}
 .opcion-carga input[type=radio]{margin-top:2px;flex-shrink:0;}
 .opcion-carga .nombre{font-size:13.5px;font-weight:600;color:var(--text);}
 .opcion-carga .desc{font-size:11.5px;color:var(--text-faint);margin-top:2px;line-height:1.4;}
+
+.plan-item{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
+.plan-item:last-child{border-bottom:none;}
+.plan-item-ubic{font-size:13.5px;font-weight:600;color:var(--text);}
+.plan-item-nota{font-size:12px;color:var(--text-dim);margin-top:2px;}
+.plan-item-universo{font-size:11px;color:var(--text-faint);margin-top:3px;}
 </style>
 </head>
 <body>
@@ -242,6 +252,8 @@ let state = {
   tema: localStorage.getItem('tema_app') || 'ambar',
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
+  dashboardModo: 'ejecutivo',
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{} },
 };
 
 const TEMAS = [
@@ -363,7 +375,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, skuSeleccionado:null, conteoFotos:[] };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{}}, skuSeleccionado:null, conteoFotos:[] };
   render();
 }
 
@@ -371,7 +383,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal()]);
 }
 
 async function cargarSkus(){
@@ -413,6 +425,74 @@ async function cargarSkusPagina(page=0){
 function refrescarListaSkus(){
   cargarSkus();
   cargarSkusPagina(state.skusPagina.page);
+}
+
+/* =======================================================================
+   PLANIFICACIÓN SEMANAL — por ubicación (bodega), ubicación específica y storage bin
+   ======================================================================= */
+function fechaISO(d){
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function sumarDias(d, n){ const r=new Date(d); r.setDate(r.getDate()+n); return r; }
+function inicioSemana(d){
+  const date = new Date(d);
+  const dia = date.getDay(); // 0=domingo .. 6=sabado
+  const diff = dia===0 ? -6 : 1-dia; // retrocede hasta el lunes
+  date.setDate(date.getDate()+diff);
+  date.setHours(0,0,0,0);
+  return date;
+}
+
+async function contarUniversoUbicacion({bodega, ubicacion, storage_bin}){
+  let filtro = '/skus?activo=eq.true';
+  if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
+  if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
+  if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${filtro}`, {
+    headers:{
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+      'Range-Unit': 'items',
+      'Range': '0-0',
+      'Prefer': 'count=exact',
+    }
+  });
+  const range = res.headers.get('content-range');
+  return range && range.includes('/') ? Number(range.split('/')[1]) : 0;
+}
+
+async function cargarPlanSemanal(){
+  const inicio = state.plan.semanaInicio || fechaISO(inicioSemana(new Date()));
+  const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 6));
+  try{
+    const rows = await rest(`/plan_semanal?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
+    setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[]}});
+    (rows||[]).forEach(async r=>{
+      const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin});
+      setState({plan: {...state.plan, universos: {...state.plan.universos, [r.id]: total}}});
+    });
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function crearPlanEntrada({fecha, bodega, ubicacion, storage_bin, nota}){
+  if(!fecha){ toast('Elige una fecha','err'); return; }
+  try{
+    await rest('/plan_semanal', {method:'POST', body:[{
+      fecha, bodega: bodega||null, ubicacion: ubicacion||null, storage_bin: storage_bin||null,
+      nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
+    }], prefer:'return=minimal'});
+    toast('Agregado a la planificación');
+    cargarPlanSemanal();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function borrarPlanEntrada(id){
+  try{
+    await rest(`/plan_semanal?id=eq.${id}`, {method:'DELETE'});
+    toast('Eliminado de la planificación');
+    cargarPlanSemanal();
+  }catch(e){ toast(e.message,'err'); }
 }
 
 async function cargarDashboard(){
@@ -546,9 +626,11 @@ const CAMPOS_SKU = [
     alias:['plant name','categoria','material group','grupo de articulos','familia','grupo','clase'] },
   { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
     alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
-  { campo:'ubicacion', obligatorio:false, etiqueta:'Ubicacion',
-    alias:['storage location','ubicacion','location','bin','posicion','rack'] },
-  { campo:'bodega', obligatorio:false, etiqueta:'Bodega',
+  { campo:'ubicacion', obligatorio:false, etiqueta:'Ubicación específica',
+    alias:['storage location','ubicacion especifica','ubicacion','location','rack'] },
+  { campo:'storage_bin', obligatorio:false, etiqueta:'Storage bin',
+    alias:['storage bin','bin','posicion','slot'] },
+  { campo:'bodega', obligatorio:false, etiqueta:'Ubicación (bodega)',
     alias:['description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
   { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
     alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
@@ -640,6 +722,7 @@ async function confirmarCargaMasiva(){
         categoria: valor(row,'categoria') || null,
         unidad_medida: valor(row,'unidad_medida') || null,
         ubicacion: valor(row,'ubicacion') || null,
+        storage_bin: valor(row,'storage_bin') || null,
         bodega: valor(row,'bodega') || null,
         stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
         activo: true,
@@ -740,6 +823,7 @@ const ICONS = {
   reconteo:'<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>',
   config:'<svg viewBox="0 0 24 24" style="width:16px;height:16px" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
   buscar:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+  plan:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></svg>',
 };
 
 /* =======================================================================
@@ -893,9 +977,9 @@ function renderDashboard(){
   const totConDif = diarioAgg.reduce((s,d)=>s+d.diferencias,0);
   const totContadosPeriodo = diarioAgg.reduce((s,d)=>s+d.contados,0);
   const totSinDif = Math.max(0, totContadosPeriodo - totConDif);
+  const modo = state.dashboardModo;
 
-  return `
-    <div class="section-head"><div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div></div>
+  const vistaEjecutiva = `
     <div class="kpi-grid">
       <div class="tag-card">
         <div class="kpi-label">Avance global</div>
@@ -917,7 +1001,9 @@ function renderDashboard(){
 
     <div class="section-head"><h2 style="font-size:17px">Avance por bodega</h2></div>
     ${filasBodega}
+  `;
 
+  const vistaOperativa = `
     <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
     <div class="card">${periodTable(state.dash.diario,'Día','dia')}</div>
 
@@ -942,6 +1028,15 @@ function renderDashboard(){
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
     </div>
+  `;
+
+  return `
+    <div class="section-head"><div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div></div>
+    <div class="segmented">
+      <button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>
+      <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
+    </div>
+    ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
   `;
 }
 
@@ -972,9 +1067,11 @@ function renderSkus(){
           <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" placeholder="UN, KG, LT..."></div>
         </div>
         <div class="row2">
-          <div><label for="s-bodega">Bodega</label><input type="text" id="s-bodega" placeholder="Bodega Central"></div>
-          <div><label for="s-ubic">Ubicación</label><input type="text" id="s-ubic" placeholder="Rack A-12"></div>
+          <div><label for="s-bodega">Ubicación (bodega)</label><input type="text" id="s-bodega" placeholder="Bodega Central"></div>
+          <div><label for="s-ubic">Ubicación específica</label><input type="text" id="s-ubic" placeholder="Pasillo 3"></div>
         </div>
+        <label for="s-bin">Storage bin</label>
+        <input type="text" id="s-bin" placeholder="Ej. A-12-03">
         <label for="s-stock">Stock según sistema</label>
         <input type="number" id="s-stock" step="0.01" placeholder="0">
         <div style="margin-top:16px">
@@ -998,11 +1095,13 @@ function renderTablaSkus(){
     <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.total})</h2></div>
     <div class="card">
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr><th>Código</th><th>Descripción</th><th>Bodega</th><th class="num">Stock</th></tr></thead>
+        <thead><tr><th>Código</th><th>Descripción</th><th>Bodega</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
         <tbody>${sp.rows.map(s=>`<tr>
           <td class="mono">${esc(s.sku_code)}</td>
           <td>${esc(s.descripcion||'—')}</td>
           <td>${esc(s.bodega||'—')}</td>
+          <td>${esc(s.ubicacion||'—')}</td>
+          <td class="mono">${esc(s.storage_bin||'—')}</td>
           <td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>
         </tr>`).join('')}</tbody>
       </table></div>
@@ -1262,6 +1361,70 @@ function renderBuscar(){
 }
 
 /* =======================================================================
+   RENDER — Planificación semanal (por bodega, ubicación específica y storage bin)
+   ======================================================================= */
+function renderPlanificacion(){
+  const p = state.plan;
+  const inicio = new Date(p.semanaInicio+'T00:00:00');
+  const finSemana = sumarDias(inicio,6);
+  const dias = Array.from({length:7},(_,i)=> sumarDias(inicio,i));
+
+  const porDia = dias.map(d=>{
+    const iso = fechaISO(d);
+    return {
+      iso,
+      label: d.toLocaleDateString('es-CL',{weekday:'long'}),
+      corta: d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}),
+      entradas: p.entradas.filter(e=>e.fecha===iso),
+    };
+  });
+
+  return `
+    <div class="section-head"><div><span class="eyebrow">Planificación</span><h2>Semana de conteo</h2></div></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
+      <button class="btn btn-secondary" id="plan-semana-prev" style="width:auto;padding:8px 12px;flex:none">‹</button>
+      <span class="hint" style="margin:0;text-align:center">${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))}</span>
+      <button class="btn btn-secondary" id="plan-semana-next" style="width:auto;padding:8px 12px;flex:none">›</button>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
+      <form id="form-plan">
+        <label for="p-fecha">Fecha</label>
+        <input type="date" id="p-fecha" value="${p.semanaInicio}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
+        <label for="p-bodega">Ubicación (bodega)</label>
+        <input type="text" id="p-bodega" placeholder="Ej. Bodega Central">
+        <div class="row2">
+          <div><label for="p-ubic">Ubicación específica</label><input type="text" id="p-ubic" placeholder="Ej. Pasillo 3"></div>
+          <div><label for="p-bin">Storage bin</label><input type="text" id="p-bin" placeholder="Ej. A-12-03"></div>
+        </div>
+        <label for="p-nota">Nota</label>
+        <input type="text" id="p-nota" placeholder="Opcional">
+        <div style="margin-top:14px">
+          <button type="submit" class="btn btn-primary">Agregar</button>
+        </div>
+      </form>
+    </div>
+
+    ${porDia.map(d=>`
+      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)} · ${d.corta}</h2></div>
+      <div class="card">
+        ${d.entradas.length? d.entradas.map(e=>`
+          <div class="plan-item">
+            <div class="plan-item-info">
+              <div class="plan-item-ubic">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
+              ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
+              <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}</div>
+            </div>
+            <button class="icon-btn" data-borrar-plan="${e.id}" aria-label="Eliminar" style="color:var(--danger)">${ICONS.x}</button>
+          </div>
+        `).join('') : `<div class="empty" style="padding:14px 8px">Sin conteos planificados.</div>`}
+      </div>
+    `).join('')}
+  `;
+}
+
+/* =======================================================================
    RENDER — Configuraciones (tema visual)
    ======================================================================= */
 function renderConfiguraciones(){
@@ -1289,7 +1452,7 @@ function renderConfiguraciones(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación'}[v];
 }
 
 function renderShell(){
@@ -1301,6 +1464,7 @@ function renderShell(){
     reconteo: renderReconteo,
     config: renderConfiguraciones,
     buscar: renderBuscar,
+    plan: renderPlanificacion,
   }[state.view]();
 
   return `
@@ -1325,6 +1489,7 @@ function renderShell(){
       ${tabBtn('conteo','Contar')}
       ${tabBtn('reconteo','Reconteo')}
       ${tabBtn('buscar','Buscar')}
+      ${tabBtn('plan','Plan')}
     </nav>
   `;
 }
@@ -1402,6 +1567,9 @@ function bind(){
         if(urls.length) setState({fotoModal:{urls, index:0}});
       });
     });
+    document.querySelectorAll('[data-dash-modo]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({dashboardModo: btn.dataset.dashModo}));
+    });
   }
 
   if(state.view==='skus'){
@@ -1414,6 +1582,7 @@ function bind(){
         unidad_medida: document.getElementById('s-um').value.trim() || null,
         bodega: document.getElementById('s-bodega').value.trim() || null,
         ubicacion: document.getElementById('s-ubic').value.trim() || null,
+        storage_bin: document.getElementById('s-bin').value.trim() || null,
         stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
       };
       if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
@@ -1541,6 +1710,32 @@ function bind(){
         const urls = JSON.parse(btn.dataset.verFotos);
         if(urls.length) setState({fotoModal:{urls, index:0}});
       });
+    });
+  }
+
+  if(state.view==='plan'){
+    document.getElementById('plan-semana-prev').addEventListener('click', ()=>{
+      const nueva = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), -7));
+      setState({plan:{...state.plan, semanaInicio:nueva}});
+      cargarPlanSemanal();
+    });
+    document.getElementById('plan-semana-next').addEventListener('click', ()=>{
+      const nueva = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), 7));
+      setState({plan:{...state.plan, semanaInicio:nueva}});
+      cargarPlanSemanal();
+    });
+    document.getElementById('form-plan').addEventListener('submit', e=>{
+      e.preventDefault();
+      crearPlanEntrada({
+        fecha: document.getElementById('p-fecha').value,
+        bodega: document.getElementById('p-bodega').value.trim(),
+        ubicacion: document.getElementById('p-ubic').value.trim(),
+        storage_bin: document.getElementById('p-bin').value.trim(),
+        nota: document.getElementById('p-nota').value.trim(),
+      });
+    });
+    document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
+      btn.addEventListener('click', ()=> borrarPlanEntrada(btn.dataset.borrarPlan));
     });
   }
 }
