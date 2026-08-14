@@ -627,11 +627,11 @@ const CAMPOS_SKU = [
   { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
     alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
   { campo:'ubicacion', obligatorio:false, etiqueta:'Ubicación específica',
-    alias:['storage location','ubicacion especifica','ubicacion','location','rack'] },
+    alias:['ubicacion especifica','storage location','ubicacion','location','rack'] },
   { campo:'storage_bin', obligatorio:false, etiqueta:'Storage bin',
     alias:['storage bin','bin','posicion','slot'] },
-  { campo:'bodega', obligatorio:false, etiqueta:'Ubicación (bodega)',
-    alias:['description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
+  { campo:'bodega', obligatorio:false, etiqueta:'Ubicación general',
+    alias:['ubicacion general','description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
   { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
     alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
 ];
@@ -644,16 +644,21 @@ function normalizarTexto(s){
     .trim();
 }
 
+// El primer alias de cada campo es su nombre "canónico" (el que más probablemente
+// use alguien que arma la planilla a mano en español); una coincidencia exacta con
+// ese alias pesa más que una coincidencia exacta con un alias genérico/jerga SAP,
+// para que columnas como "Ubicación general" no pierdan contra "Storage Location"
+// cuando el mismo archivo trae ambas.
 function puntajeColumna(headerNorm, aliases){
   let mejor = 0;
-  for(const alias of aliases){
+  aliases.forEach((alias, idx)=>{
     const a = normalizarTexto(alias);
-    if(headerNorm === a){ mejor = Math.max(mejor, 100); continue; }
-    if(headerNorm.includes(a) || a.includes(headerNorm)){ mejor = Math.max(mejor, 75); continue; }
+    if(headerNorm === a){ mejor = Math.max(mejor, idx===0? 110 : 100); return; }
+    if(headerNorm.includes(a) || a.includes(headerNorm)){ mejor = Math.max(mejor, 75); return; }
     const hw = new Set(headerNorm.split(' '));
     const comunes = a.split(' ').filter(w=>w && hw.has(w)).length;
     if(comunes) mejor = Math.max(mejor, 40 + comunes*10);
-  }
+  });
   return mejor;
 }
 
@@ -672,7 +677,7 @@ function detectarMapeo(headers, campos){
   const mapeo = {};
   const usados = new Set();
   candidatos.forEach(c=>{
-    if(mapeo[c.campo] || usados.has(c.header) || c.puntaje<35) return;
+    if(mapeo[c.campo] || usados.has(c.header) || c.puntaje<60) return;
     mapeo[c.campo] = c.header;
     usados.add(c.header);
   });
@@ -962,7 +967,7 @@ function renderDashboard(){
   const periodTable = (rows, keyLabel, keyField) => {
     if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
     return `<div class="table-wrap"><table>
-      <thead><tr><th>${keyLabel}</th><th>Bodega</th><th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
+      <thead><tr><th>${keyLabel}</th><th>Ubic. general</th><th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td class="mono">${fmtFecha(r[keyField])}</td>
         <td>${esc(r.bodega||'—')}</td>
@@ -1067,7 +1072,7 @@ function renderSkus(){
           <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" placeholder="UN, KG, LT..."></div>
         </div>
         <div class="row2">
-          <div><label for="s-bodega">Ubicación (bodega)</label><input type="text" id="s-bodega" placeholder="Bodega Central"></div>
+          <div><label for="s-bodega">Ubicación general</label><input type="text" id="s-bodega" placeholder="Bodega Central"></div>
           <div><label for="s-ubic">Ubicación específica</label><input type="text" id="s-ubic" placeholder="Pasillo 3"></div>
         </div>
         <label for="s-bin">Storage bin</label>
@@ -1095,7 +1100,7 @@ function renderTablaSkus(){
     <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.total})</h2></div>
     <div class="card">
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr><th>Código</th><th>Descripción</th><th>Bodega</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
+        <thead><tr><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
         <tbody>${sp.rows.map(s=>`<tr>
           <td class="mono">${esc(s.sku_code)}</td>
           <td>${esc(s.descripcion||'—')}</td>
@@ -1253,7 +1258,7 @@ function renderConteo(){
           <label for="c-cant">Cantidad contada *</label>
           <input type="number" id="c-cant" step="0.01" placeholder="0" required>
           <div class="row2">
-            <div><label for="c-bodega">Bodega</label><input type="text" id="c-bodega" value="${esc(state.skuSeleccionado.bodega||'')}"></div>
+            <div><label for="c-bodega">Ubicación general</label><input type="text" id="c-bodega" value="${esc(state.skuSeleccionado.bodega||'')}"></div>
             <div><label for="c-ubic">Ubicación contada</label><input type="text" id="c-ubic" placeholder="Rack A-12" value="${esc(state.skuSeleccionado.ubicacion||'')}"></div>
           </div>
           <label for="c-obs">Observación</label>
@@ -1318,7 +1323,7 @@ function renderBuscar(){
         <label for="b-texto">Código o descripción del SKU</label>
         <input type="text" id="b-texto" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(b.texto)}">
         <div class="row2">
-          <div><label for="b-bodega">Bodega</label><input type="text" id="b-bodega" placeholder="Bodega Central" value="${esc(b.bodega)}"></div>
+          <div><label for="b-bodega">Ubicación general</label><input type="text" id="b-bodega" placeholder="Bodega Central" value="${esc(b.bodega)}"></div>
           <div><label for="b-estado">Estado</label>
             <select id="b-estado">
               <option value="">Todos</option>
@@ -1341,7 +1346,7 @@ function renderBuscar(){
     <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Bodega</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
         <tbody>${resultados.map(r=>{
           const urls = (r.conteo_fotos||[]).map(f=>f.foto_url);
           return `<tr>
@@ -1392,7 +1397,7 @@ function renderPlanificacion(){
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
         <input type="date" id="p-fecha" value="${p.semanaInicio}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
-        <label for="p-bodega">Ubicación (bodega)</label>
+        <label for="p-bodega">Ubicación general</label>
         <input type="text" id="p-bodega" placeholder="Ej. Bodega Central">
         <div class="row2">
           <div><label for="p-ubic">Ubicación específica</label><input type="text" id="p-ubic" placeholder="Ej. Pasillo 3"></div>
