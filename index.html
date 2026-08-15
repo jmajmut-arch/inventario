@@ -229,7 +229,6 @@ textarea{resize:vertical;min-height:60px;}
 const SUPABASE_URL = 'https://ncvwgsbcvklhbyvurxzz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE';
 const BUCKET = 'fotos-inventario';
-let planDebounceTimer = null;
 
 /* =======================================================================
    ESTADO
@@ -1420,13 +1419,21 @@ function renderPlanificacion(){
         <label for="p-fecha">Fecha</label>
         <input type="date" id="p-fecha" value="${p.semanaInicio}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
         <label for="p-bodega">Ubicación general</label>
-        <input type="text" id="p-bodega" list="dl-bodega" placeholder="Ej. Nave Mina" autocomplete="off">
-        <datalist id="dl-bodega">
-          ${p.generales.map(o=>`<option value="${esc(o.bodega)}">`).join('')}
-        </datalist>
+        <select id="p-bodega">
+          <option value="">Selecciona (opcional)</option>
+          ${p.generales.map(o=>`<option value="${esc(o.bodega)}">${esc(o.bodega)}</option>`).join('')}
+        </select>
         <div class="row2">
-          <div><label for="p-ubic">Ubicación específica</label><input type="text" id="p-ubic" list="dl-ubicacion" placeholder="Ej. Rack" autocomplete="off"><datalist id="dl-ubicacion"></datalist></div>
-          <div><label for="p-bin">Storage bin</label><input type="text" id="p-bin" list="dl-bin" placeholder="Ej. A-12-03" autocomplete="off"><datalist id="dl-bin"></datalist></div>
+          <div><label for="p-ubic">Ubicación específica</label>
+            <select id="p-ubic" disabled>
+              <option value="">Elige ubicación general primero</option>
+            </select>
+          </div>
+          <div><label for="p-bin">Storage bin</label>
+            <select id="p-bin" disabled>
+              <option value="">Elige ubicación específica primero</option>
+            </select>
+          </div>
         </div>
         <label for="p-nota">Nota</label>
         <input type="text" id="p-nota" placeholder="Opcional">
@@ -1764,28 +1771,37 @@ function bind(){
         nota: document.getElementById('p-nota').value.trim(),
       });
     });
-    document.getElementById('p-bodega').addEventListener('input', e=>{
-      const bodega = e.target.value.trim();
-      document.getElementById('p-ubic').value = '';
-      document.getElementById('p-bin').value = '';
-      document.getElementById('dl-bin').innerHTML = '';
-      clearTimeout(planDebounceTimer);
-      planDebounceTimer = setTimeout(async ()=>{
-        const opciones = await opcionesEspecificas(bodega);
-        const dl = document.getElementById('dl-ubicacion');
-        if(dl) dl.innerHTML = opciones.map(o=>`<option value="${esc(o.ubicacion)}">`).join('');
-      }, 250);
+    document.getElementById('p-bodega').addEventListener('change', async e=>{
+      const bodega = e.target.value;
+      const selUbic = document.getElementById('p-ubic');
+      const selBin = document.getElementById('p-bin');
+      selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
+      selBin.disabled = true;
+      if(!bodega){
+        selUbic.innerHTML = '<option value="">Elige ubicación general primero</option>';
+        selUbic.disabled = true;
+        return;
+      }
+      selUbic.innerHTML = '<option value="">Cargando…</option>';
+      selUbic.disabled = true;
+      const opciones = await opcionesEspecificas(bodega);
+      selUbic.innerHTML = '<option value="">Todas</option>' + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)}</option>`).join('');
+      selUbic.disabled = false;
     });
-    document.getElementById('p-ubic').addEventListener('input', e=>{
-      const bodega = document.getElementById('p-bodega').value.trim();
-      const ubicacion = e.target.value.trim();
-      document.getElementById('p-bin').value = '';
-      clearTimeout(planDebounceTimer);
-      planDebounceTimer = setTimeout(async ()=>{
-        const opciones = await opcionesBins(bodega, ubicacion);
-        const dl = document.getElementById('dl-bin');
-        if(dl) dl.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">`).join('');
-      }, 250);
+    document.getElementById('p-ubic').addEventListener('change', async e=>{
+      const bodega = document.getElementById('p-bodega').value;
+      const ubicacion = e.target.value;
+      const selBin = document.getElementById('p-bin');
+      if(!ubicacion){
+        selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
+        selBin.disabled = true;
+        return;
+      }
+      selBin.innerHTML = '<option value="">Cargando…</option>';
+      selBin.disabled = true;
+      const opciones = await opcionesBins(bodega, ubicacion);
+      selBin.innerHTML = '<option value="">Todos</option>' + opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)}</option>`).join('');
+      selBin.disabled = false;
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> borrarPlanEntrada(btn.dataset.borrarPlan));
