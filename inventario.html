@@ -229,6 +229,7 @@ textarea{resize:vertical;min-height:60px;}
 const SUPABASE_URL = 'https://ncvwgsbcvklhbyvurxzz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE';
 const BUCKET = 'fotos-inventario';
+let planDebounceTimer = null;
 
 /* =======================================================================
    ESTADO
@@ -253,7 +254,7 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{} },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[] },
 };
 
 const TEMAS = [
@@ -375,7 +376,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{}}, skuSeleccionado:null, conteoFotos:[] };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[]}, skuSeleccionado:null, conteoFotos:[] };
   render();
 }
 
@@ -383,7 +384,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales()]);
 }
 
 async function cargarSkus(){
@@ -493,6 +494,27 @@ async function borrarPlanEntrada(id){
     toast('Eliminado de la planificación');
     cargarPlanSemanal();
   }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarOpcionesGenerales(){
+  try{
+    const rows = await rest('/ubicaciones_generales?order=bodega.asc');
+    setState({plan: {...state.plan, generales: rows||[]}});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function opcionesEspecificas(bodega){
+  if(!bodega) return [];
+  try{
+    return await rest(`/ubicaciones_especificas?bodega=eq.${encodeURIComponent(bodega)}&order=ubicacion.asc`) || [];
+  }catch(e){ return []; }
+}
+
+async function opcionesBins(bodega, ubicacion){
+  if(!bodega || !ubicacion) return [];
+  try{
+    return await rest(`/ubicaciones_bins?bodega=eq.${encodeURIComponent(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
+  }catch(e){ return []; }
 }
 
 async function cargarDashboard(){
@@ -1398,10 +1420,13 @@ function renderPlanificacion(){
         <label for="p-fecha">Fecha</label>
         <input type="date" id="p-fecha" value="${p.semanaInicio}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
         <label for="p-bodega">Ubicación general</label>
-        <input type="text" id="p-bodega" placeholder="Ej. Bodega Central">
+        <input type="text" id="p-bodega" list="dl-bodega" placeholder="Ej. Nave Mina" autocomplete="off">
+        <datalist id="dl-bodega">
+          ${p.generales.map(o=>`<option value="${esc(o.bodega)}">`).join('')}
+        </datalist>
         <div class="row2">
-          <div><label for="p-ubic">Ubicación específica</label><input type="text" id="p-ubic" placeholder="Ej. Pasillo 3"></div>
-          <div><label for="p-bin">Storage bin</label><input type="text" id="p-bin" placeholder="Ej. A-12-03"></div>
+          <div><label for="p-ubic">Ubicación específica</label><input type="text" id="p-ubic" list="dl-ubicacion" placeholder="Ej. Rack" autocomplete="off"><datalist id="dl-ubicacion"></datalist></div>
+          <div><label for="p-bin">Storage bin</label><input type="text" id="p-bin" list="dl-bin" placeholder="Ej. A-12-03" autocomplete="off"><datalist id="dl-bin"></datalist></div>
         </div>
         <label for="p-nota">Nota</label>
         <input type="text" id="p-nota" placeholder="Opcional">
@@ -1738,6 +1763,29 @@ function bind(){
         storage_bin: document.getElementById('p-bin').value.trim(),
         nota: document.getElementById('p-nota').value.trim(),
       });
+    });
+    document.getElementById('p-bodega').addEventListener('input', e=>{
+      const bodega = e.target.value.trim();
+      document.getElementById('p-ubic').value = '';
+      document.getElementById('p-bin').value = '';
+      document.getElementById('dl-bin').innerHTML = '';
+      clearTimeout(planDebounceTimer);
+      planDebounceTimer = setTimeout(async ()=>{
+        const opciones = await opcionesEspecificas(bodega);
+        const dl = document.getElementById('dl-ubicacion');
+        if(dl) dl.innerHTML = opciones.map(o=>`<option value="${esc(o.ubicacion)}">`).join('');
+      }, 250);
+    });
+    document.getElementById('p-ubic').addEventListener('input', e=>{
+      const bodega = document.getElementById('p-bodega').value.trim();
+      const ubicacion = e.target.value.trim();
+      document.getElementById('p-bin').value = '';
+      clearTimeout(planDebounceTimer);
+      planDebounceTimer = setTimeout(async ()=>{
+        const opciones = await opcionesBins(bodega, ubicacion);
+        const dl = document.getElementById('dl-bin');
+        if(dl) dl.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">`).join('');
+      }, 250);
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> borrarPlanEntrada(btn.dataset.borrarPlan));
