@@ -214,6 +214,7 @@ textarea{resize:vertical;min-height:60px;}
 .plan-item{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
 .plan-item:last-child{border-bottom:none;}
 .plan-item-ubic{font-size:13.5px;font-weight:600;color:var(--text);}
+.plan-item-responsable{font-size:12px;color:var(--text-dim);margin-top:2px;}
 .plan-item-nota{font-size:12px;color:var(--text-dim);margin-top:2px;}
 .plan-item-universo{font-size:11px;color:var(--text-faint);margin-top:3px;}
 
@@ -224,11 +225,13 @@ textarea{resize:vertical;min-height:60px;}
   #print-plan{display:block;position:absolute;top:0;left:0;width:100%;padding:0;color:#000;background:#fff;}
   #print-plan h1{font-size:17px;margin:0 0 2px;}
   #print-plan .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
-  #print-plan h2{font-size:13px;text-transform:capitalize;margin:16px 0 6px;border-bottom:1px solid #000;padding-bottom:2px;}
-  #print-plan table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:4px;}
-  #print-plan th,#print-plan td{border:1px solid #999;padding:4px 6px;text-align:left;}
+  #print-plan h2{font-size:13px;text-transform:capitalize;margin:16px 0 6px;border-bottom:1px solid #000;padding-bottom:2px;page-break-after:avoid;}
+  #print-plan h3{font-size:11.5px;margin:10px 0 1px;page-break-after:avoid;}
+  #print-plan .print-entrada-meta{font-size:10px;color:#333;margin-bottom:4px;}
+  #print-plan table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px;}
+  #print-plan th,#print-plan td{border:1px solid #999;padding:3px 6px;text-align:left;}
   #print-plan th{background:#eee;}
-  #print-plan .print-check{display:inline-block;width:14px;height:14px;border:1.3px solid #000;}
+  #print-plan td.print-blank{min-width:60px;}
   #print-plan .print-vacio{font-size:11px;color:#555;}
 }
 </style>
@@ -269,7 +272,7 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[] },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], usuarios:[] },
 };
 
 const TEMAS = [
@@ -391,7 +394,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[]}, skuSeleccionado:null, conteoFotos:[] };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],usuarios:[]}, skuSeleccionado:null, conteoFotos:[] };
   render();
 }
 
@@ -399,7 +402,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarUsuariosAsignables()]);
 }
 
 async function cargarSkus(){
@@ -478,11 +481,42 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin}){
   return range && range.includes('/') ? Number(range.split('/')[1]) : 0;
 }
 
+// Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
+// paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
+async function skusDeUbicacion({bodega, ubicacion, storage_bin}){
+  let filtro = '/skus?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc';
+  if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
+  if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
+  if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  const TAM_PAGINA = 1000;
+  let desde = 0, total = Infinity, filas = [];
+  while(desde < total){
+    const res = await fetch(`${SUPABASE_URL}/rest/v1${filtro}`, {
+      headers:{
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+        'Range-Unit': 'items',
+        'Range': `${desde}-${desde+TAM_PAGINA-1}`,
+        'Prefer': 'count=exact',
+      }
+    });
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : [];
+    if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
+    filas = filas.concat(data);
+    const range = res.headers.get('content-range');
+    total = range && range.includes('/') ? Number(range.split('/')[1]) : filas.length;
+    desde += TAM_PAGINA;
+    if(!data.length) break;
+  }
+  return filas;
+}
+
 async function cargarPlanSemanal(){
   const inicio = state.plan.semanaInicio || fechaISO(inicioSemana(new Date()));
   const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 6));
   try{
-    const rows = await rest(`/plan_semanal?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
+    const rows = await rest(`/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[]}});
     (rows||[]).forEach(async r=>{
       const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin});
@@ -491,13 +525,20 @@ async function cargarPlanSemanal(){
   }catch(e){ toast(e.message,'err'); }
 }
 
-async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, nota}){
+async function cargarUsuariosAsignables(){
+  try{
+    const rows = await rest('/usuarios?activo=eq.true&order=nombre.asc&select=id,nombre');
+    setState({plan: {...state.plan, usuarios: rows||[]}});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsableId, nota}){
   if(!fecha){ toast('Elige una fecha','err'); return; }
   const bins = (storageBins && storageBins.length) ? storageBins : [null];
   try{
     await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
       fecha, bodega: bodega||null, ubicacion: ubicacion||null, storage_bin: bin||null,
-      nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
+      responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
     })), prefer:'return=minimal'});
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
@@ -1404,7 +1445,35 @@ function renderBuscar(){
   `;
 }
 
-function imprimirPlan(){
+function encabezadoEntradaPlan(e){
+  const ubic = [e.bodega, e.ubicacion, e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica';
+  const partes = [`Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}`];
+  if(e.nota) partes.push(`Nota: ${esc(e.nota)}`);
+  return `<h3>${esc(ubic)}</h3><div class="print-entrada-meta">${partes.join(' · ')}</div>`;
+}
+
+function tablaSkusEntradaPlan(skus){
+  if(!skus.length) return `<p class="print-vacio">Sin SKU activos en esta ubicación.</p>`;
+  return `
+    <table>
+      <thead><tr><th>SKU</th><th>Descripción</th><th>Storage bin</th><th>Unidad</th><th>Cantidad contada</th><th>Observación</th></tr></thead>
+      <tbody>
+        ${skus.map(s=>`
+          <tr>
+            <td>${esc(s.sku_code)}</td>
+            <td>${esc(s.descripcion||'')}</td>
+            <td>${esc(s.storage_bin||'—')}</td>
+            <td>${esc(s.unidad_medida||'—')}</td>
+            <td class="print-blank"></td>
+            <td class="print-blank"></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function imprimirPlan(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
   const finSemana = sumarDias(inicio,6);
@@ -1417,31 +1486,38 @@ function imprimirPlan(){
     };
   }).filter(d=>d.entradas.length);
 
-  const cuerpo = porDia.length ? porDia.map(d=>`
-    <h2>${esc(d.label)}</h2>
-    <table>
-      <thead><tr><th>Ubicación general</th><th>Ubicación específica</th><th>Storage bin</th><th>SKU</th><th>Nota</th><th>Contado</th></tr></thead>
-      <tbody>
-        ${d.entradas.map(e=>`
-          <tr>
-            <td>${esc(e.bodega||'—')}</td>
-            <td>${esc(e.ubicacion||'—')}</td>
-            <td>${esc(e.storage_bin||'—')}</td>
-            <td>${p.universos[e.id]!==undefined? p.universos[e.id] : '—'}</td>
-            <td>${esc(e.nota||'')}</td>
-            <td><span class="print-check"></span></td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `).join('') : `<p class="print-vacio">No hay conteos planificados para esta semana.</p>`;
+  if(!porDia.length){
+    document.getElementById('print-plan').innerHTML = `
+      <h1>Plan de conteo semanal</h1>
+      <div class="print-meta">Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}</div>
+      <p class="print-vacio">No hay conteos planificados para esta semana.</p>
+    `;
+    window.print();
+    return;
+  }
 
-  document.getElementById('print-plan').innerHTML = `
-    <h1>Plan de conteo semanal</h1>
-    <div class="print-meta">Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}</div>
-    ${cuerpo}
-  `;
-  window.print();
+  const btn = document.getElementById('btn-exportar-plan');
+  if(btn){ btn.disabled = true; btn.textContent = 'Generando…'; }
+  try{
+    let cuerpo = '';
+    for(const d of porDia){
+      cuerpo += `<h2>${esc(d.label)}</h2>`;
+      for(const e of d.entradas){
+        const skus = await skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin});
+        cuerpo += encabezadoEntradaPlan(e) + tablaSkusEntradaPlan(skus);
+      }
+    }
+    document.getElementById('print-plan').innerHTML = `
+      <h1>Plan de conteo semanal</h1>
+      <div class="print-meta">Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}</div>
+      ${cuerpo}
+    `;
+    window.print();
+  }catch(err){
+    toast(err.message,'err');
+  }finally{
+    if(btn){ btn.disabled = !p.entradas.length; btn.innerHTML = `${ICONS.download} Exportar PDF`; }
+  }
 }
 
 /* =======================================================================
@@ -1501,6 +1577,11 @@ function renderPlanificacion(){
             <div class="hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
           </div>
         </div>
+        <label for="p-responsable">Responsable</label>
+        <select id="p-responsable">
+          <option value="">Sin asignar</option>
+          ${p.usuarios.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+        </select>
         <label for="p-nota">Nota</label>
         <input type="text" id="p-nota" placeholder="Opcional">
         <div style="margin-top:14px">
@@ -1516,6 +1597,7 @@ function renderPlanificacion(){
           <div class="plan-item">
             <div class="plan-item-info">
               <div class="plan-item-ubic">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
+              <div class="plan-item-responsable">Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}</div>
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
               <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}</div>
             </div>
@@ -1837,6 +1919,7 @@ function bind(){
         bodega: document.getElementById('p-bodega').value.trim(),
         ubicacion: document.getElementById('p-ubic').value.trim(),
         storageBins,
+        responsableId: document.getElementById('p-responsable').value,
         nota: document.getElementById('p-nota').value.trim(),
       });
     });
