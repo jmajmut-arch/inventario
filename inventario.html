@@ -1034,10 +1034,10 @@ function agregarPorDia(diario, dias=14){
   return Array.from(map.values()).sort((a,b)=> a.dia.localeCompare(b.dia)).slice(-dias);
 }
 
-function renderBarChart(datos, valueKey, color){
+function renderBarChart(datos, valueKey, color, labelFn=fmtDiaCorto, mostrarValor=false){
   if(!datos.length) return `<div class="empty">Sin datos todavía.</div>`;
   const max = Math.max(1, ...datos.map(d=>d[valueKey]||0));
-  const barW = 24, gap = 12, padTop = 16, padBottom = 20;
+  const barW = 24, gap = 12, padTop = mostrarValor?26:16, padBottom = 20;
   const plotH = 90;
   const w = datos.length*(barW+gap)+gap;
   const h = plotH + padTop + padBottom;
@@ -1047,15 +1047,49 @@ function renderBarChart(datos, valueKey, color){
     const barH = Math.round((val/max)*plotH);
     const x = gap + i*(barW+gap);
     const y = baseline - barH;
+    const topeY = Math.max(y,padTop);
     return `<g>
-      <rect x="${x}" y="${Math.max(y,padTop)}" width="${barW}" height="${Math.max(barH,val>0?2:0)}" rx="4" fill="${color}"><title>${esc(fmtDiaCorto(d.dia))}: ${val}</title></rect>
-      <text x="${x+barW/2}" y="${baseline+13}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">${esc(fmtDiaCorto(d.dia))}</text>
+      <rect x="${x}" y="${topeY}" width="${barW}" height="${Math.max(barH,val>0?2:0)}" rx="4" fill="${color}"><title>${esc(labelFn(d.dia))}: ${val}</title></rect>
+      ${mostrarValor && val>0? `<text x="${x+barW/2}" y="${topeY-5}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-dim)">${val}</text>` : ''}
+      <text x="${x+barW/2}" y="${baseline+13}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">${esc(labelFn(d.dia))}</text>
     </g>`;
   }).join('');
   return `<div class="table-wrap"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block">
     <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"/>
     ${bars}
   </svg></div>`;
+}
+
+function abrevDiaSemana(iso){
+  const d = new Date(iso+'T00:00:00');
+  const s = d.toLocaleDateString('es-CL',{weekday:'short'}).replace('.','');
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
+
+// Agrupa el universo de SKU planificado por responsable, ordenado de mayor a menor carga.
+function resumenPorResponsable(entradas, universos){
+  const map = new Map();
+  entradas.forEach(e=>{
+    const nombre = e.responsable_nombre || 'Sin asignar';
+    const cantidad = universos[e.id] || 0;
+    map.set(nombre, (map.get(nombre)||0) + cantidad);
+  });
+  return Array.from(map, ([nombre, cantidad])=>({nombre, cantidad})).sort((a,b)=> b.cantidad-a.cantidad);
+}
+
+function renderResponsableChart(filas){
+  if(!filas.length) return `<div class="empty">Sin datos todavía.</div>`;
+  const max = Math.max(1, ...filas.map(f=>f.cantidad));
+  return filas.map(f=>{
+    const p = Math.round(f.cantidad/max*100);
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <span style="font-size:12.5px;color:var(--text-dim)">${esc(f.nombre)}</span>
+        <span class="mono" style="font-size:12.5px;color:var(--text)">${f.cantidad} SKU</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${p}%"></div></div>
+    </div>`;
+  }).join('');
 }
 
 function renderDiffChart(sinDif, conDif){
@@ -1603,6 +1637,13 @@ function renderPlanificacion(){
     };
   });
 
+  const datosPorDia = porDia.map(d=>({
+    dia: d.iso,
+    cantidad: d.entradas.reduce((s,e)=> s+(p.universos[e.id]||0), 0),
+  }));
+  const totalSemana = datosPorDia.reduce((s,d)=>s+d.cantidad, 0);
+  const responsablesResumen = resumenPorResponsable(p.entradas, p.universos);
+
   return `
     <div class="section-head">
       <div><span class="eyebrow">Planificación</span><h2>Semana de conteo</h2></div>
@@ -1654,6 +1695,18 @@ function renderPlanificacion(){
         </div>
       </form>
     </div>
+
+    ${p.entradas.length? `
+      <div class="section-head"><h2 style="font-size:15px">Resumen de la semana</h2></div>
+      <div class="card">
+        <div class="hint" style="margin-bottom:8px">SKU a contar por día (${totalSemana} en total)</div>
+        ${renderBarChart(datosPorDia, 'cantidad', 'var(--amber)', abrevDiaSemana, true)}
+      </div>
+      <div class="card">
+        <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
+        ${renderResponsableChart(responsablesResumen)}
+      </div>
+    ` : ''}
 
     ${porDia.map(d=>`
       <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)} · ${d.corta}</h2></div>
