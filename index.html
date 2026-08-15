@@ -1434,7 +1434,11 @@ function renderPlanificacion(){
             <select id="p-bin" multiple size="6" disabled>
               <option value="">Elige ubicación específica primero</option>
             </select>
-            <div class="hint" style="margin:4px 0 0">Puedes elegir más de uno. Sin selección = todos.</div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text-dim)">
+              <input type="checkbox" id="p-bin-todos" disabled>
+              Seleccionar todos
+            </label>
+            <div class="hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
           </div>
         </div>
         <label for="p-nota">Nota</label>
@@ -1774,12 +1778,18 @@ function bind(){
         nota: document.getElementById('p-nota').value.trim(),
       });
     });
+    function resetPBin(){
+      const selBin = document.getElementById('p-bin');
+      const chkTodos = document.getElementById('p-bin-todos');
+      selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
+      selBin.disabled = true;
+      chkTodos.checked = false;
+      chkTodos.disabled = true;
+    }
     document.getElementById('p-bodega').addEventListener('change', async e=>{
       const bodega = e.target.value;
       const selUbic = document.getElementById('p-ubic');
-      const selBin = document.getElementById('p-bin');
-      selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
-      selBin.disabled = true;
+      resetPBin();
       if(!bodega){
         selUbic.innerHTML = '<option value="">Elige ubicación general primero</option>';
         selUbic.disabled = true;
@@ -1795,16 +1805,23 @@ function bind(){
       const bodega = document.getElementById('p-bodega').value;
       const ubicacion = e.target.value;
       const selBin = document.getElementById('p-bin');
+      const chkTodos = document.getElementById('p-bin-todos');
       if(!ubicacion){
-        selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
-        selBin.disabled = true;
+        resetPBin();
         return;
       }
       selBin.innerHTML = '<option value="">Cargando…</option>';
       selBin.disabled = true;
+      chkTodos.checked = false;
+      chkTodos.disabled = true;
       const opciones = await opcionesBins(bodega, ubicacion);
-      selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)}</option>`).join('');
+      selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
       selBin.disabled = false;
+      chkTodos.disabled = false;
+    });
+    document.getElementById('p-bin-todos').addEventListener('change', e=>{
+      const selBin = document.getElementById('p-bin');
+      [...selBin.options].forEach(o=>{ o.selected = e.target.checked; });
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> borrarPlanEntrada(btn.dataset.borrarPlan));
