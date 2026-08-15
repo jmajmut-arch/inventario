@@ -536,7 +536,7 @@ async function crearResponsable(nombre){
   if(!nombre) return;
   try{
     await rest('/responsables_proceso', {method:'POST', body:[{nombre}], prefer:'return=minimal'});
-    toast('Responsable agregado');
+    toast('Operador agregado');
     cargarResponsables();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -544,7 +544,7 @@ async function crearResponsable(nombre){
 async function quitarResponsable(id){
   try{
     await rest(`/responsables_proceso?id=eq.${id}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
-    toast('Responsable quitado de la lista');
+    toast('Operador eliminado');
     cargarResponsables();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1581,24 +1581,6 @@ function renderPlanificacion(){
     </div>
 
     <div class="card">
-      <h3 style="margin:0 0 10px;font-size:15px">Responsables del proceso</h3>
-      <div class="hint" style="margin-bottom:10px">Personas asignables como responsables al planificar. No requieren cuenta en la app.</div>
-      <form id="form-responsable">
-        <label for="nuevo-responsable">Nombre</label>
-        <input type="text" id="nuevo-responsable" placeholder="Ej. Ana Torres" required>
-        <div style="margin-top:10px">
-          <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar responsable</button>
-        </div>
-      </form>
-      ${p.responsables.length? `<div style="margin-top:12px">${p.responsables.map(u=>`
-        <div class="plan-item" style="padding:8px 0">
-          <div class="plan-item-ubic" style="font-weight:500">${esc(u.nombre)}</div>
-          <button class="icon-btn" data-quitar-responsable="${esc(u.id)}" aria-label="Quitar" style="color:var(--danger)">${ICONS.x}</button>
-        </div>
-      `).join('')}</div>` : ''}
-    </div>
-
-    <div class="card">
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
@@ -1630,6 +1612,7 @@ function renderPlanificacion(){
           <option value="">Sin asignar</option>
           ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
         </select>
+        ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Agrega operadores desde Configuraciones para poder asignarlos aquí.</div>` : ''}
         <label for="p-nota">Nota</label>
         <input type="text" id="p-nota" placeholder="Opcional">
         <div style="margin-top:14px">
@@ -1681,6 +1664,7 @@ function renderPlanificacion(){
    RENDER — Configuraciones (tema visual)
    ======================================================================= */
 function renderConfiguraciones(){
+  const p = state.plan;
   return `
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
@@ -1698,6 +1682,24 @@ function renderConfiguraciones(){
         ${state.tema===t.id? `<span class="badge badge-ok">Actual</span>` : ''}
       </div>
     `).join('')}
+
+    <div class="section-head"><div><span class="eyebrow">Equipo</span><h2>Operadores</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Personas asignables como responsables al planificar el conteo. No requieren cuenta ni login en la app.</div>
+      <form id="form-operador">
+        <label for="nuevo-operador">Nombre</label>
+        <input type="text" id="nuevo-operador" placeholder="Ej. Ana Torres" required>
+        <div style="margin-top:10px">
+          <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar operador</button>
+        </div>
+      </form>
+      ${p.responsables.length? `<div style="margin-top:12px">${p.responsables.map(u=>`
+        <div class="plan-item" style="padding:8px 0">
+          <div class="plan-item-ubic" style="font-weight:500">${esc(u.nombre)}</div>
+          <button class="icon-btn" data-eliminar-operador="${esc(u.id)}" aria-label="Eliminar" style="color:var(--danger)">${ICONS.x}</button>
+        </div>
+      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Sin operadores agregados.</div>`}
+    </div>
   `;
 }
 
@@ -1810,6 +1812,13 @@ function bind(){
         localStorage.setItem('tema_app', tema);
         setState({tema});
       });
+    });
+    document.getElementById('form-operador').addEventListener('submit', e=>{
+      e.preventDefault();
+      crearResponsable(document.getElementById('nuevo-operador').value.trim());
+    });
+    document.querySelectorAll('[data-eliminar-operador]').forEach(btn=>{
+      btn.addEventListener('click', ()=> quitarResponsable(btn.dataset.eliminarOperador));
     });
   }
 
@@ -2054,13 +2063,6 @@ function bind(){
           nota: document.getElementById(`pe-nota-${id}`).value.trim(),
         });
       });
-    });
-    document.getElementById('form-responsable').addEventListener('submit', e=>{
-      e.preventDefault();
-      crearResponsable(document.getElementById('nuevo-responsable').value.trim());
-    });
-    document.querySelectorAll('[data-quitar-responsable]').forEach(btn=>{
-      btn.addEventListener('click', ()=> quitarResponsable(btn.dataset.quitarResponsable));
     });
   }
 }
