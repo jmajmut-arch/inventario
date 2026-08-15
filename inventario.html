@@ -179,7 +179,7 @@ textarea{resize:vertical;min-height:60px;}
 .selected-sku .code{font-family:'IBM Plex Mono';font-weight:700;font-size:15px;color:var(--amber);}
 
 .icon-btn{background:none;border:none;padding:4px;color:var(--amber);display:inline-flex;align-items:center;justify-content:center;line-height:0;}
-.icon-btn svg{width:16px;height:16px;}
+.icon-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
 .icon-btn.disabled{color:var(--text-faint);opacity:.35;}
 .foto-modal-backdrop{position:fixed;inset:0;background:rgba(10,12,15,.86);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;}
 .foto-modal-card{position:relative;max-width:92vw;max-height:86vh;}
@@ -219,7 +219,8 @@ textarea{resize:vertical;min-height:60px;}
 .plan-item-universo{font-size:11px;color:var(--text-faint);margin-top:3px;}
 .plan-item-detalle{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
 .plan-sku-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
-.plan-sku-lista li{font-size:12px;color:var(--text-dim);}
+.plan-sku-lista li{font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.plan-sku-lista .icon-btn{padding:2px;flex:none;}
 
 #print-plan{display:none;}
 @media print{
@@ -466,11 +467,18 @@ function inicioSemana(d){
   return date;
 }
 
-async function contarUniversoUbicacion({bodega, ubicacion, storage_bin}){
+// Arma el filtro PostgREST que excluye del cálculo los SKU quitados a mano de una entrada del plan.
+function filtroExclusion(excluidos){
+  if(!excluidos || !excluidos.length) return '';
+  return `&sku_code=not.in.(${excluidos.map(s=>encodeURIComponent(s)).join(',')})`;
+}
+
+async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos}){
   let filtro = '/skus?activo=eq.true';
   if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
   if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
   if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  filtro += filtroExclusion(excluidos);
   const res = await fetch(`${SUPABASE_URL}/rest/v1${filtro}`, {
     headers:{
       'apikey': SUPABASE_ANON_KEY,
@@ -486,11 +494,12 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin}){
 
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
-async function skusDeUbicacion({bodega, ubicacion, storage_bin}){
+async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos}){
   let filtro = '/skus?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc';
   if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
   if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
   if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  filtro += filtroExclusion(excluidos);
   const TAM_PAGINA = 1000;
   let desde = 0, total = Infinity, filas = [];
   while(desde < total){
@@ -522,13 +531,21 @@ async function cargarPlanSemanal(){
     const rows = await rest(`/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[]}});
     (rows||[]).forEach(async r=>{
-      const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin});
+      const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos});
       setState({plan: {...state.plan, universos: {...state.plan.universos, [r.id]: total}}});
     });
     (rows||[]).forEach(async r=>{
-      const skus = await skusDeUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin});
+      const skus = await skusDeUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos});
       setState({plan: {...state.plan, detalle: {...state.plan.detalle, [r.id]: skus}}});
     });
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function excluirSkuDePlan(planId, skuCode){
+  try{
+    await rest('/plan_semanal_exclusiones', {method:'POST', body:[{plan_id:planId, sku_code:skuCode}], prefer:'return=minimal'});
+    toast('SKU quitado de la planificación');
+    cargarPlanSemanal();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1540,7 +1557,7 @@ async function imprimirPlan(){
     for(const d of porDia){
       cuerpo += `<h2>${esc(d.label)}</h2>`;
       for(const e of d.entradas){
-        const skus = await skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin});
+        const skus = await skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin, excluidos:e.skus_excluidos});
         cuerpo += encabezadoEntradaPlan(e) + tablaSkusEntradaPlan(skus);
       }
     }
@@ -1659,7 +1676,12 @@ function renderPlanificacion(){
                 ${!p.detalle[e.id]? 'Cargando SKU…' : (
                   p.detalle[e.id].length? `
                     <ul class="plan-sku-lista">
-                      ${p.detalle[e.id].slice(0,50).map(s=>`<li><span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}</li>`).join('')}
+                      ${p.detalle[e.id].slice(0,50).map(s=>`
+                        <li>
+                          <span><span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}</span>
+                          <button class="icon-btn plan-sku-quitar" data-plan-id="${e.id}" data-sku-code="${esc(s.sku_code)}" aria-label="Quitar SKU de la planificación" style="color:var(--danger)">${ICONS.x}</button>
+                        </li>
+                      `).join('')}
                     </ul>
                     ${p.detalle[e.id].length>50? `<div class="hint" style="margin-top:4px">Mostrando 50 de ${p.detalle[e.id].length}. Usa "Exportar PDF" para ver el listado completo.</div>` : ''}
                   ` : `<div class="hint">Sin SKU activos en esta ubicación.</div>`
@@ -2064,6 +2086,9 @@ function bind(){
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> borrarPlanEntrada(btn.dataset.borrarPlan));
+    });
+    document.querySelectorAll('.plan-sku-quitar').forEach(btn=>{
+      btn.addEventListener('click', ()=> excluirSkuDePlan(btn.dataset.planId, btn.dataset.skuCode));
     });
     document.querySelectorAll('[data-editar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({plan:{...state.plan, editando: btn.dataset.editarPlan}}));
