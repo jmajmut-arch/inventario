@@ -272,7 +272,7 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], usuarios:[] },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null },
 };
 
 const TEMAS = [
@@ -394,7 +394,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],usuarios:[]}, skuSeleccionado:null, conteoFotos:[] };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null}, skuSeleccionado:null, conteoFotos:[] };
   render();
 }
 
@@ -402,7 +402,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarUsuariosAsignables()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarResponsables()]);
 }
 
 async function cargarSkus(){
@@ -525,10 +525,27 @@ async function cargarPlanSemanal(){
   }catch(e){ toast(e.message,'err'); }
 }
 
-async function cargarUsuariosAsignables(){
+async function cargarResponsables(){
   try{
-    const rows = await rest('/usuarios?activo=eq.true&order=nombre.asc&select=id,nombre');
-    setState({plan: {...state.plan, usuarios: rows||[]}});
+    const rows = await rest('/responsables_proceso?activo=eq.true&order=nombre.asc&select=id,nombre');
+    setState({plan: {...state.plan, responsables: rows||[]}});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function crearResponsable(nombre){
+  if(!nombre) return;
+  try{
+    await rest('/responsables_proceso', {method:'POST', body:[{nombre}], prefer:'return=minimal'});
+    toast('Responsable agregado');
+    cargarResponsables();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function quitarResponsable(id){
+  try{
+    await rest(`/responsables_proceso?id=eq.${id}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
+    toast('Responsable quitado de la lista');
+    cargarResponsables();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -541,6 +558,18 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsa
       responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
     })), prefer:'return=minimal'});
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
+    cargarPlanSemanal();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function actualizarPlanEntrada(id, {fecha, responsableId, nota}){
+  if(!fecha){ toast('Elige una fecha','err'); return; }
+  try{
+    await rest(`/plan_semanal?id=eq.${id}`, {method:'PATCH', body:{
+      fecha, responsable_id: responsableId||null, nota: nota||null,
+    }, prefer:'return=minimal'});
+    toast('Planificación actualizada');
+    setState({plan: {...state.plan, editando:null}});
     cargarPlanSemanal();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -909,6 +938,7 @@ const ICONS = {
   buscar:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   plan:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></svg>',
   download:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 21h14"/></svg>',
+  editar:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
 };
 
 /* =======================================================================
@@ -1551,6 +1581,24 @@ function renderPlanificacion(){
     </div>
 
     <div class="card">
+      <h3 style="margin:0 0 10px;font-size:15px">Responsables del proceso</h3>
+      <div class="hint" style="margin-bottom:10px">Personas asignables como responsables al planificar. No requieren cuenta en la app.</div>
+      <form id="form-responsable">
+        <label for="nuevo-responsable">Nombre</label>
+        <input type="text" id="nuevo-responsable" placeholder="Ej. Ana Torres" required>
+        <div style="margin-top:10px">
+          <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar responsable</button>
+        </div>
+      </form>
+      ${p.responsables.length? `<div style="margin-top:12px">${p.responsables.map(u=>`
+        <div class="plan-item" style="padding:8px 0">
+          <div class="plan-item-ubic" style="font-weight:500">${esc(u.nombre)}</div>
+          <button class="icon-btn" data-quitar-responsable="${esc(u.id)}" aria-label="Quitar" style="color:var(--danger)">${ICONS.x}</button>
+        </div>
+      `).join('')}</div>` : ''}
+    </div>
+
+    <div class="card">
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
@@ -1580,7 +1628,7 @@ function renderPlanificacion(){
         <label for="p-responsable">Responsable</label>
         <select id="p-responsable">
           <option value="">Sin asignar</option>
-          ${p.usuarios.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+          ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
         </select>
         <label for="p-nota">Nota</label>
         <input type="text" id="p-nota" placeholder="Opcional">
@@ -1593,7 +1641,24 @@ function renderPlanificacion(){
     ${porDia.map(d=>`
       <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)} · ${d.corta}</h2></div>
       <div class="card">
-        ${d.entradas.length? d.entradas.map(e=>`
+        ${d.entradas.length? d.entradas.map(e=> p.editando===e.id ? `
+          <div class="plan-item" style="flex-direction:column;align-items:stretch;gap:0">
+            <div class="plan-item-ubic" style="margin-bottom:8px">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
+            <label for="pe-fecha-${e.id}">Fecha</label>
+            <input type="date" id="pe-fecha-${e.id}" value="${e.fecha}">
+            <label for="pe-responsable-${e.id}">Responsable</label>
+            <select id="pe-responsable-${e.id}">
+              <option value="">Sin asignar</option>
+              ${p.responsables.map(u=>`<option value="${esc(u.id)}" ${u.id===e.responsable_id?'selected':''}>${esc(u.nombre)}</option>`).join('')}
+            </select>
+            <label for="pe-nota-${e.id}">Nota</label>
+            <input type="text" id="pe-nota-${e.id}" value="${esc(e.nota||'')}" placeholder="Opcional">
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button class="btn btn-primary" data-guardar-plan="${e.id}" style="width:auto;padding:8px 14px">Guardar</button>
+              <button class="btn btn-secondary" data-cancelar-plan="${e.id}" style="width:auto;padding:8px 14px">Cancelar</button>
+            </div>
+          </div>
+        ` : `
           <div class="plan-item">
             <div class="plan-item-info">
               <div class="plan-item-ubic">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
@@ -1601,7 +1666,10 @@ function renderPlanificacion(){
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
               <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}</div>
             </div>
-            <button class="icon-btn" data-borrar-plan="${e.id}" aria-label="Eliminar" style="color:var(--danger)">${ICONS.x}</button>
+            <div style="display:flex;flex-direction:column;gap:6px;flex:none">
+              <button class="icon-btn" data-editar-plan="${e.id}" aria-label="Editar">${ICONS.editar}</button>
+              <button class="icon-btn" data-borrar-plan="${e.id}" aria-label="Eliminar" style="color:var(--danger)">${ICONS.x}</button>
+            </div>
           </div>
         `).join('') : `<div class="empty" style="padding:14px 8px">Sin conteos planificados.</div>`}
       </div>
@@ -1970,6 +2038,29 @@ function bind(){
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> borrarPlanEntrada(btn.dataset.borrarPlan));
+    });
+    document.querySelectorAll('[data-editar-plan]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({plan:{...state.plan, editando: btn.dataset.editarPlan}}));
+    });
+    document.querySelectorAll('[data-cancelar-plan]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({plan:{...state.plan, editando: null}}));
+    });
+    document.querySelectorAll('[data-guardar-plan]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.dataset.guardarPlan;
+        actualizarPlanEntrada(id, {
+          fecha: document.getElementById(`pe-fecha-${id}`).value,
+          responsableId: document.getElementById(`pe-responsable-${id}`).value,
+          nota: document.getElementById(`pe-nota-${id}`).value.trim(),
+        });
+      });
+    });
+    document.getElementById('form-responsable').addEventListener('submit', e=>{
+      e.preventDefault();
+      crearResponsable(document.getElementById('nuevo-responsable').value.trim());
+    });
+    document.querySelectorAll('[data-quitar-responsable]').forEach(btn=>{
+      btn.addEventListener('click', ()=> quitarResponsable(btn.dataset.quitarResponsable));
     });
   }
 }
