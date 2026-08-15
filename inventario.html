@@ -475,14 +475,15 @@ async function cargarPlanSemanal(){
   }catch(e){ toast(e.message,'err'); }
 }
 
-async function crearPlanEntrada({fecha, bodega, ubicacion, storage_bin, nota}){
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, nota}){
   if(!fecha){ toast('Elige una fecha','err'); return; }
+  const bins = (storageBins && storageBins.length) ? storageBins : [null];
   try{
-    await rest('/plan_semanal', {method:'POST', body:[{
-      fecha, bodega: bodega||null, ubicacion: ubicacion||null, storage_bin: storage_bin||null,
+    await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
+      fecha, bodega: bodega||null, ubicacion: ubicacion||null, storage_bin: bin||null,
       nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
-    }], prefer:'return=minimal'});
-    toast('Agregado a la planificación');
+    })), prefer:'return=minimal'});
+    toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1430,9 +1431,10 @@ function renderPlanificacion(){
             </select>
           </div>
           <div><label for="p-bin">Storage bin</label>
-            <select id="p-bin" disabled>
+            <select id="p-bin" multiple size="6" disabled>
               <option value="">Elige ubicación específica primero</option>
             </select>
+            <div class="hint" style="margin:4px 0 0">Puedes elegir más de uno. Sin selección = todos.</div>
           </div>
         </div>
         <label for="p-nota">Nota</label>
@@ -1763,11 +1765,12 @@ function bind(){
     });
     document.getElementById('form-plan').addEventListener('submit', e=>{
       e.preventDefault();
+      const storageBins = [...document.getElementById('p-bin').selectedOptions].map(o=>o.value).filter(Boolean);
       crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
         bodega: document.getElementById('p-bodega').value.trim(),
         ubicacion: document.getElementById('p-ubic').value.trim(),
-        storage_bin: document.getElementById('p-bin').value.trim(),
+        storageBins,
         nota: document.getElementById('p-nota').value.trim(),
       });
     });
@@ -1800,7 +1803,7 @@ function bind(){
       selBin.innerHTML = '<option value="">Cargando…</option>';
       selBin.disabled = true;
       const opciones = await opcionesBins(bodega, ubicacion);
-      selBin.innerHTML = '<option value="">Todos</option>' + opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)}</option>`).join('');
+      selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)}</option>`).join('');
       selBin.disabled = false;
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
