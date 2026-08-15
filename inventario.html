@@ -216,11 +216,27 @@ textarea{resize:vertical;min-height:60px;}
 .plan-item-ubic{font-size:13.5px;font-weight:600;color:var(--text);}
 .plan-item-nota{font-size:12px;color:var(--text-dim);margin-top:2px;}
 .plan-item-universo{font-size:11px;color:var(--text-faint);margin-top:3px;}
+
+#print-plan{display:none;}
+@media print{
+  body *{visibility:hidden;}
+  #print-plan, #print-plan *{visibility:visible;}
+  #print-plan{display:block;position:absolute;top:0;left:0;width:100%;padding:0;color:#000;background:#fff;}
+  #print-plan h1{font-size:17px;margin:0 0 2px;}
+  #print-plan .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
+  #print-plan h2{font-size:13px;text-transform:capitalize;margin:16px 0 6px;border-bottom:1px solid #000;padding-bottom:2px;}
+  #print-plan table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:4px;}
+  #print-plan th,#print-plan td{border:1px solid #999;padding:4px 6px;text-align:left;}
+  #print-plan th{background:#eee;}
+  #print-plan .print-check{display:inline-block;width:14px;height:14px;border:1.3px solid #000;}
+  #print-plan .print-vacio{font-size:11px;color:#555;}
+}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <div id="toast-root"></div>
+<div id="print-plan"></div>
 
 <script>
 /* =======================================================================
@@ -851,6 +867,7 @@ const ICONS = {
   config:'<svg viewBox="0 0 24 24" style="width:16px;height:16px" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
   buscar:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   plan:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></svg>',
+  download:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 21h14"/></svg>',
 };
 
 /* =======================================================================
@@ -1387,6 +1404,46 @@ function renderBuscar(){
   `;
 }
 
+function imprimirPlan(){
+  const p = state.plan;
+  const inicio = new Date(p.semanaInicio+'T00:00:00');
+  const finSemana = sumarDias(inicio,6);
+  const dias = Array.from({length:7},(_,i)=> sumarDias(inicio,i));
+  const porDia = dias.map(d=>{
+    const iso = fechaISO(d);
+    return {
+      label: d.toLocaleDateString('es-CL',{weekday:'long', day:'2-digit', month:'short'}),
+      entradas: p.entradas.filter(e=>e.fecha===iso),
+    };
+  }).filter(d=>d.entradas.length);
+
+  const cuerpo = porDia.length ? porDia.map(d=>`
+    <h2>${esc(d.label)}</h2>
+    <table>
+      <thead><tr><th>Ubicación general</th><th>Ubicación específica</th><th>Storage bin</th><th>SKU</th><th>Nota</th><th>Contado</th></tr></thead>
+      <tbody>
+        ${d.entradas.map(e=>`
+          <tr>
+            <td>${esc(e.bodega||'—')}</td>
+            <td>${esc(e.ubicacion||'—')}</td>
+            <td>${esc(e.storage_bin||'—')}</td>
+            <td>${p.universos[e.id]!==undefined? p.universos[e.id] : '—'}</td>
+            <td>${esc(e.nota||'')}</td>
+            <td><span class="print-check"></span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `).join('') : `<p class="print-vacio">No hay conteos planificados para esta semana.</p>`;
+
+  document.getElementById('print-plan').innerHTML = `
+    <h1>Plan de conteo semanal</h1>
+    <div class="print-meta">Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}</div>
+    ${cuerpo}
+  `;
+  window.print();
+}
+
 /* =======================================================================
    RENDER — Planificación semanal (por bodega, ubicación específica y storage bin)
    ======================================================================= */
@@ -1407,7 +1464,10 @@ function renderPlanificacion(){
   });
 
   return `
-    <div class="section-head"><div><span class="eyebrow">Planificación</span><h2>Semana de conteo</h2></div></div>
+    <div class="section-head">
+      <div><span class="eyebrow">Planificación</span><h2>Semana de conteo</h2></div>
+      <button class="btn btn-secondary" id="btn-exportar-plan" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${p.entradas.length?'':'disabled'}>${ICONS.download} Exportar PDF</button>
+    </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
       <button class="btn btn-secondary" id="plan-semana-prev" style="width:auto;padding:8px 12px;flex:none">‹</button>
       <span class="hint" style="margin:0;text-align:center">${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))}</span>
@@ -1757,6 +1817,8 @@ function bind(){
   }
 
   if(state.view==='plan'){
+    const btnExportarPlan = document.getElementById('btn-exportar-plan');
+    if(btnExportarPlan) btnExportarPlan.addEventListener('click', imprimirPlan);
     document.getElementById('plan-semana-prev').addEventListener('click', ()=>{
       const nueva = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), -7));
       setState({plan:{...state.plan, semanaInicio:nueva}});
