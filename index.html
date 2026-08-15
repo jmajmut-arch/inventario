@@ -216,7 +216,10 @@ textarea{resize:vertical;min-height:60px;}
 .plan-item-ubic{font-size:13.5px;font-weight:600;color:var(--text);}
 .plan-item-responsable{font-size:12px;color:var(--text-dim);margin-top:2px;}
 .plan-item-nota{font-size:12px;color:var(--text-dim);margin-top:2px;}
-.plan-item-universo{font-size:11px;color:var(--text-faint);margin-top:3px;}
+.plan-item-universo{font-size:11px;color:var(--text-faint);margin-top:3px;background:none;border:none;padding:0;text-align:left;text-decoration:underline;cursor:pointer;font-family:inherit;}
+.plan-item-detalle{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
+.plan-sku-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
+.plan-sku-lista li{font-size:12px;color:var(--text-dim);}
 
 #print-plan{display:none;}
 @media print{
@@ -272,7 +275,7 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, detalleAbierto:{} },
 };
 
 const TEMAS = [
@@ -394,7 +397,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null}, skuSeleccionado:null, conteoFotos:[] };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},detalleAbierto:{}}, skuSeleccionado:null, conteoFotos:[] };
   render();
 }
 
@@ -510,6 +513,20 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin}){
     if(!data.length) break;
   }
   return filas;
+}
+
+async function alternarDetalleSku(id, {bodega, ubicacion, storage_bin}){
+  const abierto = !!state.plan.detalleAbierto[id];
+  if(abierto){
+    setState({plan:{...state.plan, detalleAbierto:{...state.plan.detalleAbierto, [id]:false}}});
+    return;
+  }
+  setState({plan:{...state.plan, detalleAbierto:{...state.plan.detalleAbierto, [id]:true}}});
+  if(state.plan.detalle[id]) return;
+  try{
+    const skus = await skusDeUbicacion({bodega, ubicacion, storage_bin});
+    setState({plan:{...state.plan, detalle:{...state.plan.detalle, [id]:skus}}});
+  }catch(e){ toast(e.message,'err'); }
 }
 
 async function cargarPlanSemanal(){
@@ -1647,7 +1664,22 @@ function renderPlanificacion(){
               <div class="plan-item-ubic">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
               <div class="plan-item-responsable">Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}</div>
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
-              <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}</div>
+              <button class="plan-item-universo" data-toggle-detalle="${e.id}">
+                ${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}
+                ${p.detalleAbierto[e.id]? ' · Ocultar' : ' · Ver SKU'}
+              </button>
+              ${p.detalleAbierto[e.id]? `
+                <div class="plan-item-detalle">
+                  ${!p.detalle[e.id]? 'Cargando SKU…' : (
+                    p.detalle[e.id].length? `
+                      <ul class="plan-sku-lista">
+                        ${p.detalle[e.id].slice(0,50).map(s=>`<li><span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}</li>`).join('')}
+                      </ul>
+                      ${p.detalle[e.id].length>50? `<div class="hint" style="margin-top:4px">Mostrando 50 de ${p.detalle[e.id].length}. Usa "Exportar PDF" para ver el listado completo.</div>` : ''}
+                    ` : `<div class="hint">Sin SKU activos en esta ubicación.</div>`
+                  )}
+                </div>
+              ` : ''}
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;flex:none">
               <button class="icon-btn" data-editar-plan="${e.id}" aria-label="Editar">${ICONS.editar}</button>
@@ -2047,6 +2079,13 @@ function bind(){
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> borrarPlanEntrada(btn.dataset.borrarPlan));
+    });
+    document.querySelectorAll('[data-toggle-detalle]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.dataset.toggleDetalle;
+        const entrada = state.plan.entradas.find(e=>e.id===id);
+        if(entrada) alternarDetalleSku(id, {bodega:entrada.bodega, ubicacion:entrada.ubicacion, storage_bin:entrada.storage_bin});
+      });
     });
     document.querySelectorAll('[data-editar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({plan:{...state.plan, editando: btn.dataset.editarPlan}}));
