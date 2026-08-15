@@ -400,6 +400,7 @@ async function handleSignup(email, password, nombre){
 function handleLogout(){
   state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{}}, skuSeleccionado:null, conteoFotos:[] };
   render();
+  toast('Sesión cerrada');
 }
 
 /* =======================================================================
