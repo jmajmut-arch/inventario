@@ -262,6 +262,8 @@ let state = {
   view: 'dashboard',
   loading: false,
   authMode: 'login',   // login | signup
+  authEmpresaModo: 'crear',  // crear | unir (solo aplica en signup)
+  authCodigoInfo: null,      // {estado:'validando'|'valido'|'invalido', nombre}
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
@@ -355,7 +357,7 @@ function toast(msg, type='ok'){
    ======================================================================= */
 async function cargarPerfil(){
   const uid = state.session.user.id;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,empresa_id,empresas(nombre,codigo_invitacion)`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
 }
@@ -375,10 +377,22 @@ async function handleLogin(email, password){
   }
 }
 
-async function handleSignup(email, password, nombre){
+async function validarCodigoEmpresa(codigo){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/validar_codigo_empresa`, {
+    method:'POST',
+    headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
+    body: JSON.stringify({p_codigo:codigo})
+  });
+  return res.json().catch(()=>null);
+}
+
+async function handleSignup(email, password, nombre, modoEmpresa, empresaNombre, codigoInvitacion){
   try{
     setState({loading:true});
-    const data = await authRequest('/signup', {email, password, data:{ nombre }});
+    const empresaData = modoEmpresa==='crear'
+      ? { modo_empresa:'crear', empresa_nombre: empresaNombre }
+      : { modo_empresa:'unir', codigo_invitacion: codigoInvitacion };
+    const data = await authRequest('/signup', {email, password, data:{ nombre, ...empresaData }});
     if(data.access_token){
       state.session = data;
       // pequeño margen para que el trigger de la BD cree el perfil
@@ -557,10 +571,20 @@ async function cargarResponsables(){
   }catch(e){ toast(e.message,'err'); }
 }
 
+async function actualizarNombreEmpresa(nombre){
+  if(!nombre || !state.perfil || !state.perfil.empresa_id) return;
+  try{
+    await rest(`/empresas?id=eq.${state.perfil.empresa_id}`, {method:'PATCH', body:{nombre}, prefer:'return=minimal'});
+    state.perfil.empresas.nombre = nombre;
+    toast('Nombre de la empresa actualizado');
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
+
 async function crearResponsable(nombre){
   if(!nombre) return;
   try{
-    await rest('/responsables_proceso', {method:'POST', body:[{nombre}], prefer:'return=minimal'});
+    await rest('/responsables_proceso', {method:'POST', body:[{nombre, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
     toast('Operador agregado');
     cargarResponsables();
   }catch(e){ toast(e.message,'err'); }
@@ -581,6 +605,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsa
     await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
       fecha, bodega: bodega||null, ubicacion: ubicacion||null, storage_bin: bin||null,
       responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
+      empresa_id: state.perfil.empresa_id,
     })), prefer:'return=minimal'});
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
@@ -859,7 +884,7 @@ function detectarMapeo(headers, campos){
    ======================================================================= */
 async function crearSkuManual(payload){
   try{
-    await rest('/skus', {method:'POST', body:[payload], prefer:'return=minimal'});
+    await rest('/skus', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
     toast('SKU cargado correctamente');
     refrescarListaSkus();
     return true;
@@ -893,6 +918,7 @@ async function confirmarCargaMasiva(){
       const stockRaw = valor(row,'stock_sistema');
       porCodigo.set(sku_code, {
         sku_code,
+        empresa_id: state.perfil.empresa_id,
         descripcion: valor(row,'descripcion') || null,
         categoria: valor(row,'categoria') || null,
         unidad_medida: valor(row,'unidad_medida') || null,
@@ -906,7 +932,7 @@ async function confirmarCargaMasiva(){
     });
     const lote = Array.from(porCodigo.values());
     try{
-      if(lote.length) await rest('/skus?on_conflict=sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+      if(lote.length) await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
       // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
       if(modo==='reemplazar' && lote.length){
         await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
@@ -942,6 +968,7 @@ async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, fil
   try{
     await rest('/cargas_masivas', {method:'POST', body:[{
       nombre_archivo, tipo, usuario_id: state.perfil?state.perfil.id:null,
+      empresa_id: state.perfil.empresa_id,
       filas_totales, filas_ok, filas_error, detalle_errores: detalle_errores.slice(0,50)
     }], prefer:'return=minimal'});
   }catch(e){ /* no bloquea el flujo */ }
@@ -958,6 +985,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
     const filas = await rest('/conteos', {method:'POST', body:[{
       sku_id: state.skuSeleccionado.id,
       usuario_id: state.perfil ? state.perfil.id : null,
+      empresa_id: state.perfil.empresa_id,
       cantidad_contada: Number(cantidad),
       ubicacion_contada: ubicacion || null,
       bodega: bodega || state.skuSeleccionado.bodega || null,
@@ -1009,6 +1037,11 @@ const ICONS = {
    ======================================================================= */
 function renderLogin(){
   const isSignup = state.authMode === 'signup';
+  const modoEmpresa = state.authEmpresaModo;
+  const ci = state.authCodigoInfo;
+  const codigoHint = !ci? '' : ci.estado==='validando'? `<div class="hint">Verificando código…</div>`
+    : ci.estado==='valido'? `<div class="hint" style="color:var(--ok)">Te unirás a: ${esc(ci.nombre)}</div>`
+    : `<div class="hint" style="color:var(--danger)">Código no válido o inactivo.</div>`;
   return `
   <div class="login-wrap">
     <div class="login-card">
@@ -1020,6 +1053,19 @@ function renderLogin(){
         ${isSignup? `
         <label for="f-nombre">Nombre completo</label>
         <input type="text" id="f-nombre" placeholder="Ej. Joel Majmut" required>
+        <label>Tu empresa</label>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button type="button" class="btn ${modoEmpresa==='crear'?'btn-primary':'btn-secondary'}" data-empresa-modo="crear" style="flex:1;padding:8px 6px;font-size:13px">Crear empresa nueva</button>
+          <button type="button" class="btn ${modoEmpresa==='unir'?'btn-primary':'btn-secondary'}" data-empresa-modo="unir" style="flex:1;padding:8px 6px;font-size:13px">Unirme con código</button>
+        </div>
+        ${modoEmpresa==='crear'? `
+        <label for="f-empresa-nombre">Nombre de tu empresa</label>
+        <input type="text" id="f-empresa-nombre" placeholder="Ej. Minera Los Andes" required>
+        `:`
+        <label for="f-codigo-invitacion">Código de invitación</label>
+        <input type="text" id="f-codigo-invitacion" placeholder="Ej. A1B2C3D4" maxlength="8" style="text-transform:uppercase" required>
+        ${codigoHint}
+        `}
         `:''}
         <label for="f-email">Correo</label>
         <input type="email" id="f-email" placeholder="nombre@empresa.cl" required>
@@ -1831,7 +1877,32 @@ function renderPlanificacion(){
    ======================================================================= */
 function renderConfiguraciones(){
   const p = state.plan;
+  const empresa = state.perfil && state.perfil.empresas;
+  const esAdmin = state.perfil && state.perfil.rol === 'admin';
   return `
+    ${empresa? `
+    <div class="section-head"><div><span class="eyebrow">Cuenta</span><h2>Empresa</h2></div></div>
+    <div class="card">
+      ${esAdmin? `
+      <form id="form-empresa-nombre">
+        <label for="empresa-nombre-input">Nombre de la empresa</label>
+        <input type="text" id="empresa-nombre-input" value="${esc(empresa.nombre)}" required>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Guardar nombre</button></div>
+      </form>
+      ` : `
+      <label>Nombre de la empresa</label>
+      <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
+      `}
+      <div style="margin-top:16px">
+        <label>Código de invitación</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="mono" style="font-size:19px;letter-spacing:3px;font-weight:700;color:var(--amber);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:8px 14px">${esc(empresa.codigo_invitacion)}</div>
+          <button type="button" id="btn-copiar-codigo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Copiar</button>
+        </div>
+        <div class="hint" style="margin-top:8px">Comparte este código con tu equipo: al registrarse y elegir "Unirme con código", verán y contarán el mismo inventario de ${esc(empresa.nombre)}.</div>
+      </div>
+    </div>
+    ` : ''}
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
     ${TEMAS.map(t=>`
@@ -1893,7 +1964,7 @@ function renderShell(){
       <div class="topbar-row">
         <div class="brand">
           <div class="brand-badge">IT</div>
-          <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>Toma física de inventario</span></div>
+          <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : 'Toma física de inventario')}</span></div>
         </div>
         <div class="user-chip">
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
@@ -1954,14 +2025,37 @@ function bind(){
       const pass = document.getElementById('f-pass').value;
       if(state.authMode==='signup'){
         const nombre = document.getElementById('f-nombre').value.trim();
-        handleSignup(email, pass, nombre);
+        const modoEmpresa = state.authEmpresaModo;
+        const empresaNombre = modoEmpresa==='crear' ? document.getElementById('f-empresa-nombre').value.trim() : null;
+        const codigoInvitacion = modoEmpresa==='unir' ? document.getElementById('f-codigo-invitacion').value.trim() : null;
+        handleSignup(email, pass, nombre, modoEmpresa, empresaNombre, codigoInvitacion);
       }else{
         handleLogin(email, pass);
       }
     });
     document.getElementById('toggle-auth').addEventListener('click', ()=>{
-      setState({authMode: state.authMode==='login'?'signup':'login'});
+      setState({authMode: state.authMode==='login'?'signup':'login', authEmpresaModo:'crear', authCodigoInfo:null});
     });
+    document.querySelectorAll('[data-empresa-modo]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        setState({authEmpresaModo: btn.dataset.empresaModo, authCodigoInfo:null});
+      });
+    });
+    const inputCodigo = document.getElementById('f-codigo-invitacion');
+    if(inputCodigo){
+      let debounce;
+      inputCodigo.addEventListener('input', ()=>{
+        clearTimeout(debounce);
+        const codigo = inputCodigo.value.trim();
+        if(!codigo){ setState({authCodigoInfo:null}); return; }
+        debounce = setTimeout(async ()=>{
+          setState({authCodigoInfo:{estado:'validando'}});
+          const nombre = await validarCodigoEmpresa(codigo).catch(()=>null);
+          setState({authCodigoInfo: nombre? {estado:'valido', nombre} : {estado:'invalido'}});
+        }, 500);
+      });
+      inputCodigo.focus(); inputCodigo.selectionStart = inputCodigo.selectionEnd = inputCodigo.value.length;
+    }
     return;
   }
 
@@ -1985,6 +2079,18 @@ function bind(){
     });
     document.querySelectorAll('[data-eliminar-operador]').forEach(btn=>{
       btn.addEventListener('click', ()=> quitarResponsable(btn.dataset.eliminarOperador));
+    });
+    const formEmpresaNombre = document.getElementById('form-empresa-nombre');
+    if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
+      e.preventDefault();
+      actualizarNombreEmpresa(document.getElementById('empresa-nombre-input').value.trim());
+    });
+    const btnCopiarCodigo = document.getElementById('btn-copiar-codigo');
+    if(btnCopiarCodigo) btnCopiarCodigo.addEventListener('click', async ()=>{
+      try{
+        await navigator.clipboard.writeText(state.perfil.empresas.codigo_invitacion);
+        toast('Código copiado');
+      }catch(e){ toast('No se pudo copiar el código','err'); }
     });
   }
 
