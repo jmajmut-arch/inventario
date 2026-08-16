@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Control de Inventario — Toma Física</title>
+<title>Certero</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1222,9 +1222,9 @@ function renderLogin(){
   <div class="login-wrap">
     <div class="login-card">
       <div class="ticks" style="position:absolute;top:5px;left:0;right:0;opacity:0">${'<span></span>'.repeat(40)}</div>
-      <div class="login-logo">IT</div>
-      <h1 class="login-title">Toma Física de Inventario</h1>
-      <div class="login-sub">Bodega · Cadena de suministro minera</div>
+      <div class="login-logo">C</div>
+      <h1 class="login-title">Certero</h1>
+      <div class="login-sub">Toma física de inventario · Bodega y cadena de suministro minera</div>
       <form id="auth-form">
         <label for="f-email">Correo</label>
         <input type="email" id="f-email" placeholder="nombre@empresa.cl" required>
@@ -1246,7 +1246,7 @@ function renderRecuperarPassword(){
   return `
   <div class="login-wrap">
     <div class="login-card">
-      <div class="login-logo">IT</div>
+      <div class="login-logo">C</div>
       <h1 class="login-title">Recupera tu acceso</h1>
       <div class="login-sub">Te enviaremos un link para crear una contraseña nueva</div>
       <form id="recuperar-password-form">
@@ -1270,7 +1270,7 @@ function renderCrearPassword(){
   return `
   <div class="login-wrap">
     <div class="login-card">
-      <div class="login-logo">IT</div>
+      <div class="login-logo">C</div>
       <h1 class="login-title">Crea tu contraseña</h1>
       <div class="login-sub">${esc(state.session.user.email||'')}</div>
       <form id="crear-password-form">
@@ -2279,8 +2279,8 @@ function renderShell(){
     <div class="topbar">
       <div class="topbar-row">
         <div class="brand">
-          <div class="brand-badge">IT</div>
-          <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : 'Toma física de inventario')}</span></div>
+          <div class="brand-badge">C</div>
+          <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : 'Certero')}</span></div>
         </div>
         <div class="user-chip">
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
