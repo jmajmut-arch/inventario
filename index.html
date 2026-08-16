@@ -261,9 +261,7 @@ let state = {
   perfil: null,        // fila de public.usuarios
   view: 'dashboard',
   loading: false,
-  authMode: 'login',   // login | signup
-  authEmpresaModo: 'crear',  // crear | unir (solo aplica en signup)
-  authCodigoInfo: null,      // {estado:'validando'|'valido'|'invalido', nombre}
+  debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
@@ -279,6 +277,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
+  superadmin: { empresas: [], invitando: false, cargado: false },
 };
 
 const TEMAS = [
@@ -357,7 +356,7 @@ function toast(msg, type='ok'){
    ======================================================================= */
 async function cargarPerfil(){
   const uid = state.session.user.id;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,empresa_id,empresas(nombre,codigo_invitacion)`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion)`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
 }
@@ -377,34 +376,44 @@ async function handleLogin(email, password){
   }
 }
 
-async function validarCodigoEmpresa(codigo){
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/validar_codigo_empresa`, {
-    method:'POST',
-    headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
-    body: JSON.stringify({p_codigo:codigo})
-  });
-  return res.json().catch(()=>null);
+// Al llegar desde el link del correo de invitación, Supabase redirige con el
+// token de sesión en el fragmento de la URL (#access_token=...&type=recovery).
+// Lo detectamos antes del primer render para mostrar "crea tu contraseña"
+// en vez del login normal.
+async function procesarLlegadaPorInvitacion(){
+  const hash = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  const params = new URLSearchParams(hash);
+  const accessToken = params.get('access_token');
+  const tipo = params.get('type');
+  if(!accessToken || (tipo!=='recovery' && tipo!=='invite')) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try{
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${accessToken}` }
+    });
+    const user = await res.json();
+    if(!res.ok || !user.id) throw new Error('El link de invitación ya no es válido');
+    state.session = { access_token: accessToken, refresh_token: params.get('refresh_token'), user };
+    state.debeCrearPassword = true;
+  }catch(e){
+    toast(e.message,'err');
+  }
 }
 
-async function handleSignup(email, password, nombre, modoEmpresa, empresaNombre, codigoInvitacion){
+async function establecerPassword(nuevaPassword){
   try{
     setState({loading:true});
-    const empresaData = modoEmpresa==='crear'
-      ? { modo_empresa:'crear', empresa_nombre: empresaNombre }
-      : { modo_empresa:'unir', codigo_invitacion: codigoInvitacion };
-    const data = await authRequest('/signup', {email, password, data:{ nombre, ...empresaData }});
-    if(data.access_token){
-      state.session = data;
-      // pequeño margen para que el trigger de la BD cree el perfil
-      await new Promise(r=>setTimeout(r,700));
-      await cargarPerfil();
-      setState({loading:false, view:'dashboard'});
-      toast('Cuenta creada. ¡Bienvenido!');
-      cargarTodo();
-    }else{
-      setState({loading:false, authMode:'login'});
-      toast('Cuenta creada. Ya puedes iniciar sesión.');
-    }
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method:'PUT',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+      body: JSON.stringify({password: nuevaPassword})
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error_description || data.msg || data.error || 'No se pudo guardar la contraseña');
+    await cargarPerfil();
+    setState({loading:false, debeCrearPassword:false, view:'dashboard'});
+    toast(`Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
+    cargarTodo();
   }catch(e){
     setState({loading:false});
     toast(e.message,'err');
@@ -412,7 +421,7 @@ async function handleSignup(email, password, nombre, modoEmpresa, empresaNombre,
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[] };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],invitando:false,cargado:false} };
   render();
   toast('Sesión cerrada');
 }
@@ -579,6 +588,43 @@ async function actualizarNombreEmpresa(nombre){
     toast('Nombre de la empresa actualizado');
     render();
   }catch(e){ toast(e.message,'err'); }
+}
+
+/* =======================================================================
+   ACCIONES — Super-admin (empresas y personas de cualquier empresa)
+   ======================================================================= */
+async function cargarEmpresasSuperAdmin(){
+  try{
+    const filas = await rest('/empresas?select=id,nombre,activo&order=nombre.asc');
+    state.superadmin.empresas = filas || [];
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function crearEmpresaSuperAdmin(nombre){
+  if(!nombre) return;
+  try{
+    await rest('/empresas', {method:'POST', body:[{nombre}], prefer:'return=minimal'});
+    toast('Empresa creada');
+    cargarEmpresasSuperAdmin();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function invitarPersona({email, nombre, empresaId, rol}){
+  state.superadmin.invitando = true;
+  render();
+  try{
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-user`, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+      body: JSON.stringify({email, nombre, empresaId, rol})
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'No se pudo enviar la invitación');
+    toast(`Invitación enviada a ${email}`);
+    return true;
+  }catch(e){ toast(e.message,'err'); return false; }
+  finally{ state.superadmin.invitando = false; render(); }
 }
 
 async function crearResponsable(nombre){
@@ -1036,12 +1082,6 @@ const ICONS = {
    RENDER — LOGIN
    ======================================================================= */
 function renderLogin(){
-  const isSignup = state.authMode === 'signup';
-  const modoEmpresa = state.authEmpresaModo;
-  const ci = state.authCodigoInfo;
-  const codigoHint = !ci? '' : ci.estado==='validando'? `<div class="hint">Verificando código…</div>`
-    : ci.estado==='valido'? `<div class="hint" style="color:var(--ok)">Te unirás a: ${esc(ci.nombre)}</div>`
-    : `<div class="hint" style="color:var(--danger)">Código no válido o inactivo.</div>`;
   return `
   <div class="login-wrap">
     <div class="login-card">
@@ -1050,37 +1090,40 @@ function renderLogin(){
       <h1 class="login-title">Toma Física de Inventario</h1>
       <div class="login-sub">Bodega · Cadena de suministro minera</div>
       <form id="auth-form">
-        ${isSignup? `
-        <label for="f-nombre">Nombre completo</label>
-        <input type="text" id="f-nombre" placeholder="Ej. Joel Majmut" required>
-        <label>Tu empresa</label>
-        <div style="display:flex;gap:8px;margin-bottom:12px">
-          <button type="button" class="btn ${modoEmpresa==='crear'?'btn-primary':'btn-secondary'}" data-empresa-modo="crear" style="flex:1;padding:8px 6px;font-size:13px">Crear empresa nueva</button>
-          <button type="button" class="btn ${modoEmpresa==='unir'?'btn-primary':'btn-secondary'}" data-empresa-modo="unir" style="flex:1;padding:8px 6px;font-size:13px">Unirme con código</button>
-        </div>
-        ${modoEmpresa==='crear'? `
-        <label for="f-empresa-nombre">Nombre de tu empresa</label>
-        <input type="text" id="f-empresa-nombre" placeholder="Ej. Minera Los Andes" required>
-        `:`
-        <label for="f-codigo-invitacion">Código de invitación</label>
-        <input type="text" id="f-codigo-invitacion" placeholder="Ej. A1B2C3D4" maxlength="8" style="text-transform:uppercase" required>
-        ${codigoHint}
-        `}
-        `:''}
         <label for="f-email">Correo</label>
         <input type="email" id="f-email" placeholder="nombre@empresa.cl" required>
         <label for="f-pass">Contraseña</label>
         <input type="password" id="f-pass" placeholder="••••••••" required minlength="6">
         <div style="margin-top:20px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>
-            ${state.loading? '<span class="spinner"></span>' : (isSignup?'Crear cuenta':'Ingresar')}
+            ${state.loading? '<span class="spinner"></span>' : 'Ingresar'}
           </button>
         </div>
       </form>
-      <div class="login-toggle">
-        ${isSignup? 'Ya tienes cuenta?' : 'Primera vez aquí?'}
-        <button id="toggle-auth">${isSignup? 'Inicia sesión' : 'Regístrate'}</button>
-      </div>
+      <div class="hint" style="text-align:center;margin-top:16px">¿No tienes cuenta? Pide que el administrador te invite.</div>
+    </div>
+  </div>`;
+}
+
+/* =======================================================================
+   RENDER — Crear contraseña (llegada desde un correo de invitación)
+   ======================================================================= */
+function renderCrearPassword(){
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">IT</div>
+      <h1 class="login-title">Crea tu contraseña</h1>
+      <div class="login-sub">${esc(state.session.user.email||'')}</div>
+      <form id="crear-password-form">
+        <label for="f-nueva-pass">Nueva contraseña</label>
+        <input type="password" id="f-nueva-pass" placeholder="••••••••" required minlength="6">
+        <div style="margin-top:20px">
+          <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>
+            ${state.loading? '<span class="spinner"></span>' : 'Entrar'}
+          </button>
+        </div>
+      </form>
     </div>
   </div>`;
 }
@@ -1875,11 +1918,54 @@ function renderPlanificacion(){
 /* =======================================================================
    RENDER — Configuraciones (tema visual)
    ======================================================================= */
+function renderSuperAdmin(){
+  const sa = state.superadmin;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Panel</span><h2>Super-admin</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Crea una cuenta de empresa para un cliente nuevo.</div>
+      <form id="form-crear-empresa-sa">
+        <label for="nueva-empresa-nombre">Nombre de la empresa</label>
+        <input type="text" id="nueva-empresa-nombre" placeholder="Ej. Minera Los Andes" required>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear empresa</button></div>
+      </form>
+      ${sa.empresas.length? `<div style="margin-top:12px">${sa.empresas.map(e=>`
+        <div class="plan-item" style="padding:8px 0">
+          <div class="plan-item-ubic" style="font-weight:500">${esc(e.nombre)}</div>
+        </div>
+      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Aún no hay empresas creadas.</div>`}
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:10px">Invita a una persona a una empresa. Le llegará un correo para crear su contraseña.</div>
+      <form id="form-invitar-persona-sa">
+        <label for="invitar-nombre">Nombre completo</label>
+        <input type="text" id="invitar-nombre" placeholder="Ej. Ana Torres" required>
+        <label for="invitar-email">Correo</label>
+        <input type="email" id="invitar-email" placeholder="nombre@empresa.cl" required>
+        <label for="invitar-empresa">Empresa</label>
+        <select id="invitar-empresa" required>
+          <option value="">Selecciona una empresa</option>
+          ${sa.empresas.map(e=>`<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join('')}
+        </select>
+        <label for="invitar-rol">Rol</label>
+        <select id="invitar-rol">
+          <option value="contador">Contador</option>
+          <option value="supervisor">Supervisor</option>
+          <option value="admin">Administrador</option>
+        </select>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${sa.invitando?'disabled':''}>${sa.invitando?'Enviando…':'Enviar invitación'}</button></div>
+      </form>
+    </div>
+  `;
+}
+
 function renderConfiguraciones(){
   const p = state.plan;
   const empresa = state.perfil && state.perfil.empresas;
   const esAdmin = state.perfil && state.perfil.rol === 'admin';
+  const esSuperAdmin = state.perfil && state.perfil.es_super_admin;
   return `
+    ${esSuperAdmin? renderSuperAdmin() : ''}
     ${empresa? `
     <div class="section-head"><div><span class="eyebrow">Cuenta</span><h2>Empresa</h2></div></div>
     <div class="card">
@@ -1893,14 +1979,6 @@ function renderConfiguraciones(){
       <label>Nombre de la empresa</label>
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
-      <div style="margin-top:16px">
-        <label>Código de invitación</label>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <div class="mono" style="font-size:19px;letter-spacing:3px;font-weight:700;color:var(--amber);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:8px 14px">${esc(empresa.codigo_invitacion)}</div>
-          <button type="button" id="btn-copiar-codigo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Copiar</button>
-        </div>
-        <div class="hint" style="margin-top:8px">Comparte este código con tu equipo: al registrarse y elegir "Unirme con código", verán y contarán el mismo inventario de ${esc(empresa.nombre)}.</div>
-      </div>
     </div>
     ` : ''}
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
@@ -1996,7 +2074,7 @@ function tabBtn(view,label){
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
   const root = document.getElementById('app');
-  root.innerHTML = (state.session ? renderShell() : renderLogin()) + renderFotoModal();
+  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : state.session ? renderShell() : renderLogin()) + renderFotoModal();
   bind();
 }
 
@@ -2017,45 +2095,21 @@ function bind(){
       setState({fotoModal:{urls, index:(index+1)%urls.length}});
     });
   }
+  if(state.debeCrearPassword){
+    document.getElementById('crear-password-form').addEventListener('submit', e=>{
+      e.preventDefault();
+      establecerPassword(document.getElementById('f-nueva-pass').value);
+    });
+    return;
+  }
   if(!state.session){
     const form = document.getElementById('auth-form');
     form.addEventListener('submit', e=>{
       e.preventDefault();
       const email = document.getElementById('f-email').value.trim();
       const pass = document.getElementById('f-pass').value;
-      if(state.authMode==='signup'){
-        const nombre = document.getElementById('f-nombre').value.trim();
-        const modoEmpresa = state.authEmpresaModo;
-        const empresaNombre = modoEmpresa==='crear' ? document.getElementById('f-empresa-nombre').value.trim() : null;
-        const codigoInvitacion = modoEmpresa==='unir' ? document.getElementById('f-codigo-invitacion').value.trim() : null;
-        handleSignup(email, pass, nombre, modoEmpresa, empresaNombre, codigoInvitacion);
-      }else{
-        handleLogin(email, pass);
-      }
+      handleLogin(email, pass);
     });
-    document.getElementById('toggle-auth').addEventListener('click', ()=>{
-      setState({authMode: state.authMode==='login'?'signup':'login', authEmpresaModo:'crear', authCodigoInfo:null});
-    });
-    document.querySelectorAll('[data-empresa-modo]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        setState({authEmpresaModo: btn.dataset.empresaModo, authCodigoInfo:null});
-      });
-    });
-    const inputCodigo = document.getElementById('f-codigo-invitacion');
-    if(inputCodigo){
-      let debounce;
-      inputCodigo.addEventListener('input', ()=>{
-        clearTimeout(debounce);
-        const codigo = inputCodigo.value.trim();
-        if(!codigo){ setState({authCodigoInfo:null}); return; }
-        debounce = setTimeout(async ()=>{
-          setState({authCodigoInfo:{estado:'validando'}});
-          const nombre = await validarCodigoEmpresa(codigo).catch(()=>null);
-          setState({authCodigoInfo: nombre? {estado:'valido', nombre} : {estado:'invalido'}});
-        }, 500);
-      });
-      inputCodigo.focus(); inputCodigo.selectionStart = inputCodigo.selectionEnd = inputCodigo.value.length;
-    }
     return;
   }
 
@@ -2085,13 +2139,23 @@ function bind(){
       e.preventDefault();
       actualizarNombreEmpresa(document.getElementById('empresa-nombre-input').value.trim());
     });
-    const btnCopiarCodigo = document.getElementById('btn-copiar-codigo');
-    if(btnCopiarCodigo) btnCopiarCodigo.addEventListener('click', async ()=>{
-      try{
-        await navigator.clipboard.writeText(state.perfil.empresas.codigo_invitacion);
-        toast('Código copiado');
-      }catch(e){ toast('No se pudo copiar el código','err'); }
-    });
+    if(state.perfil && state.perfil.es_super_admin){
+      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); }
+      document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
+        e.preventDefault();
+        const input = document.getElementById('nueva-empresa-nombre');
+        crearEmpresaSuperAdmin(input.value.trim());
+        input.value = '';
+      });
+      document.getElementById('form-invitar-persona-sa').addEventListener('submit', e=>{
+        e.preventDefault();
+        const nombre = document.getElementById('invitar-nombre').value.trim();
+        const email = document.getElementById('invitar-email').value.trim();
+        const empresaId = document.getElementById('invitar-empresa').value;
+        const rol = document.getElementById('invitar-rol').value;
+        invitarPersona({email, nombre, empresaId, rol}).then(ok=>{ if(ok) e.target.reset(); });
+      });
+    }
   }
 
   if(state.view==='dashboard'){
@@ -2351,7 +2415,7 @@ function bind(){
   }
 }
 
-render();
+procesarLlegadaPorInvitacion().then(render);
 </script>
 </body>
 </html>
