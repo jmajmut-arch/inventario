@@ -276,7 +276,7 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{} },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
 };
 
 const TEMAS = [
@@ -398,7 +398,7 @@ async function handleSignup(email, password, nombre){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{}}, skuSeleccionado:null, conteoFotos:[] };
+  state = { ...state, session:null, perfil:null, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[] };
   render();
   toast('Sesión cerrada');
 }
@@ -530,7 +530,7 @@ async function cargarPlanSemanal(){
   const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 6));
   try{
     const rows = await rest(`/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
-    setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[]}});
+    setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[], seleccionados:[]}});
     (rows||[]).forEach(async r=>{
       const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos});
       setState({plan: {...state.plan, universos: {...state.plan.universos, [r.id]: total}}});
@@ -612,6 +612,29 @@ async function borrarPlanEntrada(id){
 async function confirmarYBorrarPlanEntrada(id){
   if(confirm('¿Eliminar toda esta entrada del plan? Se pierde la ubicación, el responsable y la nota asignados.')){
     await borrarPlanEntrada(id);
+  }
+}
+
+function alternarSeleccionPlan(id){
+  const actual = state.plan.seleccionados;
+  const seleccionados = actual.includes(id) ? actual.filter(x=>x!==id) : [...actual, id];
+  setState({plan: {...state.plan, seleccionados}});
+}
+
+async function borrarPlanEntradas(ids){
+  if(!ids.length) return;
+  try{
+    await rest(`/plan_semanal?id=in.(${ids.join(',')})`, {method:'DELETE'});
+    toast(`${ids.length} entrada${ids.length>1?'s eliminadas':' eliminada'} de la planificación`);
+    cargarPlanSemanal();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function confirmarYBorrarSeleccionPlan(){
+  const ids = state.plan.seleccionados;
+  if(!ids.length) return;
+  if(confirm(`¿Eliminar ${ids.length} entrada${ids.length>1?'s':''} del plan? Se pierde la ubicación, el responsable y la nota de cada una.`)){
+    await borrarPlanEntradas(ids);
   }
 }
 
@@ -1708,6 +1731,16 @@ function renderPlanificacion(){
       </div>
     ` : ''}
 
+    ${p.seleccionados.length? `
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-color:var(--danger)">
+        <span style="font-size:13px;font-weight:600">${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}</span>
+        <div style="display:flex;gap:8px;flex:none">
+          <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
+          <button class="btn" id="btn-borrar-seleccion-plan" style="width:auto;padding:8px 12px;background:var(--danger);color:#fff">${ICONS.papelera.replace('style="width:15px;height:15px"','style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Eliminar</button>
+        </div>
+      </div>
+    ` : ''}
+
     ${porDia.map(d=>`
       <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)} · ${d.corta}</h2></div>
       <div class="card">
@@ -1730,6 +1763,8 @@ function renderPlanificacion(){
           </div>
         ` : `
           <div class="plan-item">
+            <div style="display:flex;gap:10px;align-items:flex-start;flex:1;min-width:0">
+            <input type="checkbox" class="plan-select-check" data-select-plan="${e.id}" ${p.seleccionados.includes(e.id)?'checked':''} aria-label="Seleccionar esta entrada para borrado masivo" style="margin-top:3px;flex:none">
             <div class="plan-item-info">
               <div class="plan-item-ubic">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
               <div class="plan-item-responsable">Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}</div>
@@ -1750,6 +1785,7 @@ function renderPlanificacion(){
                   ` : `<div class="hint">Sin SKU activos en esta ubicación.</div>`
                 )}
               </div>
+            </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;flex:none">
               <button class="icon-btn" data-editar-plan="${e.id}" aria-label="Editar" title="Editar esta entrada del plan">${ICONS.editar}</button>
@@ -2150,6 +2186,13 @@ function bind(){
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> confirmarYBorrarPlanEntrada(btn.dataset.borrarPlan));
     });
+    document.querySelectorAll('.plan-select-check').forEach(chk=>{
+      chk.addEventListener('change', ()=> alternarSeleccionPlan(chk.dataset.selectPlan));
+    });
+    const btnBorrarSeleccion = document.getElementById('btn-borrar-seleccion-plan');
+    if(btnBorrarSeleccion) btnBorrarSeleccion.addEventListener('click', confirmarYBorrarSeleccionPlan);
+    const btnCancelarSeleccion = document.getElementById('btn-cancelar-seleccion-plan');
+    if(btnCancelarSeleccion) btnCancelarSeleccion.addEventListener('click', ()=> setState({plan:{...state.plan, seleccionados:[]}}));
     document.querySelectorAll('.plan-sku-quitar').forEach(btn=>{
       btn.addEventListener('click', ()=> excluirSkuDePlan(btn.dataset.planId, btn.dataset.skuCode));
     });
