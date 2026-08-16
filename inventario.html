@@ -277,7 +277,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], invitando: false, cargado: false },
+  superadmin: { empresas: [], invitando: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
 };
 
 const TEMAS = [
@@ -421,7 +421,7 @@ async function establecerPassword(nuevaPassword){
 }
 
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],invitando:false,cargado:false} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],invitando:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
   render();
   toast('Sesión cerrada');
 }
@@ -625,6 +625,36 @@ async function invitarPersona({email, nombre, empresaId, rol}){
     return true;
   }catch(e){ toast(e.message,'err'); return false; }
   finally{ state.superadmin.invitando = false; render(); }
+}
+
+async function actualizarEmpresaSuperAdmin(id, cambios){
+  try{
+    await rest(`/empresas?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
+    toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : 'Nombre actualizado');
+    cargarEmpresasSuperAdmin();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarPersonasSuperAdmin(empresaId){
+  state.superadmin.personasEmpresaId = empresaId;
+  state.superadmin.personas = [];
+  state.superadmin.cargandoPersonas = !!empresaId;
+  render();
+  if(!empresaId) return;
+  try{
+    const filas = await rest(`/usuarios?empresa_id=eq.${empresaId}&select=id,nombre,rol,activo&order=nombre.asc`);
+    state.superadmin.personas = filas || [];
+  }catch(e){ toast(e.message,'err'); }
+  state.superadmin.cargandoPersonas = false;
+  render();
+}
+
+async function actualizarPersonaSuperAdmin(id, cambios){
+  try{
+    await rest(`/usuarios?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
+    toast(cambios.activo===false ? 'Persona desactivada' : cambios.activo===true ? 'Persona reactivada' : 'Persona actualizada');
+    cargarPersonasSuperAdmin(state.superadmin.personasEmpresaId);
+  }catch(e){ toast(e.message,'err'); }
 }
 
 async function crearResponsable(nombre){
@@ -1920,18 +1950,24 @@ function renderPlanificacion(){
    ======================================================================= */
 function renderSuperAdmin(){
   const sa = state.superadmin;
+  const empresasActivas = sa.empresas.filter(e=>e.activo);
   return `
     <div class="section-head"><div><span class="eyebrow">Panel</span><h2>Super-admin</h2></div></div>
     <div class="card">
-      <div class="hint" style="margin-bottom:10px">Crea una cuenta de empresa para un cliente nuevo.</div>
+      <div class="hint" style="margin-bottom:10px">Crea, renombra o desactiva cuentas de empresa. Desactivar le corta el acceso a todo su equipo (se puede reactivar cuando quieras).</div>
       <form id="form-crear-empresa-sa">
         <label for="nueva-empresa-nombre">Nombre de la empresa</label>
         <input type="text" id="nueva-empresa-nombre" placeholder="Ej. Minera Los Andes" required>
         <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear empresa</button></div>
       </form>
       ${sa.empresas.length? `<div style="margin-top:12px">${sa.empresas.map(e=>`
-        <div class="plan-item" style="padding:8px 0">
-          <div class="plan-item-ubic" style="font-weight:500">${esc(e.nombre)}</div>
+        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <input type="text" class="sa-empresa-nombre" data-empresa-id="${esc(e.id)}" value="${esc(e.nombre)}" style="flex:1;min-width:140px;margin:0;${e.activo?'':'opacity:.5'}">
+          ${!e.activo? `<span class="badge badge-danger">Inactiva</span>` : ''}
+          <div style="display:flex;gap:4px;flex:none">
+            <button type="button" class="icon-btn" data-guardar-empresa-sa="${esc(e.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
+            <button type="button" class="icon-btn" data-toggle-empresa-sa="${esc(e.id)}" data-activo="${e.activo?'1':'0'}" aria-label="${e.activo?'Desactivar':'Reactivar'}" style="color:${e.activo?'var(--danger)':'var(--ok)'}">${e.activo?ICONS.papelera:ICONS.conteo}</button>
+          </div>
         </div>
       `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Aún no hay empresas creadas.</div>`}
     </div>
@@ -1945,7 +1981,7 @@ function renderSuperAdmin(){
         <label for="invitar-empresa">Empresa</label>
         <select id="invitar-empresa" required>
           <option value="">Selecciona una empresa</option>
-          ${sa.empresas.map(e=>`<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join('')}
+          ${empresasActivas.map(e=>`<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join('')}
         </select>
         <label for="invitar-rol">Rol</label>
         <select id="invitar-rol">
@@ -1955,6 +1991,31 @@ function renderSuperAdmin(){
         </select>
         <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${sa.invitando?'disabled':''}>${sa.invitando?'Enviando…':'Enviar invitación'}</button></div>
       </form>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:10px">Edita el nombre, el rol o desactiva el acceso de una persona ya existente.</div>
+      <label for="sa-personas-empresa">Empresa</label>
+      <select id="sa-personas-empresa">
+        <option value="">Selecciona una empresa</option>
+        ${sa.empresas.map(e=>`<option value="${esc(e.id)}" ${sa.personasEmpresaId===e.id?'selected':''}>${esc(e.nombre)}</option>`).join('')}
+      </select>
+      ${sa.cargandoPersonas? `<div class="hint" style="margin-top:10px">Cargando…</div>` : !sa.personasEmpresaId? '' : sa.personas.length? `
+      <div style="margin-top:12px">${sa.personas.map(u=>`
+        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <input type="text" class="sa-persona-nombre" data-persona-id="${esc(u.id)}" value="${esc(u.nombre)}" style="flex:1;min-width:120px;margin:0;${u.activo?'':'opacity:.5'}">
+          <select class="sa-persona-rol" data-persona-id="${esc(u.id)}" style="flex:none;width:auto;margin:0">
+            <option value="contador" ${u.rol==='contador'?'selected':''}>Contador</option>
+            <option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option>
+            <option value="admin" ${u.rol==='admin'?'selected':''}>Administrador</option>
+          </select>
+          ${!u.activo? `<span class="badge badge-danger">Inactiva</span>` : ''}
+          <div style="display:flex;gap:4px;flex:none">
+            <button type="button" class="icon-btn" data-guardar-persona-sa="${esc(u.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
+            <button type="button" class="icon-btn" data-toggle-persona-sa="${esc(u.id)}" data-activo="${u.activo?'1':'0'}" aria-label="${u.activo?'Desactivar':'Reactivar'}" style="color:${u.activo?'var(--danger)':'var(--ok)'}">${u.activo?ICONS.papelera:ICONS.conteo}</button>
+          </div>
+        </div>
+      `).join('')}</div>
+      ` : `<div class="empty" style="padding:14px 8px">Esta empresa aún no tiene personas.</div>`}
     </div>
   `;
 }
@@ -2154,6 +2215,41 @@ function bind(){
         const empresaId = document.getElementById('invitar-empresa').value;
         const rol = document.getElementById('invitar-rol').value;
         invitarPersona({email, nombre, empresaId, rol}).then(ok=>{ if(ok) e.target.reset(); });
+      });
+      document.querySelectorAll('[data-guardar-empresa-sa]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const id = btn.dataset.guardarEmpresaSa;
+          const input = document.querySelector(`.sa-empresa-nombre[data-empresa-id="${id}"]`);
+          actualizarEmpresaSuperAdmin(id, {nombre: input.value.trim()});
+        });
+      });
+      document.querySelectorAll('[data-toggle-empresa-sa]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const id = btn.dataset.toggleEmpresaSa;
+          const activo = btn.dataset.activo === '1';
+          if(activo && !confirm('¿Desactivar esta empresa? Todo su equipo perderá el acceso hasta que la reactives.')) return;
+          actualizarEmpresaSuperAdmin(id, {activo: !activo});
+        });
+      });
+      const selectPersonasEmpresa = document.getElementById('sa-personas-empresa');
+      if(selectPersonasEmpresa) selectPersonasEmpresa.addEventListener('change', ()=> cargarPersonasSuperAdmin(selectPersonasEmpresa.value));
+      document.querySelectorAll('[data-guardar-persona-sa]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const id = btn.dataset.guardarPersonaSa;
+          const input = document.querySelector(`.sa-persona-nombre[data-persona-id="${id}"]`);
+          actualizarPersonaSuperAdmin(id, {nombre: input.value.trim()});
+        });
+      });
+      document.querySelectorAll('.sa-persona-rol').forEach(sel=>{
+        sel.addEventListener('change', ()=> actualizarPersonaSuperAdmin(sel.dataset.personaId, {rol: sel.value}));
+      });
+      document.querySelectorAll('[data-toggle-persona-sa]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const id = btn.dataset.togglePersonaSa;
+          const activo = btn.dataset.activo === '1';
+          if(activo && !confirm('¿Desactivar el acceso de esta persona?')) return;
+          actualizarPersonaSuperAdmin(id, {activo: !activo});
+        });
       });
     }
   }
