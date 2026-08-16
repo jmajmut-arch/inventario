@@ -621,6 +621,12 @@ function alternarSeleccionPlan(id){
   setState({plan: {...state.plan, seleccionados}});
 }
 
+function alternarSeleccionTodoPlan(){
+  const todos = state.plan.entradas.map(e=>e.id);
+  const yaTodosSeleccionados = todos.length>0 && state.plan.seleccionados.length===todos.length;
+  setState({plan: {...state.plan, seleccionados: yaTodosSeleccionados ? [] : todos}});
+}
+
 async function borrarPlanEntradas(ids){
   if(!ids.length) return;
   try{
@@ -1731,13 +1737,18 @@ function renderPlanificacion(){
       </div>
     ` : ''}
 
-    ${p.seleccionados.length? `
-      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-color:var(--danger)">
-        <span style="font-size:13px;font-weight:600">${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}</span>
-        <div style="display:flex;gap:8px;flex:none">
-          <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
-          <button class="btn" id="btn-borrar-seleccion-plan" style="width:auto;padding:8px 12px;background:var(--danger);color:#fff">${ICONS.papelera.replace('style="width:15px;height:15px"','style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Eliminar</button>
-        </div>
+    ${p.entradas.length? `
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${p.seleccionados.length?'border-color:var(--danger)':''}">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin:0">
+          <input type="checkbox" id="chk-seleccionar-todo-plan" ${p.seleccionados.length && p.seleccionados.length===p.entradas.length?'checked':''}>
+          ${p.seleccionados.length? `${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}` : 'Seleccionar todo'}
+        </label>
+        ${p.seleccionados.length? `
+          <div style="display:flex;gap:8px;flex:none">
+            <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
+            <button class="btn" id="btn-borrar-seleccion-plan" style="width:auto;padding:8px 12px;background:var(--danger);color:#fff">${ICONS.papelera.replace('style="width:15px;height:15px"','style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Eliminar</button>
+          </div>
+        ` : ''}
       </div>
     ` : ''}
 
@@ -2189,6 +2200,8 @@ function bind(){
     document.querySelectorAll('.plan-select-check').forEach(chk=>{
       chk.addEventListener('change', ()=> alternarSeleccionPlan(chk.dataset.selectPlan));
     });
+    const chkTodoPlan = document.getElementById('chk-seleccionar-todo-plan');
+    if(chkTodoPlan) chkTodoPlan.addEventListener('change', alternarSeleccionTodoPlan);
     const btnBorrarSeleccion = document.getElementById('btn-borrar-seleccion-plan');
     if(btnBorrarSeleccion) btnBorrarSeleccion.addEventListener('click', confirmarYBorrarSeleccionPlan);
     const btnCancelarSeleccion = document.getElementById('btn-cancelar-seleccion-plan');
