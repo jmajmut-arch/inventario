@@ -263,6 +263,7 @@ let state = {
   loading: false,
   debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
   authRecuperar: false,      // true muestra el formulario de "olvidé mi contraseña" en vez del login
+  invitandoPersona: false,   // spinner del botón "Enviar invitación" (panel super-admin o equipo de la empresa)
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
@@ -278,7 +279,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], resumen: [], invitando: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
 };
 
 const TEMAS = [
@@ -494,7 +495,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],invitando:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
   render();
   toast('Sesión cerrada');
 }
@@ -695,7 +696,7 @@ async function crearEmpresaSuperAdmin(nombre){
 }
 
 async function invitarPersona({email, nombre, empresaId, rol}){
-  state.superadmin.invitando = true;
+  state.invitandoPersona = true;
   render();
   try{
     const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-user`, {
@@ -706,10 +707,10 @@ async function invitarPersona({email, nombre, empresaId, rol}){
     const data = await res.json().catch(()=>({}));
     if(!res.ok) throw new Error(data.error || 'No se pudo enviar la invitación');
     toast(`Invitación enviada a ${email}`);
-    cargarResumenSuperAdmin();
+    if(state.perfil && state.perfil.es_super_admin) cargarResumenSuperAdmin();
     return true;
   }catch(e){ toast(e.message,'err'); return false; }
-  finally{ state.superadmin.invitando = false; render(); }
+  finally{ state.invitandoPersona = false; render(); }
 }
 
 async function actualizarEmpresaSuperAdmin(id, cambios){
@@ -2128,11 +2129,10 @@ function renderSuperAdmin(){
         </select>
         <label for="invitar-rol">Rol</label>
         <select id="invitar-rol">
-          <option value="contador">Contador</option>
-          <option value="supervisor">Supervisor</option>
+          <option value="inventariador">Inventariador</option>
           <option value="admin">Administrador</option>
         </select>
-        <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${sa.invitando?'disabled':''}>${sa.invitando?'Enviando…':'Enviar invitación'}</button></div>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${state.invitandoPersona?'disabled':''}>${state.invitandoPersona?'Enviando…':'Enviar invitación'}</button></div>
       </form>
     </div>
     <div class="card" style="margin-top:14px">
@@ -2147,8 +2147,7 @@ function renderSuperAdmin(){
         <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <input type="text" class="sa-persona-nombre" data-persona-id="${esc(u.id)}" value="${esc(u.nombre)}" style="flex:1;min-width:120px;margin:0;${u.activo?'':'opacity:.5'}">
           <select class="sa-persona-rol" data-persona-id="${esc(u.id)}" style="flex:none;width:auto;margin:0">
-            <option value="contador" ${u.rol==='contador'?'selected':''}>Contador</option>
-            <option value="supervisor" ${u.rol==='supervisor'?'selected':''}>Supervisor</option>
+            <option value="inventariador" ${u.rol==='inventariador'?'selected':''}>Inventariador</option>
             <option value="admin" ${u.rol==='admin'?'selected':''}>Administrador</option>
           </select>
           ${!u.activo? `<span class="badge badge-danger">Inactiva</span>` : ''}
@@ -2184,6 +2183,23 @@ function renderConfiguraciones(){
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
     </div>
+    ${esAdmin && !esSuperAdmin? `
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:10px">Invita a alguien de tu equipo a ${esc(empresa.nombre)}. Le llegará un correo para crear su contraseña.</div>
+      <form id="form-invitar-equipo">
+        <label for="equipo-nombre">Nombre completo</label>
+        <input type="text" id="equipo-nombre" placeholder="Ej. Ana Torres" required>
+        <label for="equipo-email">Correo</label>
+        <input type="email" id="equipo-email" placeholder="nombre@empresa.cl" required>
+        <label for="equipo-rol">Rol</label>
+        <select id="equipo-rol">
+          <option value="inventariador">Inventariador</option>
+          <option value="admin">Administrador</option>
+        </select>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${state.invitandoPersona?'disabled':''}>${state.invitandoPersona?'Enviando…':'Enviar invitación'}</button></div>
+      </form>
+    </div>
+    ` : ''}
     ` : ''}
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
@@ -2351,6 +2367,14 @@ function bind(){
     if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
       e.preventDefault();
       actualizarNombreEmpresa(document.getElementById('empresa-nombre-input').value.trim());
+    });
+    const formInvitarEquipo = document.getElementById('form-invitar-equipo');
+    if(formInvitarEquipo) formInvitarEquipo.addEventListener('submit', e=>{
+      e.preventDefault();
+      const nombre = document.getElementById('equipo-nombre').value.trim();
+      const email = document.getElementById('equipo-email').value.trim();
+      const rol = document.getElementById('equipo-rol').value;
+      invitarPersona({email, nombre, empresaId: state.perfil.empresa_id, rol}).then(ok=>{ if(ok) e.target.reset(); });
     });
     if(state.perfil && state.perfil.es_super_admin){
       if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); }
