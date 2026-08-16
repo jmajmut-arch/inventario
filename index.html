@@ -347,7 +347,24 @@ async function storageUpload(path, file){
     body:file
   });
   if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err.message||'No se pudo subir la foto'); }
-  return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
+  return path; // el bucket es privado: se guarda la ruta, la URL para verla se firma al momento de mostrarla
+}
+
+// Genera una URL temporal para ver una foto del bucket privado. Acepta tanto
+// una ruta nueva (empresa_id/sku/archivo) como una URL pública completa de
+// fotos subidas antes de que el bucket pasara a privado.
+async function crearUrlFirmada(fotoUrlORuta){
+  const marcador = `/object/public/${BUCKET}/`;
+  const idx = fotoUrlORuta.indexOf(marcador);
+  const ruta = idx>=0 ? fotoUrlORuta.slice(idx+marcador.length) : fotoUrlORuta;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${BUCKET}/${ruta}`, {
+    method:'POST',
+    headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+    body: JSON.stringify({expiresIn:3600})
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok || !data.signedURL) throw new Error(data.message || 'No se pudo abrir la foto');
+  return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
 }
 
 /* =======================================================================
@@ -1161,7 +1178,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
       const urls = [];
       for(const f of state.conteoFotos){
         const ext = (f.file.name.split('.').pop()||'jpg').toLowerCase();
-        const path = `${state.skuSeleccionado.sku_code}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.${ext}`;
+        const path = `${state.perfil.empresa_id}/${state.skuSeleccionado.sku_code}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.${ext}`;
         urls.push(await storageUpload(path, f.file));
       }
       await rest('/conteo_fotos', {method:'POST', body: urls.map(foto_url=>({conteo_id:conteoId, foto_url})), prefer:'return=minimal'});
@@ -2432,9 +2449,13 @@ function bind(){
 
   if(state.view==='dashboard'){
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const urls = JSON.parse(btn.dataset.verFotos);
-        if(urls.length) setState({fotoModal:{urls, index:0}});
+      btn.addEventListener('click', async ()=>{
+        const rutas = JSON.parse(btn.dataset.verFotos);
+        if(!rutas.length) return;
+        try{
+          const urls = await Promise.all(rutas.map(crearUrlFirmada));
+          setState({fotoModal:{urls, index:0}});
+        }catch(e){ toast(e.message,'err'); }
       });
     });
     document.querySelectorAll('[data-dash-modo]').forEach(btn=>{
@@ -2576,9 +2597,13 @@ function bind(){
       buscarConteos();
     });
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const urls = JSON.parse(btn.dataset.verFotos);
-        if(urls.length) setState({fotoModal:{urls, index:0}});
+      btn.addEventListener('click', async ()=>{
+        const rutas = JSON.parse(btn.dataset.verFotos);
+        if(!rutas.length) return;
+        try{
+          const urls = await Promise.all(rutas.map(crearUrlFirmada));
+          setState({fotoModal:{urls, index:0}});
+        }catch(e){ toast(e.message,'err'); }
       });
     });
   }
