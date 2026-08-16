@@ -262,6 +262,7 @@ let state = {
   view: 'dashboard',
   loading: false,
   debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
+  authRecuperar: false,      // true muestra el formulario de "olvidé mi contraseña" en vez del login
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
@@ -277,7 +278,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], invitando: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], invitando: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
 };
 
 const TEMAS = [
@@ -307,14 +308,23 @@ async function authRequest(path, body){
 }
 
 async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={} } = {}){
-  const headers = {
-    'apikey': SUPABASE_ANON_KEY,
-    'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
-    'Content-Type': 'application/json',
-    ...extraHeaders
+  const hacerLlamada = () => {
+    const headers = {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      ...extraHeaders
+    };
+    if(prefer) headers['Prefer'] = prefer;
+    return fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body?JSON.stringify(body):null });
   };
-  if(prefer) headers['Prefer'] = prefer;
-  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body?JSON.stringify(body):null });
+  let res = await hacerLlamada();
+  // El access_token dura poco (~1h); si ya venció, refrescamos con el refresh_token
+  // guardado y reintentamos una sola vez antes de mostrar el error.
+  if(res.status===401 && state.session && state.session.refresh_token){
+    const refrescada = await refrescarSesion();
+    if(refrescada) res = await hacerLlamada();
+  }
   const text = await res.text(); // POST/PATCH con Prefer: return=minimal responden 200/201 con cuerpo vacío, no 204 — no asumir JSON siempre presente
   let data = null;
   if(text){ try{ data = JSON.parse(text); }catch(e){ /* respuesta no-JSON */ } }
@@ -354,6 +364,45 @@ function toast(msg, type='ok'){
 /* =======================================================================
    AUTENTICACIÓN
    ======================================================================= */
+const SESION_KEY = 'sesion_inventario';
+
+function guardarSesion(data){
+  try{ localStorage.setItem(SESION_KEY, JSON.stringify({access_token:data.access_token, refresh_token:data.refresh_token, user:data.user})); }catch(e){ /* localStorage no disponible (modo privado, etc.) */ }
+}
+
+function borrarSesionGuardada(){
+  try{ localStorage.removeItem(SESION_KEY); }catch(e){ /* nada que borrar */ }
+}
+
+// El access_token dura ~1h; con el refresh_token pedimos uno nuevo sin que
+// la persona tenga que volver a loguearse (ni al recargar la página, ni
+// a mitad de un turno largo de conteo).
+async function refrescarSesion(){
+  if(!state.session || !state.session.refresh_token) return false;
+  try{
+    const data = await authRequest('/token?grant_type=refresh_token', {refresh_token: state.session.refresh_token});
+    if(!data.access_token) return false;
+    state.session = data;
+    guardarSesion(data);
+    return true;
+  }catch(e){ return false; }
+}
+
+// Al abrir la app, si hay una sesión guardada la restauramos (con refresh)
+// en vez de mostrar el login. Si el refresh_token ya no sirve o la cuenta
+// fue desactivada, la limpiamos y seguimos al login normal.
+async function restaurarSesionGuardada(){
+  let guardada;
+  try{ guardada = JSON.parse(localStorage.getItem(SESION_KEY)); }catch(e){ guardada = null; }
+  if(!guardada || !guardada.refresh_token) return;
+  state.session = guardada;
+  const ok = await refrescarSesion();
+  if(!ok){ state.session = null; borrarSesionGuardada(); return; }
+  await cargarPerfil();
+  if(!state.perfil){ state.session = null; borrarSesionGuardada(); return; }
+  cargarTodo();
+}
+
 async function cargarPerfil(){
   const uid = state.session.user.id;
   const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion)`);
@@ -366,6 +415,7 @@ async function handleLogin(email, password){
     setState({loading:true});
     const data = await authRequest('/token?grant_type=password', {email, password});
     state.session = data;
+    guardarSesion(data);
     await cargarPerfil();
     setState({loading:false, view:'dashboard'});
     toast(`Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
@@ -410,6 +460,7 @@ async function establecerPassword(nuevaPassword){
     });
     const data = await res.json().catch(()=>({}));
     if(!res.ok) throw new Error(data.error_description || data.msg || data.error || 'No se pudo guardar la contraseña');
+    guardarSesion(state.session);
     await cargarPerfil();
     setState({loading:false, debeCrearPassword:false, view:'dashboard'});
     toast(`Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
@@ -420,8 +471,30 @@ async function establecerPassword(nuevaPassword){
   }
 }
 
+async function solicitarRecuperacion(email){
+  if(!email) return;
+  try{
+    setState({loading:true});
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/recover?redirect_to=${encodeURIComponent(location.origin+location.pathname)}`, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
+      body: JSON.stringify({email})
+    });
+    if(!res.ok){
+      const data = await res.json().catch(()=>({}));
+      throw new Error(data.error_description || data.msg || data.error || 'No se pudo enviar el correo');
+    }
+    setState({loading:false, authRecuperar:false});
+    toast('Si el correo existe, te llegará un link para crear una contraseña nueva');
+  }catch(e){
+    setState({loading:false});
+    toast(e.message,'err');
+  }
+}
+
 function handleLogout(){
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],invitando:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
+  borrarSesionGuardada();
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],invitando:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
   render();
   toast('Sesión cerrada');
 }
@@ -601,12 +674,23 @@ async function cargarEmpresasSuperAdmin(){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Solo agregados (cantidad de personas y de SKU por empresa) — el super-admin
+// administra cuentas, no ve el detalle operativo de ninguna empresa.
+async function cargarResumenSuperAdmin(){
+  try{
+    const filas = await rest('/rpc/resumen_empresas_super_admin', {method:'POST'});
+    state.superadmin.resumen = filas || [];
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
+
 async function crearEmpresaSuperAdmin(nombre){
   if(!nombre) return;
   try{
     await rest('/empresas', {method:'POST', body:[{nombre}], prefer:'return=minimal'});
     toast('Empresa creada');
     cargarEmpresasSuperAdmin();
+    cargarResumenSuperAdmin();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -622,6 +706,7 @@ async function invitarPersona({email, nombre, empresaId, rol}){
     const data = await res.json().catch(()=>({}));
     if(!res.ok) throw new Error(data.error || 'No se pudo enviar la invitación');
     toast(`Invitación enviada a ${email}`);
+    cargarResumenSuperAdmin();
     return true;
   }catch(e){ toast(e.message,'err'); return false; }
   finally{ state.superadmin.invitando = false; render(); }
@@ -632,6 +717,7 @@ async function actualizarEmpresaSuperAdmin(id, cambios){
     await rest(`/empresas?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
     toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : 'Nombre actualizado');
     cargarEmpresasSuperAdmin();
+    cargarResumenSuperAdmin();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -654,6 +740,7 @@ async function actualizarPersonaSuperAdmin(id, cambios){
     await rest(`/usuarios?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
     toast(cambios.activo===false ? 'Persona desactivada' : cambios.activo===true ? 'Persona reactivada' : 'Persona actualizada');
     cargarPersonasSuperAdmin(state.superadmin.personasEmpresaId);
+    if(cambios.activo!==undefined) cargarResumenSuperAdmin();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1112,6 +1199,7 @@ const ICONS = {
    RENDER — LOGIN
    ======================================================================= */
 function renderLogin(){
+  if(state.authRecuperar) return renderRecuperarPassword();
   return `
   <div class="login-wrap">
     <div class="login-card">
@@ -1130,7 +1218,29 @@ function renderLogin(){
           </button>
         </div>
       </form>
-      <div class="hint" style="text-align:center;margin-top:16px">¿No tienes cuenta? Pide que el administrador te invite.</div>
+      <div class="login-toggle"><button type="button" id="btn-olvide-pass">¿Olvidaste tu contraseña?</button></div>
+      <div class="hint" style="text-align:center;margin-top:10px">¿No tienes cuenta? Pide que el administrador te invite.</div>
+    </div>
+  </div>`;
+}
+
+function renderRecuperarPassword(){
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">IT</div>
+      <h1 class="login-title">Recupera tu acceso</h1>
+      <div class="login-sub">Te enviaremos un link para crear una contraseña nueva</div>
+      <form id="recuperar-password-form">
+        <label for="f-recuperar-email">Correo</label>
+        <input type="email" id="f-recuperar-email" placeholder="nombre@empresa.cl" required>
+        <div style="margin-top:20px">
+          <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>
+            ${state.loading? '<span class="spinner"></span>' : 'Enviar link'}
+          </button>
+        </div>
+      </form>
+      <div class="login-toggle"><button type="button" id="btn-volver-login">Volver a iniciar sesión</button></div>
     </div>
   </div>`;
 }
@@ -1951,9 +2061,42 @@ function renderPlanificacion(){
 function renderSuperAdmin(){
   const sa = state.superadmin;
   const empresasActivas = sa.empresas.filter(e=>e.activo);
+  const resumen = sa.resumen;
+  const empresasResumenActivas = resumen.filter(r=>r.activo).length;
+  const personasActivas = resumen.reduce((s,r)=>s+Number(r.personas_activas||0),0);
+  const skusTotal = resumen.reduce((s,r)=>s+Number(r.skus_total||0),0);
   return `
     <div class="section-head"><div><span class="eyebrow">Panel</span><h2>Super-admin</h2></div></div>
-    <div class="card">
+    ${resumen.length? `
+    <div class="kpi-grid" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="tag-card">
+        <div class="kpi-label">Empresas activas</div>
+        <div class="kpi-value">${empresasResumenActivas}</div>
+        <div class="kpi-sub">de ${resumen.length} en total</div>
+      </div>
+      <div class="tag-card">
+        <div class="kpi-label">Personas activas</div>
+        <div class="kpi-value">${personasActivas}</div>
+        <div class="kpi-sub">con acceso hoy</div>
+      </div>
+      <div class="tag-card">
+        <div class="kpi-label">SKU cargados</div>
+        <div class="kpi-value">${skusTotal.toLocaleString('es-CL')}</div>
+        <div class="kpi-sub">en todas las empresas</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      ${resumen.map(r=>`
+        <div class="plan-item">
+          <div>
+            <div class="plan-item-ubic">${esc(r.nombre)} ${!r.activo?'<span class="badge badge-danger">Inactiva</span>':''}</div>
+            <div class="plan-item-responsable">${r.personas_activas} persona${Number(r.personas_activas)===1?'':'s'} · ${Number(r.skus_total).toLocaleString('es-CL')} SKU · desde ${fmtFecha(r.creada)}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+    <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:10px">Crea, renombra o desactiva cuentas de empresa. Desactivar le corta el acceso a todo su equipo (se puede reactivar cuando quieras).</div>
       <form id="form-crear-empresa-sa">
         <label for="nueva-empresa-nombre">Nombre de la empresa</label>
@@ -2164,6 +2307,14 @@ function bind(){
     return;
   }
   if(!state.session){
+    if(state.authRecuperar){
+      document.getElementById('recuperar-password-form').addEventListener('submit', e=>{
+        e.preventDefault();
+        solicitarRecuperacion(document.getElementById('f-recuperar-email').value.trim());
+      });
+      document.getElementById('btn-volver-login').addEventListener('click', ()=> setState({authRecuperar:false}));
+      return;
+    }
     const form = document.getElementById('auth-form');
     form.addEventListener('submit', e=>{
       e.preventDefault();
@@ -2171,6 +2322,7 @@ function bind(){
       const pass = document.getElementById('f-pass').value;
       handleLogin(email, pass);
     });
+    document.getElementById('btn-olvide-pass').addEventListener('click', ()=> setState({authRecuperar:true}));
     return;
   }
 
@@ -2201,7 +2353,7 @@ function bind(){
       actualizarNombreEmpresa(document.getElementById('empresa-nombre-input').value.trim());
     });
     if(state.perfil && state.perfil.es_super_admin){
-      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); }
+      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
         e.preventDefault();
         const input = document.getElementById('nueva-empresa-nombre');
@@ -2511,7 +2663,12 @@ function bind(){
   }
 }
 
-procesarLlegadaPorInvitacion().then(render);
+async function iniciarApp(){
+  await procesarLlegadaPorInvitacion();
+  if(!state.debeCrearPassword) await restaurarSesionGuardada();
+  render();
+}
+iniciarApp();
 </script>
 </body>
 </html>
