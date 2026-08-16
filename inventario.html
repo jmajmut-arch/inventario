@@ -1275,7 +1275,8 @@ function renderCrearPassword(){
       <div class="login-sub">${esc(state.session.user.email||'')}</div>
       <form id="crear-password-form">
         <label for="f-nueva-pass">Nueva contraseña</label>
-        <input type="password" id="f-nueva-pass" placeholder="••••••••" required minlength="6">
+        <input type="password" id="f-nueva-pass" placeholder="••••••••" required minlength="10">
+        <div class="hint" style="margin-top:6px">Mínimo 10 caracteres. Evita contraseñas que ya uses en otros sitios.</div>
         <div style="margin-top:20px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>
             ${state.loading? '<span class="spinner"></span>' : 'Entrar'}
