@@ -224,9 +224,9 @@ textarea{resize:vertical;min-height:60px;}
 
 #print-plan{display:none;}
 @media print{
-  body *{visibility:hidden;}
-  #print-plan, #print-plan *{visibility:visible;}
-  #print-plan{display:block;position:absolute;top:0;left:0;width:100%;padding:0;color:#000;background:#fff;}
+  html,body{background:#fff;}
+  #app,#toast-root{display:none;}
+  #print-plan{display:block;padding:0;color:#000;background:#fff;}
   #print-plan h1{font-size:17px;margin:0 0 2px;}
   #print-plan .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
   #print-plan h2{font-size:13px;text-transform:capitalize;margin:16px 0 6px;border-bottom:1px solid #000;padding-bottom:2px;page-break-after:avoid;}
