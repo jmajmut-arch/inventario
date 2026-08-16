@@ -1106,7 +1106,9 @@ function resumenPorResponsable(entradas, universos){
   return Array.from(map, ([nombre, cantidad])=>({nombre, cantidad})).sort((a,b)=> b.cantidad-a.cantidad);
 }
 
-function renderResponsableChart(filas){
+// Lista de barras horizontales para comparar magnitudes por categoría (responsable, bodega, etc.),
+// escaladas contra la mayor del grupo (no contra un total), de mayor a menor.
+function renderRankedBarList(filas){
   if(!filas.length) return `<div class="empty">Sin datos todavía.</div>`;
   const max = Math.max(1, ...filas.map(f=>f.cantidad));
   return filas.map(f=>{
@@ -1119,6 +1121,14 @@ function renderResponsableChart(filas){
       <div class="progress-track"><div class="progress-fill" style="width:${p}%"></div></div>
     </div>`;
   }).join('');
+}
+
+// SKU que faltan por contar en cada ubicación general, de mayor a menor — dónde falta trabajar.
+function resumenPendientesPorBodega(t){
+  return t
+    .map(r=>({nombre: r.bodega||'Sin ubicación general', cantidad: Math.max(0,(r.skus_universo||0)-(r.skus_contados||0))}))
+    .filter(f=>f.cantidad>0)
+    .sort((a,b)=> b.cantidad-a.cantidad);
 }
 
 function renderDiffChart(sinDif, conDif){
@@ -1159,6 +1169,8 @@ function renderDashboard(){
   const totUniverso = t.reduce((s,r)=>s+(r.skus_universo||0),0);
   const totContados = t.reduce((s,r)=>s+(r.skus_contados||0),0);
   const avanceGlobal = totUniverso? (totContados/totUniverso*100) : 0;
+
+  const pendientesBodega = resumenPendientesPorBodega(t);
 
   const filasBodega = t.map(r=>`
     <div class="tag-card" style="margin-bottom:10px">
@@ -1210,6 +1222,11 @@ function renderDashboard(){
 
     <div class="section-head"><div><span class="eyebrow">Últimos 14 días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>
+
+    ${pendientesBodega.length? `
+      <div class="section-head"><div><span class="eyebrow">Dónde falta contar</span><h2 style="font-size:17px">SKU pendientes por ubicación general</h2></div></div>
+      <div class="card">${renderRankedBarList(pendientesBodega)}</div>
+    ` : ''}
 
     <div class="section-head"><h2 style="font-size:17px">Avance por ubicación general</h2></div>
     ${filasBodega}
@@ -1733,7 +1750,7 @@ function renderPlanificacion(){
       </div>
       <div class="card">
         <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
-        ${renderResponsableChart(responsablesResumen)}
+        ${renderRankedBarList(responsablesResumen)}
       </div>
     ` : ''}
 
