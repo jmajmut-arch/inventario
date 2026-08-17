@@ -1,8 +1,8 @@
-// Service Worker de Certero: cachea el app shell para que la app siga
+// Service Worker de InventIA: cachea el app shell para que la app siga
 // abriendo aunque no haya conexión (los datos en sí se piden a Supabase
 // aparte; sin conexión, la app los muestra vacíos/cacheados por el navegador
 // y encola los conteos nuevos hasta que vuelva la señal).
-const CACHE_NAME = 'certero-shell-v2';
+const CACHE_NAME = 'inventia-shell-v1';
 const APP_SHELL = [
   './', './index.html', './manifest.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png',

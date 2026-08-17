@@ -1,6 +1,6 @@
 {
-  "name": "Certero",
-  "short_name": "Certero",
+  "name": "InventIA",
+  "short_name": "InventIA",
   "description": "Toma física de inventario para bodega y cadena de suministro minera",
   "start_url": "./index.html",
   "scope": "./",
