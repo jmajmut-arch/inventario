@@ -986,6 +986,43 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
   assert(calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/emp-1/SKU-999/')), 'guardarConteo debe subir la foto bajo una ruta que empiece con el empresa_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+  // ===== capturado_en: fecha real de captura, para auditoría (no la confunde con fecha_conteo/created_at) =====
+
+  // guardarConteo (online) debe enviar capturado_en con la hora actual del dispositivo.
+  ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };
+  ctx.__appstate.conteoFotos = [];
+  calls.length = 0;
+  const antesGuardar = Date.now();
+  await ctx.guardarConteo({cantidad:3, ubicacion:'', bodega:''});
+  const postConteoOnline = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
+  const bodyConteoOnline = JSON.parse(postConteoOnline.opts.body)[0];
+  assert(!!bodyConteoOnline.capturado_en, 'guardarConteo debe enviar capturado_en, obtuvo: '+JSON.stringify(bodyConteoOnline));
+  assert(Math.abs(new Date(bodyConteoOnline.capturado_en).getTime()-antesGuardar) < 5000, 'capturado_en debe ser la hora real de guardado, obtuvo: '+bodyConteoOnline.capturado_en);
+
+  // crearSkuManual (online) también debe enviar capturado_en.
+  calls.length = 0;
+  await ctx.crearSkuManual({sku_code:'SKU-CAP-1', descripcion:'x', activo:true});
+  const postSkuOnline = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  assert(!!JSON.parse(postSkuOnline.opts.body)[0].capturado_en, 'crearSkuManual debe enviar capturado_en, obtuvo: '+postSkuOnline.opts.body);
+
+  // fueCapturadoOffline: distingue una captura offline (fechas separadas por horas) de una
+  // online normal (mismo instante), con un margen de un minuto para no marcar falsos positivos.
+  assert(ctx.fueCapturadoOffline('2026-08-10T08:00:00Z', '2026-08-10T20:00:00Z')===true, 'una diferencia de horas debe considerarse captura offline');
+  assert(ctx.fueCapturadoOffline('2026-08-10T08:00:00.000Z', '2026-08-10T08:00:00.500Z')===false, 'una diferencia de milisegundos (guardado online normal) no debe marcarse como offline');
+  assert(ctx.fueCapturadoOffline(null, '2026-08-10T08:00:00Z')===false, 'sin capturado_en no debe marcarse como offline (dato no disponible, no error)');
+
+  // renderBuscar: debe indicar "Capturado ... sin conexión" solo en la fila que de verdad
+  // se capturó offline (fechas separadas), no en un conteo online normal (fechas iguales).
+  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', soloConFotos:false, buscando:false, yaBuscado:true, resultados: [
+    { id:'c1', skus:{sku_code:'SKU-A', descripcion:''}, bodega:'Nave', cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T08:00:00Z', conteo_fotos:[] },
+    { id:'c2', skus:{sku_code:'SKU-B', descripcion:''}, bodega:'Nave', cantidad_contada:2, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-11T09:00:00Z', capturado_en:'2026-08-11T09:00:00Z', conteo_fotos:[] },
+  ]};
+  const htmlBuscar = ctx.renderBuscar();
+  const filaOffline = htmlBuscar.slice(htmlBuscar.indexOf('SKU-A'), htmlBuscar.indexOf('SKU-B'));
+  const filaOnline = htmlBuscar.slice(htmlBuscar.indexOf('SKU-B'));
+  assert(filaOffline.includes('sin conexión'), 'la fila de un conteo con fechas separadas debe indicar que se capturó sin conexión, obtuvo: '+filaOffline);
+  assert(!filaOnline.includes('sin conexión'), 'la fila de un conteo online normal (mismas fechas) no debe mostrar el aviso, obtuvo: '+filaOnline);
+
   // ===== Modo offline: guardarConteo() debe encolar localmente si de verdad no hay conexión =====
 
   // pareceFalloDeRed: distingue un fallo real de red (TypeError, como lanza fetch() sin conexión)
@@ -1059,6 +1096,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
   assert(!!postSincronizado, 'sincronizarColaOffline debe hacer POST a /conteos por cada conteo encolado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(JSON.parse(postSincronizado.opts.body)[0].sku_id==='sku-offline', 'el POST debe llevar los datos del conteo que estaba encolado, obtuvo: '+postSincronizado.opts.body);
+  const capturadoEnSincronizado = JSON.parse(postSincronizado.opts.body)[0].capturado_en;
+  assert(capturadoEnSincronizado===new Date(itemEncolado.creado_en).toISOString(), 'al sincronizar, capturado_en debe ser la fecha original en que se encoló (no la de sincronización), obtuvo: '+capturadoEnSincronizado+' esperado: '+new Date(itemEncolado.creado_en).toISOString());
   const postFotoConteo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteo_fotos'));
   assert(!!postFotoConteo, 'tras crear el conteo, debe enlazar la foto subida con /conteo_fotos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, la cola offline debe quedar vacía');
@@ -1171,6 +1210,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postSkuSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus') && c.url.includes('on_conflict=empresa_id,sku_code'));
   assert(!!postSkuSincronizado, 'sincronizarColaOffline debe hacer upsert a /skus para un item tipo "sku", obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(JSON.parse(postSkuSincronizado.opts.body)[0].sku_code==='SKU-OFF-1', 'el upsert debe llevar el código del SKU encolado, obtuvo: '+postSkuSincronizado.opts.body);
+  assert(JSON.parse(postSkuSincronizado.opts.body)[0].capturado_en===new Date(itemSkuEncolado.creado_en).toISOString(), 'el upsert de un SKU offline debe llevar capturado_en con la fecha original en que se encoló, obtuvo: '+postSkuSincronizado.opts.body);
   assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, el SKU debe salir de la cola');
 
   // Limpieza para no afectar pruebas siguientes.
