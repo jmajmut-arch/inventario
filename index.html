@@ -1140,7 +1140,17 @@ async function crearSkuManual(payload){
     toast('SKU guardado correctamente');
     refrescarListaSkus();
     return true;
-  }catch(e){ toast(e.message,'err'); return false; }
+  }catch(e){
+    // Sin conexión de verdad (no un error del servidor): igual que con los conteos, el
+    // SKU se guarda en este dispositivo y se sube solo al volver la señal.
+    if(pareceFalloDeRed(e)){
+      encolarAccionOffline('sku', {...payload, empresa_id: state.perfil.empresa_id});
+      toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
+      return true;
+    }
+    toast(e.message,'err');
+    return false;
+  }
 }
 
 async function prepararCargaMasiva(file, tipo){
@@ -1231,9 +1241,10 @@ async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, fil
    ACCIONES — Toma de inventario
    ======================================================================= */
 /* =======================================================================
-   MODO OFFLINE — cola local para guardarConteo() cuando no hay conexión
+   MODO OFFLINE — cola local para conteos y SKU cuando no hay conexión
    ======================================================================= */
-const COLA_OFFLINE_KEY = 'cola_offline_conteos';
+const COLA_OFFLINE_KEY = 'cola_offline_conteos'; // nombre histórico; hoy también guarda SKU (ver "tipo" de cada item)
+const TIPO_ACCION_OFFLINE_LABEL = { conteo:'Conteo', sku:'SKU' };
 
 // fetch() rechaza con TypeError cuando la red falla de verdad (sin señal, DNS, etc.);
 // los errores HTTP (4xx/5xx) llegan como una Response resuelta, no como excepción.
@@ -1252,10 +1263,11 @@ function guardarColaOffline(cola){
 }
 
 // Crea la entrada en la cola y la deja visible de inmediato ("pendiente"); devuelve
-// el item creado (con su id local) para poder asociarle fotos en IndexedDB.
-function encolarConteoOffline(payload){
+// el item creado (con su id local) para poder asociarle fotos en IndexedDB (solo aplica
+// a conteos). `tipo` decide cómo se procesa al sincronizar (ver procesarUnItemOffline).
+function encolarAccionOffline(tipo, payload){
   const cola = leerColaOffline();
-  const item = { id: 'local-'+Date.now()+'-'+Math.random().toString(36).slice(2,7), creado_en: Date.now(), estado:'pendiente', error:null, ...payload };
+  const item = { id: 'local-'+Date.now()+'-'+Math.random().toString(36).slice(2,7), tipo, creado_en: Date.now(), estado:'pendiente', error:null, ...payload };
   cola.push(item);
   guardarColaOffline(cola);
   return item;
@@ -1329,18 +1341,37 @@ async function borrarFotosOffline(itemId){
   db.close();
 }
 
-async function descartarConteoOffline(id){
-  if(!confirm('¿Descartar este conteo guardado sin conexión? Esta acción no se puede deshacer.')) return;
+async function descartarAccionOffline(id){
+  const item = leerColaOffline().find(i=>i.id===id);
+  const tipoTexto = item && item.tipo==='sku' ? 'este SKU guardado' : 'este conteo guardado';
+  if(!confirm(`¿Descartar ${tipoTexto} sin conexión? Esta acción no se puede deshacer.`)) return;
   quitarDeColaOffline(id);
   await borrarFotosOffline(id).catch(()=>{});
   render();
 }
 
-// Procesa un único conteo encolado: sube sus fotos pendientes (si tiene),
-// crea el conteo y lo enlaza con esas fotos. No toca la cola/localStorage;
-// eso lo decide quien llama según el resultado.
+// Procesa un único item encolado sin conexión. El tipo decide qué hacer:
+// - 'sku': upsert directo a /skus (mismo criterio que crearSkuManual/carga masiva).
+// - 'conteo' (o sin tipo, para lo ya encolado antes de que existiera este campo): sube sus
+//   fotos pendientes (si tiene), crea el conteo y lo enlaza con esas fotos.
+// No toca la cola/localStorage; eso lo decide quien llama según el resultado.
 async function procesarUnItemOffline(item){
   try{
+    if(item.tipo==='sku'){
+      await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:[{
+        sku_code: item.sku_code,
+        descripcion: item.descripcion,
+        categoria: item.categoria,
+        unidad_medida: item.unidad_medida,
+        bodega: item.bodega,
+        ubicacion: item.ubicacion,
+        storage_bin: item.storage_bin,
+        stock_sistema: item.stock_sistema,
+        empresa_id: item.empresa_id,
+      }], prefer:'return=minimal,resolution=merge-duplicates'});
+      return {ok:true};
+    }
+
     const fotos = await leerFotosOffline(item.id).catch(()=>[]);
     const urls = [];
     for(const foto of fotos){
@@ -1369,9 +1400,9 @@ async function procesarUnItemOffline(item){
   }
 }
 
-// Envía los conteos guardados sin conexión, en orden, uno por uno. Si vuelve a
+// Envía los conteos y SKU guardados sin conexión, en orden, uno por uno. Si vuelve a
 // fallar por red se detiene ahí (se sigue sin conexión) y deja el resto para
-// el próximo intento. Un conteo que falla por un error real del servidor
+// el próximo intento. Un item que falla por un error real del servidor
 // (no de red) queda marcado como "error" y visible en la cola en vez de
 // perderse en silencio; esos solo se reintentan a mano, para no reintentar
 // en bucle algo que ya sabemos que va a volver a fallar igual.
@@ -1393,16 +1424,16 @@ async function sincronizarColaOffline(){
   }
   state.sincronizandoOffline = false;
   if(enviados>0){
-    toast(`${enviados} conteo${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
-    cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
+    toast(`${enviados} cambio${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
+    cargarDashboard(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
   }
   render();
 }
 
-// Reintento manual de un conteo puntual (desde el panel de detalle), sin
+// Reintento manual de un item puntual (desde el panel de detalle), sin
 // importar si ya estaba marcado como "error" — a diferencia de la
 // sincronización automática, este sí se dispara a pedido explícito.
-async function reintentarConteoOffline(id){
+async function reintentarAccionOffline(id){
   if(!state.session || state.sincronizandoOffline) return;
   const item = leerColaOffline().find(i=>i.id===id);
   if(!item) return;
@@ -1411,8 +1442,8 @@ async function reintentarConteoOffline(id){
   const resultado = await procesarUnItemOffline(item);
   if(resultado.ok){
     quitarDeColaOffline(id);
-    toast('Conteo sincronizado');
-    cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
+    toast(item.tipo==='sku' ? 'SKU sincronizado' : 'Conteo sincronizado');
+    cargarDashboard(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
   }else if(resultado.red){
     toast('Sigue sin haber conexión','err');
   }else{
@@ -1459,7 +1490,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
     // en vez de perder el trabajo.
     if(pareceFalloDeRed(e)){
       const fotosAEncolar = state.conteoFotos.map(f=>f.file);
-      const item = encolarConteoOffline({
+      const item = encolarAccionOffline('conteo', {
         sku_id: state.skuSeleccionado.id,
         sku_code: state.skuSeleccionado.sku_code,
         usuario_id: state.perfil ? state.perfil.id : null,
@@ -1705,16 +1736,20 @@ function renderOfflineModal(){
   return `<div class="foto-modal-backdrop" id="offline-modal-backdrop">
     <div class="card" style="width:min(92vw,440px);max-height:80vh;overflow-y:auto;margin-bottom:0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h2 style="margin:0;font-size:17px">Conteos sin conexión</h2>
+        <h2 style="margin:0;font-size:17px">Cambios sin conexión</h2>
         <button id="offline-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
-      ${cola.length? cola.map(item=>`
+      ${cola.length? cola.map(item=>{
+        const esSku = item.tipo==='sku';
+        return `
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-            <span style="font-weight:600">${esc(item.sku_code||item.sku_id)}</span>
+            <span style="font-weight:600">${esc(TIPO_ACCION_OFFLINE_LABEL[item.tipo||'conteo'])} · ${esc(item.sku_code||item.sku_id)}</span>
             <span class="badge ${item.estado==='error'?'badge-danger':'badge-warn'}">${item.estado==='error'?'Error':'Pendiente'}</span>
           </div>
-          <div class="hint">Cantidad: ${item.cantidad_contada}${item.ubicacion_contada?' · '+esc(item.ubicacion_contada):''}${item.bodega?' · '+esc(item.bodega):''}</div>
+          ${esSku
+            ? `<div class="hint">${esc(item.descripcion||'Sin descripción')}${item.bodega?' · '+esc(item.bodega):''}</div>`
+            : `<div class="hint">Cantidad: ${item.cantidad_contada}${item.ubicacion_contada?' · '+esc(item.ubicacion_contada):''}${item.bodega?' · '+esc(item.bodega):''}</div>`}
           ${item.fotosCount? `<div class="hint">${item.fotosCount} foto${item.fotosCount===1?'':'s'} pendiente${item.fotosCount===1?'':'s'} de subir</div>` : ''}
           <div class="hint" style="font-size:11px">${esc(new Date(item.creado_en).toLocaleString('es-CL'))}</div>
           ${item.estado==='error'? `<div style="color:var(--danger);font-size:12.5px;margin-top:4px">${esc(item.error||'No se pudo sincronizar')}</div>` : ''}
@@ -1723,7 +1758,7 @@ function renderOfflineModal(){
             ${item.estado==='error'? `<button class="btn btn-danger" style="width:auto;padding:6px 12px;font-size:12px" data-descartar-offline="${item.id}">Descartar</button>` : ''}
           </div>
         </div>
-      `).join('') : `<div class="empty" style="padding:14px 8px">No hay conteos pendientes.</div>`}
+      `;}).join('') : `<div class="empty" style="padding:14px 8px">No hay cambios pendientes.</div>`}
     </div>
   </div>`;
 }
@@ -2635,7 +2670,7 @@ function renderShell(){
     </div>
     ${state.colaOffline.length? `
     <div id="banner-offline" style="background:rgba(224,178,60,.15);color:var(--warn);border-bottom:1px solid var(--warn);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
-      <span>${state.colaOffline.length} conteo${state.colaOffline.length===1?'':'s'} guardado${state.colaOffline.length===1?'':'s'} sin conexión, pendiente${state.colaOffline.length===1?'':'s'} de sincronizar.</span>
+      <span>${state.colaOffline.length} cambio${state.colaOffline.length===1?'':'s'} guardado${state.colaOffline.length===1?'':'s'} sin conexión, pendiente${state.colaOffline.length===1?'':'s'} de sincronizar.</span>
       <div style="display:flex;gap:8px">
         <button id="btn-ver-offline" class="btn btn-secondary" style="width:auto;padding:6px 12px">Ver detalle</button>
         <button id="btn-sincronizar-offline" class="btn btn-secondary" style="width:auto;padding:6px 12px" ${state.sincronizandoOffline?'disabled':''}>${state.sincronizandoOffline?'Sincronizando…':'Reintentar ahora'}</button>
@@ -2692,10 +2727,10 @@ function bind(){
       if(e.target.id === 'offline-modal-backdrop') setState({offlineModal:false});
     });
     document.querySelectorAll('[data-reintentar-offline]').forEach(btn=>{
-      btn.addEventListener('click', ()=> reintentarConteoOffline(btn.dataset.reintentarOffline));
+      btn.addEventListener('click', ()=> reintentarAccionOffline(btn.dataset.reintentarOffline));
     });
     document.querySelectorAll('[data-descartar-offline]').forEach(btn=>{
-      btn.addEventListener('click', ()=> descartarConteoOffline(btn.dataset.descartarOffline));
+      btn.addEventListener('click', ()=> descartarAccionOffline(btn.dataset.descartarOffline));
     });
   }
   if(state.debeCrearPassword){

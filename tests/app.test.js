@@ -937,7 +937,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dash = { total: [], diario: [], semanal: [], mensual: [] };
   ctx.__appstate.ultimosConteos = [];
   const shellConPendientes = ctx.renderShell();
-  assert(shellConPendientes.includes('id="banner-offline"') && shellConPendientes.includes('1 conteo guardado sin conexión'), 'debe mostrar el banner de conteos pendientes con el conteo singular correcto, obtuvo: '+shellConPendientes);
+  assert(shellConPendientes.includes('id="banner-offline"') && shellConPendientes.includes('1 cambio guardado sin conexión'), 'debe mostrar el banner de cambios pendientes con el singular correcto, obtuvo: '+shellConPendientes);
   assert(shellConPendientes.includes('id="btn-sincronizar-offline"') && shellConPendientes.includes('id="btn-ver-offline"'), 'el banner debe tener botones para reintentar y para ver el detalle');
 
   // El panel de detalle (renderOfflineModal) debe listar el conteo pendiente con su cantidad de fotos.
@@ -975,8 +975,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Si sigue sin haber conexión al sincronizar (falla de nuevo con TypeError), el conteo
   // debe quedar en la cola para el próximo intento, sin perderse ni reintentarse en bucle.
-  ctx.encolarConteoOffline({sku_id:'sku-a', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:1, ubicacion_contada:null, bodega:null, observacion:null});
-  ctx.encolarConteoOffline({sku_id:'sku-b', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:2, ubicacion_contada:null, bodega:null, observacion:null});
+  ctx.encolarAccionOffline('conteo', {sku_id:'sku-a', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:1, ubicacion_contada:null, bodega:null, observacion:null});
+  ctx.encolarAccionOffline('conteo', {sku_id:'sku-b', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:2, ubicacion_contada:null, bodega:null, observacion:null});
   const fetchOriginalSync = ctx.fetch;
   let intentosSync = 0;
   ctx.fetch = async (url, opts) => {
@@ -994,7 +994,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // reintenta en bucle: queda marcado como "error", visible en el panel, y la sincronización
   // automática lo salta a partir de ahí (solo se reintenta a mano).
   ctx.guardarColaOffline([]);
-  ctx.encolarConteoOffline({id:'local-error-1', sku_id:'sku-malo', sku_code:'SKU-MALO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:3, ubicacion_contada:null, bodega:null, observacion:null});
+  ctx.encolarAccionOffline('conteo', {id:'local-error-1', sku_id:'sku-malo', sku_code:'SKU-MALO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:3, ubicacion_contada:null, bodega:null, observacion:null});
   const fetchOriginalError = ctx.fetch;
   let intentosConDatoInvalido = 0;
   ctx.fetch = async (url, opts) => {
@@ -1023,27 +1023,62 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(modalConError.includes('SKU-MALO') && modalConError.includes('Error') && modalConError.includes('la cantidad contada es inválida'), 'el panel debe mostrar el estado de error y el motivo, obtuvo: '+modalConError);
   assert(modalConError.includes('data-reintentar-offline="local-error-1"') && modalConError.includes('data-descartar-offline="local-error-1"'), 'un conteo en error debe ofrecer reintentar y descartar, obtuvo: '+modalConError);
 
-  // reintentarConteoOffline: a pedido explícito, sí reintenta un conteo marcado como error.
+  // reintentarAccionOffline: a pedido explícito, sí reintenta un conteo marcado como error.
   // Si sigue fallando igual, se mantiene en error; si el problema ya no está, se sincroniza.
   ctx.fetch = fetchOriginalError;
   calls.length = 0;
-  await ctx.reintentarConteoOffline('local-error-1');
+  await ctx.reintentarAccionOffline('local-error-1');
   const postConteoSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
-  assert(!!postConteoSincronizado, 'reintentarConteoOffline debe volver a intentar el envío aunque el conteo estuviera en error, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!postConteoSincronizado, 'reintentarAccionOffline debe volver a intentar el envío aunque el conteo estuviera en error, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.colaOffline.length===0, 'si el reintento manual tiene éxito, el conteo debe salir de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
 
-  // descartarConteoOffline: borra el conteo de la cola (y sus fotos, si tenía) sin enviarlo nunca,
+  // descartarAccionOffline: borra el conteo de la cola (y sus fotos, si tenía) sin enviarlo nunca,
   // solo si el usuario confirma.
-  ctx.encolarConteoOffline({id:'local-descartar-1', sku_id:'sku-c', sku_code:'SKU-C', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:9, ubicacion_contada:null, bodega:null, observacion:null});
+  ctx.encolarAccionOffline('conteo', {id:'local-descartar-1', sku_id:'sku-c', sku_code:'SKU-C', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:9, ubicacion_contada:null, bodega:null, observacion:null});
   confirmRespuesta = false;
   confirmLlamadas.length = 0;
-  await ctx.descartarConteoOffline('local-descartar-1');
-  assert(confirmLlamadas.length===1, 'descartarConteoOffline debe pedir confirmación antes de borrar, obtuvo: '+JSON.stringify(confirmLlamadas));
+  await ctx.descartarAccionOffline('local-descartar-1');
+  assert(confirmLlamadas.length===1, 'descartarAccionOffline debe pedir confirmación antes de borrar, obtuvo: '+JSON.stringify(confirmLlamadas));
   assert(ctx.__appstate.colaOffline.length===1, 'si el usuario cancela, el conteo no debe descartarse');
 
   confirmRespuesta = true;
-  await ctx.descartarConteoOffline('local-descartar-1');
+  await ctx.descartarAccionOffline('local-descartar-1');
   assert(ctx.__appstate.colaOffline.length===0, 'si el usuario confirma, el conteo debe descartarse de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+  // ===== Modo offline para carga manual de SKU (mismo mecanismo que los conteos) =====
+
+  // crearSkuManual sin conexión: debe encolar el SKU (tipo "sku") en vez de mostrar un error,
+  // y limpiar el formulario igual que si hubiera guardado con éxito (devuelve true).
+  ctx.guardarColaOffline([]);
+  const fetchOriginalSkuOffline = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/skus' && opts.method==='POST') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalSkuOffline(url, opts);
+  };
+  calls.length = 0;
+  const okSkuOffline = await ctx.crearSkuManual({sku_code:'SKU-OFF-1', descripcion:'Perno offline', categoria:null, unidad_medida:null, bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:null});
+  ctx.fetch = fetchOriginalSkuOffline;
+  assert(okSkuOffline===true, 'crearSkuManual sin conexión debe devolver true (se encoló, no es un error), obtuvo: '+okSkuOffline);
+  assert(calls.length===0 || !calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('resolution=merge-duplicates') && c.url.includes('/skus')), 'no debe haber quedado un POST exitoso a /skus, solo el intento fallido');
+  assert(ctx.__appstate.colaOffline.length===1, 'crearSkuManual sin conexión debe agregar el SKU a la cola offline, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+  const itemSkuEncolado = ctx.__appstate.colaOffline[0];
+  assert(itemSkuEncolado.tipo==='sku' && itemSkuEncolado.sku_code==='SKU-OFF-1' && itemSkuEncolado.empresa_id==='emp-1', 'el SKU encolado debe tener tipo "sku" y los datos ingresados, obtuvo: '+JSON.stringify(itemSkuEncolado));
+  assert(itemSkuEncolado.estado==='pendiente', 'un SKU recién encolado debe quedar "pendiente", obtuvo: '+itemSkuEncolado.estado);
+
+  // El panel de detalle debe distinguir el tipo (SKU vs Conteo) y no pedir fotos para un SKU.
+  ctx.__appstate.offlineModal = true;
+  const modalConSku = ctx.renderOfflineModal();
+  ctx.__appstate.offlineModal = false;
+  assert(modalConSku.includes('SKU · SKU-OFF-1') && modalConSku.includes('Perno offline'), 'el panel debe mostrar la etiqueta "SKU" y la descripción ingresada, obtuvo: '+modalConSku);
+
+  // sincronizarColaOffline: con conexión, debe hacer upsert a /skus (mismo on_conflict que crearSkuManual online).
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  const postSkuSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus') && c.url.includes('on_conflict=empresa_id,sku_code'));
+  assert(!!postSkuSincronizado, 'sincronizarColaOffline debe hacer upsert a /skus para un item tipo "sku", obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.parse(postSkuSincronizado.opts.body)[0].sku_code==='SKU-OFF-1', 'el upsert debe llevar el código del SKU encolado, obtuvo: '+postSkuSincronizado.opts.body);
+  assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, el SKU debe salir de la cola');
 
   // Limpieza para no afectar pruebas siguientes.
   ctx.guardarColaOffline([]);
