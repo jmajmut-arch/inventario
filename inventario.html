@@ -1119,8 +1119,11 @@ function detectarMapeo(headers, campos){
    ======================================================================= */
 async function crearSkuManual(payload){
   try{
-    await rest('/skus', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
-    toast('SKU cargado correctamente');
+    // upsert por (empresa_id, sku_code): si el código ya existía para esta empresa, se
+    // actualiza con los datos ingresados en vez de fallar por la restricción única —
+    // mismo criterio que usa la carga masiva por CSV.
+    await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal,resolution=merge-duplicates'});
+    toast('SKU guardado correctamente');
     refrescarListaSkus();
     return true;
   }catch(e){ toast(e.message,'err'); return false; }

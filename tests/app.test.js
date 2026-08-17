@@ -827,10 +827,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.perfil.empresas.nombre==='Minera Andes Sur', 'debe reflejar el nuevo nombre en el estado local tras guardar, obtuvo: '+ctx.__appstate.perfil.empresas.nombre);
 
   // Las acciones de escritura deben viajar con el empresa_id del perfil actual (aislamiento entre empresas).
+  // crearSkuManual debe hacer upsert (on_conflict=empresa_id,sku_code + merge-duplicates), igual que la
+  // carga masiva: si el código ya existía para esta empresa, se actualiza en vez de fallar por duplicado.
   calls.length = 0;
   await ctx.crearSkuManual({sku_code:'SKU-999', descripcion:'Perno de prueba', activo:true});
-  const postSku = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/skus') && !c.url.includes('on_conflict'));
+  const postSku = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/skus'));
   assert(!!postSku, 'crearSkuManual debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(postSku.url.includes('on_conflict=empresa_id,sku_code'), 'crearSkuManual debe hacer upsert por (empresa_id, sku_code), obtuvo: '+postSku.url);
+  assert((postSku.opts.headers.Prefer||'').includes('resolution=merge-duplicates'), 'el upsert debe pedir resolution=merge-duplicates para actualizar en vez de fallar si ya existe, obtuvo: '+postSku.opts.headers.Prefer);
   assert(JSON.parse(postSku.opts.body)[0].empresa_id==='emp-1', 'el POST de crearSkuManual debe incluir el empresa_id del perfil actual, obtuvo: '+postSku.opts.body);
 
   // ===== Bucket de fotos privado: rutas con empresa_id + URLs firmadas =====
