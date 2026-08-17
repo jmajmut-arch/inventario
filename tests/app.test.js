@@ -112,6 +112,15 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/auditoria')){
+    const todas = [
+      {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
+      {id:'a2', tabla:'conteos', accion:'INSERT', actor_nombre:'Beto', datos_antes:null, datos_despues:{cantidad_contada:5, estado:'pendiente_revision'}, creado_en:'2026-08-14T09:00:00Z'},
+      {id:'a3', tabla:'empresas', accion:'DELETE', actor_nombre:null, datos_antes:{nombre:'Minera Vieja'}, datos_despues:null, creado_en:'2026-08-13T08:00:00Z'},
+    ];
+    const filas = path.includes('tabla=eq.usuarios') ? todas.filter(f=>f.tabla==='usuarios') : todas;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/responsables_proceso')){
     return {
       status: 200,
@@ -794,6 +803,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   calls.length = 0;
   await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
   assert(calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/emp-1/SKU-999/')), 'guardarConteo debe subir la foto bajo una ruta que empiece con el empresa_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // ===== Auditoría de cambios (quién creó/modificó/eliminó personas, empresas y conteos) =====
+
+  // resumenCambioAuditoria: mensaje legible según la acción.
+  assert(ctx.resumenCambioAuditoria({accion:'INSERT'})==='Se creó el registro', 'INSERT debe mostrar "Se creó el registro"');
+  assert(ctx.resumenCambioAuditoria({accion:'DELETE'})==='Se eliminó el registro', 'DELETE debe mostrar "Se eliminó el registro"');
+  const resumenUpdate = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}});
+  assert(resumenUpdate==='Rol: inventariador → admin', 'UPDATE debe listar solo los campos que cambiaron, obtuvo: '+resumenUpdate);
+  const resumenSinCambios = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos'}, datos_despues:{nombre:'Carlos'}});
+  assert(resumenSinCambios==='Sin cambios visibles', 'UPDATE sin diferencias en los campos auditados debe decirlo, obtuvo: '+resumenSinCambios);
+
+  // cargarAuditoria: pide /auditoria ordenado por fecha, con filtro opcional de tabla.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  calls.length = 0;
+  await ctx.cargarAuditoria('');
+  const auditoriaCallTodas = calls.find(c=>c.url.includes('/auditoria?select='));
+  assert(!!auditoriaCallTodas && auditoriaCallTodas.url.includes('order=creado_en.desc'), 'cargarAuditoria debe pedir /auditoria ordenado por fecha descendente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.auditoria.filas.length===3, 'debe cargar las filas devueltas por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
+
+  // renderConfiguraciones: la sección de auditoría solo debe verse para admin/super-admin, no para inventariador.
+  const htmlConfigAdminAuditoria = ctx.renderConfiguraciones();
+  assert(htmlConfigAdminAuditoria.includes('id="auditoria-filtro-tabla"') && htmlConfigAdminAuditoria.includes('Auditoría de cambios'), 'un admin debe ver la sección de auditoría, obtuvo: '+htmlConfigAdminAuditoria);
+  assert(htmlConfigAdminAuditoria.includes('Ana Torres') && htmlConfigAdminAuditoria.includes('Rol: inventariador → admin'), 'debe listar la actividad con actor y el resumen del cambio, obtuvo: '+htmlConfigAdminAuditoria);
+  assert(htmlConfigAdminAuditoria.includes('Por: Sistema'), 'un actor nulo (alta automática) debe mostrarse como "Sistema", obtuvo: '+htmlConfigAdminAuditoria);
+
+  calls.length = 0;
+  await ctx.cargarAuditoria('usuarios');
+  const auditoriaCallFiltrada = calls.find(c=>c.url.includes('/auditoria?select='));
+  assert(!!auditoriaCallFiltrada && auditoriaCallFiltrada.url.includes('tabla=eq.usuarios'), 'con filtro de tabla, debe pedir /auditoria con tabla=eq.<tabla>, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.auditoria.filas.length===1 && ctx.__appstate.auditoria.filas[0].tabla==='usuarios', 'debe quedar solo la fila de la tabla filtrada, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
+  assert(ctx.__appstate.auditoria.filtroTabla==='usuarios', 'debe recordar el filtro elegido');
+
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'inventariador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlConfigInventariadorAuditoria = ctx.renderConfiguraciones();
+  assert(!htmlConfigInventariadorAuditoria.includes('id="auditoria-filtro-tabla"'), 'un inventariador (no admin) no debe ver la sección de auditoría, obtuvo: '+htmlConfigInventariadorAuditoria);
 
   // handleLogout debe avisar con un toast temporal, igual que el resto de las acciones (login, guardar, borrar, etc.),
   // y borrar la sesión persistida en localStorage para que el próximo que abra el navegador no la herede.
