@@ -283,7 +283,35 @@ let state = {
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
 };
+
+const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
+const ACCION_AUDITORIA_LABEL = { INSERT:'Creado', UPDATE:'Modificado', DELETE:'Eliminado' };
+const CAMPOS_AUDITADOS = {
+  usuarios: [['nombre','Nombre'], ['rol','Rol'], ['activo','Activo']],
+  empresas: [['nombre','Nombre'], ['activo','Activo']],
+  conteos: [['cantidad_contada','Cantidad'], ['estado','Estado'], ['observacion','Observación']],
+};
+
+function formatearValorAuditoria(v){
+  if(v===null || v===undefined || v==='') return '—';
+  if(v===true) return 'sí';
+  if(v===false) return 'no';
+  return String(v);
+}
+
+function resumenCambioAuditoria(fila){
+  if(fila.accion==='INSERT') return 'Se creó el registro';
+  if(fila.accion==='DELETE') return 'Se eliminó el registro';
+  const campos = CAMPOS_AUDITADOS[fila.tabla] || [];
+  const antes = fila.datos_antes || {};
+  const despues = fila.datos_despues || {};
+  const cambios = campos
+    .filter(([campo]) => JSON.stringify(antes[campo]) !== JSON.stringify(despues[campo]))
+    .map(([campo,label]) => `${label}: ${formatearValorAuditoria(antes[campo])} → ${formatearValorAuditoria(despues[campo])}`);
+  return cambios.length ? cambios.join(' · ') : 'Sin cambios visibles';
+}
 
 const TEMAS = [
   { id:'ambar', nombre:'Ámbar Industrial', desc:'Oscuro con acento ámbar (predeterminado)', colores:['#161a20','#1e242c','#f0a030'] },
@@ -763,6 +791,19 @@ async function actualizarPersonaSuperAdmin(id, cambios){
     cargarPersonasSuperAdmin(state.superadmin.personasEmpresaId);
     if(cambios.activo!==undefined) cargarResumenSuperAdmin();
   }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarAuditoria(tabla){
+  state.auditoria.filtroTabla = tabla || '';
+  state.auditoria.cargando = true;
+  render();
+  try{
+    const filtro = tabla ? `&tabla=eq.${tabla}` : '';
+    const filas = await rest(`/auditoria?select=id,tabla,accion,actor_nombre,datos_antes,datos_despues,creado_en&order=creado_en.desc&limit=100${filtro}`);
+    state.auditoria.filas = filas || [];
+  }catch(e){ toast(e.message,'err'); }
+  state.auditoria.cargando = false;
+  render();
 }
 
 async function crearResponsable(nombre){
@@ -2183,6 +2224,33 @@ function renderSuperAdmin(){
   `;
 }
 
+function renderAuditoria(){
+  const a = state.auditoria;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Trazabilidad</span><h2>Auditoría de cambios</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Quién creó, modificó o eliminó personas, empresas y conteos.</div>
+      <select id="auditoria-filtro-tabla">
+        <option value="">Todas las tablas</option>
+        <option value="usuarios" ${a.filtroTabla==='usuarios'?'selected':''}>Personas</option>
+        <option value="empresas" ${a.filtroTabla==='empresas'?'selected':''}>Empresas</option>
+        <option value="conteos" ${a.filtroTabla==='conteos'?'selected':''}>Conteos</option>
+      </select>
+      ${a.cargando? `<div class="empty" style="padding:14px 8px">Cargando…</div>` :
+        a.filas.length? `<div style="margin-top:12px">${a.filas.map(f=>`
+          <div class="plan-item" style="display:block;padding:10px 0">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+              <span style="font-weight:600">${esc(TABLA_AUDITORIA_LABEL[f.tabla]||f.tabla)} · ${esc(ACCION_AUDITORIA_LABEL[f.accion]||f.accion)}</span>
+              <span class="hint">${esc(new Date(f.creado_en).toLocaleString('es-CL'))}</span>
+            </div>
+            <div class="hint">Por: ${esc(f.actor_nombre || 'Sistema')}</div>
+            <div style="margin-top:4px;font-size:13px">${esc(resumenCambioAuditoria(f))}</div>
+          </div>
+        `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Sin actividad registrada.</div>`}
+    </div>
+  `;
+}
+
 function renderConfiguraciones(){
   const p = state.plan;
   const empresa = state.perfil && state.perfil.empresas;
@@ -2222,6 +2290,7 @@ function renderConfiguraciones(){
     </div>
     ` : ''}
     ` : ''}
+    ${(esAdmin || esSuperAdmin)? renderAuditoria() : ''}
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
     ${TEMAS.map(t=>`
@@ -2397,6 +2466,11 @@ function bind(){
       const rol = document.getElementById('equipo-rol').value;
       invitarPersona({email, nombre, empresaId: state.perfil.empresa_id, rol}).then(ok=>{ if(ok) e.target.reset(); });
     });
+    const selectAuditoriaTabla = document.getElementById('auditoria-filtro-tabla');
+    if(selectAuditoriaTabla){
+      if(!state.auditoria.cargado){ state.auditoria.cargado = true; cargarAuditoria(''); }
+      selectAuditoriaTabla.addEventListener('change', ()=> cargarAuditoria(selectAuditoriaTabla.value));
+    }
     if(state.perfil && state.perfil.es_super_admin){
       if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
