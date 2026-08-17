@@ -1165,11 +1165,12 @@ function detectarMapeo(headers, campos){
    ======================================================================= */
 async function crearSkuManual(payload){
   if(!perfilCargado()) return false;
+  const capturadoEn = new Date().toISOString();
   try{
     // upsert por (empresa_id, sku_code): si el código ya existía para esta empresa, se
     // actualiza con los datos ingresados en vez de fallar por la restricción única —
     // mismo criterio que usa la carga masiva por CSV.
-    await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal,resolution=merge-duplicates'});
+    await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id, capturado_en: capturadoEn}], prefer:'return=minimal,resolution=merge-duplicates'});
     toast('SKU guardado correctamente');
     refrescarListaSkus();
     return true;
@@ -1224,6 +1225,7 @@ async function confirmarCargaMasiva(){
         stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
         activo: true,
         updated_at: marcaTiempo,
+        capturado_en: marcaTiempo,
       }); // si el archivo trae una fila por planta/ubicación para el mismo código, nos quedamos con la última
     });
     const lote = Array.from(porCodigo.values());
@@ -1389,6 +1391,9 @@ async function descartarAccionOffline(id){
 //   fotos pendientes (si tiene), crea el conteo y lo enlaza con esas fotos.
 // No toca la cola/localStorage; eso lo decide quien llama según el resultado.
 async function procesarUnItemOffline(item){
+  // item.creado_en queda registrado desde el momento en que se encoló (sin conexión), no
+  // cuándo se sincroniza — es la fecha/hora real de captura para efectos de auditoría.
+  const capturadoEn = new Date(item.creado_en).toISOString();
   try{
     if(item.tipo==='sku'){
       await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:[{
@@ -1401,6 +1406,7 @@ async function procesarUnItemOffline(item){
         storage_bin: item.storage_bin,
         stock_sistema: item.stock_sistema,
         empresa_id: item.empresa_id,
+        capturado_en: capturadoEn,
       }], prefer:'return=minimal,resolution=merge-duplicates'});
       return {ok:true};
     }
@@ -1420,6 +1426,7 @@ async function procesarUnItemOffline(item){
       ubicacion_contada: item.ubicacion_contada,
       bodega: item.bodega,
       observacion: item.observacion,
+      capturado_en: capturadoEn,
     }], prefer:'return=representation'});
     const conteoId = filas && filas[0] && filas[0].id;
     if(conteoId && urls.length){
@@ -1491,6 +1498,9 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad))){ toast('Ingresa una cantidad contada válida','err'); return; }
   if(!perfilCargado()) return;
+  // Momento real en que la persona capturó el conteo (no cuándo termina de guardarse) —
+  // fundamental para auditoría cuando se guarda sin conexión y se sincroniza horas después.
+  const capturadoEn = new Date().toISOString();
   setState({loading:true});
   try{
     const filas = await rest('/conteos', {method:'POST', body:[{
@@ -1501,6 +1511,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
       ubicacion_contada: ubicacion || null,
       bodega: bodega || state.skuSeleccionado.bodega || null,
       observacion: observacion || null,
+      capturado_en: capturadoEn,
     }], prefer:'return=representation'});
     const conteoId = filas && filas[0] && filas[0].id;
 
@@ -1882,7 +1893,10 @@ function renderDashboard(){
           <td class="mono">${esc(c.skus? c.skus.sku_code : '—')}</td>
           <td class="num">${c.cantidad_contada}</td>
           <td>${estadoBadge(c.estado, c.diferencia)}</td>
-          <td class="mono" style="font-size:11.5px">${fmtFechaHora(c.fecha_conteo)}</td>
+          <td class="mono" style="font-size:11.5px">
+            ${fmtFechaHora(c.fecha_conteo)}
+            ${fueCapturadoOffline(c.capturado_en, c.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(c.capturado_en)} · sin conexión</div>` : ''}
+          </td>
           <td class="num">${(c.conteo_fotos&&c.conteo_fotos.length)
             ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(c.conteo_fotos.map(f=>f.foto_url)))}" aria-label="Ver fotos">${ICONS.camera}${c.conteo_fotos.length>1?` ${c.conteo_fotos.length}`:''}</button>`
             : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
@@ -1909,6 +1923,16 @@ function estadoBadge(estado, diferencia){
 
 function fmtFecha(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'}); }
 function fmtFechaHora(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
+
+// Un conteo/SKU se considera "capturado sin conexión" cuando la fecha que reportó el
+// dispositivo al momento de capturarlo (capturado_en) difiere de cuándo el registro
+// realmente llegó al servidor (fecha_conteo/created_at) por más de un minuto — para
+// auditoría es clave distinguir ambas fechas, nunca reemplazar una con la otra.
+const UMBRAL_OFFLINE_MS = 60000;
+function fueCapturadoOffline(capturadoEn, fechaServidor){
+  if(!capturadoEn || !fechaServidor) return false;
+  return Math.abs(new Date(fechaServidor) - new Date(capturadoEn)) > UMBRAL_OFFLINE_MS;
+}
 function esc(s){ return (s===null||s===undefined)? '' : String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 /* =======================================================================
@@ -2210,7 +2234,10 @@ function renderBuscar(){
             <td>${esc(r.bodega||'—')}</td>
             <td class="num">${r.cantidad_contada}</td>
             <td>${estadoBadge(r.estado, r.diferencia)}</td>
-            <td class="mono" style="font-size:11.5px">${fmtFechaHora(r.fecha_conteo)}</td>
+            <td class="mono" style="font-size:11.5px">
+              ${fmtFechaHora(r.fecha_conteo)}
+              ${fueCapturadoOffline(r.capturado_en, r.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(r.capturado_en)} · sin conexión</div>` : ''}
+            </td>
             <td class="num">${urls.length
               ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(urls))}" aria-label="Ver fotos">${ICONS.camera}${urls.length>1?` ${urls.length}`:''}</button>`
               : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
