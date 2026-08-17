@@ -6,7 +6,7 @@ if(!m) throw new Error('No se encontró el bloque <script>');
 let script = m[1];
 // Evitar que se ejecute el arranque real de la app al final del script.
 script = script.replace(/\nasync function iniciarApp\(\)\{[\s\S]*?\niniciarApp\(\);\s*$/, '\n');
-script += '\nvar __appstate = state;\n';
+script += '\nvar __appstate = state;\nvar __TypeError = TypeError;\n';
 
 // Assert real: a diferencia de console.assert(), esta SI hace fallar el proceso
 // (exit code != 0) si alguna aserción no se cumple, para que sirva como gate en CI.
@@ -803,6 +803,83 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   calls.length = 0;
   await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
   assert(calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/emp-1/SKU-999/')), 'guardarConteo debe subir la foto bajo una ruta que empiece con el empresa_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // ===== Modo offline: guardarConteo() debe encolar localmente si de verdad no hay conexión =====
+
+  // pareceFalloDeRed: distingue un fallo real de red (TypeError, como lanza fetch() sin conexión)
+  // de un error normal (por ejemplo, uno lanzado por rest() ante una respuesta HTTP de error).
+  assert(ctx.pareceFalloDeRed(new ctx.__TypeError('Failed to fetch'))===true, 'un TypeError debe considerarse fallo de red');
+  assert(ctx.pareceFalloDeRed(new Error('Mensaje de error del servidor'))===false, 'un Error normal (HTTP) no debe considerarse fallo de red');
+
+  // Sin conexión (fetch rechaza con TypeError): guardarConteo debe encolar el conteo en
+  // localStorage en vez de mostrar un error, y limpiar el formulario igual que si hubiera
+  // guardado con éxito. Las fotos NO se encolan (solo se avisa que no viajaron).
+  ctx.localStorage.removeItem('cola_offline_conteos');
+  ctx.__appstate.colaOffline = [];
+  ctx.__appstate.skuSeleccionado = { id:'sku-offline', sku_code:'SKU-OFF', bodega:'Nave' };
+  ctx.__appstate.conteoFotos = [{ file: { name:'foto.jpg', type:'image/jpeg' } }];
+  const fetchOriginalOffline = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/conteos' && opts.method==='POST') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalOffline(url, opts);
+  };
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:7, ubicacion:'Rack A', bodega:'Nave Mina', observacion:'nota'});
+  ctx.fetch = fetchOriginalOffline;
+  assert(!calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/')), 'sin conexión, no debe intentar subir la foto (solo se encola el conteo)');
+  assert(ctx.__appstate.colaOffline.length===1, 'guardarConteo sin conexión debe agregar el conteo a la cola offline, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+  const itemEncolado = ctx.__appstate.colaOffline[0];
+  assert(itemEncolado.sku_id==='sku-offline' && itemEncolado.cantidad_contada===7 && itemEncolado.ubicacion_contada==='Rack A' && itemEncolado.empresa_id==='emp-1', 'el conteo encolado debe llevar los datos ingresados y el empresa_id del perfil actual, obtuvo: '+JSON.stringify(itemEncolado));
+  const colaGuardada = JSON.parse(ctx.localStorage.getItem('cola_offline_conteos'));
+  assert(Array.isArray(colaGuardada) && colaGuardada.length===1, 'la cola offline debe persistirse en localStorage, obtuvo: '+ctx.localStorage.getItem('cola_offline_conteos'));
+  assert(ctx.__appstate.skuSeleccionado===null && ctx.__appstate.conteoFotos.length===0, 'tras encolar, el formulario debe limpiarse igual que en un guardado exitoso');
+
+  // El banner de conteos pendientes debe aparecer en la app (renderShell) con la cantidad correcta.
+  ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
+  ctx.__appstate.view = 'dashboard';
+  ctx.__appstate.dash = { total: [], diario: [], semanal: [], mensual: [] };
+  ctx.__appstate.ultimosConteos = [];
+  const shellConPendientes = ctx.renderShell();
+  assert(shellConPendientes.includes('id="banner-offline"') && shellConPendientes.includes('1 conteo guardado sin conexión'), 'debe mostrar el banner de conteos pendientes con el conteo singular correcto, obtuvo: '+shellConPendientes);
+  assert(shellConPendientes.includes('id="btn-sincronizar-offline"'), 'el banner debe tener un botón para reintentar manualmente');
+
+  // sincronizarColaOffline: sin sesión no debe hacer nada (no puede autenticar la escritura).
+  ctx.__appstate.session = null;
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  assert(calls.length===0, 'sin sesión, sincronizarColaOffline no debe llamar a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.colaOffline.length===1, 'sin sesión, la cola offline no debe tocarse');
+
+  // Con sesión y conexión normal, debe enviar el conteo encolado, vaciar la cola y avisar.
+  ctx.__appstate.session = { access_token:'x', user:{id:'user-1', email:'a@b.com'} };
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  const postSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
+  assert(!!postSincronizado, 'sincronizarColaOffline debe hacer POST a /conteos por cada conteo encolado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.parse(postSincronizado.opts.body)[0].sku_id==='sku-offline', 'el POST debe llevar los datos del conteo que estaba encolado, obtuvo: '+postSincronizado.opts.body);
+  assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, la cola offline debe quedar vacía');
+  assert(ctx.localStorage.getItem('cola_offline_conteos')==='[]', 'la cola vacía también debe reflejarse en localStorage, obtuvo: '+ctx.localStorage.getItem('cola_offline_conteos'));
+
+  // Si sigue sin haber conexión al sincronizar (falla de nuevo con TypeError), el conteo
+  // debe quedar en la cola para el próximo intento, sin perderse ni reintentarse en bucle.
+  ctx.encolarConteoOffline({sku_id:'sku-a', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:1, ubicacion_contada:null, bodega:null, observacion:null});
+  ctx.encolarConteoOffline({sku_id:'sku-b', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:2, ubicacion_contada:null, bodega:null, observacion:null});
+  const fetchOriginalSync = ctx.fetch;
+  let intentosSync = 0;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/conteos' && opts.method==='POST'){ intentosSync++; throw new ctx.__TypeError('Failed to fetch'); }
+    return fetchOriginalSync(url, opts);
+  };
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  ctx.fetch = fetchOriginalSync;
+  assert(intentosSync===1, 'debe detenerse en el primer fallo de red (no reintentar todo el resto en el mismo ciclo), obtuvo: '+intentosSync);
+  assert(ctx.__appstate.colaOffline.length===2, 'si sigue sin conexión, ambos conteos deben permanecer en la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+  // Limpieza para no afectar pruebas siguientes.
+  ctx.guardarColaOffline([]);
 
   // ===== Auditoría de cambios (quién creó/modificó/eliminó personas, empresas y conteos) =====
 
