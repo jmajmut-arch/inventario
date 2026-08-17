@@ -816,8 +816,20 @@ async function cargarAuditoria(tabla){
   render();
 }
 
+// Guarda para acciones de escritura que necesitan el perfil (empresa_id, usuario_id, etc.)
+// ya cargado. Si por algún motivo la sesión existe pero el perfil no se pudo cargar (cuenta
+// sin empresa asignada, corte de red al iniciar, etc.), evita que la acción crashee con un
+// error crudo (`Cannot read properties of null`) y en su lugar avisa con un mensaje claro.
+function perfilCargado(){
+  if(!state.perfil){
+    toast('No se pudo cargar tu perfil. Cierra sesión y vuelve a entrar; si el problema sigue, contacta al administrador.', 'err');
+    return false;
+  }
+  return true;
+}
+
 async function crearResponsable(nombre){
-  if(!nombre) return;
+  if(!nombre || !perfilCargado()) return;
   try{
     await rest('/responsables_proceso', {method:'POST', body:[{nombre, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
     toast('Operador agregado');
@@ -835,6 +847,7 @@ async function quitarResponsable(id){
 
 async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsableId, nota}){
   if(!fecha){ toast('Elige una fecha','err'); return; }
+  if(!perfilCargado()) return;
   const bins = (storageBins && storageBins.length) ? storageBins : [null];
   try{
     await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
@@ -1118,6 +1131,7 @@ function detectarMapeo(headers, campos){
    ACCIONES — SKUs
    ======================================================================= */
 async function crearSkuManual(payload){
+  if(!perfilCargado()) return false;
   try{
     // upsert por (empresa_id, sku_code): si el código ya existía para esta empresa, se
     // actualiza con los datos ingresados en vez de fallar por la restricción única —
@@ -1140,6 +1154,7 @@ async function prepararCargaMasiva(file, tipo){
 }
 
 async function confirmarCargaMasiva(){
+  if(!perfilCargado()) return;
   const { tipo, file, data, mapeo, modo } = state.cargaPreview;
   const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
 
@@ -1411,6 +1426,7 @@ async function reintentarConteoOffline(id){
 async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad))){ toast('Ingresa una cantidad contada válida','err'); return; }
+  if(!perfilCargado()) return;
   setState({loading:true});
   try{
     const filas = await rest('/conteos', {method:'POST', body:[{

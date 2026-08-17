@@ -837,6 +837,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert((postSku.opts.headers.Prefer||'').includes('resolution=merge-duplicates'), 'el upsert debe pedir resolution=merge-duplicates para actualizar en vez de fallar si ya existe, obtuvo: '+postSku.opts.headers.Prefer);
   assert(JSON.parse(postSku.opts.body)[0].empresa_id==='emp-1', 'el POST de crearSkuManual debe incluir el empresa_id del perfil actual, obtuvo: '+postSku.opts.body);
 
+  // ===== Perfil no cargado (sesión activa, pero sin fila en usuarios/empresa asignada) =====
+  // Reproduce el caso real: la cuenta existe (hay sesión), pero state.perfil quedó null
+  // (ej. el perfil no estaba correctamente enlazado). Las acciones de escritura no deben
+  // crashear con un TypeError crudo, sino avisar con un mensaje claro y no tocar la red.
+  {
+    const perfilOriginal = ctx.__appstate.perfil;
+    ctx.__appstate.perfil = null;
+    const toastRootPerfil = elements['toast-root'];
+    const toastsAntesPerfil = toastRootPerfil ? toastRootPerfil.hijos.length : 0;
+    calls.length = 0;
+
+    ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };
+    ctx.__appstate.conteoFotos = [];
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
+    await ctx.crearSkuManual({sku_code:'SKU-000', descripcion:'x', activo:true});
+    await ctx.crearResponsable('Alguien');
+    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:[], responsableId:'', nota:''});
+    await ctx.confirmarCargaMasiva();
+
+    assert(calls.length===0, 'con el perfil sin cargar, ninguna de estas acciones debe llegar a llamar a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const nuevosToastsPerfil = toastRootPerfil.hijos.slice(toastsAntesPerfil);
+    assert(nuevosToastsPerfil.length>=5 && nuevosToastsPerfil.every(t=>/no se pudo cargar tu perfil/i.test(t.textContent)), 'cada acción debe avisar con un mensaje claro en vez de crashear, obtuvo: '+JSON.stringify(nuevosToastsPerfil.map(t=>t.textContent)));
+
+    ctx.__appstate.perfil = perfilOriginal;
+  }
+
   // ===== Bucket de fotos privado: rutas con empresa_id + URLs firmadas =====
   ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
 
