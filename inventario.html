@@ -286,6 +286,7 @@ let state = {
   auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
+  offlineModal: false,
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
@@ -1225,49 +1226,175 @@ function guardarColaOffline(cola){
   state.colaOffline = cola;
 }
 
+// Crea la entrada en la cola y la deja visible de inmediato ("pendiente"); devuelve
+// el item creado (con su id local) para poder asociarle fotos en IndexedDB.
 function encolarConteoOffline(payload){
   const cola = leerColaOffline();
-  cola.push({ id: 'local-'+Date.now()+'-'+Math.random().toString(36).slice(2,7), creado_en: Date.now(), ...payload });
+  const item = { id: 'local-'+Date.now()+'-'+Math.random().toString(36).slice(2,7), creado_en: Date.now(), estado:'pendiente', error:null, ...payload };
+  cola.push(item);
   guardarColaOffline(cola);
+  return item;
+}
+
+function quitarDeColaOffline(id){
+  guardarColaOffline(leerColaOffline().filter(i=>i.id!==id));
+}
+
+function marcarErrorEnColaOffline(id, mensaje){
+  guardarColaOffline(leerColaOffline().map(i => i.id===id ? {...i, estado:'error', error:mensaje} : i));
+}
+
+/* -----------------------------------------------------------------------
+   Fotos offline (IndexedDB): localStorage no sirve para archivos binarios
+   (límite chico, ~5-10MB), así que las fotos de conteos guardados sin
+   conexión se guardan aparte, en IndexedDB, asociadas al id del conteo
+   encolado, y se suben recién al sincronizar.
+   ----------------------------------------------------------------------- */
+const OFFLINE_DB_NAME = 'certero_offline';
+const FOTOS_OFFLINE_STORE = 'fotos_pendientes';
+
+function abrirDbOffline(){
+  return new Promise((resolve, reject) => {
+    if(typeof indexedDB === 'undefined'){ reject(new Error('IndexedDB no disponible en este navegador')); return; }
+    const req = indexedDB.open(OFFLINE_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if(!db.objectStoreNames.contains(FOTOS_OFFLINE_STORE)){
+        const store = db.createObjectStore(FOTOS_OFFLINE_STORE, {keyPath:'id'});
+        store.createIndex('itemId', 'itemId', {unique:false});
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function solicitudAPromesa(req){
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Guarda una o más fotos (File) asociadas al conteo encolado `itemId`.
+async function guardarFotosOffline(itemId, archivos){
+  if(!archivos || !archivos.length) return;
+  const db = await abrirDbOffline();
+  const store = db.transaction(FOTOS_OFFLINE_STORE, 'readwrite').objectStore(FOTOS_OFFLINE_STORE);
+  await Promise.all(archivos.map((file,i) => solicitudAPromesa(store.put({
+    id: `${itemId}-${i}-${Math.random().toString(36).slice(2,7)}`,
+    itemId, nombre: file.name, tipo: file.type, blob: file,
+  }))));
+  db.close();
+}
+
+async function leerFotosOffline(itemId){
+  const db = await abrirDbOffline();
+  const store = db.transaction(FOTOS_OFFLINE_STORE, 'readonly').objectStore(FOTOS_OFFLINE_STORE);
+  const fotos = await solicitudAPromesa(store.index('itemId').getAll(itemId));
+  db.close();
+  return fotos;
+}
+
+async function borrarFotosOffline(itemId){
+  const db = await abrirDbOffline();
+  const store = db.transaction(FOTOS_OFFLINE_STORE, 'readwrite').objectStore(FOTOS_OFFLINE_STORE);
+  const claves = await solicitudAPromesa(store.index('itemId').getAllKeys(itemId));
+  await Promise.all(claves.map(k => solicitudAPromesa(store.delete(k))));
+  db.close();
+}
+
+async function descartarConteoOffline(id){
+  if(!confirm('¿Descartar este conteo guardado sin conexión? Esta acción no se puede deshacer.')) return;
+  quitarDeColaOffline(id);
+  await borrarFotosOffline(id).catch(()=>{});
+  render();
+}
+
+// Procesa un único conteo encolado: sube sus fotos pendientes (si tiene),
+// crea el conteo y lo enlaza con esas fotos. No toca la cola/localStorage;
+// eso lo decide quien llama según el resultado.
+async function procesarUnItemOffline(item){
+  try{
+    const fotos = await leerFotosOffline(item.id).catch(()=>[]);
+    const urls = [];
+    for(const foto of fotos){
+      const ext = (foto.nombre.split('.').pop()||'jpg').toLowerCase();
+      const ruta = `${item.empresa_id}/${item.sku_code}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.${ext}`;
+      urls.push(await storageUpload(ruta, foto.blob));
+    }
+    const filas = await rest('/conteos', {method:'POST', body:[{
+      sku_id: item.sku_id,
+      usuario_id: item.usuario_id,
+      empresa_id: item.empresa_id,
+      cantidad_contada: item.cantidad_contada,
+      ubicacion_contada: item.ubicacion_contada,
+      bodega: item.bodega,
+      observacion: item.observacion,
+    }], prefer:'return=representation'});
+    const conteoId = filas && filas[0] && filas[0].id;
+    if(conteoId && urls.length){
+      await rest('/conteo_fotos', {method:'POST', body: urls.map(foto_url=>({conteo_id:conteoId, foto_url})), prefer:'return=minimal'});
+    }
+    await borrarFotosOffline(item.id).catch(()=>{});
+    return {ok:true};
+  }catch(e){
+    if(pareceFalloDeRed(e)) return {ok:false, red:true};
+    return {ok:false, red:false, mensaje:e.message};
+  }
 }
 
 // Envía los conteos guardados sin conexión, en orden, uno por uno. Si vuelve a
 // fallar por red se detiene ahí (se sigue sin conexión) y deja el resto para
-// el próximo intento; un error real del servidor (no de red) descarta solo
-// ese conteo, para no bloquear el resto de la cola indefinidamente.
+// el próximo intento. Un conteo que falla por un error real del servidor
+// (no de red) queda marcado como "error" y visible en la cola en vez de
+// perderse en silencio; esos solo se reintentan a mano, para no reintentar
+// en bucle algo que ya sabemos que va a volver a fallar igual.
 async function sincronizarColaOffline(){
   if(!state.session || state.sincronizandoOffline) return;
   const cola = leerColaOffline();
-  if(!cola.length) return;
+  const pendientes = cola.filter(i=>i.estado!=='error');
+  if(!pendientes.length) return;
   state.sincronizandoOffline = true;
   render();
   let enviados = 0;
-  const restantes = [];
   let seCorto = false;
-  for(const item of cola){
-    if(seCorto){ restantes.push(item); continue; }
-    try{
-      await rest('/conteos', {method:'POST', body:[{
-        sku_id: item.sku_id,
-        usuario_id: item.usuario_id,
-        empresa_id: item.empresa_id,
-        cantidad_contada: item.cantidad_contada,
-        ubicacion_contada: item.ubicacion_contada,
-        bodega: item.bodega,
-        observacion: item.observacion,
-      }], prefer:'return=minimal'});
-      enviados++;
-    }catch(e){
-      if(pareceFalloDeRed(e)){ seCorto = true; restantes.push(item); }
-      else toast(`No se pudo sincronizar un conteo guardado sin conexión: ${e.message}`,'err');
-    }
+  for(const item of pendientes){
+    if(seCorto) break;
+    const resultado = await procesarUnItemOffline(item);
+    if(resultado.ok){ quitarDeColaOffline(item.id); enviados++; }
+    else if(resultado.red) seCorto = true;
+    else marcarErrorEnColaOffline(item.id, resultado.mensaje);
   }
-  guardarColaOffline(restantes);
   state.sincronizandoOffline = false;
   if(enviados>0){
     toast(`${enviados} conteo${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
     cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
   }
+  render();
+}
+
+// Reintento manual de un conteo puntual (desde el panel de detalle), sin
+// importar si ya estaba marcado como "error" — a diferencia de la
+// sincronización automática, este sí se dispara a pedido explícito.
+async function reintentarConteoOffline(id){
+  if(!state.session || state.sincronizandoOffline) return;
+  const item = leerColaOffline().find(i=>i.id===id);
+  if(!item) return;
+  state.sincronizandoOffline = true;
+  render();
+  const resultado = await procesarUnItemOffline(item);
+  if(resultado.ok){
+    quitarDeColaOffline(id);
+    toast('Conteo sincronizado');
+    cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
+  }else if(resultado.red){
+    toast('Sigue sin haber conexión','err');
+  }else{
+    marcarErrorEnColaOffline(id, resultado.mensaje);
+    toast(`No se pudo sincronizar: ${resultado.mensaje}`,'err');
+  }
+  state.sincronizandoOffline = false;
   render();
 }
 
@@ -1301,25 +1428,25 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
     setState({loading:false, skuSeleccionado:null, conteoFotos:[], skuSearch:''});
     cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
-    // Sin conexión de verdad (no un error del servidor): guardamos el conteo en este
-    // dispositivo y lo enviamos apenas vuelva la señal, en vez de perder el trabajo.
-    // Las fotos no se guardan sin conexión (requieren subirse a Storage); si había alguna,
-    // se avisa que no viajó junto con el conteo.
+    // Sin conexión de verdad (no un error del servidor): guardamos el conteo (y sus
+    // fotos, en IndexedDB) en este dispositivo y lo enviamos apenas vuelva la señal,
+    // en vez de perder el trabajo.
     if(pareceFalloDeRed(e)){
-      encolarConteoOffline({
+      const fotosAEncolar = state.conteoFotos.map(f=>f.file);
+      const item = encolarConteoOffline({
         sku_id: state.skuSeleccionado.id,
+        sku_code: state.skuSeleccionado.sku_code,
         usuario_id: state.perfil ? state.perfil.id : null,
         empresa_id: state.perfil.empresa_id,
         cantidad_contada: Number(cantidad),
         ubicacion_contada: ubicacion || null,
         bodega: bodega || state.skuSeleccionado.bodega || null,
         observacion: observacion || null,
+        fotosCount: fotosAEncolar.length,
       });
-      const teniaFotos = state.conteoFotos.length>0;
+      if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
       setState({loading:false, skuSeleccionado:null, conteoFotos:[], skuSearch:''});
-      toast(teniaFotos
-        ? 'Sin conexión: conteo guardado en este dispositivo (sin las fotos). Se enviará cuando vuelva la señal.'
-        : 'Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
+      toast('Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
       return;
     }
     setState({loading:false});
@@ -1542,6 +1669,35 @@ function renderFotoModal(){
       <img src="${esc(urls[index])}" alt="Respaldo fotográfico">
       ${varias? `<button id="foto-modal-next" class="foto-modal-nav foto-modal-nav-next" aria-label="Foto siguiente">›</button>` : ''}
       ${varias? `<div class="foto-modal-contador">${index+1} / ${urls.length}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderOfflineModal(){
+  if(!state.offlineModal) return '';
+  const cola = state.colaOffline;
+  return `<div class="foto-modal-backdrop" id="offline-modal-backdrop">
+    <div class="card" style="width:min(92vw,440px);max-height:80vh;overflow-y:auto;margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">Conteos sin conexión</h2>
+        <button id="offline-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      ${cola.length? cola.map(item=>`
+        <div class="plan-item" style="display:block;padding:10px 0">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-weight:600">${esc(item.sku_code||item.sku_id)}</span>
+            <span class="badge ${item.estado==='error'?'badge-danger':'badge-warn'}">${item.estado==='error'?'Error':'Pendiente'}</span>
+          </div>
+          <div class="hint">Cantidad: ${item.cantidad_contada}${item.ubicacion_contada?' · '+esc(item.ubicacion_contada):''}${item.bodega?' · '+esc(item.bodega):''}</div>
+          ${item.fotosCount? `<div class="hint">${item.fotosCount} foto${item.fotosCount===1?'':'s'} pendiente${item.fotosCount===1?'':'s'} de subir</div>` : ''}
+          <div class="hint" style="font-size:11px">${esc(new Date(item.creado_en).toLocaleString('es-CL'))}</div>
+          ${item.estado==='error'? `<div style="color:var(--danger);font-size:12.5px;margin-top:4px">${esc(item.error||'No se pudo sincronizar')}</div>` : ''}
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px" data-reintentar-offline="${item.id}" ${state.sincronizandoOffline?'disabled':''}>Reintentar</button>
+            ${item.estado==='error'? `<button class="btn btn-danger" style="width:auto;padding:6px 12px;font-size:12px" data-descartar-offline="${item.id}">Descartar</button>` : ''}
+          </div>
+        </div>
+      `).join('') : `<div class="empty" style="padding:14px 8px">No hay conteos pendientes.</div>`}
     </div>
   </div>`;
 }
@@ -2454,7 +2610,10 @@ function renderShell(){
     ${state.colaOffline.length? `
     <div id="banner-offline" style="background:rgba(224,178,60,.15);color:var(--warn);border-bottom:1px solid var(--warn);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
       <span>${state.colaOffline.length} conteo${state.colaOffline.length===1?'':'s'} guardado${state.colaOffline.length===1?'':'s'} sin conexión, pendiente${state.colaOffline.length===1?'':'s'} de sincronizar.</span>
-      <button id="btn-sincronizar-offline" class="btn btn-secondary" style="width:auto;padding:6px 12px" ${state.sincronizandoOffline?'disabled':''}>${state.sincronizandoOffline?'Sincronizando…':'Reintentar ahora'}</button>
+      <div style="display:flex;gap:8px">
+        <button id="btn-ver-offline" class="btn btn-secondary" style="width:auto;padding:6px 12px">Ver detalle</button>
+        <button id="btn-sincronizar-offline" class="btn btn-secondary" style="width:auto;padding:6px 12px" ${state.sincronizandoOffline?'disabled':''}>${state.sincronizandoOffline?'Sincronizando…':'Reintentar ahora'}</button>
+      </div>
     </div>
     ` : ''}
     <main>${content}</main>
@@ -2480,7 +2639,7 @@ function tabBtn(view,label){
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
   const root = document.getElementById('app');
-  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : state.session ? renderShell() : renderLogin()) + renderFotoModal();
+  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : state.session ? renderShell() : renderLogin()) + renderFotoModal() + renderOfflineModal();
   bind();
 }
 
@@ -2499,6 +2658,18 @@ function bind(){
     if(btnNextFoto) btnNextFoto.addEventListener('click', ()=>{
       const {urls, index} = state.fotoModal;
       setState({fotoModal:{urls, index:(index+1)%urls.length}});
+    });
+  }
+  if(state.offlineModal){
+    document.getElementById('offline-modal-close').addEventListener('click', ()=> setState({offlineModal:false}));
+    document.getElementById('offline-modal-backdrop').addEventListener('click', e=>{
+      if(e.target.id === 'offline-modal-backdrop') setState({offlineModal:false});
+    });
+    document.querySelectorAll('[data-reintentar-offline]').forEach(btn=>{
+      btn.addEventListener('click', ()=> reintentarConteoOffline(btn.dataset.reintentarOffline));
+    });
+    document.querySelectorAll('[data-descartar-offline]').forEach(btn=>{
+      btn.addEventListener('click', ()=> descartarConteoOffline(btn.dataset.descartarOffline));
     });
   }
   if(state.debeCrearPassword){
@@ -2532,6 +2703,8 @@ function bind(){
   document.getElementById('btn-config').addEventListener('click', ()=> setState({view:'config'}));
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
+  const btnVerOffline = document.getElementById('btn-ver-offline');
+  if(btnVerOffline) btnVerOffline.addEventListener('click', ()=> setState({offlineModal:true}));
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=> setState({view: btn.dataset.tab}));
   });
