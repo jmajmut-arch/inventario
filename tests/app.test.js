@@ -170,6 +170,64 @@ const documentMock = {
   addEventListener(){},
 };
 
+// IndexedDB falso, mínimo pero fiel para el uso real del código (open + onupgradeneeded,
+// una transacción por store, put/delete/index().getAll()/getAllKeys()). Cada operación
+// aplica su efecto de inmediato y dispara onsuccess/onerror en un tick aparte, como el real.
+function crearIndexedDBFalso(){
+  const bases = new Map();
+  function solicitud(ejecutar){
+    const req = { result: undefined, error: null, onsuccess: null, onerror: null };
+    setTimeout(() => {
+      try{
+        req.result = ejecutar();
+        if(req.onsuccess) req.onsuccess({target:req});
+      }catch(e){
+        req.error = e;
+        if(req.onerror) req.onerror({target:req});
+      }
+    }, 0);
+    return req;
+  }
+  return {
+    open(nombre){
+      const req = { result: undefined, onupgradeneeded: null, onsuccess: null, onerror: null };
+      setTimeout(() => {
+        let base = bases.get(nombre);
+        const esNueva = !base;
+        if(esNueva){ base = { stores: new Map() }; bases.set(nombre, base); }
+        const manejador = {
+          objectStoreNames: { contains: n => base.stores.has(n) },
+          createObjectStore(nombreStore, opts){
+            const store = { keyPath: opts.keyPath, registros: new Map(), indices: new Map() };
+            base.stores.set(nombreStore, store);
+            return { createIndex: (nombreIndice, keyPath) => store.indices.set(nombreIndice, keyPath) };
+          },
+          transaction(nombreStore){
+            const store = base.stores.get(nombreStore);
+            const objectStore = {
+              put: valor => solicitud(() => { store.registros.set(valor[store.keyPath], valor); return valor; }),
+              delete: clave => solicitud(() => { store.registros.delete(clave); }),
+              index: nombreIndice => {
+                const keyPath = store.indices.get(nombreIndice);
+                return {
+                  getAll: valor => solicitud(() => [...store.registros.values()].filter(r=>r[keyPath]===valor)),
+                  getAllKeys: valor => solicitud(() => [...store.registros.values()].filter(r=>r[keyPath]===valor).map(r=>r[store.keyPath])),
+                };
+              },
+            };
+            return { objectStore: () => objectStore };
+          },
+          close(){},
+        };
+        req.result = manejador;
+        if(esNueva && req.onupgradeneeded) req.onupgradeneeded({target:{result:manejador}});
+        if(req.onsuccess) req.onsuccess({target:req});
+      }, 0);
+      return req;
+    },
+  };
+}
+
 let printCalled = 0;
 let confirmRespuesta = true;
 const confirmLlamadas = [];
@@ -184,6 +242,7 @@ const sandbox = {
     removeItem: (k) => { m.delete(k); },
   }; })(),
   fetch: fakeFetchImpl,
+  indexedDB: crearIndexedDBFalso(),
   setTimeout: (fn, ms) => setTimeout(fn, 0),
   clearTimeout: (id) => clearTimeout(id),
   URL,
@@ -812,8 +871,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.pareceFalloDeRed(new Error('Mensaje de error del servidor'))===false, 'un Error normal (HTTP) no debe considerarse fallo de red');
 
   // Sin conexión (fetch rechaza con TypeError): guardarConteo debe encolar el conteo en
-  // localStorage en vez de mostrar un error, y limpiar el formulario igual que si hubiera
-  // guardado con éxito. Las fotos NO se encolan (solo se avisa que no viajaron).
+  // localStorage (con estado "pendiente") en vez de mostrar un error, guardar la(s) foto(s)
+  // en IndexedDB (no se pierden), y limpiar el formulario igual que si hubiera guardado con éxito.
   ctx.localStorage.removeItem('cola_offline_conteos');
   ctx.__appstate.colaOffline = [];
   ctx.__appstate.skuSeleccionado = { id:'sku-offline', sku_code:'SKU-OFF', bodega:'Nave' };
@@ -827,22 +886,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   calls.length = 0;
   await ctx.guardarConteo({cantidad:7, ubicacion:'Rack A', bodega:'Nave Mina', observacion:'nota'});
   ctx.fetch = fetchOriginalOffline;
-  assert(!calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/')), 'sin conexión, no debe intentar subir la foto (solo se encola el conteo)');
+  assert(!calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/')), 'sin conexión, no debe intentar subir la foto todavía (se sube recién al sincronizar)');
   assert(ctx.__appstate.colaOffline.length===1, 'guardarConteo sin conexión debe agregar el conteo a la cola offline, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
   const itemEncolado = ctx.__appstate.colaOffline[0];
-  assert(itemEncolado.sku_id==='sku-offline' && itemEncolado.cantidad_contada===7 && itemEncolado.ubicacion_contada==='Rack A' && itemEncolado.empresa_id==='emp-1', 'el conteo encolado debe llevar los datos ingresados y el empresa_id del perfil actual, obtuvo: '+JSON.stringify(itemEncolado));
+  assert(itemEncolado.sku_id==='sku-offline' && itemEncolado.sku_code==='SKU-OFF' && itemEncolado.cantidad_contada===7 && itemEncolado.ubicacion_contada==='Rack A' && itemEncolado.empresa_id==='emp-1', 'el conteo encolado debe llevar los datos ingresados y el empresa_id del perfil actual, obtuvo: '+JSON.stringify(itemEncolado));
+  assert(itemEncolado.estado==='pendiente' && itemEncolado.error===null, 'un conteo recién encolado debe quedar en estado "pendiente", sin error, obtuvo: '+JSON.stringify(itemEncolado));
+  assert(itemEncolado.fotosCount===1, 'debe recordar cuántas fotos quedaron pendientes de subir, obtuvo: '+itemEncolado.fotosCount);
   const colaGuardada = JSON.parse(ctx.localStorage.getItem('cola_offline_conteos'));
   assert(Array.isArray(colaGuardada) && colaGuardada.length===1, 'la cola offline debe persistirse en localStorage, obtuvo: '+ctx.localStorage.getItem('cola_offline_conteos'));
   assert(ctx.__appstate.skuSeleccionado===null && ctx.__appstate.conteoFotos.length===0, 'tras encolar, el formulario debe limpiarse igual que en un guardado exitoso');
 
-  // El banner de conteos pendientes debe aparecer en la app (renderShell) con la cantidad correcta.
+  // La foto sí debe haber quedado guardada en IndexedDB, asociada a ese conteo encolado.
+  const fotosGuardadas = await ctx.leerFotosOffline(itemEncolado.id);
+  assert(fotosGuardadas.length===1 && fotosGuardadas[0].nombre==='foto.jpg', 'la foto adjunta debe quedar guardada en IndexedDB para subirla al sincronizar, obtuvo: '+JSON.stringify(fotosGuardadas));
+
+  // El banner de conteos pendientes debe aparecer en la app (renderShell) con la cantidad correcta,
+  // con un botón para ver el detalle además del de reintentar.
   ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
   ctx.__appstate.view = 'dashboard';
   ctx.__appstate.dash = { total: [], diario: [], semanal: [], mensual: [] };
   ctx.__appstate.ultimosConteos = [];
   const shellConPendientes = ctx.renderShell();
   assert(shellConPendientes.includes('id="banner-offline"') && shellConPendientes.includes('1 conteo guardado sin conexión'), 'debe mostrar el banner de conteos pendientes con el conteo singular correcto, obtuvo: '+shellConPendientes);
-  assert(shellConPendientes.includes('id="btn-sincronizar-offline"'), 'el banner debe tener un botón para reintentar manualmente');
+  assert(shellConPendientes.includes('id="btn-sincronizar-offline"') && shellConPendientes.includes('id="btn-ver-offline"'), 'el banner debe tener botones para reintentar y para ver el detalle');
+
+  // El panel de detalle (renderOfflineModal) debe listar el conteo pendiente con su cantidad de fotos.
+  ctx.__appstate.offlineModal = true;
+  const modalConPendiente = ctx.renderOfflineModal();
+  assert(modalConPendiente.includes('SKU-OFF') && modalConPendiente.includes('Pendiente'), 'el panel debe listar el conteo pendiente con su SKU y estado, obtuvo: '+modalConPendiente);
+  assert(modalConPendiente.includes('1 foto pendiente de subir'), 'el panel debe indicar cuántas fotos están pendientes de subir, obtuvo: '+modalConPendiente);
+  assert(modalConPendiente.includes(`data-reintentar-offline="${itemEncolado.id}"`), 'cada conteo del panel debe tener un botón para reintentarlo individualmente, obtuvo: '+modalConPendiente);
+  assert(!modalConPendiente.includes('data-descartar-offline'), 'un conteo pendiente (no en error) no debe ofrecer "Descartar", obtuvo: '+modalConPendiente);
+  ctx.__appstate.offlineModal = false;
 
   // sincronizarColaOffline: sin sesión no debe hacer nada (no puede autenticar la escritura).
   ctx.__appstate.session = null;
@@ -851,15 +926,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.length===0, 'sin sesión, sincronizarColaOffline no debe llamar a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.colaOffline.length===1, 'sin sesión, la cola offline no debe tocarse');
 
-  // Con sesión y conexión normal, debe enviar el conteo encolado, vaciar la cola y avisar.
+  // Con sesión y conexión normal, debe subir la foto pendiente, enviar el conteo ya
+  // enlazado a ella, vaciar la cola y borrar la foto de IndexedDB (ya no hace falta).
   ctx.__appstate.session = { access_token:'x', user:{id:'user-1', email:'a@b.com'} };
   calls.length = 0;
   await ctx.sincronizarColaOffline();
+  const fotoSubidaAlSincronizar = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/storage/v1/object/fotos-inventario/emp-1/SKU-OFF/'));
+  assert(!!fotoSubidaAlSincronizar, 'al sincronizar, debe subir la foto que había quedado pendiente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const postSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
   assert(!!postSincronizado, 'sincronizarColaOffline debe hacer POST a /conteos por cada conteo encolado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(JSON.parse(postSincronizado.opts.body)[0].sku_id==='sku-offline', 'el POST debe llevar los datos del conteo que estaba encolado, obtuvo: '+postSincronizado.opts.body);
+  const postFotoConteo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteo_fotos'));
+  assert(!!postFotoConteo, 'tras crear el conteo, debe enlazar la foto subida con /conteo_fotos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, la cola offline debe quedar vacía');
   assert(ctx.localStorage.getItem('cola_offline_conteos')==='[]', 'la cola vacía también debe reflejarse en localStorage, obtuvo: '+ctx.localStorage.getItem('cola_offline_conteos'));
+  const fotosTrasSincronizar = await ctx.leerFotosOffline(itemEncolado.id);
+  assert(fotosTrasSincronizar.length===0, 'tras sincronizar, la foto ya subida debe borrarse de IndexedDB, obtuvo: '+JSON.stringify(fotosTrasSincronizar));
 
   // Si sigue sin haber conexión al sincronizar (falla de nuevo con TypeError), el conteo
   // debe quedar en la cola para el próximo intento, sin perderse ni reintentarse en bucle.
@@ -877,6 +959,61 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.fetch = fetchOriginalSync;
   assert(intentosSync===1, 'debe detenerse en el primer fallo de red (no reintentar todo el resto en el mismo ciclo), obtuvo: '+intentosSync);
   assert(ctx.__appstate.colaOffline.length===2, 'si sigue sin conexión, ambos conteos deben permanecer en la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+  // Si el servidor rechaza un conteo por un error real (no de red), no se pierde ni se
+  // reintenta en bucle: queda marcado como "error", visible en el panel, y la sincronización
+  // automática lo salta a partir de ahí (solo se reintenta a mano).
+  ctx.guardarColaOffline([]);
+  ctx.encolarConteoOffline({id:'local-error-1', sku_id:'sku-malo', sku_code:'SKU-MALO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:3, ubicacion_contada:null, bodega:null, observacion:null});
+  const fetchOriginalError = ctx.fetch;
+  let intentosConDatoInvalido = 0;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/conteos' && opts.method==='POST'){
+      intentosConDatoInvalido++;
+      return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'la cantidad contada es inválida'}) };
+    }
+    return fetchOriginalError(url, opts);
+  };
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  assert(intentosConDatoInvalido===1, 'debe intentar el conteo con error real una vez, obtuvo: '+intentosConDatoInvalido);
+  assert(ctx.__appstate.colaOffline.length===1, 'un error real del servidor no debe descartar el conteo, debe quedar visible en la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+  assert(ctx.__appstate.colaOffline[0].estado==='error' && ctx.__appstate.colaOffline[0].error==='la cantidad contada es inválida', 'el conteo debe quedar marcado como "error" con el mensaje del servidor, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline[0]));
+
+  // La sincronización automática no debe volver a intentar un conteo ya marcado como "error".
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  assert(intentosConDatoInvalido===1, 'la sincronización automática no debe reintentar un conteo marcado como error, obtuvo: '+intentosConDatoInvalido);
+
+  // El panel de detalle debe mostrar el error y ofrecer "Reintentar" y "Descartar" para ese conteo.
+  ctx.__appstate.offlineModal = true;
+  const modalConError = ctx.renderOfflineModal();
+  ctx.__appstate.offlineModal = false;
+  assert(modalConError.includes('SKU-MALO') && modalConError.includes('Error') && modalConError.includes('la cantidad contada es inválida'), 'el panel debe mostrar el estado de error y el motivo, obtuvo: '+modalConError);
+  assert(modalConError.includes('data-reintentar-offline="local-error-1"') && modalConError.includes('data-descartar-offline="local-error-1"'), 'un conteo en error debe ofrecer reintentar y descartar, obtuvo: '+modalConError);
+
+  // reintentarConteoOffline: a pedido explícito, sí reintenta un conteo marcado como error.
+  // Si sigue fallando igual, se mantiene en error; si el problema ya no está, se sincroniza.
+  ctx.fetch = fetchOriginalError;
+  calls.length = 0;
+  await ctx.reintentarConteoOffline('local-error-1');
+  const postConteoSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
+  assert(!!postConteoSincronizado, 'reintentarConteoOffline debe volver a intentar el envío aunque el conteo estuviera en error, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.colaOffline.length===0, 'si el reintento manual tiene éxito, el conteo debe salir de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+  // descartarConteoOffline: borra el conteo de la cola (y sus fotos, si tenía) sin enviarlo nunca,
+  // solo si el usuario confirma.
+  ctx.encolarConteoOffline({id:'local-descartar-1', sku_id:'sku-c', sku_code:'SKU-C', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:9, ubicacion_contada:null, bodega:null, observacion:null});
+  confirmRespuesta = false;
+  confirmLlamadas.length = 0;
+  await ctx.descartarConteoOffline('local-descartar-1');
+  assert(confirmLlamadas.length===1, 'descartarConteoOffline debe pedir confirmación antes de borrar, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(ctx.__appstate.colaOffline.length===1, 'si el usuario cancela, el conteo no debe descartarse');
+
+  confirmRespuesta = true;
+  await ctx.descartarConteoOffline('local-descartar-1');
+  assert(ctx.__appstate.colaOffline.length===0, 'si el usuario confirma, el conteo debe descartarse de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
 
   // Limpieza para no afectar pruebas siguientes.
   ctx.guardarColaOffline([]);
