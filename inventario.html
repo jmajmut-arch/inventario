@@ -3069,7 +3069,12 @@ function bind(){
       e.preventDefault();
       const bodegaSeleccionada = document.getElementById('p-bodega').value.trim();
       const soloSinUbicacion = bodegaSeleccionada === BODEGA_SIN_UBICACION;
-      const storageBins = [...document.getElementById('p-bin').selectedOptions].map(o=>o.value).filter(Boolean);
+      // "Seleccionar todos" marca cada storage bin visible, pero esa lista (igual que las de
+      // ubicación) no incluye los SKU sin storage bin asignado. Para que "todos" sea realmente
+      // todos (sin excepción), se manda vacío en vez de la lista exhaustiva: crearPlanEntrada ya
+      // trata "sin selección" como "sin filtro de storage bin" (cubre también los que no tienen).
+      const chkBinTodos = document.getElementById('p-bin-todos');
+      const storageBins = (chkBinTodos && chkBinTodos.checked) ? [] : [...document.getElementById('p-bin').selectedOptions].map(o=>o.value).filter(Boolean);
       crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
         bodega: soloSinUbicacion ? '' : bodegaSeleccionada,

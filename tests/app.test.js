@@ -371,6 +371,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!binEl.innerHTML.includes('Todos'), 'p-bin multiple no debe tener la opción "Todos" (sin selección ya significa todos), obtuvo: '+binEl.innerHTML);
   assert(chkTodosEl.disabled === false, 'el checkbox "Seleccionar todos" debe habilitarse tras cargar los storage bin');
 
+  // Marcar "Seleccionar todos" y enviar el formulario real (no crearPlanEntrada directo) debe
+  // crear una sola fila con storage_bin null (sin filtro), NO una fila por cada bin visible —
+  // así también quedan cubiertos los SKU de esa ubicación que no tienen storage bin asignado,
+  // que "ubicaciones_bins" no lista (mismo motivo por el que existe "SKU sin ubicación").
+  // (El mock de <select> no simula options/selectedOptions reales; se simula acá el efecto de
+  // "Seleccionar todos" -marcar cada option visible- para probar que el submit lo ignora.)
+  chkTodosEl.checked = true;
+  binEl.selectedOptions = [{value:'A-01'}, {value:'A-02'}];
+  makeEl('p-fecha').value = '2026-08-12';
+  calls.length = 0;
+  const formPlanEl = elements['form-plan'];
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 20);
+  });
+  const postTodos = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  const filasTodos = JSON.parse(postTodos.opts.body);
+  assert(filasTodos.length===1 && filasTodos[0].storage_bin===null, '"Seleccionar todos" debe crear una sola fila sin filtro de storage_bin (no una por cada bin visible), obtuvo: '+JSON.stringify(filasTodos));
+  chkTodosEl.checked = false;
+  binEl.selectedOptions = [];
+  await new Promise(resolve => setTimeout(resolve, 20));
+
   // crearPlanEntrada con varios storage bin y un responsable -> una fila por bin, todas con el mismo responsable_id.
   calls.length = 0;
   await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01','A-02'], responsableId:'u1', nota:''});
