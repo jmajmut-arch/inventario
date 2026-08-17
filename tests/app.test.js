@@ -132,6 +132,14 @@ const fakeFetchImpl = async (url, opts) => {
       ]),
     };
   }
+  if(path.startsWith('/rest/v1/skus?activo=eq.true') && path.includes('bodega=is.null') && path.includes('ubicacion=is.null')){
+    const filas = [{sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}];
+    return {
+      status: 200, ok: true,
+      headers: { get: (h) => h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null },
+      text: async () => JSON.stringify(filas),
+    };
+  }
   if(path.startsWith('/rest/v1/skus?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
     const filas = binFiltro==='A-01'
@@ -381,6 +389,69 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filasVacio = JSON.parse(postVacio.opts.body);
   assert(filasVacio.length===1 && filasVacio[0].storage_bin===null, 'Sin selección debe crear una sola fila con storage_bin null, obtuvo: '+JSON.stringify(filasVacio));
   assert(filasVacio[0].responsable_id===null, 'Sin responsable elegido, responsable_id debe ser null, obtuvo: '+JSON.stringify(filasVacio));
+
+  // ===== SKU sin ubicación (bodega/ubicación en null): deben poder incluirse en el plan =====
+
+  // cargarConteoSinUbicacion: pide el total de SKU activos sin bodega ni ubicación.
+  await ctx.cargarConteoSinUbicacion();
+  assert(ctx.__appstate.plan.sinUbicacionCount===1, 'cargarConteoSinUbicacion debe guardar el total de SKU sueltos, obtuvo: '+ctx.__appstate.plan.sinUbicacionCount);
+
+  // El selector "Ubicación general" debe ofrecer la opción especial cuando hay SKU sueltos.
+  const htmlConSueltos = ctx.renderPlanificacion();
+  assert(htmlConSueltos.includes('SKU sin ubicación (1)'), 'debe ofrecer la opción "SKU sin ubicación" con el total correcto, obtuvo: '+htmlConSueltos);
+
+  ctx.__appstate.plan.sinUbicacionCount = 0;
+  const htmlSinSueltos = ctx.renderPlanificacion();
+  assert(!htmlSinSueltos.includes('SKU sin ubicación'), 'sin SKU sueltos, no debe ofrecerse esa opción, obtuvo: '+htmlSinSueltos);
+  ctx.__appstate.plan.sinUbicacionCount = 1;
+
+  // contarUniversoUbicacion/skusDeUbicacion con soloSinUbicacion deben filtrar por is.null,
+  // ignorando cualquier bodega/ubicación que se les pase (no debería pasar en la práctica).
+  calls.length = 0;
+  const totalSueltos = await ctx.contarUniversoUbicacion({bodega:'Nave Mina', soloSinUbicacion:true});
+  const callConteoSuelto = calls.find(c=>c.url.includes('bodega=is.null') && c.url.includes('ubicacion=is.null'));
+  assert(!!callConteoSuelto && !callConteoSuelto.url.includes('bodega=eq.'), 'debe filtrar por bodega=is.null&ubicacion=is.null, ignorando el bodega recibido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(totalSueltos===1, 'debe devolver el conteo real de SKU sueltos, obtuvo: '+totalSueltos);
+
+  const detalleSueltos = await ctx.skusDeUbicacion({soloSinUbicacion:true});
+  assert(detalleSueltos.length===1 && detalleSueltos[0].sku_code==='SKU-SUELTO', 'skusDeUbicacion con soloSinUbicacion debe traer el detalle de los SKU sueltos, obtuvo: '+JSON.stringify(detalleSueltos));
+
+  // crearPlanEntrada con soloSinUbicacion: una sola fila, con bodega/ubicación/bin en null
+  // y solo_sin_ubicacion:true (para poder distinguirla de una entrada "todas las ubicaciones").
+  calls.length = 0;
+  await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'', ubicacion:'', storageBins:[], soloSinUbicacion:true, responsableId:'', nota:''});
+  const postSuelto = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  const filaSuelto = JSON.parse(postSuelto.opts.body)[0];
+  assert(filaSuelto.bodega===null && filaSuelto.ubicacion===null && filaSuelto.storage_bin===null, 'una entrada de SKU sueltos no debe llevar bodega/ubicación/bin, obtuvo: '+JSON.stringify(filaSuelto));
+  assert(filaSuelto.solo_sin_ubicacion===true, 'debe marcar solo_sin_ubicacion:true para distinguirla de una entrada "todas las ubicaciones", obtuvo: '+JSON.stringify(filaSuelto));
+
+  // Deja terminar el cargarPlanSemanal() fire-and-forget que dispara crearPlanEntrada, antes de
+  // reemplazar el fetch para la siguiente prueba (mismo motivo que el comentario más abajo).
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // cargarPlanSemanal: una fila de plan_semanal_detalle con solo_sin_ubicacion:true debe traer
+  // su universo/detalle con el filtro is.null (no una lista sin filtrar de todas las ubicaciones).
+  const fetchOriginalPlanSuelto = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/plan_semanal_detalle'){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+        {id:'e-suelto', fecha:'2026-08-10', bodega:null, ubicacion:null, storage_bin:null, solo_sin_ubicacion:true, responsable_id:null, responsable_nombre:null, nota:'', skus_excluidos:[]},
+      ]) };
+    }
+    return fetchOriginalPlanSuelto(url, opts);
+  };
+  calls.length = 0;
+  await ctx.cargarPlanSemanal();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  ctx.fetch = fetchOriginalPlanSuelto;
+  assert(calls.some(c=>c.url.includes('bodega=is.null')&&c.url.includes('ubicacion=is.null')), 'cargarPlanSemanal debe pedir el universo/detalle de una entrada solo_sin_ubicacion con el filtro is.null, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.plan.universos['e-suelto']===1, 'el universo de la entrada de SKU sueltos debe calcularse con el filtro correcto, obtuvo: '+ctx.__appstate.plan.universos['e-suelto']);
+  assert(Array.isArray(ctx.__appstate.plan.detalle['e-suelto']) && ctx.__appstate.plan.detalle['e-suelto'][0].sku_code==='SKU-SUELTO', 'el detalle de la entrada de SKU sueltos debe traer esos SKU, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle['e-suelto']));
+
+  // La tarjeta de esa entrada debe mostrar la etiqueta "SKU sin ubicación" en vez de bodega/ubicación vacías.
+  const htmlPlanSuelto = ctx.renderPlanificacion();
+  assert(htmlPlanSuelto.includes('SKU sin ubicación'), 'la tarjeta de una entrada solo_sin_ubicacion debe indicarlo, obtuvo: '+htmlPlanSuelto);
 
   // crearPlanEntrada dispara cargarPlanSemanal() sin esperarlo (fire-and-forget) para no bloquear la UI.
   // Dejamos que esas promesas pendientes terminen de resolver antes de fijar el estado a mano para las

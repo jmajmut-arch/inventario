@@ -288,7 +288,7 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
@@ -332,6 +332,9 @@ const TEMAS = [
 ];
 
 const SKUS_POR_PAGINA = 50;
+// Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
+// que no tienen ni bodega ni ubicación específica (no aparecen en ubicaciones_generales).
+const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
 
 function setState(patch){ Object.assign(state, patch); render(); }
 
@@ -562,7 +565,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarResponsables(), sincronizarColaOffline()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarConteoSinUbicacion(), cargarResponsables(), sincronizarColaOffline()]);
 }
 
 async function cargarSkus(){
@@ -629,11 +632,22 @@ function filtroExclusion(excluidos){
   return `&sku_code=not.in.(${excluidos.map(s=>encodeURIComponent(s)).join(',')})`;
 }
 
-async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos}){
+// SKU "sueltos": sin ubicación general ni específica (ver renderPlanificacion / crearPlanEntrada).
+// Las vistas ubicaciones_generales/especificas/bins los excluyen a propósito (agrupan solo lo que
+// tiene bodega/ubicacion), así que para plani­ficarlos hay que filtrar explícitamente is.null.
+function filtroSoloSinUbicacion(soloSinUbicacion){
+  return soloSinUbicacion ? '&bodega=is.null&ubicacion=is.null' : '';
+}
+
+async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion}){
   let filtro = '/skus?activo=eq.true';
-  if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
-  if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
-  if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  if(soloSinUbicacion){
+    filtro += filtroSoloSinUbicacion(true);
+  }else{
+    if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
+    if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
+    if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  }
   filtro += filtroExclusion(excluidos);
   const res = await fetch(`${SUPABASE_URL}/rest/v1${filtro}`, {
     headers:{
@@ -650,11 +664,15 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
-async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos}){
+async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion}){
   let filtro = '/skus?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc';
-  if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
-  if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
-  if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  if(soloSinUbicacion){
+    filtro += filtroSoloSinUbicacion(true);
+  }else{
+    if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
+    if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
+    if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+  }
   filtro += filtroExclusion(excluidos);
   const TAM_PAGINA = 1000;
   let desde = 0, total = Infinity, filas = [];
@@ -687,11 +705,11 @@ async function cargarPlanSemanal(){
     const rows = await rest(`/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[], seleccionados:[]}});
     (rows||[]).forEach(async r=>{
-      const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos});
+      const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
       setState({plan: {...state.plan, universos: {...state.plan.universos, [r.id]: total}}});
     });
     (rows||[]).forEach(async r=>{
-      const skus = await skusDeUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos});
+      const skus = await skusDeUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
       setState({plan: {...state.plan, detalle: {...state.plan.detalle, [r.id]: skus}}});
     });
   }catch(e){ toast(e.message,'err'); }
@@ -845,13 +863,18 @@ async function quitarResponsable(id){
   }catch(e){ toast(e.message,'err'); }
 }
 
-async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsableId, nota}){
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsableId, nota, soloSinUbicacion}){
   if(!fecha){ toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
-  const bins = (storageBins && storageBins.length) ? storageBins : [null];
+  // "SKU sin ubicación" es una sola entrada (no tiene bodega/ubicación/bin que cascadear).
+  const bins = soloSinUbicacion ? [null] : ((storageBins && storageBins.length) ? storageBins : [null]);
   try{
     await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
-      fecha, bodega: bodega||null, ubicacion: ubicacion||null, storage_bin: bin||null,
+      fecha,
+      bodega: soloSinUbicacion ? null : (bodega||null),
+      ubicacion: soloSinUbicacion ? null : (ubicacion||null),
+      storage_bin: soloSinUbicacion ? null : (bin||null),
+      solo_sin_ubicacion: !!soloSinUbicacion,
       responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
       empresa_id: state.perfil.empresa_id,
     })), prefer:'return=minimal'});
@@ -922,6 +945,16 @@ async function cargarOpcionesGenerales(){
     const rows = await rest('/ubicaciones_generales?order=bodega.asc');
     setState({plan: {...state.plan, generales: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// SKU cargados sin ubicación general ni específica (ej. desde "Cargar SKU" a mano, sin
+// completar esos campos): ubicaciones_generales los excluye por diseño (agrupa por bodega),
+// así que se cuentan aparte para poder ofrecerlos como opción en Planificación.
+async function cargarConteoSinUbicacion(){
+  try{
+    const total = await contarUniversoUbicacion({soloSinUbicacion:true});
+    setState({plan: {...state.plan, sinUbicacionCount: total}});
+  }catch(e){ /* no bloquea la planificación normal si esto falla */ }
 }
 
 async function opcionesEspecificas(bodega){
@@ -2189,7 +2222,7 @@ function renderBuscar(){
 }
 
 function encabezadoEntradaPlan(e){
-  const ubic = [e.bodega, e.ubicacion, e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica';
+  const ubic = e.solo_sin_ubicacion ? 'SKU sin ubicación' : ([e.bodega, e.ubicacion, e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica');
   const partes = [`Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}`];
   if(e.nota) partes.push(`Nota: ${esc(e.nota)}`);
   return `<h3>${esc(ubic)}</h3><div class="print-entrada-meta">${partes.join(' · ')}</div>`;
@@ -2246,7 +2279,7 @@ async function imprimirPlan(){
     for(const d of porDia){
       cuerpo += `<h2>${esc(d.label)}</h2>`;
       for(const e of d.entradas){
-        const skus = await skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin, excluidos:e.skus_excluidos});
+        const skus = await skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin, excluidos:e.skus_excluidos, soloSinUbicacion:e.solo_sin_ubicacion});
         cuerpo += encabezadoEntradaPlan(e) + tablaSkusEntradaPlan(skus);
       }
     }
@@ -2308,6 +2341,7 @@ function renderPlanificacion(){
         <label for="p-bodega">Ubicación general</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
+          ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
           ${p.generales.map(o=>`<option value="${esc(o.bodega)}">${esc(o.bodega)}</option>`).join('')}
         </select>
         <div class="row2">
@@ -2373,7 +2407,7 @@ function renderPlanificacion(){
       <div class="card">
         ${d.entradas.length? d.entradas.map(e=> p.editando===e.id ? `
           <div class="plan-item" style="flex-direction:column;align-items:stretch;gap:0">
-            <div class="plan-item-ubic" style="margin-bottom:8px">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
+            <div class="plan-item-ubic" style="margin-bottom:8px">${e.solo_sin_ubicacion? 'SKU sin ubicación' : esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
             <label for="pe-fecha-${e.id}">Fecha</label>
             <input type="date" id="pe-fecha-${e.id}" value="${e.fecha}">
             <label for="pe-responsable-${e.id}">Responsable</label>
@@ -2393,7 +2427,7 @@ function renderPlanificacion(){
             <div style="display:flex;gap:10px;align-items:flex-start;flex:1;min-width:0">
             <input type="checkbox" class="plan-select-check" data-select-plan="${e.id}" ${p.seleccionados.includes(e.id)?'checked':''} aria-label="Seleccionar esta entrada para borrado masivo" style="margin-top:3px;flex:none">
             <div class="plan-item-info">
-              <div class="plan-item-ubic">${esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
+              <div class="plan-item-ubic">${e.solo_sin_ubicacion? 'SKU sin ubicación' : esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
               <div class="plan-item-responsable">Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}</div>
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
               <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}</div>
@@ -3033,12 +3067,15 @@ function bind(){
     });
     document.getElementById('form-plan').addEventListener('submit', e=>{
       e.preventDefault();
+      const bodegaSeleccionada = document.getElementById('p-bodega').value.trim();
+      const soloSinUbicacion = bodegaSeleccionada === BODEGA_SIN_UBICACION;
       const storageBins = [...document.getElementById('p-bin').selectedOptions].map(o=>o.value).filter(Boolean);
       crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
-        bodega: document.getElementById('p-bodega').value.trim(),
+        bodega: soloSinUbicacion ? '' : bodegaSeleccionada,
         ubicacion: document.getElementById('p-ubic').value.trim(),
         storageBins,
+        soloSinUbicacion,
         responsableId: document.getElementById('p-responsable').value,
         nota: document.getElementById('p-nota').value.trim(),
       });
@@ -3055,6 +3092,11 @@ function bind(){
       const bodega = e.target.value;
       const selUbic = document.getElementById('p-ubic');
       resetPBin();
+      if(bodega === BODEGA_SIN_UBICACION){
+        selUbic.innerHTML = '<option value="">No aplica (SKU sin ubicación)</option>';
+        selUbic.disabled = true;
+        return;
+      }
       if(!bodega){
         selUbic.innerHTML = '<option value="">Elige ubicación general primero</option>';
         selUbic.disabled = true;
