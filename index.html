@@ -284,6 +284,8 @@ let state = {
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
+  colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
+  sincronizandoOffline: false,
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
@@ -552,7 +554,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarResponsables()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarResponsables(), sincronizarColaOffline()]);
 }
 
 async function cargarSkus(){
@@ -1202,6 +1204,73 @@ async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, fil
 /* =======================================================================
    ACCIONES — Toma de inventario
    ======================================================================= */
+/* =======================================================================
+   MODO OFFLINE — cola local para guardarConteo() cuando no hay conexión
+   ======================================================================= */
+const COLA_OFFLINE_KEY = 'cola_offline_conteos';
+
+// fetch() rechaza con TypeError cuando la red falla de verdad (sin señal, DNS, etc.);
+// los errores HTTP (4xx/5xx) llegan como una Response resuelta, no como excepción.
+// Así distinguimos "no hay conexión" (encolar) de "el servidor rechazó la solicitud" (mostrar el error).
+function pareceFalloDeRed(e){
+  return e instanceof TypeError;
+}
+
+function leerColaOffline(){
+  try{ return JSON.parse(localStorage.getItem(COLA_OFFLINE_KEY)||'[]'); }catch(e){ return []; }
+}
+
+function guardarColaOffline(cola){
+  try{ localStorage.setItem(COLA_OFFLINE_KEY, JSON.stringify(cola)); }catch(e){ /* localStorage no disponible */ }
+  state.colaOffline = cola;
+}
+
+function encolarConteoOffline(payload){
+  const cola = leerColaOffline();
+  cola.push({ id: 'local-'+Date.now()+'-'+Math.random().toString(36).slice(2,7), creado_en: Date.now(), ...payload });
+  guardarColaOffline(cola);
+}
+
+// Envía los conteos guardados sin conexión, en orden, uno por uno. Si vuelve a
+// fallar por red se detiene ahí (se sigue sin conexión) y deja el resto para
+// el próximo intento; un error real del servidor (no de red) descarta solo
+// ese conteo, para no bloquear el resto de la cola indefinidamente.
+async function sincronizarColaOffline(){
+  if(!state.session || state.sincronizandoOffline) return;
+  const cola = leerColaOffline();
+  if(!cola.length) return;
+  state.sincronizandoOffline = true;
+  render();
+  let enviados = 0;
+  const restantes = [];
+  let seCorto = false;
+  for(const item of cola){
+    if(seCorto){ restantes.push(item); continue; }
+    try{
+      await rest('/conteos', {method:'POST', body:[{
+        sku_id: item.sku_id,
+        usuario_id: item.usuario_id,
+        empresa_id: item.empresa_id,
+        cantidad_contada: item.cantidad_contada,
+        ubicacion_contada: item.ubicacion_contada,
+        bodega: item.bodega,
+        observacion: item.observacion,
+      }], prefer:'return=minimal'});
+      enviados++;
+    }catch(e){
+      if(pareceFalloDeRed(e)){ seCorto = true; restantes.push(item); }
+      else toast(`No se pudo sincronizar un conteo guardado sin conexión: ${e.message}`,'err');
+    }
+  }
+  guardarColaOffline(restantes);
+  state.sincronizandoOffline = false;
+  if(enviados>0){
+    toast(`${enviados} conteo${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
+    cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
+  }
+  render();
+}
+
 async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad))){ toast('Ingresa una cantidad contada válida','err'); return; }
@@ -1232,6 +1301,27 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
     setState({loading:false, skuSeleccionado:null, conteoFotos:[], skuSearch:''});
     cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
+    // Sin conexión de verdad (no un error del servidor): guardamos el conteo en este
+    // dispositivo y lo enviamos apenas vuelva la señal, en vez de perder el trabajo.
+    // Las fotos no se guardan sin conexión (requieren subirse a Storage); si había alguna,
+    // se avisa que no viajó junto con el conteo.
+    if(pareceFalloDeRed(e)){
+      encolarConteoOffline({
+        sku_id: state.skuSeleccionado.id,
+        usuario_id: state.perfil ? state.perfil.id : null,
+        empresa_id: state.perfil.empresa_id,
+        cantidad_contada: Number(cantidad),
+        ubicacion_contada: ubicacion || null,
+        bodega: bodega || state.skuSeleccionado.bodega || null,
+        observacion: observacion || null,
+      });
+      const teniaFotos = state.conteoFotos.length>0;
+      setState({loading:false, skuSeleccionado:null, conteoFotos:[], skuSearch:''});
+      toast(teniaFotos
+        ? 'Sin conexión: conteo guardado en este dispositivo (sin las fotos). Se enviará cuando vuelva la señal.'
+        : 'Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
+      return;
+    }
     setState({loading:false});
     toast(e.message,'err');
   }
@@ -2361,6 +2451,12 @@ function renderShell(){
         </div>
       </div>
     </div>
+    ${state.colaOffline.length? `
+    <div id="banner-offline" style="background:rgba(224,178,60,.15);color:var(--warn);border-bottom:1px solid var(--warn);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
+      <span>${state.colaOffline.length} conteo${state.colaOffline.length===1?'':'s'} guardado${state.colaOffline.length===1?'':'s'} sin conexión, pendiente${state.colaOffline.length===1?'':'s'} de sincronizar.</span>
+      <button id="btn-sincronizar-offline" class="btn btn-secondary" style="width:auto;padding:6px 12px" ${state.sincronizandoOffline?'disabled':''}>${state.sincronizandoOffline?'Sincronizando…':'Reintentar ahora'}</button>
+    </div>
+    ` : ''}
     <main>${content}</main>
     <nav class="tabbar">
       ${tabBtn('dashboard','Dashboard')}
@@ -2434,6 +2530,8 @@ function bind(){
 
   document.getElementById('btn-logout').addEventListener('click', handleLogout);
   document.getElementById('btn-config').addEventListener('click', ()=> setState({view:'config'}));
+  const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
+  if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=> setState({view: btn.dataset.tab}));
   });
@@ -2791,6 +2889,12 @@ function bind(){
 }
 
 async function iniciarApp(){
+  // Service Worker: cachea el app shell para que la app siga abriendo sin conexión.
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+  }
+  // Al recuperar la señal, intentamos enviar los conteos que quedaron guardados sin conexión.
+  window.addEventListener('online', sincronizarColaOffline);
   await procesarLlegadaPorInvitacion();
   if(!state.debeCrearPassword) await restaurarSesionGuardada();
   render();
