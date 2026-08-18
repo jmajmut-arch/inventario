@@ -7,144 +7,173 @@
 <meta name="description" content="InventIA: plataforma para planificar, ejecutar y controlar la toma de inventarios, con conteo en terreno offline, respaldo fotográfico y dashboard ejecutivo.">
 <link rel="icon" href="../icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#f5efe3; --surface:#fffcf6; --surface-2:#ece0cb; --line:#ddccae;
-    --amber:#bd5b2c; --amber-dim:#8c4520; --on-amber:#fdf6ec;
-    --text:#2c2117; --text-dim:#6b5b48; --text-faint:#9c8b76;
+    --bg:#faf6ee; --surface:#ffffff; --surface-2:#f1e9d8; --line:#e7dcc4;
+    --amber:#bd5b2c; --amber-dim:#8c4520; --on-amber:#fffaf3;
+    --text:#241a10; --text-dim:#5f5142; --text-faint:#9c8b76;
   }
   *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
-  h1,h2,h3,.display{font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:0.01em;margin:0;}
+  h1,h2,h3,.display{font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:-0.01em;margin:0;}
   .mono{font-family:'IBM Plex Mono',monospace;}
   a{color:inherit;text-decoration:none;}
-  .wrap{max-width:960px;margin:0 auto;padding:0 20px;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px;}
+  .narrow{max-width:680px;margin:0 auto;}
+  img{max-width:100%;}
 
-  header{padding:22px 0;}
-  .brand{display:flex;align-items:center;gap:10px;}
-  .brand-badge{width:36px;height:36px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:14px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
-  .brand-name{font-size:19px;font-weight:800;letter-spacing:-0.01em;}
+  /* ---- reveal on scroll ---- */
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s ease;}
+  .reveal.in{opacity:1;transform:translateY(0);}
+  @media (prefers-reduced-motion:reduce){ .reveal{opacity:1;transform:none;transition:none;} }
 
-  body{position:relative;overflow-x:hidden;}
-  body::before{content:"";position:absolute;top:-120px;right:-160px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(189,91,44,.14),transparent 70%);pointer-events:none;z-index:0;}
-  body::after{content:"";position:absolute;top:640px;left:-200px;width:480px;height:480px;border-radius:50%;background:radial-gradient(circle,rgba(189,91,44,.08),transparent 70%);pointer-events:none;z-index:0;}
-  header,.hero,section,.closing,footer{position:relative;z-index:1;}
+  /* ---- nav ---- */
+  .nav{position:sticky;top:0;z-index:40;background:rgba(250,246,238,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(36,26,16,.06);}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;padding:14px 0;}
+  .brand{display:flex;align-items:center;gap:9px;}
+  .brand-badge{width:30px;height:30px;border-radius:8px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:12px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
+  .brand-name{font-size:16px;font-weight:800;letter-spacing:-0.01em;}
+  .nav-links{display:flex;align-items:center;gap:30px;font-size:14px;font-weight:500;color:var(--text-dim);}
+  .nav-links a:hover{color:var(--text);}
+  .nav-cta{padding:9px 20px;border-radius:100px;background:var(--text);color:var(--bg);font-size:13.5px;font-weight:700;}
+  @media (max-width:680px){ .nav-links{display:none;} }
 
-  .hero{padding:56px 0 70px;}
-  .hero-grid{display:flex;align-items:center;gap:44px;}
-  .hero-copy{flex:1;min-width:0;}
-  .hero-photo-wrap{flex:0 0 340px;position:relative;}
-  .hero-photo-wrap::before{content:"";position:absolute;inset:-18px -14px auto auto;top:-22px;right:-22px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(189,91,44,.30),transparent 72%);z-index:0;}
-  .hero-photo{position:relative;z-index:1;width:100%;display:block;border-radius:20px;transform:rotate(1.5deg);box-shadow:0 24px 48px -16px rgba(60,40,20,.35),0 0 0 1px var(--line);}
-  @media (max-width:760px){ .hero-grid{flex-direction:column-reverse;gap:32px;} .hero-photo-wrap{flex-basis:auto;max-width:300px;width:80%;} .hero-copy{text-align:center;} }
-  .hero h1{font-size:38px;line-height:1.14;margin:0 0 18px;}
+  /* ---- hero ---- */
+  .hero{padding:96px 0 40px;text-align:center;}
+  @media (max-width:680px){ .hero{padding:56px 0 32px;} }
+  .kicker{display:inline-block;font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);background:rgba(189,91,44,.1);padding:6px 14px;border-radius:100px;margin-bottom:22px;}
+  .hero h1{font-size:clamp(2.4rem,6vw,4.6rem);line-height:1.03;letter-spacing:-0.03em;margin:0 auto 22px;max-width:820px;}
   .hero h1 span{color:var(--amber);}
-  .hero p{font-size:16px;line-height:1.6;color:var(--text-dim);max-width:480px;margin:0 0 28px;}
-  .hero-lead{margin-bottom:14px !important;}
-  .hero-list{list-style:none;counter-reset:hlist;margin:0 0 14px;padding:0;max-width:480px;}
-  .hero-list li{counter-increment:hlist;position:relative;padding:6px 0 6px 34px;font-size:15px;line-height:1.5;color:var(--text-dim);}
-  .hero-list li::before{content:counter(hlist);position:absolute;left:0;top:5px;width:24px;height:24px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);color:var(--amber);font-family:'IBM Plex Mono';font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center;}
-  .hero-more{font-size:14px;font-style:italic;color:var(--text-faint);margin:0 0 28px;}
-  @media (max-width:760px){ .hero p,.hero-list,.hero-more{margin-left:auto;margin-right:auto;} .hero-list li{text-align:left;} .hero h1{font-size:30px;} }
-  .cta{display:inline-block;padding:14px 34px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:var(--on-amber);font-weight:700;font-size:15.5px;box-shadow:0 8px 24px rgba(189,91,44,.22);}
-  .cta-sub{margin-top:14px;font-size:12.5px;color:var(--text-faint);}
+  .hero-sub{font-size:clamp(1.05rem,2vw,1.3rem);line-height:1.55;color:var(--text-dim);max-width:620px;margin:0 auto 36px;}
+  .feature-pills{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:760px;margin:0 auto 40px;}
+  .feature-pill{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--text-dim);background:var(--surface);border:1px solid var(--line);padding:9px 16px 9px 10px;border-radius:100px;}
+  .feature-pill .n{width:20px;height:20px;border-radius:50%;background:var(--amber);color:var(--on-amber);font-family:'IBM Plex Mono';font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .cta{display:inline-block;padding:16px 36px;border-radius:100px;background:var(--text);color:var(--bg);font-weight:700;font-size:16px;transition:transform .2s ease,box-shadow .2s ease;box-shadow:0 10px 30px -10px rgba(36,26,16,.35);}
+  .cta:hover{transform:translateY(-2px);box-shadow:0 16px 34px -10px rgba(36,26,16,.42);}
+  .cta-ghost{display:inline-block;padding:16px 8px;font-weight:700;font-size:16px;color:var(--text);margin-left:8px;}
+  .cta-ghost span{color:var(--amber);}
+  .cta-sub{margin-top:16px;font-size:12.5px;color:var(--text-faint);}
 
-  section{padding:50px 0;}
-  section:nth-of-type(odd){background:linear-gradient(180deg,transparent,rgba(150,110,65,.055) 12%,rgba(150,110,65,.055) 88%,transparent);}
-  .section-title{font-size:26px;text-align:center;margin-bottom:8px;}
-  .section-sub{text-align:center;color:var(--text-dim);font-size:14.5px;max-width:480px;margin:0 auto 36px;}
+  .hero-shot{position:relative;margin:64px auto 0;max-width:920px;padding:0 24px;}
+  .hero-shot-glow{position:absolute;inset:-40px -20px auto;top:-40px;height:280px;background:radial-gradient(ellipse at center,rgba(189,91,44,.22),transparent 70%);filter:blur(10px);z-index:0;}
+  .hero-photo{position:relative;z-index:1;width:100%;display:block;border-radius:28px;box-shadow:0 40px 80px -30px rgba(36,26,16,.45);}
+  @media (max-width:680px){ .hero-shot{margin-top:44px;} .hero-photo{border-radius:20px;} }
 
-  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
-  @media (max-width:640px){ .grid{grid-template-columns:1fr;} }
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 10px 26px -18px rgba(60,40,20,.35);}
-  .card .tag{display:inline-block;font-family:'IBM Plex Mono';font-size:11px;color:var(--amber);background:rgba(189,91,44,.12);border-radius:5px;padding:3px 8px;margin-bottom:12px;}
-  .card h3{font-size:17px;margin-bottom:8px;}
-  .card p{font-size:13.5px;line-height:1.6;color:var(--text-dim);margin:0;}
+  /* ---- sections ---- */
+  section{padding:120px 0;}
+  @media (max-width:680px){ section{padding:72px 0;} }
+  .section-head{text-align:center;margin:0 auto 64px;max-width:640px;}
+  .section-title{font-size:clamp(1.9rem,4vw,3rem);letter-spacing:-0.02em;margin-bottom:14px;}
+  .section-sub{color:var(--text-dim);font-size:17px;line-height:1.55;}
 
-  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
-  @media (max-width:640px){ .steps{grid-template-columns:1fr;} }
-  .step{text-align:center;}
-  .step .num{width:34px;height:34px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;color:var(--amber);margin:0 auto 14px;}
-  .step h3{font-size:15.5px;margin-bottom:6px;}
-  .step p{font-size:13px;color:var(--text-dim);line-height:1.5;margin:0;}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
+  @media (max-width:720px){ .grid{grid-template-columns:1fr;} }
+  .card{background:var(--surface);border-radius:22px;padding:34px;box-shadow:0 18px 40px -26px rgba(36,26,16,.28);}
+  .card .icon{width:42px;height:42px;border-radius:12px;background:rgba(189,91,44,.12);color:var(--amber);display:flex;align-items:center;justify-content:center;margin-bottom:20px;font-size:19px;}
+  .card h3{font-size:20px;letter-spacing:-0.01em;margin-bottom:10px;}
+  .card p{font-size:15px;line-height:1.65;color:var(--text-dim);margin:0;}
 
-  .price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:stretch;}
-  @media (max-width:800px){ .price-grid{grid-template-columns:1fr;} }
-  .price-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:26px 22px;}
-  .price-card.featured{border-color:var(--amber);background:linear-gradient(180deg,rgba(189,91,44,.10),var(--surface) 60%);position:relative;}
-  .price-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:var(--on-amber);font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;white-space:nowrap;}
-  .price-card h3{font-size:18px;margin-bottom:6px;}
-  .price-card .price-desc{font-size:12.5px;color:var(--text-faint);margin-bottom:18px;min-height:32px;}
-  .price-card .price-amount{font-family:'Barlow Condensed';font-weight:800;font-size:32px;line-height:1;}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:36px;}
+  @media (max-width:720px){ .steps{grid-template-columns:1fr;gap:44px;} }
+  .step{position:relative;padding-top:8px;}
+  .step .ghost-num{position:absolute;top:-38px;left:-6px;font-family:'Barlow Condensed';font-weight:800;font-size:72px;color:var(--surface-2);z-index:0;line-height:1;user-select:none;}
+  .step h3,.step p{position:relative;z-index:1;}
+  .step h3{font-size:18px;letter-spacing:-0.01em;margin:20px 0 8px;}
+  .step p{font-size:14.5px;color:var(--text-dim);line-height:1.6;margin:0;}
+
+  .price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;align-items:stretch;}
+  @media (max-width:820px){ .price-grid{grid-template-columns:1fr;} }
+  .price-card{display:flex;flex-direction:column;background:var(--surface);border-radius:24px;padding:32px 28px;box-shadow:0 18px 40px -26px rgba(36,26,16,.28);}
+  .price-card.featured{box-shadow:0 0 0 2px var(--amber),0 24px 48px -20px rgba(189,91,44,.35);position:relative;}
+  .price-badge{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--amber);color:var(--on-amber);font-size:11px;font-weight:700;padding:5px 15px;border-radius:100px;white-space:nowrap;}
+  .price-card h3{font-size:19px;letter-spacing:-0.01em;margin-bottom:6px;}
+  .price-card .price-desc{font-size:13px;color:var(--text-faint);margin-bottom:20px;min-height:34px;line-height:1.5;}
+  .price-card .price-amount{font-family:'Barlow Condensed';font-weight:800;font-size:36px;letter-spacing:-0.01em;line-height:1;}
   .price-card .price-amount small{font-family:'Inter';font-weight:500;font-size:13px;color:var(--text-dim);}
-  .price-card .price-period{font-size:12px;color:var(--text-faint);margin:4px 0 20px;}
-  .price-features{list-style:none;margin:0 0 24px;padding:0;flex:1;}
-  .price-features li{font-size:13px;color:var(--text-dim);padding:7px 0;border-top:1px solid var(--line);display:flex;gap:8px;}
+  .price-card .price-period{font-size:12px;color:var(--text-faint);margin:5px 0 22px;}
+  .price-features{list-style:none;margin:0 0 26px;padding:0;flex:1;}
+  .price-features li{font-size:13.5px;color:var(--text-dim);padding:9px 0;border-top:1px solid var(--line);display:flex;gap:9px;}
   .price-features li:first-child{border-top:none;}
   .price-features li::before{content:"✓";color:var(--amber);font-weight:700;flex-shrink:0;}
-  .price-cta{display:block;text-align:center;padding:11px;border-radius:8px;font-weight:700;font-size:14px;border:1px solid var(--line);color:var(--text);}
-  .price-card.featured .price-cta{background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:var(--on-amber);border:none;}
-  .price-note{text-align:center;color:var(--text-faint);font-size:12px;margin-top:24px;}
+  .price-cta{display:block;text-align:center;padding:13px;border-radius:100px;font-weight:700;font-size:14px;background:var(--surface-2);color:var(--text);}
+  .price-card.featured .price-cta{background:var(--amber);color:var(--on-amber);}
+  .price-note{text-align:center;color:var(--text-faint);font-size:12.5px;margin-top:32px;}
 
-  .closing{text-align:center;padding:56px 0 64px;}
-  .closing h2{font-size:24px;margin-bottom:14px;}
+  .closing{margin:0 24px;border-radius:32px;background:linear-gradient(160deg,#2c2117,#1a130b);text-align:center;padding:88px 24px;}
+  .closing h2{font-size:clamp(1.9rem,4vw,3rem);letter-spacing:-0.02em;color:#fdf6ec;margin-bottom:16px;}
+  .closing p{color:#c9b8a2;font-size:16px;margin:0 0 32px;}
+  .closing .cta{background:var(--amber);}
+  .closing .cta:hover{box-shadow:0 16px 34px -10px rgba(189,91,44,.5);}
 
-  footer{padding:26px 0 40px;text-align:center;font-size:12px;color:var(--text-faint);}
+  footer{padding:48px 24px 40px;text-align:center;font-size:13px;color:var(--text-faint);}
+  footer .brand{justify-content:center;margin-bottom:14px;}
 </style>
 </head>
 <body>
 
-  <header>
-    <div class="wrap brand">
-      <div class="brand-badge">IA</div>
-      <div class="brand-name">InventIA</div>
-    </div>
-  </header>
-
-  <div class="hero wrap">
-    <div class="hero-grid">
-      <div class="hero-copy">
-        <h1>Toma física de inventario, <span>sin planillas ni WhatsApp perdido</span></h1>
-        <p class="hero-lead">InventIA es una plataforma que se especializa en la toma de inventarios, permitiendo:</p>
-        <ol class="hero-list">
-          <li>Planificar la toma de inventario y predecir fechas de término.</li>
-          <li>Realizar tomas de inventario en terreno (incluso offline).</li>
-          <li>Dejar registros fotográficos.</li>
-          <li>Dashboard de control ejecutivo y operacional.</li>
-        </ol>
-        <p class="hero-more">Y mucho más.</p>
-        <a class="cta" href="../index.html">Ingresar a la app</a>
-        <div class="cta-sub">Funciona en cualquier celular o computador, sin instalar nada.</div>
+  <div class="nav">
+    <div class="wrap nav-inner">
+      <div class="brand">
+        <div class="brand-badge">IA</div>
+        <div class="brand-name">InventIA</div>
       </div>
-      <div class="hero-photo-wrap">
-        <img class="hero-photo" src="img/hero-conteo.jpg" alt="Persona contando inventario en bodega con el celular">
+      <div class="nav-links">
+        <a href="#resuelve">Producto</a>
+        <a href="#funciona">Cómo funciona</a>
+        <a href="#planes">Planes</a>
       </div>
+      <a class="nav-cta" href="../index.html">Ingresar</a>
     </div>
   </div>
 
-  <section>
+  <div class="hero wrap">
+    <div class="kicker">Toma de inventario, sin planillas</div>
+    <h1>Contar tu bodega <span>nunca fue tan simple</span></h1>
+    <p class="hero-sub">InventIA es la plataforma para planificar, ejecutar y controlar la toma de inventarios de principio a fin — en terreno, incluso sin señal.</p>
+    <div class="feature-pills">
+      <div class="feature-pill"><span class="n">1</span>Planifica y predice fechas de término</div>
+      <div class="feature-pill"><span class="n">2</span>Cuenta en terreno, incluso offline</div>
+      <div class="feature-pill"><span class="n">3</span>Respaldo fotográfico de cada conteo</div>
+      <div class="feature-pill"><span class="n">4</span>Dashboard ejecutivo y operacional</div>
+    </div>
+    <div>
+      <a class="cta" href="../index.html">Ingresar a la app</a>
+      <a class="cta-ghost" href="#planes">Ver planes <span>›</span></a>
+    </div>
+    <div class="cta-sub">Funciona en cualquier celular o computador, sin instalar nada. Y mucho más.</div>
+
+    <div class="hero-shot reveal">
+      <div class="hero-shot-glow"></div>
+      <img class="hero-photo" src="img/hero-conteo.jpg" alt="Persona contando inventario en bodega con el celular">
+    </div>
+  </div>
+
+  <section id="resuelve">
     <div class="wrap">
-      <div class="section-title">Qué resuelve</div>
-      <div class="section-sub">Pensado para el conteo físico real: bodegas grandes, mala señal y varias personas contando a la vez.</div>
+      <div class="section-head reveal">
+        <div class="section-title">Qué resuelve</div>
+        <div class="section-sub">Pensado para el conteo físico real: bodegas grandes, mala señal y varias personas contando a la vez.</div>
+      </div>
       <div class="grid">
-        <div class="card">
-          <div class="tag">CONTEO EN TERRENO</div>
+        <div class="card reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
           <h3>Respaldo fotográfico por cada conteo</h3>
           <p>Cada cantidad contada queda con foto, ubicación, responsable y hora — trazabilidad completa para auditar diferencias.</p>
         </div>
-        <div class="card">
-          <div class="tag">MODO OFFLINE</div>
+        <div class="card reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
           <h3>Sigue funcionando sin señal</h3>
           <p>En bodegas sin cobertura, la app guarda el conteo y las fotos en el celular y las sube solas apenas vuelve la conexión.</p>
         </div>
-        <div class="card">
-          <div class="tag">DASHBOARD EJECUTIVO</div>
+        <div class="card reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
           <h3>Proyección de término y ranking</h3>
           <p>Avance por bodega, diferencias contra el stock del sistema, y una fecha estimada de cuándo se termina el inventario.</p>
         </div>
-        <div class="card">
-          <div class="tag">MULTIEMPRESA</div>
+        <div class="card reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
           <h3>Roles, permisos y auditoría</h3>
           <p>Cada empresa ve solo sus propios datos, con roles de administrador e inventariador y un historial de cambios auditable.</p>
         </div>
@@ -152,23 +181,25 @@
     </div>
   </section>
 
-  <section>
+  <section id="funciona">
     <div class="wrap">
-      <div class="section-title">Cómo funciona</div>
-      <div class="section-sub">Tres pasos, sin curva de aprendizaje para el equipo en terreno.</div>
+      <div class="section-head reveal">
+        <div class="section-title">Cómo funciona</div>
+        <div class="section-sub">Tres pasos, sin curva de aprendizaje para el equipo en terreno.</div>
+      </div>
       <div class="steps">
-        <div class="step">
-          <div class="num mono">1</div>
+        <div class="step reveal">
+          <div class="ghost-num mono">01</div>
           <h3>Carga tu maestro de SKU</h3>
           <p>Sube el archivo de materiales (o el export directo de SAP) y arma el plan de conteo por bodega y ubicación.</p>
         </div>
-        <div class="step">
-          <div class="num mono">2</div>
+        <div class="step reveal">
+          <div class="ghost-num mono">02</div>
           <h3>Asigna responsables</h3>
           <p>Cada inventariador ve solo lo que le corresponde contar, desde su propio celular.</p>
         </div>
-        <div class="step">
-          <div class="num mono">3</div>
+        <div class="step reveal">
+          <div class="ghost-num mono">03</div>
           <h3>Cuenta en terreno</h3>
           <p>Busca el SKU, ingresa la cantidad y una foto — incluso sin señal. El dashboard se actualiza solo.</p>
         </div>
@@ -176,13 +207,15 @@
     </div>
   </section>
 
-  <section>
+  <section id="planes">
     <div class="wrap">
-      <div class="section-title">Planes</div>
-      <div class="section-sub">Elige según el tamaño de tu operación. Puedes cambiar de plan cuando quieras.</div>
+      <div class="section-head reveal">
+        <div class="section-title">Planes</div>
+        <div class="section-sub">Elige según el tamaño de tu operación. Puedes cambiar de plan cuando quieras.</div>
+      </div>
       <div class="price-grid">
 
-        <div class="price-card">
+        <div class="price-card reveal">
           <h3>Básico</h3>
           <div class="price-desc">Para una bodega y un equipo chico partiendo con el conteo digital.</div>
           <div class="price-amount">$39.990 <small>CLP</small></div>
@@ -197,7 +230,7 @@
           <a class="price-cta" href="../index.html">Solicitar acceso</a>
         </div>
 
-        <div class="price-card featured">
+        <div class="price-card featured reveal">
           <div class="price-badge">Más elegido</div>
           <h3>Profesional</h3>
           <div class="price-desc">Para operaciones con varias bodegas y equipos en terreno.</div>
@@ -214,7 +247,7 @@
           <a class="price-cta" href="../index.html">Solicitar acceso</a>
         </div>
 
-        <div class="price-card">
+        <div class="price-card reveal">
           <h3>Empresa</h3>
           <div class="price-desc">Para operaciones grandes o con varias plantas/empresas.</div>
           <div class="price-amount">A medida</div>
@@ -234,12 +267,33 @@
     </div>
   </section>
 
-  <div class="closing wrap">
+  <div class="closing reveal">
     <h2>¿Listo para tomar inventario sin planillas?</h2>
+    <p>Empieza hoy — sin instalar nada, en el celular que ya tienes.</p>
     <a class="cta" href="../index.html">Ingresar a la app</a>
   </div>
 
-  <footer>InventIA · Control de inventario</footer>
+  <footer>
+    <div class="brand">
+      <div class="brand-badge">IA</div>
+      <div class="brand-name">InventIA</div>
+    </div>
+    InventIA · Control de inventario
+  </footer>
+
+<script>
+  var els = document.querySelectorAll('.reveal');
+  if('IntersectionObserver' in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, {threshold:0.15, rootMargin:'0px 0px -40px 0px'});
+    els.forEach(function(el){ io.observe(el); });
+  }else{
+    els.forEach(function(el){ el.classList.add('in'); });
+  }
+</script>
 
 </body>
 </html>
