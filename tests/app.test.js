@@ -73,6 +73,15 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'conteo-nuevo-1'}]) };
   }
+  if(path.startsWith('/rest/v1/conteos?select=usuario_id,usuarios(nombre)')){
+    const filas = [
+      {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
+      {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
+      {usuario_id:'u2', usuarios:{nombre:'Beto'}},
+      {usuario_id:null, usuarios:null},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/storage/v1/object/sign/')){
     const ruta = path.replace('/storage/v1/object/sign/fotos-inventario/', '');
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}), json: async()=>({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}) };
@@ -705,6 +714,60 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   };
   const htmlDashCompleto = ctx.renderDashboard();
   assert(!htmlDashCompleto.includes('SKU pendientes por ubicación general'), 'si no queda nada pendiente, no debe mostrarse el gráfico, obtuvo: '+htmlDashCompleto);
+
+  // ===== Dashboard ejecutivo: proyección de término + ranking por responsable =====
+
+  // proyeccionTermino: sin SKU cargados.
+  const proySinSkus = ctx.proyeccionTermino(0, 0, 0);
+  assert(proySinSkus.titulo==='—', 'sin SKU cargados no debe intentar proyectar nada, obtuvo: '+JSON.stringify(proySinSkus));
+
+  // proyeccionTermino: inventario ya completo.
+  const proyCompleto = ctx.proyeccionTermino(100, 100, 5);
+  assert(proyCompleto.titulo==='¡Inventario completo!', 'sin pendientes debe avisar que está completo, obtuvo: '+JSON.stringify(proyCompleto));
+
+  // proyeccionTermino: hay pendientes pero nada contado en la ventana -> no se puede estimar ritmo.
+  const proySinRitmo = ctx.proyeccionTermino(100, 50, 0);
+  assert(proySinRitmo.titulo==='Sin proyección', 'sin conteos recientes no debe inventarse una fecha, obtuvo: '+JSON.stringify(proySinRitmo));
+
+  // proyeccionTermino: caso normal — 100 pendientes, ritmo de 10 SKU/día (140 contados en la
+  // ventana de 14 días = 10/día) -> 100/10 = 10 días más.
+  const proyNormal = ctx.proyeccionTermino(200, 100, 140);
+  assert(proyNormal.detalle.includes('10 días más') && proyNormal.detalle.includes('100 pendientes'), 'debe calcular los días restantes como pendientes/ritmo, obtuvo: '+JSON.stringify(proyNormal));
+  assert(proyNormal.titulo!=='—' && proyNormal.titulo!=='Sin proyección' && proyNormal.titulo!=='¡Inventario completo!', 'el caso normal debe mostrar una fecha proyectada, obtuvo: '+JSON.stringify(proyNormal));
+
+  // rankingPorResponsable: cuenta conteos por nombre, agrupa los sin usuario como "Sin asignar", ordena de mayor a menor.
+  const rankingSuelto = ctx.rankingPorResponsable([
+    {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
+    {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
+    {usuario_id:'u2', usuarios:{nombre:'Beto'}},
+    {usuario_id:null, usuarios:null},
+  ]);
+  assert(rankingSuelto.length===3 && rankingSuelto[0].nombre==='Ana Torres' && rankingSuelto[0].cantidad===2, 'debe agrupar y ordenar de mayor a menor, obtuvo: '+JSON.stringify(rankingSuelto));
+  assert(rankingSuelto.some(r=>r.nombre==='Sin asignar' && r.cantidad===1), 'un conteo sin usuario debe agruparse como "Sin asignar", obtuvo: '+JSON.stringify(rankingSuelto));
+
+  // cargarDashboard: debe pedir los conteos de la ventana de proyección (con el join a usuarios)
+  // y dejar el ranking ya calculado en state.dash.ranking.
+  ctx.__appstate.session = { access_token:'x', user:{id:'user-1', email:'a@b.com'} };
+  calls.length = 0;
+  await ctx.cargarDashboard();
+  const rankingCall = calls.find(c=>c.url.includes('/rest/v1/conteos?select=usuario_id,usuarios(nombre)'));
+  assert(!!rankingCall && rankingCall.url.includes('fecha_conteo=gte.'), 'cargarDashboard debe pedir los conteos recientes con join a usuarios y filtro de fecha, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking ya calculado en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
+
+  // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
+  ctx.__appstate.dash = {
+    total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
+    diario: [], semanal: [], mensual: [],
+    ranking: [{nombre:'Ana Torres', cantidad:9}, {nombre:'Beto', cantidad:4}],
+  };
+  const htmlDashProyeccion = ctx.renderDashboard();
+  assert(htmlDashProyeccion.includes('Proyección de término'), 'la vista ejecutiva debe mostrar la sección de proyección, obtuvo: '+htmlDashProyeccion);
+  assert(htmlDashProyeccion.includes('Ranking por responsable') && htmlDashProyeccion.includes('Ana Torres') && htmlDashProyeccion.includes('Beto'), 'la vista ejecutiva debe mostrar el ranking por responsable, obtuvo: '+htmlDashProyeccion);
+
+  // Sin conteos recientes (ranking vacío), no debe mostrarse la sección de ranking (nada que mostrar).
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, ranking: [] };
+  const htmlDashSinRanking = ctx.renderDashboard();
+  assert(!htmlDashSinRanking.includes('Ranking por responsable'), 'sin conteos en la ventana, no debe mostrarse la sección de ranking, obtuvo: '+htmlDashSinRanking);
 
   // ===== Multi-tenencia (empresas) =====
 

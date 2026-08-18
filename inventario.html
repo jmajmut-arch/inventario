@@ -279,7 +279,7 @@ let state = {
   skuSeleccionado: null,
   conteoFotos: [],       // [{file, preview}]
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [] },
   ultimosConteos: [],
   fotoModal: null,        // {urls:[...], index:0}
   skusPagina: { rows: [], page: 0, total: 0 },
@@ -332,6 +332,10 @@ const TEMAS = [
 ];
 
 const SKUS_POR_PAGINA = 50;
+// Ventana de días usada tanto para el gráfico "Conteos por día" como para calcular el ritmo
+// promedio de conteo (proyección de término) y el ranking por responsable — misma ventana en
+// los tres casos para que "últimos 14 días" signifique siempre lo mismo en el dashboard.
+const VENTANA_PROYECCION_DIAS = 14;
 // Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
 // que no tienen ni bodega ni ubicación específica (no aparecen en ubicaciones_generales).
 const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
@@ -973,14 +977,30 @@ async function opcionesBins(bodega, ubicacion){
 
 async function cargarDashboard(){
   try{
-    const [total, diario, semanal, mensual] = await Promise.all([
+    const desdeRanking = fechaISO(sumarDias(new Date(), -(VENTANA_PROYECCION_DIAS-1)));
+    const [total, diario, semanal, mensual, conteosRecientes] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
       rest(`/avance_mensual?order=mes.desc&limit=6`),
+      rest(`/conteos?select=usuario_id,usuarios(nombre)&fecha_conteo=gte.${desdeRanking}&limit=5000`),
     ]);
-    setState({dash:{ total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[] }});
+    setState({dash:{
+      total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
+      ranking: rankingPorResponsable(conteosRecientes||[]),
+    }});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Cuenta SKU contados por responsable en el período (ventana de cargarDashboard), de mayor a
+// menor — "quién ha contado más" en el dashboard ejecutivo.
+function rankingPorResponsable(conteos){
+  const map = new Map();
+  conteos.forEach(c=>{
+    const nombre = (c.usuarios && c.usuarios.nombre) || 'Sin asignar';
+    map.set(nombre, (map.get(nombre)||0) + 1);
+  });
+  return Array.from(map, ([nombre, cantidad])=>({nombre, cantidad})).sort((a,b)=> b.cantidad-a.cantidad);
 }
 
 async function cargarUltimosConteos(){
@@ -1741,6 +1761,24 @@ function resumenPendientesPorBodega(t){
     .sort((a,b)=> b.cantidad-a.cantidad);
 }
 
+// Fecha estimada de término si se mantiene el ritmo promedio de los últimos
+// VENTANA_PROYECCION_DIAS días (contados en ese período / cantidad de días de la ventana,
+// incluidos los días sin actividad — así el promedio ya refleja fines de semana o pausas
+// reales en vez de asumir que se trabaja todos los días).
+function proyeccionTermino(totUniverso, totContados, contadosEnVentana){
+  const pendientes = Math.max(0, totUniverso - totContados);
+  if(totUniverso===0) return {titulo:'—', detalle:'Aún no hay SKU cargados.'};
+  if(pendientes===0) return {titulo:'¡Inventario completo!', detalle:'No quedan SKU pendientes por contar.'};
+  const ritmoDiario = contadosEnVentana / VENTANA_PROYECCION_DIAS;
+  if(ritmoDiario<=0) return {titulo:'Sin proyección', detalle:`Sin conteos en los últimos ${VENTANA_PROYECCION_DIAS} días para estimar un ritmo.`};
+  const diasRestantes = Math.ceil(pendientes/ritmoDiario);
+  const fechaProyectada = fechaISO(sumarDias(new Date(), diasRestantes));
+  return {
+    titulo: fmtFecha(fechaProyectada),
+    detalle: `${diasRestantes} día${diasRestantes===1?'':'s'} más, a un ritmo de ${ritmoDiario.toFixed(1)} SKU/día (${pendientes.toLocaleString('es-CL')} pendientes)`,
+  };
+}
+
 function renderDiffChart(sinDif, conDif){
   const total = sinDif + conDif;
   if(!total) return `<div class="empty">Sin conteos todavía en este período.</div>`;
@@ -1840,11 +1878,13 @@ function renderDashboard(){
     </table></div>`;
   };
 
-  const diarioAgg = agregarPorDia(state.dash.diario, 14);
+  const diarioAgg = agregarPorDia(state.dash.diario, VENTANA_PROYECCION_DIAS);
   const totConDif = diarioAgg.reduce((s,d)=>s+d.diferencias,0);
   const totContadosPeriodo = diarioAgg.reduce((s,d)=>s+d.contados,0);
   const totSinDif = Math.max(0, totContadosPeriodo - totConDif);
   const modo = state.dashboardModo;
+  const proyeccion = proyeccionTermino(totUniverso, totContados, totContadosPeriodo);
+  const rankingResponsables = (state.dash.ranking||[]).slice(0,8);
 
   const vistaEjecutiva = `
     <div class="kpi-grid">
@@ -1860,11 +1900,22 @@ function renderDashboard(){
       </div>
     </div>
 
-    <div class="section-head"><div><span class="eyebrow">Últimos 14 días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Al ritmo actual</span><h2 style="font-size:17px">Proyección de término</h2></div></div>
+    <div class="tag-card" style="margin-bottom:14px">
+      <div class="kpi-value" style="font-size:22px">${proyeccion.titulo}</div>
+      <div class="kpi-sub">${proyeccion.detalle}</div>
+    </div>
+
+    <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
     <div class="card">${renderBarChart(diarioAgg, 'contados', 'var(--amber)')}</div>
 
-    <div class="section-head"><div><span class="eyebrow">Últimos 14 días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>
+
+    ${rankingResponsables.length? `
+      <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Ranking por responsable</h2></div></div>
+      <div class="card">${renderRankedBarList(rankingResponsables)}</div>
+    ` : ''}
 
     ${pendientesBodega.length? `
       <div class="section-head"><div><span class="eyebrow">Dónde falta contar</span><h2 style="font-size:17px">SKU pendientes por ubicación general</h2></div></div>
