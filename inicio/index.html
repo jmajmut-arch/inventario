@@ -51,6 +51,24 @@
   .step h3{font-size:15.5px;margin-bottom:6px;}
   .step p{font-size:13px;color:var(--text-dim);line-height:1.5;margin:0;}
 
+  .price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:stretch;}
+  @media (max-width:800px){ .price-grid{grid-template-columns:1fr;} }
+  .price-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:26px 22px;}
+  .price-card.featured{border-color:var(--amber);background:linear-gradient(180deg,rgba(240,160,48,.08),var(--surface) 60%);position:relative;}
+  .price-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:#1a1204;font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;white-space:nowrap;}
+  .price-card h3{font-size:18px;margin-bottom:6px;}
+  .price-card .price-desc{font-size:12.5px;color:var(--text-faint);margin-bottom:18px;min-height:32px;}
+  .price-card .price-amount{font-family:'Barlow Condensed';font-weight:800;font-size:32px;line-height:1;}
+  .price-card .price-amount small{font-family:'Inter';font-weight:500;font-size:13px;color:var(--text-dim);}
+  .price-card .price-period{font-size:12px;color:var(--text-faint);margin:4px 0 20px;}
+  .price-features{list-style:none;margin:0 0 24px;padding:0;flex:1;}
+  .price-features li{font-size:13px;color:var(--text-dim);padding:7px 0;border-top:1px solid var(--line);display:flex;gap:8px;}
+  .price-features li:first-child{border-top:none;}
+  .price-features li::before{content:"✓";color:var(--amber);font-weight:700;flex-shrink:0;}
+  .price-cta{display:block;text-align:center;padding:11px;border-radius:8px;font-weight:700;font-size:14px;border:1px solid var(--line);color:var(--text);}
+  .price-card.featured .price-cta{background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:#1a1204;border:none;}
+  .price-note{text-align:center;color:var(--text-faint);font-size:12px;margin-top:24px;}
+
   .closing{text-align:center;padding:56px 0 64px;}
   .closing h2{font-size:24px;margin-bottom:14px;}
 
@@ -123,6 +141,64 @@
           <p>Busca el SKU, ingresa la cantidad y una foto — incluso sin señal. El dashboard se actualiza solo.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="section-title">Planes</div>
+      <div class="section-sub">Elige según el tamaño de tu operación. Puedes cambiar de plan cuando quieras.</div>
+      <div class="price-grid">
+
+        <div class="price-card">
+          <h3>Básico</h3>
+          <div class="price-desc">Para una bodega y un equipo chico partiendo con el conteo digital.</div>
+          <div class="price-amount">$39.990 <small>CLP</small></div>
+          <div class="price-period">por mes</div>
+          <ul class="price-features">
+            <li>1 bodega</li>
+            <li>Hasta 3 usuarios</li>
+            <li>Carga de SKU y conteo con foto</li>
+            <li>Dashboard de avance</li>
+            <li>Soporte por correo</li>
+          </ul>
+          <a class="price-cta" href="../index.html">Solicitar acceso</a>
+        </div>
+
+        <div class="price-card featured">
+          <div class="price-badge">Más elegido</div>
+          <h3>Profesional</h3>
+          <div class="price-desc">Para operaciones con varias bodegas y equipos en terreno.</div>
+          <div class="price-amount">$89.990 <small>CLP</small></div>
+          <div class="price-period">por mes</div>
+          <ul class="price-features">
+            <li>Bodegas ilimitadas</li>
+            <li>Hasta 15 usuarios</li>
+            <li>Modo offline con sincronización automática</li>
+            <li>Dashboard ejecutivo: proyección y ranking</li>
+            <li>Auditoría de cambios</li>
+            <li>Soporte prioritario</li>
+          </ul>
+          <a class="price-cta" href="../index.html">Solicitar acceso</a>
+        </div>
+
+        <div class="price-card">
+          <h3>Empresa</h3>
+          <div class="price-desc">Para operaciones grandes o con varias plantas/empresas.</div>
+          <div class="price-amount">A medida</div>
+          <div class="price-period">precio según tu operación</div>
+          <ul class="price-features">
+            <li>Usuarios ilimitados</li>
+            <li>Multiempresa / multiplanta</li>
+            <li>Roles y permisos avanzados</li>
+            <li>Onboarding asistido</li>
+            <li>Soporte prioritario dedicado</li>
+          </ul>
+          <a class="price-cta" href="../index.html">Solicitar acceso</a>
+        </div>
+
+      </div>
+      <div class="price-note">Precios de referencia, netos + IVA. Escríbenos para ajustar el plan a tu operación.</div>
     </div>
   </section>
 
