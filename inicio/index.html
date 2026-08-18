@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InventIA — Control de inventario físico</title>
+<meta name="description" content="InventIA: toma física de inventario con respaldo fotográfico, modo offline y dashboard ejecutivo con proyección de término, para bodegas y cadena de suministro.">
+<link rel="icon" href="../icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#161a20; --surface:#1c222b; --surface-2:#242c37; --line:#323b48;
+    --amber:#f0a030; --amber-dim:#c9720f;
+    --text:#eef1f4; --text-dim:#a3adb8; --text-faint:#6b7684;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.display{font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:0.01em;margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px;}
+
+  header{padding:22px 0;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand-badge{width:36px;height:36px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:14px;letter-spacing:-0.03em;color:#1a1204;flex-shrink:0;}
+  .brand-name{font-size:19px;font-weight:800;letter-spacing:-0.01em;}
+
+  .hero{padding:64px 0 56px;text-align:center;}
+  .hero h1{font-size:40px;line-height:1.12;max-width:720px;margin:0 auto 18px;}
+  .hero h1 span{color:var(--amber);}
+  .hero p{font-size:16.5px;line-height:1.6;color:var(--text-dim);max-width:560px;margin:0 auto 32px;}
+  .cta{display:inline-block;padding:14px 34px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:#1a1204;font-weight:700;font-size:15.5px;box-shadow:0 8px 24px rgba(240,160,48,.18);}
+  .cta-sub{margin-top:14px;font-size:12.5px;color:var(--text-faint);}
+
+  section{padding:48px 0;border-top:1px solid var(--line);}
+  .section-title{font-size:26px;text-align:center;margin-bottom:8px;}
+  .section-sub{text-align:center;color:var(--text-dim);font-size:14.5px;max-width:480px;margin:0 auto 36px;}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
+  @media (max-width:640px){ .grid{grid-template-columns:1fr;} .hero h1{font-size:31px;} }
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px;}
+  .card .tag{display:inline-block;font-family:'IBM Plex Mono';font-size:11px;color:var(--amber);background:rgba(240,160,48,.12);border-radius:5px;padding:3px 8px;margin-bottom:12px;}
+  .card h3{font-size:17px;margin-bottom:8px;}
+  .card p{font-size:13.5px;line-height:1.6;color:var(--text-dim);margin:0;}
+
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+  @media (max-width:640px){ .steps{grid-template-columns:1fr;} }
+  .step{text-align:center;}
+  .step .num{width:34px;height:34px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;color:var(--amber);margin:0 auto 14px;}
+  .step h3{font-size:15.5px;margin-bottom:6px;}
+  .step p{font-size:13px;color:var(--text-dim);line-height:1.5;margin:0;}
+
+  .closing{text-align:center;padding:56px 0 64px;}
+  .closing h2{font-size:24px;margin-bottom:14px;}
+
+  footer{padding:26px 0 40px;text-align:center;font-size:12px;color:var(--text-faint);}
+</style>
+</head>
+<body>
+
+  <header>
+    <div class="wrap brand">
+      <div class="brand-badge">IA</div>
+      <div class="brand-name">InventIA</div>
+    </div>
+  </header>
+
+  <div class="hero wrap">
+    <h1>Toma física de inventario, <span>sin planillas ni WhatsApp perdido</span></h1>
+    <p>InventIA es el sistema para contar bodega en terreno desde el celular: respaldo fotográfico, funciona sin señal y un dashboard que le dice a tu equipo cuándo va a terminar.</p>
+    <a class="cta" href="../index.html">Ingresar a la app</a>
+    <div class="cta-sub">Funciona en cualquier celular o computador, sin instalar nada.</div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <div class="section-title">Qué resuelve</div>
+      <div class="section-sub">Pensado para el conteo físico real: bodegas grandes, mala señal y varias personas contando a la vez.</div>
+      <div class="grid">
+        <div class="card">
+          <div class="tag">CONTEO EN TERRENO</div>
+          <h3>Respaldo fotográfico por cada conteo</h3>
+          <p>Cada cantidad contada queda con foto, ubicación, responsable y hora — trazabilidad completa para auditar diferencias.</p>
+        </div>
+        <div class="card">
+          <div class="tag">MODO OFFLINE</div>
+          <h3>Sigue funcionando sin señal</h3>
+          <p>En bodegas sin cobertura, la app guarda el conteo y las fotos en el celular y las sube solas apenas vuelve la conexión.</p>
+        </div>
+        <div class="card">
+          <div class="tag">DASHBOARD EJECUTIVO</div>
+          <h3>Proyección de término y ranking</h3>
+          <p>Avance por bodega, diferencias contra el stock del sistema, y una fecha estimada de cuándo se termina el inventario.</p>
+        </div>
+        <div class="card">
+          <div class="tag">MULTIEMPRESA</div>
+          <h3>Roles, permisos y auditoría</h3>
+          <p>Cada empresa ve solo sus propios datos, con roles de administrador e inventariador y un historial de cambios auditable.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="section-title">Cómo funciona</div>
+      <div class="section-sub">Tres pasos, sin curva de aprendizaje para el equipo en terreno.</div>
+      <div class="steps">
+        <div class="step">
+          <div class="num mono">1</div>
+          <h3>Carga tu maestro de SKU</h3>
+          <p>Sube el archivo de materiales (o el export directo de SAP) y arma el plan de conteo por bodega y ubicación.</p>
+        </div>
+        <div class="step">
+          <div class="num mono">2</div>
+          <h3>Asigna responsables</h3>
+          <p>Cada inventariador ve solo lo que le corresponde contar, desde su propio celular.</p>
+        </div>
+        <div class="step">
+          <div class="num mono">3</div>
+          <h3>Cuenta en terreno</h3>
+          <p>Busca el SKU, ingresa la cantidad y una foto — incluso sin señal. El dashboard se actualiza solo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="closing wrap">
+    <h2>¿Listo para tomar inventario sin planillas?</h2>
+    <a class="cta" href="../index.html">Ingresar a la app</a>
+  </div>
+
+  <footer>InventIA · Control de inventario</footer>
+
+</body>
+</html>
