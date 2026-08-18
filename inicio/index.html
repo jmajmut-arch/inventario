@@ -4,15 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>InventIA — Control de inventario físico</title>
-<meta name="description" content="InventIA: toma física de inventario con respaldo fotográfico, modo offline y dashboard ejecutivo con proyección de término, para bodegas y cadena de suministro.">
+<meta name="description" content="InventIA: plataforma para planificar, ejecutar y controlar la toma de inventarios, con conteo en terreno offline, respaldo fotográfico y dashboard ejecutivo.">
 <link rel="icon" href="../icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#161a20; --surface:#1c222b; --surface-2:#242c37; --line:#323b48;
-    --amber:#f0a030; --amber-dim:#c9720f;
-    --text:#eef1f4; --text-dim:#a3adb8; --text-faint:#6b7684;
+    --bg:#f5efe3; --surface:#fffcf6; --surface-2:#ece0cb; --line:#ddccae;
+    --amber:#bd5b2c; --amber-dim:#8c4520; --on-amber:#fdf6ec;
+    --text:#2c2117; --text-dim:#6b5b48; --text-faint:#9c8b76;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
@@ -23,37 +23,42 @@
 
   header{padding:22px 0;}
   .brand{display:flex;align-items:center;gap:10px;}
-  .brand-badge{width:36px;height:36px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:14px;letter-spacing:-0.03em;color:#1a1204;flex-shrink:0;}
+  .brand-badge{width:36px;height:36px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:14px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
   .brand-name{font-size:19px;font-weight:800;letter-spacing:-0.01em;}
 
   body{position:relative;overflow-x:hidden;}
-  body::before{content:"";position:absolute;top:-120px;right:-160px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(240,160,48,.16),transparent 70%);pointer-events:none;z-index:0;}
-  body::after{content:"";position:absolute;top:640px;left:-200px;width:480px;height:480px;border-radius:50%;background:radial-gradient(circle,rgba(240,160,48,.09),transparent 70%);pointer-events:none;z-index:0;}
+  body::before{content:"";position:absolute;top:-120px;right:-160px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(189,91,44,.14),transparent 70%);pointer-events:none;z-index:0;}
+  body::after{content:"";position:absolute;top:640px;left:-200px;width:480px;height:480px;border-radius:50%;background:radial-gradient(circle,rgba(189,91,44,.08),transparent 70%);pointer-events:none;z-index:0;}
   header,.hero,section,.closing,footer{position:relative;z-index:1;}
 
   .hero{padding:56px 0 70px;}
   .hero-grid{display:flex;align-items:center;gap:44px;}
   .hero-copy{flex:1;min-width:0;}
   .hero-photo-wrap{flex:0 0 340px;position:relative;}
-  .hero-photo-wrap::before{content:"";position:absolute;inset:-18px -14px auto auto;top:-22px;right:-22px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(240,160,48,.35),transparent 72%);z-index:0;}
-  .hero-photo{position:relative;z-index:1;width:100%;display:block;border-radius:20px;transform:rotate(1.5deg);box-shadow:0 24px 48px -12px rgba(0,0,0,.55),0 0 0 1px var(--line);}
+  .hero-photo-wrap::before{content:"";position:absolute;inset:-18px -14px auto auto;top:-22px;right:-22px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(189,91,44,.30),transparent 72%);z-index:0;}
+  .hero-photo{position:relative;z-index:1;width:100%;display:block;border-radius:20px;transform:rotate(1.5deg);box-shadow:0 24px 48px -16px rgba(60,40,20,.35),0 0 0 1px var(--line);}
   @media (max-width:760px){ .hero-grid{flex-direction:column-reverse;gap:32px;} .hero-photo-wrap{flex-basis:auto;max-width:300px;width:80%;} .hero-copy{text-align:center;} }
   .hero h1{font-size:38px;line-height:1.14;margin:0 0 18px;}
   .hero h1 span{color:var(--amber);}
   .hero p{font-size:16px;line-height:1.6;color:var(--text-dim);max-width:480px;margin:0 0 28px;}
-  @media (max-width:760px){ .hero p{margin-left:auto;margin-right:auto;} .hero h1{font-size:30px;} }
-  .cta{display:inline-block;padding:14px 34px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:#1a1204;font-weight:700;font-size:15.5px;box-shadow:0 8px 24px rgba(240,160,48,.18);}
+  .hero-lead{margin-bottom:14px !important;}
+  .hero-list{list-style:none;counter-reset:hlist;margin:0 0 14px;padding:0;max-width:480px;}
+  .hero-list li{counter-increment:hlist;position:relative;padding:6px 0 6px 34px;font-size:15px;line-height:1.5;color:var(--text-dim);}
+  .hero-list li::before{content:counter(hlist);position:absolute;left:0;top:5px;width:24px;height:24px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);color:var(--amber);font-family:'IBM Plex Mono';font-weight:600;font-size:12px;display:flex;align-items:center;justify-content:center;}
+  .hero-more{font-size:14px;font-style:italic;color:var(--text-faint);margin:0 0 28px;}
+  @media (max-width:760px){ .hero p,.hero-list,.hero-more{margin-left:auto;margin-right:auto;} .hero-list li{text-align:left;} .hero h1{font-size:30px;} }
+  .cta{display:inline-block;padding:14px 34px;border-radius:9px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:var(--on-amber);font-weight:700;font-size:15.5px;box-shadow:0 8px 24px rgba(189,91,44,.22);}
   .cta-sub{margin-top:14px;font-size:12.5px;color:var(--text-faint);}
 
   section{padding:50px 0;}
-  section:nth-of-type(odd){background:linear-gradient(180deg,transparent,rgba(255,255,255,.015) 12%,rgba(255,255,255,.015) 88%,transparent);}
+  section:nth-of-type(odd){background:linear-gradient(180deg,transparent,rgba(150,110,65,.055) 12%,rgba(150,110,65,.055) 88%,transparent);}
   .section-title{font-size:26px;text-align:center;margin-bottom:8px;}
   .section-sub{text-align:center;color:var(--text-dim);font-size:14.5px;max-width:480px;margin:0 auto 36px;}
 
   .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
   @media (max-width:640px){ .grid{grid-template-columns:1fr;} }
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 10px 26px -14px rgba(0,0,0,.5);}
-  .card .tag{display:inline-block;font-family:'IBM Plex Mono';font-size:11px;color:var(--amber);background:rgba(240,160,48,.12);border-radius:5px;padding:3px 8px;margin-bottom:12px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 10px 26px -18px rgba(60,40,20,.35);}
+  .card .tag{display:inline-block;font-family:'IBM Plex Mono';font-size:11px;color:var(--amber);background:rgba(189,91,44,.12);border-radius:5px;padding:3px 8px;margin-bottom:12px;}
   .card h3{font-size:17px;margin-bottom:8px;}
   .card p{font-size:13.5px;line-height:1.6;color:var(--text-dim);margin:0;}
 
@@ -67,8 +72,8 @@
   .price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:stretch;}
   @media (max-width:800px){ .price-grid{grid-template-columns:1fr;} }
   .price-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:26px 22px;}
-  .price-card.featured{border-color:var(--amber);background:linear-gradient(180deg,rgba(240,160,48,.08),var(--surface) 60%);position:relative;}
-  .price-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:#1a1204;font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;white-space:nowrap;}
+  .price-card.featured{border-color:var(--amber);background:linear-gradient(180deg,rgba(189,91,44,.10),var(--surface) 60%);position:relative;}
+  .price-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:var(--on-amber);font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;white-space:nowrap;}
   .price-card h3{font-size:18px;margin-bottom:6px;}
   .price-card .price-desc{font-size:12.5px;color:var(--text-faint);margin-bottom:18px;min-height:32px;}
   .price-card .price-amount{font-family:'Barlow Condensed';font-weight:800;font-size:32px;line-height:1;}
@@ -79,7 +84,7 @@
   .price-features li:first-child{border-top:none;}
   .price-features li::before{content:"✓";color:var(--amber);font-weight:700;flex-shrink:0;}
   .price-cta{display:block;text-align:center;padding:11px;border-radius:8px;font-weight:700;font-size:14px;border:1px solid var(--line);color:var(--text);}
-  .price-card.featured .price-cta{background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:#1a1204;border:none;}
+  .price-card.featured .price-cta{background:linear-gradient(155deg,var(--amber),var(--amber-dim));color:var(--on-amber);border:none;}
   .price-note{text-align:center;color:var(--text-faint);font-size:12px;margin-top:24px;}
 
   .closing{text-align:center;padding:56px 0 64px;}
@@ -101,7 +106,14 @@
     <div class="hero-grid">
       <div class="hero-copy">
         <h1>Toma física de inventario, <span>sin planillas ni WhatsApp perdido</span></h1>
-        <p>InventIA es el sistema para contar bodega en terreno desde el celular: respaldo fotográfico, funciona sin señal y un dashboard que le dice a tu equipo cuándo va a terminar.</p>
+        <p class="hero-lead">InventIA es una plataforma que se especializa en la toma de inventarios, permitiendo:</p>
+        <ol class="hero-list">
+          <li>Planificar la toma de inventario y predecir fechas de término.</li>
+          <li>Realizar tomas de inventario en terreno (incluso offline).</li>
+          <li>Dejar registros fotográficos.</li>
+          <li>Dashboard de control ejecutivo y operacional.</li>
+        </ol>
+        <p class="hero-more">Y mucho más.</p>
         <a class="cta" href="../index.html">Ingresar a la app</a>
         <div class="cta-sub">Funciona en cualquier celular o computador, sin instalar nada.</div>
       </div>
