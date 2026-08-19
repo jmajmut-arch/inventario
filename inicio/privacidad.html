@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Política de privacidad — InventIA</title>
+<meta name="description" content="Política de privacidad de InventIA: qué datos recopilamos, para qué los usamos y cómo los protegemos.">
+<link rel="icon" href="../icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#faf6ee; --surface:#ffffff; --surface-2:#f1e9d8; --line:#e7dcc4;
+    --amber:#bd5b2c; --amber-dim:#8c4520; --on-amber:#fffaf3;
+    --text:#241a10; --text-dim:#5f5142; --text-faint:#9c8b76;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+  h1,h2,.display{font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:-0.01em;margin:0;}
+  a{color:var(--amber-dim);text-decoration:underline;text-underline-offset:2px;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px;}
+  .narrow{max-width:680px;margin:0 auto;padding:64px 24px 96px;}
+
+  .nav{position:sticky;top:0;z-index:40;background:rgba(250,246,238,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(36,26,16,.06);}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;padding:14px 0;}
+  .brand{display:flex;align-items:center;gap:9px;}
+  .brand-badge{width:30px;height:30px;border-radius:8px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:12px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
+  .brand-name{font-size:16px;font-weight:800;letter-spacing:-0.01em;}
+  .nav-cta{padding:9px 20px;border-radius:100px;background:var(--text);color:var(--bg);font-size:13.5px;font-weight:700;text-decoration:none;}
+
+  h1{font-size:clamp(1.9rem,4vw,2.6rem);margin-bottom:8px;}
+  .actualizado{color:var(--text-faint);font-size:13px;margin-bottom:40px;}
+  h2{font-size:20px;margin:36px 0 10px;}
+  p, li{font-size:15px;line-height:1.7;color:var(--text-dim);}
+  ul{padding-left:20px;margin:8px 0;}
+  li{margin-bottom:6px;}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);color:var(--text-dim);}
+  th{color:var(--text);font-weight:700;}
+
+  footer{padding:40px 24px;text-align:center;font-size:13px;color:var(--text-faint);border-top:1px solid var(--line);}
+</style>
+</head>
+<body>
+
+  <div class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html" style="text-decoration:none">
+        <div class="brand-badge">IA</div>
+        <div class="brand-name">InventIA</div>
+      </a>
+      <a class="nav-cta" href="index.html">Volver al inicio</a>
+    </div>
+  </div>
+
+  <div class="narrow">
+    <h1>Política de privacidad</h1>
+    <div class="actualizado">Última actualización: agosto de 2026</div>
+
+    <p>Esta política explica qué datos recopila InventIA, para qué los usa y cómo los protege.</p>
+
+    <h2>1. Qué datos recopilamos</h2>
+    <table>
+      <tr><th>Dato</th><th>Cuándo se recopila</th></tr>
+      <tr><td>Nombre, correo y rol</td><td>Al crear tu cuenta o ser invitado a una empresa</td></tr>
+      <tr><td>Nombre y teléfono</td><td>Al pedir la demo desde este sitio</td></tr>
+      <tr><td>Datos de inventario (SKU, conteos, fotografías, ubicaciones)</td><td>Al usar la plataforma para contar tu bodega</td></tr>
+      <tr><td>Registro de cambios (quién, qué, cuándo)</td><td>Automáticamente, para trazabilidad y auditoría</td></tr>
+    </table>
+
+    <h2>2. Para qué usamos tus datos</h2>
+    <ul>
+      <li>Darte acceso a la plataforma y a los datos de tu propia empresa.</li>
+      <li>Calcular el avance de tu inventario, la proyección de término y el ranking de tu equipo.</li>
+      <li>Guardar respaldo fotográfico de cada conteo.</li>
+      <li>Enviarte correos operativos (invitación, recuperación de contraseña).</li>
+      <li>Contactarte si pediste la demo desde el sitio.</li>
+    </ul>
+    <p>No vendemos tus datos a terceros ni los usamos para publicidad.</p>
+
+    <h2>3. Aislamiento entre empresas</h2>
+    <p>Cada empresa cliente está completamente aislada dentro de la base de datos: las reglas de acceso impiden que una persona de una empresa vea, cuente o toque los datos de otra empresa, incluso por accidente.</p>
+
+    <h2>4. Con quién compartimos datos</h2>
+    <p>Usamos proveedores de infraestructura para operar InventIA. Estos proveedores procesan los datos en nuestro nombre, bajo sus propias políticas de seguridad:</p>
+    <ul>
+      <li><b>Supabase</b>: base de datos, autenticación y almacenamiento de fotografías.</li>
+      <li><b>Brevo</b>: envío de correos transaccionales (invitación, recuperar contraseña).</li>
+      <li><b>GitHub Pages</b>: alojamiento del sitio y de la aplicación web.</li>
+    </ul>
+    <p>No compartimos tus datos con nadie más, salvo que la ley nos obligue a hacerlo.</p>
+
+    <h2>5. Seguridad</h2>
+    <ul>
+      <li>Las contraseñas nunca quedan almacenadas en texto plano: las gestiona el sistema de autenticación de Supabase.</li>
+      <li>Las fotografías de respaldo se guardan en un almacenamiento privado, no público.</li>
+      <li>El acceso a los datos está protegido por reglas a nivel de base de datos (no solo en la aplicación), por empresa.</li>
+    </ul>
+
+    <h2>6. Cookies y almacenamiento local</h2>
+    <p>InventIA no usa cookies de rastreo ni publicidad. Sí guarda información técnica en el almacenamiento local de tu navegador para que la app funcione, por ejemplo: tu sesión iniciada, tu tema visual preferido, y los conteos que capturaste sin conexión mientras esperan sincronizarse.</p>
+
+    <h2>7. Cuánto tiempo guardamos tus datos</h2>
+    <p>Guardamos los datos de tu empresa mientras tengas una cuenta activa con nosotros. Si tu empresa deja de usar InventIA y nos lo solicita, eliminamos sus datos dentro de un plazo razonable.</p>
+
+    <h2>8. Tus derechos</h2>
+    <p>Puedes pedirnos acceder, corregir o eliminar tus datos personales, conforme a la Ley N° 19.628 sobre Protección de la Vida Privada. Para ejercer estos derechos, escríbenos a <a href="mailto:jmajmut@gmail.com">jmajmut@gmail.com</a>.</p>
+
+    <h2>9. Cambios a esta política</h2>
+    <p>Podemos actualizar esta política ocasionalmente. Si el cambio es significativo, te avisaremos por correo o dentro de la plataforma.</p>
+
+    <h2>10. Contacto</h2>
+    <p>Ante cualquier duda sobre esta política, escríbenos a <a href="mailto:jmajmut@gmail.com">jmajmut@gmail.com</a>.</p>
+  </div>
+
+  <footer>
+    InventIA · Control de inventario · <a href="terminos.html">Términos y condiciones</a>
+  </footer>
+
+</body>
+</html>
