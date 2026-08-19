@@ -507,6 +507,10 @@
           <input type="tel" id="demo-telefono" required autocomplete="tel" placeholder="+56 9 1234 5678">
           <label for="demo-empresa">Empresa <span style="font-weight:400;color:var(--text-faint)">(opcional)</span></label>
           <input type="text" id="demo-empresa" autocomplete="organization">
+          <div style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden" aria-hidden="true">
+            <label for="demo-web">No completar este campo</label>
+            <input type="text" id="demo-web" name="website" tabindex="-1" autocomplete="off">
+          </div>
           <button type="submit" class="modal-submit" id="demo-submit-btn">Ver la demo</button>
           <div class="modal-error" id="demo-error" style="display:none"></div>
         </form>
@@ -538,11 +542,13 @@
   var demoError = document.getElementById('demo-error');
   var demoSubmitBtn = document.getElementById('demo-submit-btn');
 
+  var demoAbiertoEn = 0;
   function abrirDemoModal(){
     demoFormWrap.style.display = '';
     demoOk.classList.remove('open');
     demoError.style.display = 'none';
     demoBackdrop.classList.add('open');
+    demoAbiertoEn = Date.now();
   }
   function cerrarDemoModal(){
     demoBackdrop.classList.remove('open');
@@ -559,6 +565,18 @@
   demoForm.addEventListener('submit', function(e){
     e.preventDefault();
     demoError.style.display = 'none';
+
+    // Anti-spam silencioso: si el campo trampa viene lleno (típico de bots que
+    // completan todos los campos del formulario) o si se envió casi al instante
+    // de abrir el modal (nadie llena el formulario en menos de 2 segundos),
+    // simulamos éxito sin insertar nada — así el bot no aprende que fue detectado.
+    var esBot = document.getElementById('demo-web').value.trim() !== '' || (Date.now() - demoAbiertoEn) < 2000;
+    if(esBot){
+      demoFormWrap.style.display = 'none';
+      demoOk.classList.add('open');
+      return;
+    }
+
     demoSubmitBtn.disabled = true;
     demoSubmitBtn.textContent = 'Enviando…';
 
@@ -579,7 +597,9 @@
       },
       body: JSON.stringify([body]),
     }).then(function(res){
-      if(!res.ok) throw new Error('No pudimos guardar tus datos. Intenta de nuevo.');
+      if(!res.ok) return res.json().catch(function(){ return {}; }).then(function(data){
+        throw new Error((data && data.message) || 'No pudimos guardar tus datos. Intenta de nuevo.');
+      });
       demoFormWrap.style.display = 'none';
       demoOk.classList.add('open');
     }).catch(function(err){
