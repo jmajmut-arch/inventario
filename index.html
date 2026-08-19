@@ -290,7 +290,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], resumen: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], leads: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
@@ -768,6 +768,16 @@ async function cargarResumenSuperAdmin(){
   try{
     const filas = await rest('/rpc/resumen_empresas_super_admin', {method:'POST'});
     state.superadmin.resumen = filas || [];
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Leads capturados desde el botón "Probar la demo" del landing (tabla leads_demo,
+// solo legible por super-admin — ver RLS de la tabla).
+async function cargarLeadsSuperAdmin(){
+  try{
+    const filas = await rest('/leads_demo?select=*&order=creado_en.desc&limit=100');
+    state.superadmin.leads = filas || [];
     render();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -2772,6 +2782,18 @@ function renderSuperAdmin(){
       `).join('')}</div>
       ` : `<div class="empty" style="padding:14px 8px">Esta empresa aún no tiene personas.</div>`}
     </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:10px">Personas que pidieron probar la demo desde el landing (${sa.leads.length}).</div>
+      ${sa.leads.length? sa.leads.map(l=>`
+        <div class="plan-item" style="display:block;padding:10px 0">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <span style="font-weight:600">${esc(l.nombre)}${l.empresa?' · '+esc(l.empresa):''}</span>
+            <span class="hint">${esc(new Date(l.creado_en).toLocaleString('es-CL'))}</span>
+          </div>
+          <div class="hint">${esc(l.email)}${l.telefono?' · '+esc(l.telefono):''}</div>
+        </div>
+      `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie que haya pedido la demo.</div>`}
+    </div>
   `;
 }
 
@@ -3064,7 +3086,7 @@ function bind(){
       selectAuditoriaTabla.addEventListener('change', ()=> cargarAuditoria(selectAuditoriaTabla.value));
     }
     if(state.perfil && state.perfil.es_super_admin){
-      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); }
+      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
         e.preventDefault();
         const input = document.getElementById('nueva-empresa-nombre');

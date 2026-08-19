@@ -130,6 +130,12 @@ const fakeFetchImpl = async (url, opts) => {
     const filas = path.includes('tabla=eq.usuarios') ? todas.filter(f=>f.tabla==='usuarios') : todas;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/leads_demo')){
+    const filas = [
+      {id:'lead-1', nombre:'Pedro Soto', email:'pedro@clienteX.cl', telefono:'+56911112222', empresa:'Clientes X SpA', creado_en:'2026-08-18T10:00:00Z'},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/responsables_proceso')){
     return {
       status: 200,
@@ -824,7 +830,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Panel de super-admin: solo visible si perfil.es_super_admin.
   ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
-  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true}, {id:'emp-2', nombre:'Minera Sur', activo:true}], resumen:[], invitando:false, cargado:true };
+  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true}, {id:'emp-2', nombre:'Minera Sur', activo:true}], resumen:[], leads:[], invitando:false, cargado:true };
   const htmlConfigSuperAdmin = ctx.renderConfiguraciones();
   assert(htmlConfigSuperAdmin.includes('id="form-crear-empresa-sa"') && htmlConfigSuperAdmin.includes('id="form-invitar-persona-sa"'), 'un super-admin debe ver el panel para crear empresas e invitar personas, obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.includes('Minera Andes') && htmlConfigSuperAdmin.includes('Minera Sur'), 'debe listar las empresas existentes, obtuvo: '+htmlConfigSuperAdmin);
@@ -853,8 +859,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConfigSuperAdmin.includes('data-guardar-empresa-sa="emp-1"') && htmlConfigSuperAdmin.includes('data-toggle-empresa-sa="emp-1"'), 'cada empresa debe tener botones para guardar el nombre y desactivar/reactivar, obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.includes('id="sa-personas-empresa"'), 'debe existir el selector de empresa para gestionar personas, obtuvo: '+htmlConfigSuperAdmin);
 
+  // cargarLeadsSuperAdmin: pide /leads_demo (los datos que deja el formulario "Probar la
+  // demo" del landing) y renderSuperAdmin debe listarlos con su fecha.
+  calls.length = 0;
+  await ctx.cargarLeadsSuperAdmin();
+  assert(calls.some(c=>c.url.includes('/leads_demo?select=')), 'cargarLeadsSuperAdmin debe pedir /leads_demo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.superadmin.leads.length===1 && ctx.__appstate.superadmin.leads[0].email==='pedro@clienteX.cl', 'debe guardar los leads devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.superadmin.leads));
+  const htmlConLeads = ctx.renderSuperAdmin();
+  assert(htmlConLeads.includes('Pedro Soto') && htmlConLeads.includes('Clientes X SpA') && htmlConLeads.includes('pedro@clienteX.cl'), 'el panel de super-admin debe mostrar nombre, empresa y correo del lead, obtuvo: '+htmlConLeads);
+  ctx.__appstate.superadmin.leads = [];
+  assert(ctx.renderSuperAdmin().includes('Todavía no hay nadie'), 'sin leads debe mostrar un mensaje vacío, no una lista rota');
+
   // Una empresa inactiva se debe marcar como tal y el selector de invitación no debe ofrecerla.
-  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true}, {id:'emp-2', nombre:'Minera Sur', activo:false}], resumen:[], invitando:false, cargado:true, personasEmpresaId:'', personas:[], cargandoPersonas:false };
+  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true}, {id:'emp-2', nombre:'Minera Sur', activo:false}], resumen:[], leads:[], invitando:false, cargado:true, personasEmpresaId:'', personas:[], cargandoPersonas:false };
   const htmlConEmpresaInactiva = ctx.renderConfiguraciones();
   assert(htmlConEmpresaInactiva.includes('Inactiva'), 'una empresa desactivada debe mostrar la etiqueta "Inactiva", obtuvo: '+htmlConEmpresaInactiva);
   assert(!htmlConEmpresaInactiva.includes('<option value="emp-2">Minera Sur</option>'), 'el selector de invitación no debe ofrecer una empresa inactiva, obtuvo: '+htmlConEmpresaInactiva);
