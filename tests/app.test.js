@@ -775,6 +775,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlDashSinRanking = ctx.renderDashboard();
   assert(!htmlDashSinRanking.includes('Ranking por responsable'), 'sin conteos en la ventana, no debe mostrarse la sección de ranking, obtuvo: '+htmlDashSinRanking);
 
+  // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
+  // avance_total/avance_diario usan count()/count(distinct), que PostgREST devuelve como
+  // string en el JSON (para no perder precisión). Si el código suma esos campos con "+"
+  // sin convertirlos primero, JS concatena texto en vez de sumar ("0"+"3" -> "03") y el
+  // avance global y la proyección de término quedan con números sin sentido.
+  ctx.__appstate.dash = {
+    total: [
+      { bodega:'Bodega Central Rajo', skus_universo:'13', skus_contados:'13', porcentaje_avance:'100.0' },
+      { bodega:'Bodega Planta Chancado', skus_universo:'11', skus_contados:'9', porcentaje_avance:'81.8' },
+    ],
+    diario: [
+      { dia:'2026-08-18', bodega:'Bodega Central Rajo', skus_contados:'2', con_diferencia:'1', total_unidades_contadas:'30' },
+      { dia:'2026-08-18', bodega:'Bodega Planta Chancado', skus_contados:'3', con_diferencia:'1', total_unidades_contadas:'42' },
+    ],
+    semanal: [], mensual: [], ranking: [],
+  };
+  const htmlDashStrings = ctx.renderDashboard();
+  assert(htmlDashStrings.includes('91.7%'), 'con campos numéricos como string (igual que los devuelve PostgREST), el avance global debe seguir calculándose bien (22/24 = 91.7%), obtuvo: '+htmlDashStrings);
+  assert(!htmlDashStrings.includes('01311') && !htmlDashStrings.includes('0139'), 'no debe quedar rastro de concatenación de texto en vez de suma numérica, obtuvo: '+htmlDashStrings);
+
+  const diarioAggStrings = ctx.agregarPorDia(ctx.__appstate.dash.diario, 14);
+  assert(diarioAggStrings.length===1 && diarioAggStrings[0].contados===5 && diarioAggStrings[0].diferencias===2, 'agregarPorDia debe sumar numéricamente aunque los campos vengan como string, obtuvo: '+JSON.stringify(diarioAggStrings));
+
   // ===== Multi-tenencia (empresas) =====
 
   // El login ya no ofrece registro autoservicio: solo correo + contraseña.

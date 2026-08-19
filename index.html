@@ -1789,8 +1789,11 @@ function agregarPorDia(diario, dias=14){
     const key = (r.dia||'').slice(0,10);
     if(!key) return;
     const cur = map.get(key) || { dia:key, contados:0, diferencias:0 };
-    cur.contados += r.skus_contados||0;
-    cur.diferencias += r.con_diferencia||0;
+    // skus_contados/con_diferencia vienen de count() en la vista SQL: PostgREST serializa
+    // bigint como string (para no perder precisión), así que sin Number() esto concatena
+    // texto en vez de sumar ("0"+"3" -> "03") y arruina el gráfico y la proyección.
+    cur.contados += Number(r.skus_contados)||0;
+    cur.diferencias += Number(r.con_diferencia)||0;
     map.set(key, cur);
   });
   return Array.from(map.values()).sort((a,b)=> a.dia.localeCompare(b.dia)).slice(-dias);
@@ -1986,8 +1989,11 @@ function renderEscanerModal(){
 
 function renderDashboard(){
   const t = state.dash.total;
-  const totUniverso = t.reduce((s,r)=>s+(r.skus_universo||0),0);
-  const totContados = t.reduce((s,r)=>s+(r.skus_contados||0),0);
+  // skus_universo/skus_contados vienen de count(distinct) en la vista SQL: PostgREST los
+  // serializa como string (bigint), así que sin Number() la suma concatena texto en vez de
+  // sumar y el avance global queda completamente mal calculado.
+  const totUniverso = t.reduce((s,r)=>s+(Number(r.skus_universo)||0),0);
+  const totContados = t.reduce((s,r)=>s+(Number(r.skus_contados)||0),0);
   const avanceGlobal = totUniverso? (totContados/totUniverso*100) : 0;
 
   const pendientesBodega = resumenPendientesPorBodega(t);
