@@ -265,6 +265,44 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const BUCKET = 'fotos-inventario';
 
 /* =======================================================================
+   MONITOREO DE ERRORES — reporta errores del navegador del cliente a
+   errores_cliente, para enterarnos aunque nadie nos escriba. Nunca debe
+   romper nada ni mostrarle algo al usuario: es "mejor esfuerzo", en silencio.
+   ======================================================================= */
+const erroresYaReportados = new Set();
+function reportarError(mensaje, stack){
+  try{
+    const clave = String(mensaje).slice(0,200);
+    if(erroresYaReportados.has(clave)) return; // no floodear con el mismo error repetido
+    erroresYaReportados.add(clave);
+    fetch(`${SUPABASE_URL}/rest/v1/errores_cliente`, {
+      method:'POST',
+      headers:{
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${(typeof state!=='undefined' && state.session) ? state.session.access_token : SUPABASE_ANON_KEY}`,
+        'Content-Type':'application/json',
+        'Prefer':'return=minimal',
+      },
+      body: JSON.stringify([{
+        empresa_id: (typeof state!=='undefined' && state.perfil) ? state.perfil.empresa_id : null,
+        usuario_id: (typeof state!=='undefined' && state.perfil) ? state.perfil.id : null,
+        mensaje: String(mensaje).slice(0,2000),
+        stack: stack ? String(stack).slice(0,4000) : null,
+        url: location.href,
+        user_agent: navigator.userAgent,
+      }]),
+    }).catch(()=>{}); // si falla el reporte mismo, no hay nada más que hacer
+  }catch(e){ /* nunca dejar que el reporte de errores rompa la app */ }
+}
+window.addEventListener('error', function(e){
+  reportarError(e.message || 'Error desconocido', e.error && e.error.stack);
+});
+window.addEventListener('unhandledrejection', function(e){
+  const razon = e.reason;
+  reportarError((razon && razon.message) || String(razon), razon && razon.stack);
+});
+
+/* =======================================================================
    ESTADO
    ======================================================================= */
 let state = {
@@ -290,7 +328,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], resumen: [], leads: [], planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], leads: [], planes: [], errores: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
@@ -576,7 +614,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],errores:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
   render();
   toast('Sesión cerrada');
 }
@@ -795,6 +833,16 @@ async function cargarLeadsSuperAdmin(){
   try{
     const filas = await rest('/leads_demo?select=*&order=creado_en.desc&limit=100');
     state.superadmin.leads = filas || [];
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Errores del navegador de los clientes, reportados solos por reportarError()
+// (ver arriba en el bloque de MONITOREO DE ERRORES).
+async function cargarErroresSuperAdmin(){
+  try{
+    const filas = await rest('/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=50');
+    state.superadmin.errores = filas || [];
     render();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -2821,6 +2869,18 @@ function renderSuperAdmin(){
         </div>
       `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie que haya pedido la demo.</div>`}
     </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:10px">Errores reportados solos por el navegador de los clientes (${sa.errores.length} más recientes).</div>
+      ${sa.errores.length? sa.errores.map(er=>`
+        <div class="plan-item" style="display:block;padding:10px 0">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <span style="font-weight:600">${esc(er.mensaje)}</span>
+            <span class="hint">${esc(new Date(er.creado_en).toLocaleString('es-CL'))}</span>
+          </div>
+          <div class="hint">${er.empresas? esc(er.empresas.nombre)+' · ' : ''}${esc(er.url||'')}</div>
+        </div>
+      `).join('') : `<div class="empty" style="padding:14px 8px">Sin errores reportados. Buena señal.</div>`}
+    </div>
   `;
 }
 
@@ -3113,7 +3173,7 @@ function bind(){
       selectAuditoriaTabla.addEventListener('change', ()=> cargarAuditoria(selectAuditoriaTabla.value));
     }
     if(state.perfil && state.perfil.es_super_admin){
-      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); cargarPlanesSuperAdmin(); }
+      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); cargarPlanesSuperAdmin(); cargarErroresSuperAdmin(); }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
         e.preventDefault();
         const input = document.getElementById('nueva-empresa-nombre');
