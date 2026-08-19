@@ -14,6 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 :root{
   --bg:#161a20;
@@ -294,6 +295,7 @@ let state = {
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
   offlineModal: false,
+  escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
@@ -341,6 +343,11 @@ const VENTANA_PROYECCION_DIAS = 14;
 const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
 
 function setState(patch){ Object.assign(state, patch); render(); }
+
+// Instancia del lector de códigos (html5-qrcode). Vive fuera de `state` porque no es
+// serializable ni debe disparar un re-render por sí sola; se referencia solo desde las
+// funciones de escaneo/apertura-cierre del modal más abajo.
+let escanerInstancia = null;
 
 /* =======================================================================
    HELPERS DE RED — REST / AUTH / STORAGE de Supabase (sin SDK externo)
@@ -1576,6 +1583,91 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
 }
 
 /* =======================================================================
+   ESCÁNER DE CÓDIGOS — asociación código de barras / QR ↔ SKU
+   ======================================================================= */
+// Resuelve un código leído por la cámara contra la lista de SKU ya cargada. Dos formas
+// de coincidencia, en orden: (1) el propio código del SKU (cubre el caso de imprimir
+// stickers genéricos con el sku_code como código de barras, la salida más barata para
+// ítems que nunca trajeron código de fábrica) y (2) el código de barras de fábrica ya
+// asociado en una lectura anterior (columna codigo_barras). Función pura para poder
+// testearla sin cámara real.
+function resolverSkuPorCodigo(skus, codigo){
+  const c = (codigo||'').trim();
+  if(!c) return null;
+  const cLower = c.toLowerCase();
+  return skus.find(s=> (s.sku_code||'').toLowerCase() === cLower)
+      || skus.find(s=> (s.codigo_barras||'').toLowerCase() === cLower)
+      || null;
+}
+
+async function iniciarEscaner(){
+  if(escanerInstancia) return; // ya hay una lectura en curso para este modal
+  if(typeof Html5Qrcode === 'undefined'){
+    setState({escanerModal: {...state.escanerModal, error:'El lector de códigos no cargó. Revisa tu conexión e inténtalo de nuevo.'}});
+    return;
+  }
+  const instancia = new Html5Qrcode('escaner-reader');
+  escanerInstancia = instancia;
+  try{
+    await instancia.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 240, height: 160 } },
+      (codigoLeido) => onCodigoEscaneado(codigoLeido),
+      () => { /* se llama en cada frame sin lectura; no requiere acción */ }
+    );
+  }catch(e){
+    escanerInstancia = null;
+    setState({escanerModal: {...state.escanerModal, error:'No se pudo acceder a la cámara. Revisa los permisos del navegador.'}});
+  }
+}
+
+// Detiene la cámara y limpia el estado del modal de forma síncrona (para poder llamarla
+// desde cualquier handler — cerrar, cambiar de pestaña, cerrar sesión — sin esperar el
+// stop() async de la librería, que igual libera la cámara en segundo plano).
+function detenerEscaner(){
+  const instancia = escanerInstancia;
+  escanerInstancia = null;
+  state.escanerModal = null;
+  if(instancia){
+    instancia.stop().then(()=> instancia.clear()).catch(()=>{ /* ya estaba detenida */ });
+  }
+}
+
+function cerrarEscaner(){
+  detenerEscaner();
+  render();
+}
+
+async function onCodigoEscaneado(codigo){
+  if(!state.escanerModal || state.escanerModal.codigo) return; // evita doble disparo mientras se procesa la primera lectura
+  detenerEscaner();
+  const sku = resolverSkuPorCodigo(state.skus, codigo);
+  if(sku){
+    setState({skuSeleccionado: sku});
+    toast(`SKU ${sku.sku_code} encontrado`);
+  }else{
+    setState({escanerModal: { codigo, buscarAsociar:'', asociando:false }});
+  }
+}
+
+// Primera vez que se ve este código: la persona elige a mano el SKU correcto y desde
+// ahora ese código queda asociado — la próxima lectura lo va a reconocer solo.
+async function asociarCodigoBarras(skuId, codigo){
+  const sku = state.skus.find(s=>s.id===skuId);
+  if(!sku) return;
+  setState({escanerModal: {...state.escanerModal, asociando:true}});
+  try{
+    await rest(`/skus?id=eq.${skuId}`, {method:'PATCH', body:{codigo_barras: codigo}, prefer:'return=minimal'});
+    sku.codigo_barras = codigo;
+    toast(`Código asociado a ${sku.sku_code}`);
+    setState({skuSeleccionado: sku, escanerModal: null});
+  }catch(e){
+    toast(e.message,'err');
+    setState({escanerModal: {...state.escanerModal, asociando:false}});
+  }
+}
+
+/* =======================================================================
    ICONOS (inline SVG, sin dependencias)
    ======================================================================= */
 const ICONS = {
@@ -1593,6 +1685,7 @@ const ICONS = {
   download:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 21h14"/></svg>',
   editar:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
   papelera:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+  escanear:'<svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3"/><path d="M20 8V5a1 1 0 00-1-1h-3"/><path d="M4 16v3a1 1 0 001 1h3"/><path d="M20 16v3a1 1 0 01-1 1h-3"/><path d="M3 12h18"/><path d="M8 9v6"/><path d="M12 9v6"/><path d="M16 9v6"/></svg>',
 };
 
 /* =======================================================================
@@ -1841,6 +1934,42 @@ function renderOfflineModal(){
           </div>
         </div>
       `;}).join('') : `<div class="empty" style="padding:14px 8px">No hay cambios pendientes.</div>`}
+    </div>
+  </div>`;
+}
+
+function renderEscanerModal(){
+  if(!state.escanerModal) return '';
+  const m = state.escanerModal;
+  const q = (m.buscarAsociar||'').trim().toLowerCase();
+  const resultados = q.length? state.skus.filter(s =>
+    s.sku_code.toLowerCase().includes(q) || (s.descripcion||'').toLowerCase().includes(q)
+  ).slice(0,8) : [];
+  return `<div class="foto-modal-backdrop" id="escaner-modal-backdrop">
+    <div class="card" style="width:min(92vw,440px);max-height:88vh;overflow-y:auto;margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">${m.codigo? 'Código no encontrado' : 'Escanear código'}</h2>
+        <button id="escaner-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      ${!m.codigo? `
+        <div id="escaner-reader" style="width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:220px"></div>
+        <div class="hint" style="margin-top:10px">Apunta la cámara al código de barras o QR pegado en el SKU.</div>
+        ${m.error? `<div style="color:var(--danger);font-size:12.5px;margin-top:8px">${esc(m.error)}</div>` : ''}
+      ` : `
+        <div class="hint">Este código todavía no está asociado a ningún SKU:</div>
+        <div class="selected-sku" style="margin:8px 0"><div class="code">${esc(m.codigo)}</div></div>
+        <label for="escaner-buscar">Busca el SKU al que corresponde</label>
+        <input type="text" id="escaner-buscar" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(m.buscarAsociar)}" autocomplete="off">
+        <div style="margin-top:10px">
+          ${q.length===0? `<div class="hint">Escribe para buscar entre ${state.skus.length} SKU activos.</div>` :
+            resultados.length? resultados.map(s=>`
+              <div class="sku-pick" data-asociar="${s.id}">
+                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}</span></div>
+                <button data-asociar-btn="${s.id}" ${m.asociando?'disabled':''}>${m.asociando?'...':'Asociar'}</button>
+              </div>`).join('') :
+            `<div class="hint">No se encontraron coincidencias.</div>`}
+        </div>
+      `}
     </div>
   </div>`;
 }
@@ -2161,7 +2290,10 @@ function renderConteo(){
     ${!state.skuSeleccionado? `
       <div class="card">
         <label for="sku-search">Buscar SKU por código o descripción</label>
-        <input type="text" id="sku-search" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(state.skuSearch)}" autocomplete="off">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="sku-search" style="flex:1" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(state.skuSearch)}" autocomplete="off">
+          <button type="button" id="btn-abrir-escaner" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
+        </div>
         <div style="margin-top:10px">
           ${q.length===0? `<div class="hint">Escribe para buscar entre ${state.skus.length} SKU activos.</div>` :
             resultados.length? resultados.map(s=>`
@@ -2812,7 +2944,7 @@ function tabBtn(view,label){
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
   const root = document.getElementById('app');
-  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : state.session ? renderShell() : renderLogin()) + renderFotoModal() + renderOfflineModal();
+  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : state.session ? renderShell() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderEscanerModal();
   bind();
 }
 
@@ -2845,6 +2977,22 @@ function bind(){
       btn.addEventListener('click', ()=> descartarAccionOffline(btn.dataset.descartarOffline));
     });
   }
+  if(state.escanerModal){
+    document.getElementById('escaner-modal-close').addEventListener('click', cerrarEscaner);
+    document.getElementById('escaner-modal-backdrop').addEventListener('click', e=>{
+      if(e.target.id === 'escaner-modal-backdrop') cerrarEscaner();
+    });
+    if(!state.escanerModal.codigo){
+      if(!state.escanerModal.error) iniciarEscaner();
+    }else{
+      const buscar = document.getElementById('escaner-buscar');
+      buscar.addEventListener('input', e=> setState({escanerModal: {...state.escanerModal, buscarAsociar: e.target.value}}));
+      buscar.focus(); buscar.selectionStart = buscar.selectionEnd = buscar.value.length;
+      document.querySelectorAll('[data-asociar-btn]').forEach(btn=>{
+        btn.addEventListener('click', ()=> asociarCodigoBarras(btn.dataset.asociarBtn, state.escanerModal.codigo));
+      });
+    }
+  }
   if(state.debeCrearPassword){
     document.getElementById('crear-password-form').addEventListener('submit', e=>{
       e.preventDefault();
@@ -2872,14 +3020,14 @@ function bind(){
     return;
   }
 
-  document.getElementById('btn-logout').addEventListener('click', handleLogout);
-  document.getElementById('btn-config').addEventListener('click', ()=> setState({view:'config'}));
+  document.getElementById('btn-logout').addEventListener('click', ()=>{ detenerEscaner(); handleLogout(); });
+  document.getElementById('btn-config').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'config'}); });
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
   const btnVerOffline = document.getElementById('btn-ver-offline');
   if(btnVerOffline) btnVerOffline.addEventListener('click', ()=> setState({offlineModal:true}));
   document.querySelectorAll('.tab').forEach(btn=>{
-    btn.addEventListener('click', ()=> setState({view: btn.dataset.tab}));
+    btn.addEventListener('click', ()=>{ detenerEscaner(); setState({view: btn.dataset.tab}); });
   });
 
   if(state.view==='config'){
@@ -3057,6 +3205,8 @@ function bind(){
           setState({skuSeleccionado: sku});
         });
       });
+      const btnEscaner = document.getElementById('btn-abrir-escaner');
+      if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null}}));
     }else{
       document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoFotos:[]}));
       document.getElementById('c-foto').addEventListener('change', e=>{
