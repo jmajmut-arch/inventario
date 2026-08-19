@@ -798,6 +798,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const diarioAggStrings = ctx.agregarPorDia(ctx.__appstate.dash.diario, 14);
   assert(diarioAggStrings.length===1 && diarioAggStrings[0].contados===5 && diarioAggStrings[0].diferencias===2, 'agregarPorDia debe sumar numéricamente aunque los campos vengan como string, obtuvo: '+JSON.stringify(diarioAggStrings));
 
+  // ===== Planes: gating de funcionalidades según el plan de la empresa =====
+
+  // Sin plan cargado en el perfil (embed que aún no llegó, o falló), planIncluye() debe
+  // fallar "abierto" (asumir que sí está incluido) — es una restricción de UX, el límite
+  // real lo aplican los triggers en la base de datos, así que no hay riesgo en fallar abierto.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(ctx.planIncluye('dashboard_ejecutivo_habilitado')===true, 'sin plan cargado, planIncluye debe devolver true (fallar abierto)');
+
+  // Plan básico: sin dashboard ejecutivo ni auditoría.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', max_bodegas:1, max_usuarios:3, offline_habilitado:false, dashboard_ejecutivo_habilitado:false, auditoria_habilitada:false}} };
+  ctx.__appstate.dashboardModo = 'ejecutivo';
+  ctx.__appstate.dash = { total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}], diario: [], semanal: [], mensual: [], ranking: [] };
+  const htmlDashBasico = ctx.renderDashboard();
+  assert(!htmlDashBasico.includes('data-dash-modo="ejecutivo"'), 'plan básico no debe mostrar el botón para activar el modo Ejecutivo, obtuvo: '+htmlDashBasico);
+  assert(!htmlDashBasico.includes('Proyección de término'), 'plan básico no debe mostrar la proyección de término aunque dashboardModo siga en "ejecutivo", obtuvo: '+htmlDashBasico);
+
+  const htmlConfigBasico = ctx.renderConfiguraciones();
+  assert(!htmlConfigBasico.includes('Auditoría de cambios'), 'plan básico no debe mostrar la sección de auditoría aunque el usuario sea admin, obtuvo: '+htmlConfigBasico);
+
+  // Plan profesional: sí debe verse todo.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', max_bodegas:null, max_usuarios:15, offline_habilitado:true, dashboard_ejecutivo_habilitado:true, auditoria_habilitada:true}} };
+  const htmlDashPro = ctx.renderDashboard();
+  assert(htmlDashPro.includes('data-dash-modo="ejecutivo"'), 'plan profesional debe mostrar el botón del modo Ejecutivo, obtuvo: '+htmlDashPro);
+  const htmlConfigPro = ctx.renderConfiguraciones();
+  assert(htmlConfigPro.includes('Auditoría de cambios'), 'plan profesional debe mostrar la sección de auditoría para un admin, obtuvo: '+htmlConfigPro);
+
   // ===== Multi-tenencia (empresas) =====
 
   // El login ya no ofrece registro autoservicio: solo correo + contraseña.

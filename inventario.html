@@ -478,9 +478,18 @@ async function restaurarSesionGuardada(){
 
 async function cargarPerfil(){
   const uid = state.session.user.id;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion)`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
+}
+
+// Si no hay plan cargado (aún no llegó del backend, o el embed falló) se asume acceso
+// completo: es una restricción de UX, no de seguridad — el límite real lo aplican los
+// triggers en la base de datos, así que fallar "abierto" acá no compromete nada.
+function planIncluye(campo){
+  const plan = state.perfil && state.perfil.empresas && state.perfil.empresas.planes;
+  if(!plan) return true;
+  return !!plan[campo];
 }
 
 async function handleLogin(email, password){
@@ -2027,7 +2036,8 @@ function renderDashboard(){
   const totConDif = diarioAgg.reduce((s,d)=>s+d.diferencias,0);
   const totContadosPeriodo = diarioAgg.reduce((s,d)=>s+d.contados,0);
   const totSinDif = Math.max(0, totContadosPeriodo - totConDif);
-  const modo = state.dashboardModo;
+  const ejecutivoIncluido = planIncluye('dashboard_ejecutivo_habilitado');
+  const modo = (state.dashboardModo==='ejecutivo' && !ejecutivoIncluido) ? 'operativo' : state.dashboardModo;
   const proyeccion = proyeccionTermino(totUniverso, totContados, totContadosPeriodo);
   const rankingResponsables = (state.dash.ranking||[]).slice(0,8);
 
@@ -2104,7 +2114,7 @@ function renderDashboard(){
   return `
     <div class="section-head"><div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div></div>
     <div class="segmented">
-      <button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>
+      ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
     ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
@@ -2869,7 +2879,7 @@ function renderConfiguraciones(){
     </div>
     ` : ''}
     ` : ''}
-    ${(esAdmin || esSuperAdmin)? renderAuditoria() : ''}
+    ${(esAdmin || esSuperAdmin) && planIncluye('auditoria_habilitada')? renderAuditoria() : ''}
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
     ${TEMAS.map(t=>`
