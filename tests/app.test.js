@@ -1314,6 +1314,81 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlConfigInventariadorAuditoria = ctx.renderConfiguraciones();
   assert(!htmlConfigInventariadorAuditoria.includes('id="auditoria-filtro-tabla"'), 'un inventariador (no admin) no debe ver la sección de auditoría, obtuvo: '+htmlConfigInventariadorAuditoria);
 
+  // ===== Escáner de códigos: resolución código → SKU y asociación =====
+  // (debe ir antes de handleLogout más abajo, que reasigna `state` por completo y deja
+  // desactualizada la referencia __appstate capturada al cargar el script — ver nota ahí.)
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  const skusEscaner = [
+    { id:'sku-a', sku_code:'SKU-A', descripcion:'Perno M8', bodega:'Nave', codigo_barras:null },
+    { id:'sku-b', sku_code:'SKU-B', descripcion:'Tuerca M8', bodega:'Nave', codigo_barras:'7801234567890' },
+  ];
+
+  // resolverSkuPorCodigo: primero intenta contra el propio sku_code (stickers genéricos
+  // reimpresos con el código del SKU), luego contra codigo_barras (código de fábrica ya asociado).
+  assert(ctx.resolverSkuPorCodigo(skusEscaner, 'SKU-A').id==='sku-a', 'debe resolver por coincidencia exacta de sku_code');
+  assert(ctx.resolverSkuPorCodigo(skusEscaner, 'sku-a').id==='sku-a', 'la coincidencia de sku_code no debe ser sensible a mayúsculas/minúsculas');
+  assert(ctx.resolverSkuPorCodigo(skusEscaner, '7801234567890').id==='sku-b', 'debe resolver por codigo_barras cuando no coincide ningún sku_code');
+  assert(ctx.resolverSkuPorCodigo(skusEscaner, 'NO-EXISTE')===null, 'un código que no coincide con nada debe devolver null');
+  assert(ctx.resolverSkuPorCodigo(skusEscaner, '')===null, 'un código vacío debe devolver null sin romper');
+  assert(ctx.resolverSkuPorCodigo(skusEscaner, '  SKU-A  ').id==='sku-a', 'debe recortar espacios antes de comparar');
+
+  // renderConteo: el botón de escanear solo debe verse en el paso de búsqueda, no una vez elegido el SKU.
+  ctx.__appstate.skus = skusEscaner;
+  ctx.__appstate.skuSeleccionado = null;
+  ctx.__appstate.skuSearch = '';
+  const htmlConteoSinSku = ctx.renderConteo();
+  assert(htmlConteoSinSku.includes('id="btn-abrir-escaner"'), 'debe existir el botón de escanear junto al buscador de SKU, obtuvo: '+htmlConteoSinSku);
+  ctx.__appstate.skuSeleccionado = skusEscaner[0];
+  const htmlConteoConSku = ctx.renderConteo();
+  assert(!htmlConteoConSku.includes('id="btn-abrir-escaner"'), 'con un SKU ya elegido no debe verse el botón de escanear, obtuvo: '+htmlConteoConSku);
+  ctx.__appstate.skuSeleccionado = null;
+
+  // renderEscanerModal: oculto por defecto, muestra el lector mientras no hay código, y el
+  // buscador de asociación una vez que se leyó un código que no coincide con ningún SKU.
+  ctx.__appstate.escanerModal = null;
+  assert(ctx.renderEscanerModal()==='', 'sin escanerModal activo, renderEscanerModal debe devolver vacío');
+  ctx.__appstate.escanerModal = { codigo:null, error:null };
+  const htmlEscanerLector = ctx.renderEscanerModal();
+  assert(htmlEscanerLector.includes('id="escaner-reader"'), 'en fase de lectura debe existir el contenedor de la cámara, obtuvo: '+htmlEscanerLector);
+  ctx.__appstate.escanerModal = { codigo:'RAW-999', buscarAsociar:'perno', asociando:false };
+  const htmlEscanerAsociar = ctx.renderEscanerModal();
+  assert(htmlEscanerAsociar.includes('RAW-999') && htmlEscanerAsociar.includes('id="escaner-buscar"'), 'sin coincidencia debe mostrar el código leído y el buscador para asociarlo, obtuvo: '+htmlEscanerAsociar);
+  assert(htmlEscanerAsociar.includes('data-asociar-btn="sku-a"') && !htmlEscanerAsociar.includes('data-asociar-btn="sku-b"'), 'el buscador de asociación debe filtrar igual que el buscador normal de SKU, obtuvo: '+htmlEscanerAsociar);
+  ctx.__appstate.escanerModal = null;
+
+  // onCodigoEscaneado: código conocido (coincide con un SKU existente) selecciona el SKU
+  // directamente y cierra el modal, sin pasar por la pantalla de asociación.
+  ctx.__appstate.escanerModal = { codigo:null, error:null };
+  ctx.__appstate.skuSeleccionado = null;
+  await ctx.onCodigoEscaneado('SKU-A');
+  assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-a', 'un código reconocido debe dejar seleccionado ese SKU, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
+  assert(ctx.__appstate.escanerModal===null, 'tras resolver el código, el modal debe cerrarse');
+
+  // onCodigoEscaneado: código nuevo (no coincide con ningún SKU) deja el modal abierto en
+  // modo asociación, mostrando el código leído para que la persona elija el SKU correcto.
+  ctx.__appstate.escanerModal = { codigo:null, error:null };
+  ctx.__appstate.skuSeleccionado = null;
+  await ctx.onCodigoEscaneado('CODIGO-NUEVO-123');
+  assert(ctx.__appstate.escanerModal && ctx.__appstate.escanerModal.codigo==='CODIGO-NUEVO-123', 'un código no reconocido debe quedar guardado en escanerModal para poder asociarlo, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
+  assert(ctx.__appstate.skuSeleccionado===null, 'mientras no se asocie, no debe quedar ningún SKU seleccionado');
+
+  // asociarCodigoBarras: guarda el código en el SKU elegido (PATCH a /skus?id=eq.<id>), lo
+  // refleja de inmediato en la lista ya cargada (sin esperar un refetch) y deja ese SKU
+  // seleccionado, listo para registrar el conteo — así la próxima lectura de este mismo
+  // código lo va a reconocer solo, sin volver a pasar por esta pantalla.
+  ctx.__appstate.skus = [{ id:'sku-c', sku_code:'SKU-C', descripcion:'Filtro', bodega:'Nave', codigo_barras:null }];
+  ctx.__appstate.escanerModal = { codigo:'CODIGO-NUEVO-123', buscarAsociar:'', asociando:false };
+  ctx.__appstate.skuSeleccionado = null;
+  calls.length = 0;
+  await ctx.asociarCodigoBarras('sku-c', 'CODIGO-NUEVO-123');
+  const patchAsociar = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/skus?id=eq.sku-c'));
+  assert(!!patchAsociar, 'asociarCodigoBarras debe hacer PATCH a /skus?id=eq.<id>, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.parse(patchAsociar.opts.body).codigo_barras==='CODIGO-NUEVO-123', 'el PATCH debe guardar el código leído en codigo_barras, obtuvo: '+patchAsociar.opts.body);
+  assert(ctx.__appstate.skus[0].codigo_barras==='CODIGO-NUEVO-123', 'debe reflejar la asociación en el SKU ya cargado en memoria, obtuvo: '+JSON.stringify(ctx.__appstate.skus[0]));
+  assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-c', 'tras asociar, ese SKU debe quedar seleccionado para continuar con el conteo, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
+  assert(ctx.__appstate.escanerModal===null, 'tras asociar con éxito, el modal debe cerrarse');
+
   // handleLogout debe avisar con un toast temporal, igual que el resto de las acciones (login, guardar, borrar, etc.),
   // y borrar la sesión persistida en localStorage para que el próximo que abra el navegador no la herede.
   // Nota: handleLogout hace `state = {...}` (reasignación completa, no Object.assign), así que __appstate
