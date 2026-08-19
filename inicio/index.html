@@ -97,7 +97,7 @@
   .price-features li{font-size:13.5px;color:var(--text-dim);padding:9px 0;border-top:1px solid var(--line);display:flex;gap:9px;}
   .price-features li:first-child{border-top:none;}
   .price-features li::before{content:"✓";color:var(--amber);font-weight:700;flex-shrink:0;}
-  .price-cta{display:block;text-align:center;padding:13px;border-radius:100px;font-weight:700;font-size:14px;background:var(--surface-2);color:var(--text);}
+  .price-cta{display:block;width:100%;text-align:center;padding:13px;border-radius:100px;border:none;font-family:inherit;font-weight:700;font-size:14px;background:var(--surface-2);color:var(--text);cursor:pointer;}
   .price-card.featured .price-cta{background:var(--amber);color:var(--on-amber);}
   .price-note{text-align:center;color:var(--text-faint);font-size:12.5px;margin-top:32px;}
 
@@ -106,6 +106,40 @@
   .closing p{color:#c9b8a2;font-size:16px;margin:0 0 32px;}
   .closing .cta{background:var(--amber);}
   .closing .cta:hover{box-shadow:0 16px 34px -10px rgba(189,91,44,.5);}
+  .closing .cta-sub-link{display:block;margin-top:18px;font-size:13px;color:#a3927d;}
+  .closing .cta-sub-link a{text-decoration:underline;text-underline-offset:3px;}
+
+  /* ---- faq ---- */
+  .faq-list{max-width:760px;margin:0 auto;display:grid;gap:12px;}
+  .faq-item{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:6px 24px;}
+  .faq-item summary{cursor:pointer;list-style:none;padding:18px 0;font-weight:700;font-size:15.5px;display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  .faq-item summary::-webkit-details-marker{display:none;}
+  .faq-item summary::after{content:'+';flex-shrink:0;font-family:'Barlow Condensed';font-size:22px;font-weight:700;color:var(--amber);transition:transform .2s ease;}
+  .faq-item[open] summary::after{transform:rotate(45deg);}
+  .faq-item p{margin:0 0 20px;font-size:14.5px;line-height:1.65;color:var(--text-dim);}
+
+  /* ---- modal demo ---- */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(36,26,16,.55);backdrop-filter:blur(3px);z-index:100;display:none;align-items:center;justify-content:center;padding:20px;}
+  .modal-backdrop.open{display:flex;}
+  .modal-card{background:var(--surface);border-radius:24px;max-width:440px;width:100%;max-height:88vh;overflow-y:auto;padding:32px;position:relative;box-shadow:0 40px 80px -30px rgba(36,26,16,.5);}
+  .modal-close{position:absolute;top:18px;right:18px;width:30px;height:30px;border-radius:50%;background:var(--surface-2);border:none;color:var(--text-dim);font-size:16px;line-height:1;cursor:pointer;}
+  .modal-card h3{font-size:22px;margin-bottom:8px;}
+  .modal-card .modal-sub{font-size:14px;color:var(--text-dim);line-height:1.55;margin-bottom:22px;}
+  .modal-card label{display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin:14px 0 6px;}
+  .modal-card label:first-of-type{margin-top:0;}
+  .modal-card input{width:100%;padding:11px 13px;border-radius:9px;border:1.5px solid var(--line);background:var(--bg);color:var(--text);font-family:'Inter';font-size:14.5px;}
+  .modal-card input:focus{outline:none;border-color:var(--amber);}
+  .modal-submit{width:100%;margin-top:22px;padding:13px;border-radius:100px;border:none;background:var(--text);color:var(--bg);font-weight:700;font-size:14.5px;cursor:pointer;}
+  .modal-submit:disabled{opacity:.6;cursor:default;}
+  .modal-error{margin-top:12px;font-size:13px;color:#b9432f;}
+  .modal-ok{display:none;}
+  .modal-ok.open{display:block;}
+  .modal-ok .check{width:44px;height:44px;border-radius:50%;background:rgba(189,91,44,.12);color:var(--amber);display:flex;align-items:center;justify-content:center;margin-bottom:16px;}
+  .demo-creds{background:var(--surface-2);border-radius:12px;padding:16px 18px;margin:18px 0;}
+  .demo-creds div{display:flex;justify-content:space-between;gap:10px;font-family:'IBM Plex Mono';font-size:13.5px;padding:5px 0;}
+  .demo-creds div span:first-child{color:var(--text-faint);}
+  .modal-ok .modal-note{font-size:12.5px;color:var(--text-faint);line-height:1.6;margin:14px 0 0;}
+  .modal-ok .cta{display:block;text-align:center;margin-top:20px;padding:13px;font-size:14.5px;}
 
   footer{padding:48px 24px 40px;text-align:center;font-size:13px;color:var(--text-faint);}
   footer .brand{justify-content:center;margin-bottom:14px;}
@@ -123,6 +157,7 @@
         <a href="#resuelve">Producto</a>
         <a href="#funciona">Cómo funciona</a>
         <a href="#planes">Planes</a>
+        <a href="#faq">Preguntas</a>
       </div>
       <a class="nav-cta" href="../index.html">Ingresar</a>
     </div>
@@ -139,7 +174,7 @@
       <div class="feature-pill"><span class="n">4</span>Dashboard ejecutivo y operacional</div>
     </div>
     <div>
-      <a class="cta" href="../index.html">Ingresar a la app</a>
+      <button type="button" class="cta" data-abrir-demo>Probar la demo</button>
       <a class="cta-ghost" href="#planes">Ver planes <span>›</span></a>
     </div>
     <div class="cta-sub">Funciona en cualquier celular o computador, sin instalar nada. Y mucho más.</div>
@@ -227,7 +262,7 @@
             <li>Dashboard de avance</li>
             <li>Soporte por correo</li>
           </ul>
-          <a class="price-cta" href="../index.html">Solicitar acceso</a>
+          <button type="button" class="price-cta" data-abrir-demo>Probar la demo</button>
         </div>
 
         <div class="price-card featured reveal">
@@ -244,7 +279,7 @@
             <li>Auditoría de cambios</li>
             <li>Soporte prioritario</li>
           </ul>
-          <a class="price-cta" href="../index.html">Solicitar acceso</a>
+          <button type="button" class="price-cta" data-abrir-demo>Probar la demo</button>
         </div>
 
         <div class="price-card reveal">
@@ -259,7 +294,7 @@
             <li>Onboarding asistido</li>
             <li>Soporte prioritario dedicado</li>
           </ul>
-          <a class="price-cta" href="../index.html">Solicitar acceso</a>
+          <button type="button" class="price-cta" data-abrir-demo>Probar la demo</button>
         </div>
 
       </div>
@@ -267,10 +302,46 @@
     </div>
   </section>
 
+  <section id="faq">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="section-title">Preguntas frecuentes</div>
+        <div class="section-sub">Lo que más nos preguntan antes de partir.</div>
+      </div>
+      <div class="faq-list">
+        <details class="faq-item reveal">
+          <summary>¿Funciona sin señal dentro de la bodega o la mina?</summary>
+          <p>Sí. Si no hay conexión, el conteo (y las fotos) se guardan en el celular y se suben solos apenas vuelve la señal. Nadie pierde un conteo por trabajar en una zona sin cobertura.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Cómo funciona el conteo con código de barras?</summary>
+          <p>Apuntas la cámara del celular al código de barras o QR del material. Si el sistema ya lo conoce, reconoce el SKU al instante. Si es la primera vez que lo ve, te pide elegir el SKU correcto una sola vez — desde ahí queda asociado para siempre.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Nuestros datos quedan mezclados con los de otras empresas?</summary>
+          <p>No. Cada empresa vive completamente aislada dentro del sistema — nadie de otra empresa puede ver, contar ni tocar tus datos, ni por accidente.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Cuánto se demora en implementarse?</summary>
+          <p>Subes tu catálogo de materiales por Excel/CSV (o el export directo de SAP) el mismo día, y tu equipo puede empezar a contar esa misma tarde. No hay instalación: es una página web que funciona en el celular o computador que ya tienen.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Mi equipo necesita ser técnico para usarla?</summary>
+          <p>No. La pantalla de conteo en terreno tiene tres campos: buscar o escanear el SKU, ingresar la cantidad y una foto opcional. Se aprende a usar en minutos.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Puedo probarla antes de contratar?</summary>
+          <p>Sí, de dos formas: prueba la demo ahora mismo con datos de ejemplo (botón más arriba), y si te interesa, coordinamos un piloto real y gratuito con el catálogo de tu propia bodega.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
   <div class="closing reveal">
     <h2>¿Listo para tomar inventario sin planillas?</h2>
-    <p>Empieza hoy — sin instalar nada, en el celular que ya tienes.</p>
-    <a class="cta" href="../index.html">Ingresar a la app</a>
+    <p>Prueba la demo ahora mismo — sin instalar nada, en el celular que ya tienes.</p>
+    <button type="button" class="cta" data-abrir-demo>Probar la demo</button>
+    <span class="cta-sub-link">¿Ya eres cliente? <a href="../index.html">Ingresar a la app</a></span>
   </div>
 
   <footer>
@@ -280,6 +351,107 @@
     </div>
     InventIA · Control de inventario
   </footer>
+
+  <div class="modal-backdrop" id="demo-modal-backdrop">
+    <div class="modal-card">
+      <button type="button" class="modal-close" id="demo-modal-close" aria-label="Cerrar">✕</button>
+
+      <div id="demo-modal-form-wrap">
+        <h3>Prueba InventIA ahora</h3>
+        <p class="modal-sub">Te damos acceso a una bodega de ejemplo ya cargada, para que la explores tú mismo. Después, si te interesa, coordinamos un piloto real con tus propios datos.</p>
+        <form id="demo-form">
+          <label for="demo-nombre">Nombre</label>
+          <input type="text" id="demo-nombre" required autocomplete="name">
+          <label for="demo-email">Correo</label>
+          <input type="email" id="demo-email" required autocomplete="email">
+          <label for="demo-telefono">Teléfono</label>
+          <input type="tel" id="demo-telefono" required autocomplete="tel" placeholder="+56 9 1234 5678">
+          <label for="demo-empresa">Empresa <span style="font-weight:400;color:var(--text-faint)">(opcional)</span></label>
+          <input type="text" id="demo-empresa" autocomplete="organization">
+          <button type="submit" class="modal-submit" id="demo-submit-btn">Ver la demo</button>
+          <div class="modal-error" id="demo-error" style="display:none"></div>
+        </form>
+      </div>
+
+      <div id="demo-modal-ok" class="modal-ok">
+        <div class="check">✓</div>
+        <h3>Ya puedes entrar</h3>
+        <p class="modal-sub">Esta es una cuenta compartida de demostración — explórala con confianza, se restablece sola todas las noches.</p>
+        <div class="demo-creds">
+          <div><span>Correo</span><span class="mono">demo@inventiapp.cl</span></div>
+          <div><span>Contraseña</span><span class="mono">DemoInventIA2026</span></div>
+        </div>
+        <a class="cta" href="../index.html" target="_blank" rel="noopener">Entrar a la demo ›</a>
+        <p class="modal-note">En las próximas 24 horas te escribimos para coordinar un piloto real y gratuito con el catálogo de tu propia bodega.</p>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+  var SUPABASE_URL = 'https://ncvwgsbcvklhbyvurxzz.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE';
+
+  var demoBackdrop = document.getElementById('demo-modal-backdrop');
+  var demoFormWrap = document.getElementById('demo-modal-form-wrap');
+  var demoOk = document.getElementById('demo-modal-ok');
+  var demoForm = document.getElementById('demo-form');
+  var demoError = document.getElementById('demo-error');
+  var demoSubmitBtn = document.getElementById('demo-submit-btn');
+
+  function abrirDemoModal(){
+    demoFormWrap.style.display = '';
+    demoOk.classList.remove('open');
+    demoError.style.display = 'none';
+    demoBackdrop.classList.add('open');
+  }
+  function cerrarDemoModal(){
+    demoBackdrop.classList.remove('open');
+  }
+
+  document.querySelectorAll('[data-abrir-demo]').forEach(function(btn){
+    btn.addEventListener('click', abrirDemoModal);
+  });
+  document.getElementById('demo-modal-close').addEventListener('click', cerrarDemoModal);
+  demoBackdrop.addEventListener('click', function(e){
+    if(e.target === demoBackdrop) cerrarDemoModal();
+  });
+
+  demoForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    demoError.style.display = 'none';
+    demoSubmitBtn.disabled = true;
+    demoSubmitBtn.textContent = 'Enviando…';
+
+    var body = {
+      nombre: document.getElementById('demo-nombre').value.trim(),
+      email: document.getElementById('demo-email').value.trim(),
+      telefono: document.getElementById('demo-telefono').value.trim(),
+      empresa: document.getElementById('demo-empresa').value.trim() || null,
+    };
+
+    fetch(SUPABASE_URL + '/rest/v1/leads_demo', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify([body]),
+    }).then(function(res){
+      if(!res.ok) throw new Error('No pudimos guardar tus datos. Intenta de nuevo.');
+      demoFormWrap.style.display = 'none';
+      demoOk.classList.add('open');
+    }).catch(function(err){
+      demoError.textContent = err.message;
+      demoError.style.display = 'block';
+    }).finally(function(){
+      demoSubmitBtn.disabled = false;
+      demoSubmitBtn.textContent = 'Ver la demo';
+    });
+  });
+</script>
 
 <script>
   var els = document.querySelectorAll('.reveal');
