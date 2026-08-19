@@ -1,0 +1,11 @@
+{
+  "name": "inventario",
+  "private": true,
+  "scripts": {
+    "test": "node tests/app.test.js",
+    "test:e2e": "node tests/e2e.test.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}
