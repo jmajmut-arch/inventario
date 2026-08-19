@@ -222,33 +222,6 @@
         <div class="section-title">Qué resuelve</div>
         <div class="section-sub">Pensado para el conteo físico real: bodegas grandes, mala señal y varias personas contando a la vez.</div>
       </div>
-      <div class="grid">
-        <div class="card reveal">
-          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
-          <h3>Respaldo fotográfico por cada conteo</h3>
-          <p>Cada cantidad contada queda con foto, ubicación, responsable y hora — trazabilidad completa para auditar diferencias.</p>
-        </div>
-        <div class="card reveal">
-          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
-          <h3>Sigue funcionando sin señal</h3>
-          <p>En bodegas sin cobertura, la app guarda el conteo y las fotos en el celular y las sube solas apenas vuelve la conexión.</p>
-        </div>
-        <div class="card reveal">
-          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
-          <h3>Proyección de término y ranking</h3>
-          <p>Avance por bodega, diferencias contra el stock del sistema, y una fecha estimada de cuándo se termina el inventario.</p>
-        </div>
-        <div class="card reveal">
-          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-          <h3>Roles, permisos y auditoría</h3>
-          <p>Cada empresa ve solo sus propios datos, con roles de administrador e inventariador y un historial de cambios auditable.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="vista">
-    <div class="wrap">
       <div class="carousel reveal">
         <div class="carousel-track" id="vista-track">
 
@@ -275,6 +248,26 @@
           <div class="carousel-slide">
             <div class="vista-grid">
               <div class="vista-text">
+                <div class="section-title">Proyección de término<br>y ranking</div>
+                <p>El sistema calcula solo cuándo se va a terminar el inventario, al ritmo real con que está contando el equipo.</p>
+                <ul class="vista-points">
+                  <li><b>Fecha estimada de término</b>, recalculada según el ritmo de los últimos 14 días.</li>
+                  <li><b>Conteos por día</b> y diferencias, para ver la tendencia real.</li>
+                  <li><b>Ranking por responsable</b>, para saber quién está contando qué.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="phone-frame">
+                  <img src="img/proyeccion-demo.jpg" alt="Proyección de término y ranking por responsable en el dashboard de InventIA">
+                  <div class="phone-frame-fade"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="carousel-slide">
+            <div class="vista-grid">
+              <div class="vista-text">
                 <div class="section-title">Cuenta en terreno,<br>hasta con el código de barras</div>
                 <p>Busca el SKU o apunta la cámara al código de barras — el sistema lo reconoce solo, incluso sin señal.</p>
                 <ul class="vista-points">
@@ -286,6 +279,26 @@
               <div>
                 <div class="phone-frame">
                   <img src="img/contar-demo.png" alt="Pantalla de Tomar inventario de InventIA con buscador de SKU y botón de escáner de código de barras">
+                  <div class="phone-frame-fade"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="carousel-slide">
+            <div class="vista-grid">
+              <div class="vista-text">
+                <div class="section-title">Respaldo fotográfico<br>por cada conteo</div>
+                <p>Cada cantidad contada puede quedar con foto — y si hace falta más de una, también.</p>
+                <ul class="vista-points">
+                  <li><b>Una o varias fotos</b> por conteo, con navegación entre ellas.</li>
+                  <li><b>Ubicación, responsable y hora</b> quedan siempre registrados junto a la foto.</li>
+                  <li><b>Trazabilidad completa</b> para auditar cualquier diferencia.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="phone-frame">
+                  <img src="img/fotos-demo.jpg" alt="Respaldo fotográfico de un conteo en InventIA, con navegación entre varias fotos">
                   <div class="phone-frame-fade"></div>
                 </div>
               </div>
@@ -318,8 +331,10 @@
           <button type="button" class="carousel-arrow" id="vista-prev" aria-label="Diapositiva anterior">‹</button>
           <div class="carousel-dots" id="vista-dots">
             <button type="button" class="carousel-dot active" data-slide="0" aria-label="Ir a: Dashboard"></button>
-            <button type="button" class="carousel-dot" data-slide="1" aria-label="Ir a: Contar en terreno"></button>
-            <button type="button" class="carousel-dot" data-slide="2" aria-label="Ir a: Reconteo"></button>
+            <button type="button" class="carousel-dot" data-slide="1" aria-label="Ir a: Proyección y ranking"></button>
+            <button type="button" class="carousel-dot" data-slide="2" aria-label="Ir a: Contar en terreno"></button>
+            <button type="button" class="carousel-dot" data-slide="3" aria-label="Ir a: Respaldo fotográfico"></button>
+            <button type="button" class="carousel-dot" data-slide="4" aria-label="Ir a: Reconteo"></button>
           </div>
           <button type="button" class="carousel-arrow" id="vista-next" aria-label="Siguiente diapositiva">›</button>
         </div>
