@@ -290,7 +290,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], resumen: [], leads: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], leads: [], planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
@@ -576,7 +576,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
   render();
   toast('Sesión cerrada');
 }
@@ -765,8 +765,16 @@ async function actualizarNombreEmpresa(nombre){
    ======================================================================= */
 async function cargarEmpresasSuperAdmin(){
   try{
-    const filas = await rest('/empresas?select=id,nombre,activo&order=nombre.asc');
+    const filas = await rest('/empresas?select=id,nombre,activo,plan_id,planes(nombre,etiqueta)&order=nombre.asc');
     state.superadmin.empresas = filas || [];
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarPlanesSuperAdmin(){
+  try{
+    const filas = await rest('/planes?select=id,nombre,etiqueta&order=created_at.asc');
+    state.superadmin.planes = filas || [];
     render();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -822,7 +830,7 @@ async function invitarPersona({email, nombre, empresaId, rol}){
 async function actualizarEmpresaSuperAdmin(id, cambios){
   try{
     await rest(`/empresas?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
-    toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : 'Nombre actualizado');
+    toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : cambios.plan_id ? 'Plan actualizado' : 'Nombre actualizado');
     cargarEmpresasSuperAdmin();
     cargarResumenSuperAdmin();
   }catch(e){ toast(e.message,'err'); }
@@ -2747,6 +2755,9 @@ function renderSuperAdmin(){
         <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <input type="text" class="sa-empresa-nombre" data-empresa-id="${esc(e.id)}" value="${esc(e.nombre)}" style="flex:1;min-width:140px;margin:0;${e.activo?'':'opacity:.5'}">
           ${!e.activo? `<span class="badge badge-danger">Inactiva</span>` : ''}
+          <select class="sa-empresa-plan" data-empresa-id="${esc(e.id)}" style="flex:none;width:auto;margin:0">
+            ${sa.planes.map(p=>`<option value="${esc(p.id)}" ${e.plan_id===p.id?'selected':''}>${esc(p.etiqueta)}</option>`).join('')}
+          </select>
           <div style="display:flex;gap:4px;flex:none">
             <button type="button" class="icon-btn" data-guardar-empresa-sa="${esc(e.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
             <button type="button" class="icon-btn" data-toggle-empresa-sa="${esc(e.id)}" data-activo="${e.activo?'1':'0'}" aria-label="${e.activo?'Desactivar':'Reactivar'}" style="color:${e.activo?'var(--danger)':'var(--ok)'}">${e.activo?ICONS.papelera:ICONS.conteo}</button>
@@ -3102,7 +3113,7 @@ function bind(){
       selectAuditoriaTabla.addEventListener('change', ()=> cargarAuditoria(selectAuditoriaTabla.value));
     }
     if(state.perfil && state.perfil.es_super_admin){
-      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); }
+      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); cargarPlanesSuperAdmin(); }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
         e.preventDefault();
         const input = document.getElementById('nueva-empresa-nombre');
@@ -3131,6 +3142,9 @@ function bind(){
           if(activo && !confirm('¿Desactivar esta empresa? Todo su equipo perderá el acceso hasta que la reactives.')) return;
           actualizarEmpresaSuperAdmin(id, {activo: !activo});
         });
+      });
+      document.querySelectorAll('.sa-empresa-plan').forEach(sel=>{
+        sel.addEventListener('change', ()=> actualizarEmpresaSuperAdmin(sel.dataset.empresaId, {plan_id: sel.value}));
       });
       const selectPersonasEmpresa = document.getElementById('sa-personas-empresa');
       if(selectPersonasEmpresa) selectPersonasEmpresa.addEventListener('change', ()=> cargarPersonasSuperAdmin(selectPersonasEmpresa.value));
