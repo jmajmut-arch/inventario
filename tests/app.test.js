@@ -136,6 +136,15 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/errores_cliente') && (!opts || opts.method!=='POST')){
+    const filas = [
+      {id:'err-1', mensaje:'algo falló', url:'https://inventiapp.cl/index.html', empresas:{nombre:'Minera Andes'}, creado_en:'2026-08-18T10:00:00Z'},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/errores_cliente')){
+    return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
   if(path.startsWith('/rest/v1/planes')){
     const filas = [
       {id:'plan-basico', nombre:'basico', etiqueta:'Básico'},
@@ -265,7 +274,7 @@ const confirmLlamadas = [];
 const sandbox = {
   console,
   document: documentMock,
-  window: { print: () => { printCalled++; } },
+  window: { print: () => { printCalled++; }, addEventListener: () => {}, removeEventListener: () => {} },
   confirm: (msg) => { confirmLlamadas.push(msg); return confirmRespuesta; },
   localStorage: (()=>{ const m = new Map(); return {
     getItem: (k) => m.has(k) ? m.get(k) : null,
@@ -282,6 +291,7 @@ const sandbox = {
   FileReader: class {},
   location: { hash: '', pathname: '/index.html', search: '' },
   history: { replaceState: () => {} },
+  navigator: { userAgent: 'node-test-harness' },
 };
 
 const vm = require('vm');
@@ -887,7 +897,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Panel de super-admin: solo visible si perfil.es_super_admin.
   ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
-  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-2', nombre:'Minera Sur', activo:true, plan_id:'plan-basico'}], resumen:[], leads:[], planes:[{id:'plan-basico', nombre:'basico', etiqueta:'Básico'}, {id:'plan-pro', nombre:'profesional', etiqueta:'Profesional'}, {id:'plan-empresa', nombre:'empresa', etiqueta:'Empresa'}], invitando:false, cargado:true };
+  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-2', nombre:'Minera Sur', activo:true, plan_id:'plan-basico'}], resumen:[], leads:[], planes:[{id:'plan-basico', nombre:'basico', etiqueta:'Básico'}, {id:'plan-pro', nombre:'profesional', etiqueta:'Profesional'}, {id:'plan-empresa', nombre:'empresa', etiqueta:'Empresa'}], errores:[], invitando:false, cargado:true };
   const htmlConfigSuperAdmin = ctx.renderConfiguraciones();
   assert(htmlConfigSuperAdmin.includes('id="form-crear-empresa-sa"') && htmlConfigSuperAdmin.includes('id="form-invitar-persona-sa"'), 'un super-admin debe ver el panel para crear empresas e invitar personas, obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.includes('Minera Andes') && htmlConfigSuperAdmin.includes('Minera Sur'), 'debe listar las empresas existentes, obtuvo: '+htmlConfigSuperAdmin);
@@ -933,15 +943,44 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/planes?select=')), 'cargarPlanesSuperAdmin debe pedir /planes, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.superadmin.planes.length===3 && ctx.__appstate.superadmin.planes[1].etiqueta==='Profesional', 'debe guardar los planes devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.superadmin.planes));
 
+  // ===== Monitoreo de errores =====
+
+  // cargarErroresSuperAdmin: pide /errores_cliente y los deja listos para renderSuperAdmin.
+  calls.length = 0;
+  await ctx.cargarErroresSuperAdmin();
+  assert(calls.some(c=>c.url.includes('/errores_cliente?select=')), 'cargarErroresSuperAdmin debe pedir /errores_cliente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.superadmin.errores.length===1 && ctx.__appstate.superadmin.errores[0].mensaje==='algo falló', 'debe guardar los errores devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.superadmin.errores));
+  const htmlConErrores = ctx.renderSuperAdmin();
+  assert(htmlConErrores.includes('algo falló') && htmlConErrores.includes('Minera Andes'), 'el panel de super-admin debe mostrar el mensaje y la empresa del error, obtuvo: '+htmlConErrores);
+  ctx.__appstate.superadmin.errores = [];
+  assert(ctx.renderSuperAdmin().includes('Sin errores reportados'), 'sin errores debe mostrar un mensaje vacío, no una lista rota');
+
+  // reportarError: hace POST a /errores_cliente con el mensaje, la URL y el user agent.
+  calls.length = 0;
+  ctx.reportarError('Boom de prueba', 'stack de prueba');
+  await new Promise(r => setTimeout(r, 0));
+  const postError = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/errores_cliente'));
+  assert(!!postError, 'reportarError debe hacer POST a /errores_cliente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const bodyError = JSON.parse(postError.opts.body)[0];
+  assert(bodyError.mensaje==='Boom de prueba' && bodyError.stack==='stack de prueba', 'el POST debe llevar el mensaje y el stack, obtuvo: '+postError.opts.body);
+
+  // No debe floodear: el mismo mensaje reportado dos veces solo dispara un POST.
+  calls.length = 0;
+  ctx.reportarError('Repetido', 'x');
+  ctx.reportarError('Repetido', 'x');
+  await new Promise(r => setTimeout(r, 0));
+  const postsRepetidos = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/errores_cliente'));
+  assert(postsRepetidos.length===1, 'el mismo error reportado dos veces no debe floodear con dos POST, obtuvo: '+postsRepetidos.length);
+
   // Una empresa inactiva se debe marcar como tal y el selector de invitación no debe ofrecerla.
-  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-2', nombre:'Minera Sur', activo:false, plan_id:'plan-basico'}], resumen:[], leads:[], planes:[{id:'plan-basico', nombre:'basico', etiqueta:'Básico'}, {id:'plan-pro', nombre:'profesional', etiqueta:'Profesional'}], invitando:false, cargado:true, personasEmpresaId:'', personas:[], cargandoPersonas:false };
+  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-2', nombre:'Minera Sur', activo:false, plan_id:'plan-basico'}], resumen:[], leads:[], planes:[{id:'plan-basico', nombre:'basico', etiqueta:'Básico'}, {id:'plan-pro', nombre:'profesional', etiqueta:'Profesional'}], errores:[], invitando:false, cargado:true, personasEmpresaId:'', personas:[], cargandoPersonas:false };
   const htmlConEmpresaInactiva = ctx.renderConfiguraciones();
   assert(htmlConEmpresaInactiva.includes('Inactiva'), 'una empresa desactivada debe mostrar la etiqueta "Inactiva", obtuvo: '+htmlConEmpresaInactiva);
   assert(!htmlConEmpresaInactiva.includes('<option value="emp-2">Minera Sur</option>'), 'el selector de invitación no debe ofrecer una empresa inactiva, obtuvo: '+htmlConEmpresaInactiva);
 
   // renderSuperAdmin: cada empresa debe tener un selector de plan con la opción actual
   // preseleccionada, para que el super-admin la pueda cambiar (cobro manual).
-  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}], resumen:[], leads:[], planes:[{id:'plan-basico', nombre:'basico', etiqueta:'Básico'}, {id:'plan-pro', nombre:'profesional', etiqueta:'Profesional'}, {id:'plan-empresa', nombre:'empresa', etiqueta:'Empresa'}], invitando:false, cargado:true, personasEmpresaId:'', personas:[], cargandoPersonas:false };
+  ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}], resumen:[], leads:[], planes:[{id:'plan-basico', nombre:'basico', etiqueta:'Básico'}, {id:'plan-pro', nombre:'profesional', etiqueta:'Profesional'}, {id:'plan-empresa', nombre:'empresa', etiqueta:'Empresa'}], errores:[], invitando:false, cargado:true, personasEmpresaId:'', personas:[], cargandoPersonas:false };
   const htmlSelectorPlan = ctx.renderConfiguraciones();
   assert(htmlSelectorPlan.includes('class="sa-empresa-plan" data-empresa-id="emp-1"'), 'cada empresa debe tener un selector de plan, obtuvo: '+htmlSelectorPlan);
   assert(htmlSelectorPlan.includes('<option value="plan-pro" selected>Profesional</option>'), 'el selector debe preseleccionar el plan actual de la empresa (Profesional), obtuvo: '+htmlSelectorPlan);
