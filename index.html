@@ -334,6 +334,7 @@ let state = {
   sincronizandoOffline: false,
   offlineModal: false,
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
+  equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
@@ -614,7 +615,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],errores:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],errores:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
   render();
   toast('Sesión cerrada');
 }
@@ -904,6 +905,26 @@ async function actualizarPersonaSuperAdmin(id, cambios){
     toast(cambios.activo===false ? 'Persona desactivada' : cambios.activo===true ? 'Persona reactivada' : 'Persona actualizada');
     cargarPersonasSuperAdmin(state.superadmin.personasEmpresaId);
     if(cambios.activo!==undefined) cargarResumenSuperAdmin();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarEquipo(){
+  state.equipo.cargado = true;
+  state.equipo.cargando = true;
+  render();
+  try{
+    const filas = await rest(`/usuarios?select=id,nombre,rol,activo&order=nombre.asc`);
+    state.equipo.personas = filas || [];
+  }catch(e){ toast(e.message,'err'); }
+  state.equipo.cargando = false;
+  render();
+}
+
+async function actualizarPersonaEquipo(id, cambios){
+  try{
+    await rest(`/usuarios?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
+    toast(cambios.activo===false ? 'Persona desactivada' : cambios.activo===true ? 'Persona reactivada' : 'Persona actualizada');
+    cargarEquipo();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1598,7 +1619,7 @@ async function reintentarAccionOffline(id){
 
 async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
-  if(cantidad === '' || cantidad === null || isNaN(Number(cantidad))){ toast('Ingresa una cantidad contada válida','err'); return; }
+  if(cantidad === '' || cantidad === null || isNaN(Number(cantidad)) || Number(cantidad) < 0){ toast('Ingresa una cantidad contada válida','err'); return; }
   if(!perfilCargado()) return;
   // Momento real en que la persona capturó el conteo (no cuándo termina de guardarse) —
   // fundamental para auditoría cuando se guarda sin conexión y se sincroniza horas después.
@@ -2220,7 +2241,7 @@ function renderSkus(){
         <label for="s-bin">Storage bin</label>
         <input type="text" id="s-bin" placeholder="Ej. A-12-03">
         <label for="s-stock">Stock según sistema</label>
-        <input type="number" id="s-stock" step="0.01" placeholder="0">
+        <input type="number" id="s-stock" step="0.01" min="0" placeholder="0">
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar SKU'}</button>
         </div>
@@ -2401,7 +2422,7 @@ function renderConteo(){
       <div class="card">
         <form id="form-conteo">
           <label for="c-cant">Cantidad contada *</label>
-          <input type="number" id="c-cant" step="0.01" placeholder="0" required>
+          <input type="number" id="c-cant" step="0.01" min="0" placeholder="0" required>
           <div class="row2">
             <div><label for="c-bodega">Ubicación general</label><input type="text" id="c-bodega" value="${esc(state.skuSeleccionado.bodega||'')}"></div>
             <div><label for="c-ubic">Ubicación contada</label><input type="text" id="c-ubic" placeholder="Rack A-12" value="${esc(state.skuSeleccionado.ubicacion||'')}"></div>
@@ -2948,6 +2969,25 @@ function renderConfiguraciones(){
         <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${state.invitandoPersona?'disabled':''}>${state.invitandoPersona?'Enviando…':'Enviar invitación'}</button></div>
       </form>
     </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:10px">Edita el nombre, el rol o desactiva el acceso de alguien de tu equipo.</div>
+      ${state.equipo.cargando? `<div class="hint">Cargando…</div>` : state.equipo.personas.length? `
+      <div>${state.equipo.personas.map(u=>`
+        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <input type="text" class="mi-equipo-nombre" data-persona-id="${esc(u.id)}" value="${esc(u.nombre)}" style="flex:1;min-width:120px;margin:0;${u.activo?'':'opacity:.5'}">
+          <select class="mi-equipo-rol" data-persona-id="${esc(u.id)}" style="flex:none;width:auto;margin:0">
+            <option value="inventariador" ${u.rol==='inventariador'?'selected':''}>Inventariador</option>
+            <option value="admin" ${u.rol==='admin'?'selected':''}>Administrador</option>
+          </select>
+          ${!u.activo? `<span class="badge badge-danger">Inactiva</span>` : ''}
+          <div style="display:flex;gap:4px;flex:none">
+            <button type="button" class="icon-btn" data-guardar-persona-equipo="${esc(u.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
+            <button type="button" class="icon-btn" data-toggle-persona-equipo="${esc(u.id)}" data-activo="${u.activo?'1':'0'}" aria-label="${u.activo?'Desactivar':'Reactivar'}" style="color:${u.activo?'var(--danger)':'var(--ok)'}">${u.activo?ICONS.papelera:ICONS.conteo}</button>
+          </div>
+        </div>
+      `).join('')}</div>
+      ` : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie más en tu equipo.</div>`}
+    </div>
     ` : ''}
     ` : ''}
     ${(esAdmin || esSuperAdmin) && planIncluye('auditoria_habilitada')? renderAuditoria() : ''}
@@ -3167,6 +3207,27 @@ function bind(){
       const rol = document.getElementById('equipo-rol').value;
       invitarPersona({email, nombre, empresaId: state.perfil.empresa_id, rol}).then(ok=>{ if(ok) e.target.reset(); });
     });
+    if(state.perfil && state.perfil.rol==='admin' && !state.perfil.es_super_admin){
+      if(!state.equipo.cargado) cargarEquipo();
+      document.querySelectorAll('[data-guardar-persona-equipo]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const id = btn.dataset.guardarPersonaEquipo;
+          const input = document.querySelector(`.mi-equipo-nombre[data-persona-id="${id}"]`);
+          actualizarPersonaEquipo(id, {nombre: input.value.trim()});
+        });
+      });
+      document.querySelectorAll('.mi-equipo-rol').forEach(sel=>{
+        sel.addEventListener('change', ()=> actualizarPersonaEquipo(sel.dataset.personaId, {rol: sel.value}));
+      });
+      document.querySelectorAll('[data-toggle-persona-equipo]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const id = btn.dataset.togglePersonaEquipo;
+          const activo = btn.dataset.activo === '1';
+          if(activo && !confirm('¿Desactivar el acceso de esta persona?')) return;
+          actualizarPersonaEquipo(id, {activo: !activo});
+        });
+      });
+    }
     const selectAuditoriaTabla = document.getElementById('auditoria-filtro-tabla');
     if(selectAuditoriaTabla){
       if(!state.auditoria.cargado){ state.auditoria.cargado = true; cargarAuditoria(''); }
@@ -3259,6 +3320,7 @@ function bind(){
         stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
       };
       if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
+      if(payload.stock_sistema !== null && payload.stock_sistema < 0){ toast('El stock según sistema no puede ser negativo','err'); return; }
       setState({loading:true});
       const ok = await crearSkuManual(payload);
       setState({loading:false});

@@ -121,6 +121,13 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/usuarios?select=')){
+    const filas = [
+      {id:'eq1', nombre:'Beto Ríos', rol:'inventariador', activo:true},
+      {id:'eq2', nombre:'Marta Soto', rol:'admin', activo:false},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/auditoria')){
     const todas = [
       {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
@@ -1023,6 +1030,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.actualizarPersonaSuperAdmin('p2', {activo:true});
   const patchReactivarPersona = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/usuarios?id=eq.p2'));
   assert(!!patchReactivarPersona && JSON.parse(patchReactivarPersona.opts.body).activo===true, 'actualizarPersonaSuperAdmin debe poder reactivar el acceso, obtuvo: '+JSON.stringify(patchReactivarPersona));
+
+  // "Mi equipo": un admin de empresa (no super-admin) puede ver y editar a su propio equipo,
+  // sin pasar por el panel de super-admin. cargarEquipo no debe pedir empresa_id (RLS ya
+  // filtra por empresa_actual()) y no debe entrar en recursión infinita al renderizar
+  // (regresión real detectada: cargarEquipo llamaba render() antes de marcar cargado=true,
+  // y el wiring de eventos volvía a llamar cargarEquipo() en cada render).
+  ctx.__appstate.perfil = {id:'perfil-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ABC12345'}};
+  ctx.__appstate.equipo = { cargado:false, cargando:false, personas:[] };
+  await ctx.cargarEquipo();
+  assert(ctx.__appstate.equipo.cargado===true, 'cargarEquipo debe marcar cargado:true al terminar');
+  assert(ctx.__appstate.equipo.personas.length===2 && ctx.__appstate.equipo.personas[0].nombre==='Beto Ríos', 'cargarEquipo debe cargar el equipo de la propia empresa, obtuvo: '+JSON.stringify(ctx.__appstate.equipo.personas));
+  const htmlMiEquipo = ctx.renderConfiguraciones();
+  assert(htmlMiEquipo.includes('Beto Ríos') && htmlMiEquipo.includes('data-toggle-persona-equipo="eq1"'), 'Configuraciones debe listar el equipo propio con su botón de desactivar/reactivar, obtuvo: '+htmlMiEquipo);
+
+  calls.length = 0;
+  await ctx.actualizarPersonaEquipo('eq1', {rol:'admin'});
+  const patchRolEquipo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/usuarios?id=eq.eq1'));
+  assert(!!patchRolEquipo && JSON.parse(patchRolEquipo.opts.body).rol==='admin', 'actualizarPersonaEquipo debe poder cambiar el rol, obtuvo: '+JSON.stringify(patchRolEquipo));
+
+  // Restaurar el perfil de super-admin para los tests siguientes de este mismo bloque.
+  ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
 
   // El nombre de la empresa debe mostrarse en la barra superior de la app.
   ctx.__appstate.view = 'dashboard';
