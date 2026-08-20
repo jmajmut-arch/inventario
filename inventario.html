@@ -324,12 +324,13 @@ let state = {
   ultimosConteosCargandoMas: false,
   fotoModal: null,        // {urls:[...], index:0}
   skusPagina: { rows: [], page: 0, total: 0 },
+  skusSeleccionados: [],
   reconteos: [],
   reconteosHayMas: false,
   reconteosCargandoMas: false,
   tema: localStorage.getItem('tema_app') || 'ambar',
   cargaPreview: null,
-  busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], errores: [], erroresHayMas: false, erroresCargandoMas: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
@@ -339,6 +340,7 @@ let state = {
   offlineModal: false,
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
   equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
+  ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
@@ -623,7 +625,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
   render();
   toast('Sesión cerrada');
 }
@@ -632,7 +634,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarConteoSinUbicacion(), cargarResponsables(), sincronizarColaOffline()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()]);
 }
 
 async function cargarSkus(){
@@ -667,8 +669,36 @@ async function fetchSkusPagina(page){
 async function cargarSkusPagina(page=0){
   try{
     const { data, total } = await fetchSkusPagina(page);
-    setState({skusPagina: { rows:data||[], page, total: total||0 }});
+    setState({skusPagina: { rows:data||[], page, total: total||0 }, skusSeleccionados: []});
   }catch(e){ toast(e.message,'err'); }
+}
+
+async function eliminarSkusSeleccionados(){
+  const ids = state.skusSeleccionados;
+  if(!ids.length) return;
+  if(!confirm(`¿Eliminar ${ids.length} SKU? Esta acción no se puede deshacer.`)) return;
+  setState({loading:true});
+  try{
+    // Un SKU con conteos ya registrados no se puede borrar (protegido por la base de datos):
+    // los separamos primero para avisar cuáles se saltaron, en vez de que falle todo el lote.
+    const conteosExistentes = await rest(`/conteos?select=sku_id&sku_id=in.(${ids.join(',')})`);
+    const idsConConteos = new Set((conteosExistentes||[]).map(c=>c.sku_id));
+    const idsABorrar = ids.filter(id=>!idsConConteos.has(id));
+    if(idsABorrar.length) await rest(`/skus?id=in.(${idsABorrar.join(',')})`, {method:'DELETE'});
+    const omitidos = ids.length - idsABorrar.length;
+    if(!omitidos){
+      toast(`${idsABorrar.length} SKU eliminados`);
+    }else if(idsABorrar.length){
+      toast(`${idsABorrar.length} SKU eliminados. ${omitidos} no se eliminaron: ya tienen conteos registrados (desactívalos en vez de eliminarlos).`, 'err');
+    }else{
+      toast('No se eliminó ningún SKU: todos ya tienen conteos registrados. Desactívalos en vez de eliminarlos.', 'err');
+    }
+    setState({loading:false});
+    refrescarListaSkus();
+  }catch(e){
+    setState({loading:false});
+    toast(e.message,'err');
+  }
 }
 
 function refrescarListaSkus(){
@@ -794,6 +824,37 @@ async function cargarResponsables(){
   try{
     const rows = await rest('/responsables_proceso?activo=eq.true&order=nombre.asc&select=id,nombre');
     setState({plan: {...state.plan, responsables: rows||[]}});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Ciclos de conteo (ej. "T1 2027", "Cierre 2027"): permiten etiquetar a qué período
+// pertenece cada conteo. Los conteos nuevos se etiquetan solos con el ciclo marcado como
+// "actual" (ver trigger asignar_ciclo_conteo); acá solo se listan/gestionan.
+async function cargarCiclos(){
+  try{
+    const rows = await rest('/ciclos_conteo?select=id,nombre,es_actual&order=created_at.desc');
+    setState({ciclos: rows||[]});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function crearCiclo(nombre){
+  if(!nombre || !perfilCargado()) return;
+  try{
+    await rest('/ciclos_conteo', {method:'POST', body:[{empresa_id: state.perfil.empresa_id, nombre}], prefer:'return=minimal'});
+    toast('Ciclo creado');
+    cargarCiclos();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function marcarCicloActual(id){
+  if(!perfilCargado()) return;
+  try{
+    // Primero se desmarca cualquier ciclo actual de la empresa y después se marca el nuevo:
+    // son dos transacciones separadas, así nunca queda un momento con dos ciclos "actuales" a la vez.
+    await rest(`/ciclos_conteo?empresa_id=eq.${state.perfil.empresa_id}&es_actual=eq.true`, {method:'PATCH', body:{es_actual:false}, prefer:'return=minimal'});
+    await rest(`/ciclos_conteo?id=eq.${id}`, {method:'PATCH', body:{es_actual:true}, prefer:'return=minimal'});
+    toast('Ciclo actual actualizado');
+    cargarCiclos();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1171,10 +1232,12 @@ function sanearTextoFiltro(s){
 }
 
 function construirPathBusqueda(offset){
-  let path = `/conteos?select=*,skus(sku_code,descripcion,categoria,ubicacion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${offset}`;
+  let path = `/conteos?select=*,skus(sku_code,descripcion,categoria,ubicacion),conteo_fotos(foto_url),ciclos_conteo(nombre)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${offset}`;
   const bodega = sanearTextoFiltro(state.busqueda.bodega);
   if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
   if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
+  if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null`;
+  else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
   return path;
 }
 
@@ -2329,17 +2392,28 @@ function renderSkus(){
 
 function renderTablaSkus(){
   const sp = state.skusPagina;
+  const esAdmin = state.perfil && (state.perfil.rol === 'admin' || state.perfil.es_super_admin);
+  const seleccionados = state.skusSeleccionados;
   const totalPaginas = Math.max(1, Math.ceil(sp.total/SKUS_POR_PAGINA));
   const paginaActual = sp.page+1;
   const desde = sp.total? sp.page*SKUS_POR_PAGINA+1 : 0;
   const hasta = sp.total? sp.page*SKUS_POR_PAGINA + sp.rows.length : 0;
+  const todosMarcados = sp.rows.length>0 && sp.rows.every(s=>seleccionados.includes(s.id));
 
   return `
     <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.total})</h2></div>
     <div class="card">
+      ${esAdmin && sp.rows.length? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);margin:0;cursor:pointer">
+          <input type="checkbox" id="chk-skus-todos" ${todosMarcados?'checked':''}>
+          Seleccionar todos (esta página)
+        </label>
+        ${seleccionados.length? `<button type="button" class="btn btn-secondary" id="btn-eliminar-skus" style="width:auto;padding:7px 14px;font-size:12.5px;color:var(--danger)">Eliminar ${seleccionados.length} seleccionado${seleccionados.length>1?'s':''}</button>` : ''}
+      </div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
+        <thead><tr>${esAdmin?'<th></th>':''}<th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
         <tbody>${sp.rows.map(s=>`<tr>
+          ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
           <td class="mono">${esc(s.sku_code)}</td>
           <td>${esc(s.descripcion||'—')}</td>
           <td>${esc(s.bodega||'—')}</td>
@@ -2564,6 +2638,14 @@ function renderBuscar(){
             </select>
           </div>
         </div>
+        ${state.ciclos.length? `
+        <label for="b-ciclo">Ciclo de conteo</label>
+        <select id="b-ciclo">
+          <option value="">Todos</option>
+          <option value="__sin_ciclo__" ${b.ciclo==='__sin_ciclo__'?'selected':''}>Sin ciclo asignado</option>
+          ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${b.ciclo===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
+        </select>
+        ` : ''}
         <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--text-dim)">
           <input type="checkbox" id="b-solo-fotos" ${b.soloConFotos?'checked':''}>
           Solo conteos con fotografías
@@ -2577,7 +2659,7 @@ function renderBuscar(){
     <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
         <tbody>${resultados.map(r=>{
           const urls = (r.conteo_fotos||[]).map(f=>f.foto_url);
           return `<tr>
@@ -2589,6 +2671,7 @@ function renderBuscar(){
               ${fmtFechaHora(r.fecha_conteo)}
               ${fueCapturadoOffline(r.capturado_en, r.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(r.capturado_en)} · sin conexión</div>` : ''}
             </td>
+            <td style="font-size:12px;color:var(--text-dim)">${esc(r.ciclos_conteo? r.ciclos_conteo.nombre : '—')}</td>
             <td class="num">${urls.length
               ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(urls))}" aria-label="Ver fotos">${ICONS.camera}${urls.length>1?` ${urls.length}`:''}</button>`
               : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
@@ -3065,6 +3148,20 @@ function renderConfiguraciones(){
       `).join('')}</div>
       ` : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie más en tu equipo.</div>`}
     </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:10px">Ciclos de conteo (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</div>
+      <form id="form-crear-ciclo">
+        <label for="ciclo-nombre">Nombre del ciclo</label>
+        <input type="text" id="ciclo-nombre" placeholder="Ej. T1 2027" required>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear ciclo</button></div>
+      </form>
+      ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=>`
+        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <div class="plan-item-ubic" style="font-weight:500;flex:1">${esc(c.nombre)}</div>
+          ${c.es_actual? `<span class="badge badge-ok">Actual</span>` : `<button type="button" class="btn btn-secondary" data-marcar-ciclo-actual="${esc(c.id)}" style="width:auto;padding:6px 12px;font-size:12px">Marcar como actual</button>`}
+        </div>
+      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay ciclos creados. Mientras no crees uno, los conteos se guardan sin período asignado.</div>`}
+    </div>
     ` : ''}
     ` : ''}
     ${(esAdmin || esSuperAdmin) && planIncluye('auditoria_habilitada')? renderAuditoria() : ''}
@@ -3304,6 +3401,16 @@ function bind(){
           actualizarPersonaEquipo(id, {activo: !activo});
         });
       });
+      const formCrearCiclo = document.getElementById('form-crear-ciclo');
+      if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
+        e.preventDefault();
+        const input = document.getElementById('ciclo-nombre');
+        crearCiclo(input.value.trim());
+        input.value = '';
+      });
+      document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
+        btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
+      });
     }
     const selectAuditoriaTabla = document.getElementById('auditoria-filtro-tabla');
     if(selectAuditoriaTabla){
@@ -3415,6 +3522,25 @@ function bind(){
     const btnNext = document.getElementById('skus-pag-next');
     if(btnPrev) btnPrev.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page-1));
     if(btnNext) btnNext.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page+1));
+    document.querySelectorAll('.chk-sku').forEach(chk=>{
+      chk.addEventListener('change', e=>{
+        const id = chk.dataset.skuId;
+        const seleccionados = e.target.checked
+          ? state.skusSeleccionados.concat(id)
+          : state.skusSeleccionados.filter(x=>x!==id);
+        setState({skusSeleccionados: seleccionados});
+      });
+    });
+    const chkTodos = document.getElementById('chk-skus-todos');
+    if(chkTodos) chkTodos.addEventListener('change', e=>{
+      const idsPagina = state.skusPagina.rows.map(s=>s.id);
+      const seleccionados = e.target.checked
+        ? Array.from(new Set(state.skusSeleccionados.concat(idsPagina)))
+        : state.skusSeleccionados.filter(id=>!idsPagina.includes(id));
+      setState({skusSeleccionados: seleccionados});
+    });
+    const btnEliminarSkus = document.getElementById('btn-eliminar-skus');
+    if(btnEliminarSkus) btnEliminarSkus.addEventListener('click', eliminarSkusSeleccionados);
   }
 
   if(state.view==='carga'){
@@ -3514,11 +3640,13 @@ function bind(){
     }
     document.getElementById('form-buscar').addEventListener('submit', e=>{
       e.preventDefault();
+      const selCiclo = document.getElementById('b-ciclo');
       setState({busqueda:{
         ...state.busqueda,
         texto: document.getElementById('b-texto').value,
         bodega: document.getElementById('b-bodega').value,
         estado: document.getElementById('b-estado').value,
+        ciclo: selCiclo ? selCiclo.value : '',
         soloConFotos: document.getElementById('b-solo-fotos').checked,
         buscando: true,
       }});
