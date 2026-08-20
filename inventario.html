@@ -1886,13 +1886,23 @@ function cerrarEscaner(){
 
 async function onCodigoEscaneado(codigo){
   if(!state.escanerModal || state.escanerModal.codigo) return; // evita doble disparo mientras se procesa la primera lectura
+  const destino = state.escanerModal.destino;
   detenerEscaner();
+  // Al cargar un SKU nuevo no hay nada que resolver contra el maestro existente: el código
+  // leído se usa tal cual como código del SKU que se está por crear.
+  if(destino === 'campo-sku'){
+    setState({escanerModal: null});
+    const input = document.getElementById('s-code');
+    if(input){ input.value = codigo; input.focus(); }
+    toast('Código escaneado');
+    return;
+  }
   const sku = resolverSkuPorCodigo(state.skus, codigo);
   if(sku){
     setState({skuSeleccionado: sku});
     toast(`SKU ${sku.sku_code} encontrado`);
   }else{
-    setState({escanerModal: { codigo, buscarAsociar:'', asociando:false }});
+    setState({escanerModal: { codigo, buscarAsociar:'', asociando:false, destino }});
   }
 }
 
@@ -2380,7 +2390,10 @@ function renderSkus(){
     <div class="card">
       <form id="form-sku">
         <label for="s-code">Código SKU *</label>
-        <input type="text" id="s-code" placeholder="Ej. 4400-1123" required>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="s-code" style="flex:1" placeholder="Ej. 4400-1123" required>
+          <button type="button" id="btn-escanear-sku-code" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
+        </div>
         <label for="s-desc">Descripción</label>
         <input type="text" id="s-desc" placeholder="Ej. Filtro hidraulico 3 pulgadas">
         <div class="row2">
@@ -3514,6 +3527,8 @@ function bind(){
   }
 
   if(state.view==='skus'){
+    const btnEscanearSkuCode = document.getElementById('btn-escanear-sku-code');
+    if(btnEscanearSkuCode) btnEscanearSkuCode.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'campo-sku'}}));
     document.getElementById('form-sku').addEventListener('submit', async e=>{
       e.preventDefault();
       const payload = {
@@ -3601,7 +3616,7 @@ function bind(){
         });
       });
       const btnEscaner = document.getElementById('btn-abrir-escaner');
-      if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null}}));
+      if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
     }else{
       document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoFotos:[]}));
       document.getElementById('c-foto').addEventListener('change', e=>{

@@ -1725,6 +1725,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.escanerModal && ctx.__appstate.escanerModal.codigo==='CODIGO-NUEVO-123', 'un código no reconocido debe quedar guardado en escanerModal para poder asociarlo, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
   assert(ctx.__appstate.skuSeleccionado===null, 'mientras no se asocie, no debe quedar ningún SKU seleccionado');
 
+  // onCodigoEscaneado con destino 'campo-sku' (botón de escanear en "Cargar SKU"): no hay
+  // nada que resolver contra el maestro existente, así que llena directo el campo de código
+  // del formulario de alta y cierra el modal, sin pasar por la pantalla de asociación.
+  ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'campo-sku' };
+  await ctx.onCodigoEscaneado('BARCODE-NUEVO-999');
+  assert(ctx.__appstate.escanerModal===null, 'al escanear para agregar un SKU, el modal debe cerrarse de inmediato, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
+  assert(documentMock.getElementById('s-code').value === 'BARCODE-NUEVO-999', 'debe llenar el campo de código del formulario de alta con el código leído, obtuvo: '+documentMock.getElementById('s-code').value);
+
   // asociarCodigoBarras: guarda el código en el SKU elegido (PATCH a /skus?id=eq.<id>), lo
   // refleja de inmediato en la lista ya cargada (sin esperar un refetch) y deja ese SKU
   // seleccionado, listo para registrar el conteo — así la próxima lectura de este mismo
