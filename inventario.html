@@ -1837,12 +1837,27 @@ async function iniciarEscaner(){
     setState({escanerModal: {...state.escanerModal, error:'El lector de códigos no cargó. Revisa tu conexión e inténtalo de nuevo.'}});
     return;
   }
-  const instancia = new Html5Qrcode('escaner-reader');
+  // Se listan los formatos explícitamente (en vez de dejar que pruebe todos los que sabe
+  // decodificar) para que la librería se concentre en QR y los formatos de barras 1D más
+  // comunes en maestros de materiales — mejora la velocidad y tasa de lectura de barras,
+  // que son más difíciles de leer con solo cámara de celular que un QR.
+  const formatos = (typeof Html5QrcodeSupportedFormats !== 'undefined') ? [
+    Html5QrcodeSupportedFormats.QR_CODE,
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.CODE_128,
+    Html5QrcodeSupportedFormats.CODE_39,
+    Html5QrcodeSupportedFormats.CODE_93,
+    Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.ITF,
+  ] : undefined;
+  const instancia = new Html5Qrcode('escaner-reader', formatos ? { formatsToSupport: formatos } : undefined);
   escanerInstancia = instancia;
   try{
     await instancia.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 240, height: 160 } },
+      { fps: 10, qrbox: { width: 280, height: 140 } },
       (codigoLeido) => onCodigoEscaneado(codigoLeido),
       () => { /* se llama en cada frame sin lectura; no requiere acción */ }
     );
