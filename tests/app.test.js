@@ -73,6 +73,22 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'conteo-nuevo-1'}]) };
   }
+  // Usado por eliminarSkusSeleccionados para saber cuáles de los SKU seleccionados ya
+  // tienen conteos registrados (y por lo tanto no se pueden borrar) — chequear antes que
+  // los otros matchers de /conteos?select=, que son más genéricos.
+  if(path.startsWith('/rest/v1/conteos?select=sku_id')){
+    const match = path.match(/sku_id=in\.\(([^)]*)\)/);
+    const ids = match ? match[1].split(',') : [];
+    const conConteo = ids.filter(id => id === 'sku-con-conteo');
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conConteo.map(id=>({sku_id:id}))) };
+  }
+  if(path.startsWith('/rest/v1/ciclos_conteo')){
+    const filas = [
+      {id:'ciclo-1', nombre:'T1 2027', es_actual:true},
+      {id:'ciclo-2', nombre:'T4 2026', es_actual:false},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   // Búsqueda (columnas categoria,ubicacion en el select) — chequear antes que "materiales
   // contados" del dashboard, cuyo select es un prefijo del de búsqueda.
   if(path.startsWith('/rest/v1/conteos?select=') && path.includes('categoria,ubicacion')){
@@ -1291,6 +1307,65 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.crearSkuManual({sku_code:'SKU-CAP-1', descripcion:'x', activo:true});
   const postSkuOnline = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   assert(!!JSON.parse(postSkuOnline.opts.body)[0].capturado_en, 'crearSkuManual debe enviar capturado_en, obtuvo: '+postSkuOnline.opts.body);
+
+  // eliminarSkusSeleccionados: borra los SKU seleccionados que NO tengan conteos, y avisa
+  // por separado los que sí tienen (esos se saltan en vez de hacer fallar todo el lote).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  ctx.__appstate.skusSeleccionados = ['sku-sin-conteo', 'sku-con-conteo'];
+  confirmRespuesta = true;
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await ctx.eliminarSkusSeleccionados();
+  assert(confirmLlamadas.length===1 && /eliminar 2 sku/i.test(confirmLlamadas[0]), 'debe preguntar confirmación mencionando la cantidad, obtuvo: '+JSON.stringify(confirmLlamadas));
+  const checkConteosCall = calls.find(c=>c.url.includes('/conteos?select=sku_id'));
+  assert(!!checkConteosCall, 'debe chequear primero cuáles de los seleccionados ya tienen conteos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const deleteSkusCall = calls.find(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/rest/v1/skus'));
+  assert(!!deleteSkusCall && deleteSkusCall.url.includes('sku-sin-conteo') && !deleteSkusCall.url.includes('sku-con-conteo'), 'el DELETE solo debe incluir el SKU sin conteos, no el que ya tiene, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si el usuario cancela el confirm(), no debe hacerse ningún chequeo ni DELETE.
+  ctx.__appstate.skusSeleccionados = ['sku-sin-conteo'];
+  confirmRespuesta = false;
+  calls.length = 0;
+  await ctx.eliminarSkusSeleccionados();
+  assert(calls.length===0, 'si se cancela la confirmación, no debe llamarse a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  confirmRespuesta = true;
+
+  // renderTablaSkus: los checkboxes de selección solo deben verse para admin, no para inventariador.
+  ctx.__appstate.skusPagina = { rows:[{id:'sku-x', sku_code:'SKU-X', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null}], page:0, total:1 };
+  ctx.__appstate.skusSeleccionados = [];
+  const htmlTablaAdmin = ctx.renderTablaSkus();
+  assert(htmlTablaAdmin.includes('class="chk-sku"') && htmlTablaAdmin.includes('id="chk-skus-todos"'), 'un admin debe ver los checkboxes de selección, obtuvo: '+htmlTablaAdmin);
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'inventariador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlTablaInventariador = ctx.renderTablaSkus();
+  assert(!htmlTablaInventariador.includes('class="chk-sku"'), 'un inventariador no debe ver los checkboxes de selección de SKU, obtuvo: '+htmlTablaInventariador);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // ===== Ciclos de conteo: crear, listar y marcar el actual =====
+  calls.length = 0;
+  await ctx.cargarCiclos();
+  assert(calls.some(c=>c.url.includes('/ciclos_conteo?select=')), 'cargarCiclos debe pedir /ciclos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.ciclos.length===2 && ctx.__appstate.ciclos[0].nombre==='T1 2027', 'debe guardar los ciclos devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.ciclos));
+  const htmlConfigConCiclos = ctx.renderConfiguraciones();
+  assert(htmlConfigConCiclos.includes('T1 2027') && htmlConfigConCiclos.includes('T4 2026'), 'Configuraciones debe listar los ciclos existentes, obtuvo: '+htmlConfigConCiclos);
+  assert(htmlConfigConCiclos.includes('data-marcar-ciclo-actual="ciclo-2"') && !htmlConfigConCiclos.includes('data-marcar-ciclo-actual="ciclo-1"'), 'solo el ciclo que no es el actual debe ofrecer el botón de "marcar como actual" (ciclo-1 ya lo es), obtuvo: '+htmlConfigConCiclos);
+
+  calls.length = 0;
+  await ctx.crearCiclo('T2 2027');
+  const postCiclo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/ciclos_conteo'));
+  assert(!!postCiclo && JSON.parse(postCiclo.opts.body)[0].nombre==='T2 2027', 'crearCiclo debe hacer POST a /ciclos_conteo con el nombre, obtuvo: '+JSON.stringify(postCiclo));
+
+  calls.length = 0;
+  await ctx.marcarCicloActual('ciclo-2');
+  const patchesCiclo = calls.filter(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo'));
+  assert(patchesCiclo.length===2, 'marcarCicloActual debe hacer dos PATCH: desmarcar el actual anterior y marcar el nuevo, obtuvo: '+JSON.stringify(patchesCiclo.map(c=>c.url)));
+  assert(patchesCiclo[0].url.includes('es_actual=eq.true') && JSON.parse(patchesCiclo[0].opts.body).es_actual===false, 'el primer PATCH debe desmarcar el ciclo actual anterior, obtuvo: '+JSON.stringify(patchesCiclo[0]));
+  assert(patchesCiclo[1].url.includes('id=eq.ciclo-2') && JSON.parse(patchesCiclo[1].opts.body).es_actual===true, 'el segundo PATCH debe marcar el ciclo elegido como actual, obtuvo: '+JSON.stringify(patchesCiclo[1]));
+
+  // renderBuscar: el filtro de ciclo solo debe verse si hay ciclos creados, y debe incluir
+  // la opción "Sin ciclo asignado" además de cada ciclo real.
+  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
+  const htmlBuscarConCiclos = ctx.renderBuscar();
+  assert(htmlBuscarConCiclos.includes('id="b-ciclo"') && htmlBuscarConCiclos.includes('Sin ciclo asignado') && htmlBuscarConCiclos.includes('T1 2027'), 'Buscar debe ofrecer el filtro de ciclo con la opción "Sin ciclo asignado" y los ciclos reales, obtuvo: '+htmlBuscarConCiclos);
 
   // fueCapturadoOffline: distingue una captura offline (fechas separadas por horas) de una
   // online normal (mismo instante), con un margen de un minuto para no marcar falsos positivos.
