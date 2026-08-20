@@ -1733,6 +1733,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.escanerModal===null, 'al escanear para agregar un SKU, el modal debe cerrarse de inmediato, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
   assert(documentMock.getElementById('s-code').value === 'BARCODE-NUEVO-999', 'debe llenar el campo de código del formulario de alta con el código leído, obtuvo: '+documentMock.getElementById('s-code').value);
 
+  // conservandoCamposConteo: agregar o quitar una foto vuelve a renderizar toda la pantalla
+  // (para mostrar la miniatura), pero eso no debe borrar lo que la persona ya tipeó en el
+  // resto del formulario — en especial la cantidad, que no tiene ningún valor por defecto.
+  documentMock.getElementById('c-cant').value = '17';
+  documentMock.getElementById('c-bodega').value = 'Nave Mina';
+  documentMock.getElementById('c-obs').value = 'Con daño visible';
+  let seEjecutoElRender = false;
+  ctx.conservandoCamposConteo(() => { seEjecutoElRender = true; });
+  assert(seEjecutoElRender, 'conservandoCamposConteo debe ejecutar la función que se le pasa');
+  assert(documentMock.getElementById('c-cant').value==='17', 'la cantidad tipeada no debe perderse al re-renderizar, obtuvo: '+documentMock.getElementById('c-cant').value);
+  assert(documentMock.getElementById('c-bodega').value==='Nave Mina', 'la ubicación general tipeada no debe perderse, obtuvo: '+documentMock.getElementById('c-bodega').value);
+  assert(documentMock.getElementById('c-obs').value==='Con daño visible', 'la observación tipeada no debe perderse, obtuvo: '+documentMock.getElementById('c-obs').value);
+
   // asociarCodigoBarras: guarda el código en el SKU elegido (PATCH a /skus?id=eq.<id>), lo
   // refleja de inmediato en la lista ya cargada (sin esperar un refetch) y deja ese SKU
   // seleccionado, listo para registrar el conteo — así la próxima lectura de este mismo
