@@ -238,6 +238,28 @@ const fakeFetchImpl = async (url, opts) => {
       ]),
     };
   }
+  if(path === '/rest/v1/skus?activo=eq.true&order=sku_code.asc'){
+    const filas = [
+      {id:'sku-pag-1', sku_code:'SKU-PAG-1', descripcion:'Con diferencia', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:10},
+      {id:'sku-pag-2', sku_code:'SKU-PAG-2', descripcion:'Cuadrado', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:5},
+      {id:'sku-pag-3', sku_code:'SKU-PAG-3', descripcion:'Sin contar', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:2},
+    ];
+    return {
+      status: 200, ok: true,
+      headers: { get: (h) => h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null },
+      text: async () => JSON.stringify(filas),
+    };
+  }
+  if(path.startsWith('/rest/v1/ultimo_conteo_por_sku')){
+    const filas = [
+      {sku_id:'sku-pag-1', estado:'con_diferencia'},
+      {sku_id:'sku-pag-2', estado:'aprobado'},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/rpc/eliminar_skus_sin_contar')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'4' };
+  }
   if(path.startsWith('/rest/v1/skus?activo=eq.true') && path.includes('bodega=is.null') && path.includes('ubicacion=is.null')){
     const filas = [{sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}];
     return {
@@ -1232,6 +1254,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(postSku.url.includes('on_conflict=empresa_id,sku_code'), 'crearSkuManual debe hacer upsert por (empresa_id, sku_code), obtuvo: '+postSku.url);
   assert((postSku.opts.headers.Prefer||'').includes('resolution=merge-duplicates'), 'el upsert debe pedir resolution=merge-duplicates para actualizar en vez de fallar si ya existe, obtuvo: '+postSku.opts.headers.Prefer);
   assert(JSON.parse(postSku.opts.body)[0].empresa_id==='emp-1', 'el POST de crearSkuManual debe incluir el empresa_id del perfil actual, obtuvo: '+postSku.opts.body);
+  // crearSkuManual dispara refrescarListaSkus() sin esperarlo (fire-and-forget): hay que dejar
+  // que esa cadena de promesas termine aquí, o su llamada a /ultimo_conteo_por_sku se cuela
+  // más adelante y contamina el conteo de llamadas del siguiente bloque (perfil no cargado).
+  await new Promise(r=>setTimeout(r, 0));
 
   // ===== Perfil no cargado (sesión activa, pero sin fila en usuarios/empresa asignada) =====
   // Reproduce el caso real: la cuenta existe (hay sesión), pero state.perfil quedó null
@@ -1330,6 +1356,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.length===0, 'si se cancela la confirmación, no debe llamarse a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   confirmRespuesta = true;
 
+  // eliminarSkusSinContar: borra en el servidor, de una sola vez, todos los SKU de la empresa
+  // que aún no tienen ningún conteo (no solo los de la página actual) vía el RPC dedicado.
+  confirmRespuesta = true;
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await ctx.eliminarSkusSinContar();
+  assert(confirmLlamadas.length===1 && /eliminar todos los sku/i.test(confirmLlamadas[0]), 'debe preguntar confirmación antes de borrar, obtuvo: '+JSON.stringify(confirmLlamadas));
+  const rpcEliminarSinContar = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rpc/eliminar_skus_sin_contar'));
+  assert(!!rpcEliminarSinContar, 'debe llamar al RPC eliminar_skus_sin_contar por POST, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si el usuario cancela el confirm(), no debe llamarse al RPC.
+  confirmRespuesta = false;
+  calls.length = 0;
+  await ctx.eliminarSkusSinContar();
+  assert(calls.length===0, 'si se cancela la confirmación, eliminarSkusSinContar no debe llamar a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  confirmRespuesta = true;
+
   // renderTablaSkus: los checkboxes de selección solo deben verse para admin, no para inventariador.
   ctx.__appstate.skusPagina = { rows:[{id:'sku-x', sku_code:'SKU-X', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null}], page:0, total:1 };
   ctx.__appstate.skusSeleccionados = [];
@@ -1339,6 +1382,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlTablaInventariador = ctx.renderTablaSkus();
   assert(!htmlTablaInventariador.includes('class="chk-sku"'), 'un inventariador no debe ver los checkboxes de selección de SKU, obtuvo: '+htmlTablaInventariador);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // renderTablaSkus: pinta en rojo el SKU cuyo último conteo quedó con diferencia, en verde el
+  // que cuadró (aprobado), y sin color el que todavía no se ha contado.
+  ctx.__appstate.skusPagina = { rows:[
+    {id:'sku-dif', sku_code:'SKU-DIF', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:'con_diferencia'},
+    {id:'sku-ok', sku_code:'SKU-OK', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:'aprobado'},
+    {id:'sku-sc', sku_code:'SKU-SC', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:null},
+  ], page:0, total:3 };
+  const htmlColorFilas = ctx.renderTablaSkus();
+  const filaDif = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-DIF')-200, htmlColorFilas.indexOf('SKU-DIF'));
+  const filaOk = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-OK')-200, htmlColorFilas.indexOf('SKU-OK'));
+  const filaSc = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-SC')-200, htmlColorFilas.indexOf('SKU-SC'));
+  assert(filaDif.includes('color-mix') && filaDif.includes('--danger'), 'el SKU con último conteo con diferencia debe pintarse en rojo, obtuvo: '+filaDif);
+  assert(filaOk.includes('color-mix') && filaOk.includes('--ok'), 'el SKU con último conteo aprobado (cuadrado) debe pintarse en verde, obtuvo: '+filaOk);
+  assert(!filaSc.includes('color-mix'), 'el SKU que aún no se ha contado no debe llevar color de fila, obtuvo: '+filaSc);
+  assert(htmlColorFilas.includes('btn-eliminar-skus-sin-contar'), 'la tabla de SKU debe incluir el botón para eliminar todo lo no contado, obtuvo: '+htmlColorFilas);
 
   // ===== Ciclos de conteo: crear, listar y marcar el actual =====
   calls.length = 0;
