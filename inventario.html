@@ -1298,78 +1298,60 @@ async function crearSkuManual(payload){
   }
 }
 
-async function prepararCargaMasiva(file, tipo){
+async function prepararCargaMasiva(file){
   try{
     const {headers, data} = await leerArchivoMasivo(file);
     if(!headers.length || !data.length){ toast('El archivo no tiene filas de datos','err'); return; }
-    const campos = tipo==='skus' ? CAMPOS_SKU : CAMPOS_SKU.filter(c=> c.campo==='sku_code' || c.campo==='stock_sistema');
-    const mapeo = detectarMapeo(headers, campos);
-    setState({cargaPreview: { tipo, file, headers, data, campos, mapeo, modo:'complementar', confirmaReemplazo:false }});
+    const mapeo = detectarMapeo(headers, CAMPOS_SKU);
+    setState({cargaPreview: { file, headers, data, campos:CAMPOS_SKU, mapeo, modo:'complementar', confirmaReemplazo:false }});
   }catch(e){ toast(e.message,'err'); }
 }
 
 async function confirmarCargaMasiva(){
   if(!perfilCargado()) return;
-  const { tipo, file, data, mapeo, modo } = state.cargaPreview;
+  const { file, data, mapeo, modo } = state.cargaPreview;
   const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
 
   setState({loading:true});
 
-  if(tipo==='skus'){
-    const marcaTiempo = new Date().toISOString();
-    let ok=0, error=0; const errores=[];
-    const porCodigo = new Map();
-    data.forEach((row,idx)=>{
-      const sku_code = valor(row,'sku_code');
-      if(!sku_code){ error++; errores.push({fila:idx+2, motivo:'Código de SKU vacío'}); return; }
-      ok++;
-      const stockRaw = valor(row,'stock_sistema');
-      porCodigo.set(sku_code, {
-        sku_code,
-        empresa_id: state.perfil.empresa_id,
-        descripcion: valor(row,'descripcion') || null,
-        categoria: valor(row,'categoria') || null,
-        unidad_medida: valor(row,'unidad_medida') || null,
-        ubicacion: valor(row,'ubicacion') || null,
-        storage_bin: valor(row,'storage_bin') || null,
-        bodega: valor(row,'bodega') || null,
-        stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
-        activo: true,
-        updated_at: marcaTiempo,
-        capturado_en: marcaTiempo,
-      }); // si el archivo trae una fila por planta/ubicación para el mismo código, nos quedamos con la última
-    });
-    const lote = Array.from(porCodigo.values());
-    try{
-      if(lote.length) await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
-      // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
-      if(modo==='reemplazar' && lote.length){
-        await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
-      }
-      await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
-      toast(`Carga completa: ${lote.length} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
-      refrescarListaSkus();
-      setState({loading:false, cargaPreview:null});
-    }catch(e){
-      await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
-      setState({loading:false});
-      toast(e.message,'err');
+  const marcaTiempo = new Date().toISOString();
+  let ok=0, error=0; const errores=[];
+  const porCodigo = new Map();
+  data.forEach((row,idx)=>{
+    const sku_code = valor(row,'sku_code');
+    if(!sku_code){ error++; errores.push({fila:idx+2, motivo:'Código de SKU vacío'}); return; }
+    ok++;
+    const stockRaw = valor(row,'stock_sistema');
+    porCodigo.set(sku_code, {
+      sku_code,
+      empresa_id: state.perfil.empresa_id,
+      descripcion: valor(row,'descripcion') || null,
+      categoria: valor(row,'categoria') || null,
+      unidad_medida: valor(row,'unidad_medida') || null,
+      ubicacion: valor(row,'ubicacion') || null,
+      storage_bin: valor(row,'storage_bin') || null,
+      bodega: valor(row,'bodega') || null,
+      stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
+      activo: true,
+      updated_at: marcaTiempo,
+      capturado_en: marcaTiempo,
+    }); // si el archivo trae una fila por planta/ubicación para el mismo código, nos quedamos con la última
+  });
+  const lote = Array.from(porCodigo.values());
+  try{
+    if(lote.length) await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+    // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
+    if(modo==='reemplazar' && lote.length){
+      await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
     }
-  }else{
-    let ok=0, error=0; const errores=[];
-    for(const [idx,row] of data.entries()){
-      const sku_code = valor(row,'sku_code');
-      const stockRaw = valor(row,'stock_sistema');
-      if(!sku_code || stockRaw===''){ error++; errores.push({fila:idx+2, motivo:'Falta el código o el stock'}); continue; }
-      try{
-        await rest(`/skus?sku_code=eq.${encodeURIComponent(sku_code)}`, {method:'PATCH', body:{stock_sistema:Number(stockRaw)}, prefer:'return=minimal'});
-        ok++;
-      }catch(e){ error++; errores.push({fila:idx+2, motivo:e.message}); }
-    }
-    await registrarCarga(file.name, 'respaldo', data.length, ok, error, errores);
-    toast(`Respaldo procesado: ${ok} SKUs actualizados${error?`, ${error} con error`:''}`);
+    await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
+    toast(`Carga completa: ${lote.length} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
     refrescarListaSkus();
     setState({loading:false, cargaPreview:null});
+  }catch(e){
+    await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
+    setState({loading:false});
+    toast(e.message,'err');
   }
 }
 
@@ -2288,30 +2270,18 @@ function renderCargaMasiva(){
       </div>
       <div id="file-skus-name" class="hint"></div>
     </div>
-
-    <div class="card">
-      <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de respaldo (para análisis)</h3>
-      <div class="hint">Para un respaldo posterior (ej. un nuevo corte de stock), sube el archivo con las columnas de código y de stock — solo actualiza el stock de referencia de los SKU existentes, sin tocar descripción ni ubicación, para comparar contra el conteo físico.</div>
-      <div class="file-input" style="margin-top:12px">
-        <input type="file" id="file-respaldo" accept=".csv,.xlsx,.xls">
-        ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
-        <div>Toca para elegir un archivo .xlsx o .csv</div>
-      </div>
-      <div id="file-respaldo-name" class="hint"></div>
-    </div>
   `;
 }
 
 function renderCargaPreview(){
-  const { tipo, headers, data, campos, mapeo, modo, confirmaReemplazo } = state.cargaPreview;
+  const { headers, data, campos, mapeo, modo, confirmaReemplazo } = state.cargaPreview;
   const filasPreview = data.slice(0,5);
   const camposFaltantes = campos.filter(c=>c.obligatorio && !mapeo[c.campo]);
-  const bloqueaReemplazo = tipo==='skus' && modo==='reemplazar' && !confirmaReemplazo;
+  const bloqueaReemplazo = modo==='reemplazar' && !confirmaReemplazo;
   return `
-    <div class="section-head"><div><span class="eyebrow">${tipo==='skus'?'Carga de SKU':'Carga de respaldo'}</span><h2>Revisa las columnas detectadas</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Carga de SKU</span><h2>Revisa las columnas detectadas</h2></div></div>
     <div class="hint" style="margin-bottom:12px">${data.length} filas encontradas. La app adivinó qué columna corresponde a cada campo — revísalo y corrige lo que haga falta antes de confirmar.</div>
 
-    ${tipo==='skus'? `
     <div class="section-head"><h2 style="font-size:15px">¿Cómo cargar estos datos?</h2></div>
     <label class="opcion-carga ${modo==='complementar'?'activo':''}">
       <input type="radio" name="modo-carga" value="complementar" ${modo==='complementar'?'checked':''}>
@@ -2332,7 +2302,6 @@ function renderCargaPreview(){
         <input type="checkbox" id="chk-confirma-reemplazo" style="margin-top:2px" ${confirmaReemplazo?'checked':''}>
         Entiendo que los SKU activos que no estén en este archivo quedarán inactivos.
       </label>
-    ` : ''}
     ` : ''}
 
     <div class="section-head"><h2 style="font-size:15px">Columnas del archivo</h2></div>
@@ -3346,12 +3315,7 @@ function bind(){
       document.getElementById('file-skus').addEventListener('change', async e=>{
         const file = e.target.files[0]; if(!file) return;
         document.getElementById('file-skus-name').textContent = `Leyendo ${file.name}...`;
-        await prepararCargaMasiva(file, 'skus');
-      });
-      document.getElementById('file-respaldo').addEventListener('change', async e=>{
-        const file = e.target.files[0]; if(!file) return;
-        document.getElementById('file-respaldo-name').textContent = `Leyendo ${file.name}...`;
-        await prepararCargaMasiva(file, 'respaldo');
+        await prepararCargaMasiva(file);
       });
     }
   }
