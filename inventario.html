@@ -323,13 +323,15 @@ let state = {
   fotoModal: null,        // {urls:[...], index:0}
   skusPagina: { rows: [], page: 0, total: 0 },
   reconteos: [],
+  reconteosHayMas: false,
+  reconteosCargandoMas: false,
   tema: localStorage.getItem('tema_app') || 'ambar',
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], leads: [], planes: [], errores: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
-  auditoria: { cargado: false, cargando: false, filas: [], filtroTabla: '' },
+  auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
   offlineModal: false,
@@ -377,6 +379,10 @@ const SKUS_POR_PAGINA = 50;
 // promedio de conteo (proyección de término) y el ranking por responsable — misma ventana en
 // los tres casos para que "últimos 14 días" signifique siempre lo mismo en el dashboard.
 const VENTANA_PROYECCION_DIAS = 14;
+
+// Tamaño de página para las listas largas que cargan de a poco con botón "Cargar más"
+// (Auditoría, Reconteo), en vez de traer todo de una sola vez.
+const TAM_PAGINA_LISTA = 30;
 // Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
 // que no tienen ni bodega ni ubicación específica (no aparecen en ubicaciones_generales).
 const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
@@ -615,7 +621,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],errores:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],errores:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
   render();
   toast('Sesión cerrada');
 }
@@ -934,10 +940,25 @@ async function cargarAuditoria(tabla){
   render();
   try{
     const filtro = tabla ? `&tabla=eq.${tabla}` : '';
-    const filas = await rest(`/auditoria?select=id,tabla,accion,actor_nombre,datos_antes,datos_despues,creado_en&order=creado_en.desc&limit=100${filtro}`);
+    const filas = await rest(`/auditoria?select=id,tabla,accion,actor_nombre,datos_antes,datos_despues,creado_en&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}${filtro}`);
     state.auditoria.filas = filas || [];
+    state.auditoria.hayMas = (filas||[]).length === TAM_PAGINA_LISTA;
   }catch(e){ toast(e.message,'err'); }
   state.auditoria.cargando = false;
+  render();
+}
+
+async function cargarMasAuditoria(){
+  if(state.auditoria.cargandoMas) return;
+  state.auditoria.cargandoMas = true;
+  render();
+  try{
+    const filtro = state.auditoria.filtroTabla ? `&tabla=eq.${state.auditoria.filtroTabla}` : '';
+    const filas = await rest(`/auditoria?select=id,tabla,accion,actor_nombre,datos_antes,datos_despues,creado_en&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.auditoria.filas.length}${filtro}`);
+    state.auditoria.filas = state.auditoria.filas.concat(filas||[]);
+    state.auditoria.hayMas = (filas||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.auditoria.cargandoMas = false;
   render();
 }
 
@@ -1133,9 +1154,22 @@ async function buscarConteos(){
 // Materiales cuyo último conteo no cuadra con el stock de sistema (ver vista reconteo_pendiente).
 async function cargarReconteos(){
   try{
-    const rows = await rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=200`);
-    setState({reconteos: rows||[]});
+    const rows = await rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}`);
+    setState({reconteos: rows||[], reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA});
   }catch(e){ /* silencioso */ }
+}
+
+async function cargarMasReconteos(){
+  if(state.reconteosCargandoMas) return;
+  state.reconteosCargandoMas = true;
+  render();
+  try{
+    const rows = await rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.reconteos.length}`);
+    state.reconteos = state.reconteos.concat(rows||[]);
+    state.reconteosHayMas = (rows||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.reconteosCargandoMas = false;
+  render();
 }
 
 /* =======================================================================
@@ -2415,7 +2449,7 @@ function renderConteo(){
 function renderReconteo(){
   const rows = state.reconteos;
   return `
-    <div class="section-head"><div><span class="eyebrow">${rows.length}</span><h2>Reconteo</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">${rows.length}${state.reconteosHayMas?'+':''}</span><h2>Reconteo</h2></div></div>
     <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo no cuadra con el stock de sistema. Recuenta para corregir o confirmar la diferencia.</div>
     <div class="card">
       ${rows.length? `<div class="table-wrap"><table>
@@ -2429,6 +2463,9 @@ function renderReconteo(){
           <td class="num"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button></td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">✓</div>No hay materiales con diferencias pendientes.</div>`}
+      ${state.reconteosHayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-reconteo" style="width:auto;padding:8px 16px" ${state.reconteosCargandoMas?'disabled':''}>${state.reconteosCargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 }
@@ -2885,6 +2922,9 @@ function renderAuditoria(){
             <div style="margin-top:4px;font-size:13px">${esc(resumenCambioAuditoria(f))}</div>
           </div>
         `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Sin actividad registrada.</div>`}
+      ${a.hayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-auditoria" style="width:auto;padding:8px 16px" ${a.cargandoMas?'disabled':''}>${a.cargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 }
@@ -3190,6 +3230,8 @@ function bind(){
       if(!state.auditoria.cargado){ state.auditoria.cargado = true; cargarAuditoria(''); }
       selectAuditoriaTabla.addEventListener('change', ()=> cargarAuditoria(selectAuditoriaTabla.value));
     }
+    const btnCargarMasAuditoria = document.getElementById('btn-cargar-mas-auditoria');
+    if(btnCargarMasAuditoria) btnCargarMasAuditoria.addEventListener('click', cargarMasAuditoria);
     if(state.perfil && state.perfil.es_super_admin){
       if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); cargarPlanesSuperAdmin(); cargarErroresSuperAdmin(); }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
@@ -3363,6 +3405,8 @@ function bind(){
   }
 
   if(state.view==='reconteo'){
+    const btnCargarMasReconteo = document.getElementById('btn-cargar-mas-reconteo');
+    if(btnCargarMasReconteo) btnCargarMasReconteo.addEventListener('click', cargarMasReconteos);
     document.querySelectorAll('[data-recontar]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const r = state.reconteos.find(x=>x.id===btn.dataset.recontar);
