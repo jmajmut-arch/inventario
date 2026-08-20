@@ -1896,9 +1896,12 @@ async function iniciarEscaner(){
   const instancia = new Html5Qrcode('escaner-reader', formatos ? { formatsToSupport: formatos } : undefined);
   escanerInstancia = instancia;
   try{
+    // El recuadro debe ser lo bastante alto para un QR completo (es cuadrado) y lo bastante
+    // ancho para una barra 1D larga: solo se decodifica lo que cae dentro de este recuadro,
+    // así que uno angosto (pensado solo para barras) dejaba los QR cortados y sin leer.
     await instancia.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 280, height: 140 } },
+      { fps: 10, qrbox: { width: 260, height: 260 } },
       (codigoLeido) => onCodigoEscaneado(codigoLeido),
       () => { /* se llama en cada frame sin lectura; no requiere acción */ }
     );
