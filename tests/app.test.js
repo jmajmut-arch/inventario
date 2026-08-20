@@ -73,12 +73,11 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'conteo-nuevo-1'}]) };
   }
-  if(path.startsWith('/rest/v1/conteos?select=usuario_id,usuarios(nombre)')){
+  if(path.startsWith('/rest/v1/rpc/ranking_responsable')){
     const filas = [
-      {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-      {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-      {usuario_id:'u2', usuarios:{nombre:'Beto'}},
-      {usuario_id:null, usuarios:null},
+      {nombre:'Ana Torres', cantidad:2},
+      {nombre:'Beto', cantidad:1},
+      {nombre:'Sin asignar', cantidad:1},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -766,24 +765,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(proyNormal.detalle.includes('10 días más') && proyNormal.detalle.includes('100 pendientes'), 'debe calcular los días restantes como pendientes/ritmo, obtuvo: '+JSON.stringify(proyNormal));
   assert(proyNormal.titulo!=='—' && proyNormal.titulo!=='Sin proyección' && proyNormal.titulo!=='¡Inventario completo!', 'el caso normal debe mostrar una fecha proyectada, obtuvo: '+JSON.stringify(proyNormal));
 
-  // rankingPorResponsable: cuenta conteos por nombre, agrupa los sin usuario como "Sin asignar", ordena de mayor a menor.
-  const rankingSuelto = ctx.rankingPorResponsable([
-    {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-    {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-    {usuario_id:'u2', usuarios:{nombre:'Beto'}},
-    {usuario_id:null, usuarios:null},
-  ]);
-  assert(rankingSuelto.length===3 && rankingSuelto[0].nombre==='Ana Torres' && rankingSuelto[0].cantidad===2, 'debe agrupar y ordenar de mayor a menor, obtuvo: '+JSON.stringify(rankingSuelto));
-  assert(rankingSuelto.some(r=>r.nombre==='Sin asignar' && r.cantidad===1), 'un conteo sin usuario debe agruparse como "Sin asignar", obtuvo: '+JSON.stringify(rankingSuelto));
-
-  // cargarDashboard: debe pedir los conteos de la ventana de proyección (con el join a usuarios)
-  // y dejar el ranking ya calculado en state.dash.ranking.
+  // cargarDashboard: el ranking por responsable ahora se calcula en SQL (rpc/ranking_responsable,
+  // ver ranking_responsable_en_sql), no trayendo filas crudas y agrupando en JS — evita el límite
+  // de 5000 filas que tenía el enfoque anterior si un cliente crece mucho en volumen.
   ctx.__appstate.session = { access_token:'x', user:{id:'user-1', email:'a@b.com'} };
   calls.length = 0;
   await ctx.cargarDashboard();
-  const rankingCall = calls.find(c=>c.url.includes('/rest/v1/conteos?select=usuario_id,usuarios(nombre)'));
-  assert(!!rankingCall && rankingCall.url.includes('fecha_conteo=gte.'), 'cargarDashboard debe pedir los conteos recientes con join a usuarios y filtro de fecha, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking ya calculado en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
+  const rankingCall = calls.find(c=>c.url.includes('/rest/v1/rpc/ranking_responsable'));
+  assert(!!rankingCall && rankingCall.opts.method==='POST' && JSON.parse(rankingCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC ranking_responsable con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking que devuelve el RPC en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
 
   // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
   ctx.__appstate.dash = {

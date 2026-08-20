@@ -1080,30 +1080,18 @@ async function opcionesBins(bodega, ubicacion){
 
 async function cargarDashboard(){
   try{
-    const desdeRanking = fechaISO(sumarDias(new Date(), -(VENTANA_PROYECCION_DIAS-1)));
-    const [total, diario, semanal, mensual, conteosRecientes] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
       rest(`/avance_mensual?order=mes.desc&limit=6`),
-      rest(`/conteos?select=usuario_id,usuarios(nombre)&fecha_conteo=gte.${desdeRanking}&limit=5000`),
+      rest(`/rpc/ranking_responsable`, {method:'POST', body:{dias: VENTANA_PROYECCION_DIAS}}),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
-      ranking: rankingPorResponsable(conteosRecientes||[]),
+      ranking: ranking||[],
     }});
   }catch(e){ toast(e.message,'err'); }
-}
-
-// Cuenta SKU contados por responsable en el período (ventana de cargarDashboard), de mayor a
-// menor — "quién ha contado más" en el dashboard ejecutivo.
-function rankingPorResponsable(conteos){
-  const map = new Map();
-  conteos.forEach(c=>{
-    const nombre = (c.usuarios && c.usuarios.nombre) || 'Sin asignar';
-    map.set(nombre, (map.get(nombre)||0) + 1);
-  });
-  return Array.from(map, ([nombre, cantidad])=>({nombre, cantidad})).sort((a,b)=> b.cantidad-a.cantidad);
 }
 
 async function cargarUltimosConteos(){
