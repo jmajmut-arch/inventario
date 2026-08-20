@@ -127,6 +127,16 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/reconteo_pendiente')){
+    const offsetMatch = path.match(/offset=(\d+)/);
+    const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+    const total = 34; // fuerza que la 1ra página (30) diga "hay más" y la 2da (4) ya no
+    const filas = [];
+    for(let i=offset; i<Math.min(offset+30, total); i++){
+      filas.push({id:'r'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10'});
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/auditoria')){
     const todas = [
       {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
@@ -1464,6 +1474,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'inventariador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   const htmlConfigInventariadorAuditoria = ctx.renderConfiguraciones();
   assert(!htmlConfigInventariadorAuditoria.includes('id="auditoria-filtro-tabla"'), 'un inventariador (no admin) no debe ver la sección de auditoría, obtuvo: '+htmlConfigInventariadorAuditoria);
+
+  // cargarMasAuditoria: pide la página siguiente con offset=<filas ya cargadas> y las agrega
+  // al final (en vez de reemplazar), respetando el filtro de tabla activo.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  await ctx.cargarAuditoria('');
+  const filasAntesDeCargarMas = ctx.__appstate.auditoria.filas.length;
+  calls.length = 0;
+  await ctx.cargarMasAuditoria();
+  const auditoriaCallMas = calls.find(c=>c.url.includes('/auditoria?select='));
+  assert(!!auditoriaCallMas && auditoriaCallMas.url.includes(`offset=${filasAntesDeCargarMas}`), 'cargarMasAuditoria debe pedir la página siguiente con offset=<lo ya cargado>, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.auditoria.filas.length === filasAntesDeCargarMas*2, 'cargarMasAuditoria debe agregar las filas nuevas a las que ya había, no reemplazarlas, obtuvo: '+ctx.__appstate.auditoria.filas.length);
+
+  // ===== Reconteo: "Cargar más" con offset, en vez de traer todo con un límite fijo =====
+  calls.length = 0;
+  await ctx.cargarReconteos();
+  assert(ctx.__appstate.reconteos.length===30, 'cargarReconteos debe traer la primera página (30), obtuvo: '+ctx.__appstate.reconteos.length);
+  assert(ctx.__appstate.reconteosHayMas===true, 'con 30 filas llenando la página, hayMas debe quedar true');
+  const htmlReconteoConMas = ctx.renderReconteo();
+  assert(htmlReconteoConMas.includes('id="btn-cargar-mas-reconteo"') && htmlReconteoConMas.includes('30+'), 'debe mostrar el botón "Cargar más" y el contador con "+" cuando hay más filas, obtuvo: '+htmlReconteoConMas);
+
+  calls.length = 0;
+  await ctx.cargarMasReconteos();
+  const reconteoCallMas = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+  assert(!!reconteoCallMas && reconteoCallMas.url.includes('offset=30'), 'cargarMasReconteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.reconteos.length===34, 'debe agregar las 4 filas restantes a las 30 que ya había, obtuvo: '+ctx.__appstate.reconteos.length);
+  assert(ctx.__appstate.reconteosHayMas===false, 'al agotarse los datos (4 < 30), hayMas debe pasar a false');
+  const htmlReconteoSinMas = ctx.renderReconteo();
+  assert(!htmlReconteoSinMas.includes('id="btn-cargar-mas-reconteo"'), 'sin más páginas, el botón "Cargar más" no debe mostrarse, obtuvo: '+htmlReconteoSinMas);
 
   // ===== Escáner de códigos: resolución código → SKU y asociación =====
   // (debe ir antes de handleLogout más abajo, que reasigna `state` por completo y deja
