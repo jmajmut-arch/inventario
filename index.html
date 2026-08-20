@@ -669,7 +669,19 @@ async function fetchSkusPagina(page){
 async function cargarSkusPagina(page=0){
   try{
     const { data, total } = await fetchSkusPagina(page);
-    setState({skusPagina: { rows:data||[], page, total: total||0 }, skusSeleccionados: []});
+    const rows = data||[];
+    // Estado del último conteo de cada SKU de esta página (para pintar en rojo/verde según
+    // si cuadró o no) — consulta aparte porque ultimo_conteo_por_sku es una vista sin FK
+    // declarada hacia skus, así que PostgREST no la puede traer embebida automáticamente.
+    if(rows.length){
+      try{
+        const ids = rows.map(r=>r.id).join(',');
+        const estados = await rest(`/ultimo_conteo_por_sku?sku_id=in.(${ids})&select=sku_id,estado`);
+        const porSku = new Map((estados||[]).map(e=>[e.sku_id, e.estado]));
+        rows.forEach(r=>{ r.ultimoEstado = porSku.get(r.id) || null; });
+      }catch(e){ /* si falla, la tabla igual se ve, solo sin el color */ }
+    }
+    setState({skusPagina: { rows, page, total: total||0 }, skusSeleccionados: []});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -694,6 +706,23 @@ async function eliminarSkusSeleccionados(){
       toast('No se eliminó ningún SKU: todos ya tienen conteos registrados. Desactívalos en vez de eliminarlos.', 'err');
     }
     setState({loading:false});
+    refrescarListaSkus();
+  }catch(e){
+    setState({loading:false});
+    toast(e.message,'err');
+  }
+}
+
+// Borra de una sola vez todos los SKU de la empresa que todavía no tienen ningún conteo
+// registrado (no solo los de la página actual). Los que ya se contaron quedan protegidos
+// por la base de datos, igual que en eliminarSkusSeleccionados.
+async function eliminarSkusSinContar(){
+  if(!confirm('¿Eliminar todos los SKU que todavía no se han contado? Los que ya tengan un conteo registrado no se van a tocar. Esta acción no se puede deshacer.')) return;
+  setState({loading:true});
+  try{
+    const cantidad = await rest('/rpc/eliminar_skus_sin_contar', {method:'POST'});
+    setState({loading:false});
+    toast(cantidad>0 ? `${cantidad} SKU sin contar eliminados` : 'No había SKU sin contar para eliminar');
     refrescarListaSkus();
   }catch(e){
     setState({loading:false});
@@ -2443,16 +2472,23 @@ function renderTablaSkus(){
   return `
     <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.total})</h2></div>
     <div class="card">
-      ${esAdmin && sp.rows.length? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      ${esAdmin && sp.rows.length? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);margin:0;cursor:pointer">
           <input type="checkbox" id="chk-skus-todos" ${todosMarcados?'checked':''}>
           Seleccionar todos (esta página)
         </label>
-        ${seleccionados.length? `<button type="button" class="btn btn-secondary" id="btn-eliminar-skus" style="width:auto;padding:7px 14px;font-size:12.5px;color:var(--danger)">Eliminar ${seleccionados.length} seleccionado${seleccionados.length>1?'s':''}</button>` : ''}
-      </div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${seleccionados.length? `<button type="button" class="btn btn-secondary" id="btn-eliminar-skus" style="width:auto;padding:7px 14px;font-size:12.5px;color:var(--danger)">Eliminar ${seleccionados.length} seleccionado${seleccionados.length>1?'s':''}</button>` : ''}
+          <button type="button" class="btn btn-secondary" id="btn-eliminar-skus-sin-contar" style="width:auto;padding:7px 14px;font-size:12.5px;color:var(--danger)">Eliminar todo (sin contar)</button>
+        </div>
+      </div>
+      <div class="hint" style="margin-bottom:10px">En rojo: último conteo con diferencia. En verde: último conteo cuadrado.</div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
         <thead><tr>${esAdmin?'<th></th>':''}<th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
-        <tbody>${sp.rows.map(s=>`<tr>
+        <tbody>${sp.rows.map(s=>{
+          const colorFila = s.ultimoEstado==='con_diferencia'? 'background:color-mix(in srgb, var(--danger) 12%, var(--surface))'
+            : s.ultimoEstado==='aprobado'? 'background:color-mix(in srgb, var(--ok) 12%, var(--surface))' : '';
+          return `<tr style="${colorFila}">
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
           <td class="mono">${esc(s.sku_code)}</td>
           <td>${esc(s.descripcion||'—')}</td>
@@ -2460,7 +2496,8 @@ function renderTablaSkus(){
           <td>${esc(s.ubicacion||'—')}</td>
           <td class="mono">${esc(s.storage_bin||'—')}</td>
           <td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>
-        </tr>`).join('')}</tbody>
+        </tr>`;
+        }).join('')}</tbody>
       </table></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
         <button class="btn btn-secondary" id="skus-pag-prev" style="width:auto;flex:none;padding:8px 14px" ${sp.page<=0?'disabled':''}>Anterior</button>
@@ -3583,6 +3620,8 @@ function bind(){
     });
     const btnEliminarSkus = document.getElementById('btn-eliminar-skus');
     if(btnEliminarSkus) btnEliminarSkus.addEventListener('click', eliminarSkusSeleccionados);
+    const btnEliminarSkusSinContar = document.getElementById('btn-eliminar-skus-sin-contar');
+    if(btnEliminarSkusSinContar) btnEliminarSkusSinContar.addEventListener('click', eliminarSkusSinContar);
   }
 
   if(state.view==='carga'){
