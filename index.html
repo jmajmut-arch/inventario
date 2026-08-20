@@ -1752,6 +1752,18 @@ async function reintentarAccionOffline(id){
   render();
 }
 
+// Agregar o quitar una foto exige volver a renderizar toda la pantalla (para mostrar la
+// miniatura), pero el resto del formulario (cantidad, ubicación, observación) no está
+// atado al estado — son inputs sueltos que se leen recién al guardar. Sin esto, cada foto
+// agregada/quitada borraba lo que la persona ya había tipeado, en especial la cantidad.
+function conservandoCamposConteo(fn){
+  const ids = ['c-cant', 'c-bodega', 'c-ubic', 'c-obs'];
+  const valores = {};
+  ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
+  fn();
+  ids.forEach(id=>{ const el = document.getElementById(id); if(el && valores[id]!==undefined) el.value = valores[id]; });
+}
+
 async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad)) || Number(cantidad) < 0){ toast('Ingresa una cantidad contada válida','err'); return; }
@@ -3623,7 +3635,7 @@ function bind(){
         const files = Array.from(e.target.files || []);
         files.forEach(file=>{
           const reader = new FileReader();
-          reader.onload = ev => { state.conteoFotos.push({file, preview: ev.target.result}); render(); };
+          reader.onload = ev => { state.conteoFotos.push({file, preview: ev.target.result}); conservandoCamposConteo(render); };
           reader.readAsDataURL(file);
         });
         e.target.value = ''; // permite volver a elegir/tomar otra foto después
@@ -3631,7 +3643,7 @@ function bind(){
       document.querySelectorAll('[data-quitar-foto]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           state.conteoFotos.splice(Number(btn.dataset.quitarFoto), 1);
-          render();
+          conservandoCamposConteo(render);
         });
       });
       document.getElementById('form-conteo').addEventListener('submit', e=>{
