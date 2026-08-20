@@ -73,6 +73,28 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'conteo-nuevo-1'}]) };
   }
+  // Búsqueda (columnas categoria,ubicacion en el select) — chequear antes que "materiales
+  // contados" del dashboard, cuyo select es un prefijo del de búsqueda.
+  if(path.startsWith('/rest/v1/conteos?select=') && path.includes('categoria,ubicacion')){
+    const offsetMatch = path.match(/offset=(\d+)/);
+    const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+    const total = 34;
+    const filas = [];
+    for(let i=offset; i<Math.min(offset+30, total); i++){
+      filas.push({id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', bodega:'Nave', skus:{sku_code:'SKU-'+i, descripcion:'Item '+i}, conteo_fotos:[]});
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/conteos?select=')){
+    const offsetMatch = path.match(/offset=(\d+)/);
+    const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+    const total = 34;
+    const filas = [];
+    for(let i=offset; i<Math.min(offset+30, total); i++){
+      filas.push({id:'uc-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', skus:{sku_code:'SKU-'+i, descripcion:'Item '+i}, conteo_fotos:[]});
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/rpc/ranking_responsable')){
     const filas = [
       {nombre:'Ana Torres', cantidad:2},
@@ -1543,6 +1565,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.reconteosHayMas===false, 'al agotarse los datos (4 < 30), hayMas debe pasar a false');
   const htmlReconteoSinMas = ctx.renderReconteo();
   assert(!htmlReconteoSinMas.includes('id="btn-cargar-mas-reconteo"'), 'sin más páginas, el botón "Cargar más" no debe mostrarse, obtuvo: '+htmlReconteoSinMas);
+
+  // ===== Dashboard: "Materiales contados" con "Cargar más" =====
+  calls.length = 0;
+  await ctx.cargarUltimosConteos();
+  assert(ctx.__appstate.ultimosConteos.length===30 && ctx.__appstate.ultimosConteosHayMas===true, 'cargarUltimosConteos debe traer la primera página (30) y marcar hayMas, obtuvo: '+ctx.__appstate.ultimosConteos.length);
+  calls.length = 0;
+  await ctx.cargarMasUltimosConteos();
+  const conteosCallMas = calls.find(c=>c.url.includes('/conteos?select='));
+  assert(!!conteosCallMas && conteosCallMas.url.includes('offset=30'), 'cargarMasUltimosConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.ultimosConteos.length===34 && ctx.__appstate.ultimosConteosHayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.ultimosConteos.length);
+
+  // ===== Buscar: "Cargar más" respetando los filtros de texto y fotos (que se aplican en
+  // el cliente, no en la consulta) =====
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0};
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(ctx.__appstate.busqueda.resultados.length===30 && ctx.__appstate.busqueda.hayMas===true, 'buscarConteos debe traer la primera página (30) y marcar hayMas, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  assert(ctx.__appstate.busqueda.paginaOffset===30, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
+  calls.length = 0;
+  await ctx.buscarMasConteos();
+  const busquedaCallMas = calls.find(c=>c.url.includes('/conteos?select='));
+  assert(!!busquedaCallMas && busquedaCallMas.url.includes('offset=30'), 'buscarMasConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.resultados.length===34 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  const htmlBusquedaSinMas = ctx.renderBuscar();
+  assert(!htmlBusquedaSinMas.includes('id="btn-cargar-mas-busqueda"'), 'sin más páginas, el botón "Cargar más" de Buscar no debe mostrarse, obtuvo: '+htmlBusquedaSinMas);
 
   // ===== Escáner de códigos: resolución código → SKU y asociación =====
   // (debe ir antes de handleLogout más abajo, que reasigna `state` por completo y deja

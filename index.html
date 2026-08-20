@@ -320,6 +320,8 @@ let state = {
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [] },
   ultimosConteos: [],
+  ultimosConteosHayMas: false,
+  ultimosConteosCargandoMas: false,
   fotoModal: null,        // {urls:[...], index:0}
   skusPagina: { rows: [], page: 0, total: 0 },
   reconteos: [],
@@ -327,7 +329,7 @@ let state = {
   reconteosCargandoMas: false,
   tema: localStorage.getItem('tema_app') || 'ambar',
   cargaPreview: null,
-  busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
+  busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], errores: [], erroresHayMas: false, erroresCargandoMas: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
@@ -621,7 +623,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
   render();
   toast('Sesión cerrada');
 }
@@ -1145,9 +1147,22 @@ async function cargarDashboard(){
 
 async function cargarUltimosConteos(){
   try{
-    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=50`);
-    setState({ultimosConteos: rows||[]});
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}`);
+    setState({ultimosConteos: rows||[], ultimosConteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA});
   }catch(e){ /* silencioso */ }
+}
+
+async function cargarMasUltimosConteos(){
+  if(state.ultimosConteosCargandoMas) return;
+  state.ultimosConteosCargandoMas = true;
+  render();
+  try{
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.ultimosConteos.length}`);
+    state.ultimosConteos = state.ultimosConteos.concat(rows||[]);
+    state.ultimosConteosHayMas = (rows||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.ultimosConteosCargandoMas = false;
+  render();
 }
 
 // Quita caracteres que puedan romper la sintaxis de filtros de PostgREST (,()."*)
@@ -1155,28 +1170,53 @@ function sanearTextoFiltro(s){
   return String(s||'').replace(/[,()."*]/g, ' ').trim();
 }
 
+function construirPathBusqueda(offset){
+  let path = `/conteos?select=*,skus(sku_code,descripcion,categoria,ubicacion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${offset}`;
+  const bodega = sanearTextoFiltro(state.busqueda.bodega);
+  if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
+  if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
+  return path;
+}
+
+// El texto y "solo con fotos" se filtran en el cliente (no son filtros directos de
+// PostgREST sobre columnas propias), por eso se aplican después de traer cada página.
+function filtrarResultadosBusqueda(rows){
+  let filtradas = rows;
+  const texto = sanearTextoFiltro(state.busqueda.texto).toLowerCase();
+  if(texto){
+    filtradas = filtradas.filter(r=>{
+      const codigo = (r.skus? r.skus.sku_code : '').toLowerCase();
+      const desc = (r.skus? r.skus.descripcion||'' : '').toLowerCase();
+      return codigo.includes(texto) || desc.includes(texto);
+    });
+  }
+  if(state.busqueda.soloConFotos) filtradas = filtradas.filter(r=> (r.conteo_fotos||[]).length>0);
+  return filtradas;
+}
+
 async function buscarConteos(){
   try{
-    let path = `/conteos?select=*,skus(sku_code,descripcion,categoria,ubicacion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=300`;
-    const bodega = sanearTextoFiltro(state.busqueda.bodega);
-    if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
-    if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
-    let rows = await rest(path);
-    rows = rows || [];
-    const texto = sanearTextoFiltro(state.busqueda.texto).toLowerCase();
-    if(texto){
-      rows = rows.filter(r=>{
-        const codigo = (r.skus? r.skus.sku_code : '').toLowerCase();
-        const desc = (r.skus? r.skus.descripcion||'' : '').toLowerCase();
-        return codigo.includes(texto) || desc.includes(texto);
-      });
-    }
-    if(state.busqueda.soloConFotos) rows = rows.filter(r=> (r.conteo_fotos||[]).length>0);
-    setState({busqueda: {...state.busqueda, resultados: rows, buscando:false}});
+    const rows = await rest(construirPathBusqueda(0)) || [];
+    const resultados = filtrarResultadosBusqueda(rows);
+    setState({busqueda: {...state.busqueda, resultados, buscando:false, hayMas: rows.length===TAM_PAGINA_LISTA, paginaOffset: rows.length}});
   }catch(e){
     setState({busqueda: {...state.busqueda, buscando:false}});
     toast(e.message,'err');
   }
+}
+
+async function buscarMasConteos(){
+  if(state.busqueda.buscandoMas) return;
+  state.busqueda.buscandoMas = true;
+  render();
+  try{
+    const rows = await rest(construirPathBusqueda(state.busqueda.paginaOffset)) || [];
+    state.busqueda.resultados = state.busqueda.resultados.concat(filtrarResultadosBusqueda(rows));
+    state.busqueda.hayMas = rows.length===TAM_PAGINA_LISTA;
+    state.busqueda.paginaOffset += rows.length;
+  }catch(e){ toast(e.message,'err'); }
+  state.busqueda.buscandoMas = false;
+  render();
 }
 
 // Materiales cuyo último conteo no cuadra con el stock de sistema (ver vista reconteo_pendiente).
@@ -2200,7 +2240,7 @@ function renderDashboard(){
     <div class="section-head"><h2 style="font-size:17px">Mensual</h2></div>
     <div class="card">${periodTable(state.dash.mensual,'Mes','mes')}</div>
 
-    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}</span><h2 style="font-size:17px">Materiales contados</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados</h2></div></div>
     <div class="card">
       ${state.ultimosConteos.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
@@ -2217,6 +2257,9 @@ function renderDashboard(){
             : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
+      ${state.ultimosConteosHayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-conteos" style="width:auto;padding:8px 16px" ${state.ultimosConteosCargandoMas?'disabled':''}>${state.ultimosConteosCargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 
@@ -2552,6 +2595,9 @@ function renderBuscar(){
           </tr>`;
         }).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
+      ${b.hayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-busqueda" style="width:auto;padding:8px 16px" ${b.buscandoMas?'disabled':''}>${b.buscandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 }
@@ -3341,6 +3387,8 @@ function bind(){
     document.querySelectorAll('[data-dash-modo]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({dashboardModo: btn.dataset.dashModo}));
     });
+    const btnCargarMasConteos = document.getElementById('btn-cargar-mas-conteos');
+    if(btnCargarMasConteos) btnCargarMasConteos.addEventListener('click', cargarMasUltimosConteos);
   }
 
   if(state.view==='skus'){
@@ -3486,6 +3534,8 @@ function bind(){
         }catch(e){ toast(e.message,'err'); }
       });
     });
+    const btnCargarMasBusqueda = document.getElementById('btn-cargar-mas-busqueda');
+    if(btnCargarMasBusqueda) btnCargarMasBusqueda.addEventListener('click', buscarMasConteos);
   }
 
   if(state.view==='plan'){
