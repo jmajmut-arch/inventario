@@ -1,0 +1,5 @@
+{
+  "name": "InventIA - dev y prueba de carga",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "postCreateCommand": "curl -sS -L https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz | tar xz -C /tmp && sudo mv /tmp/k6-v0.54.0-linux-amd64/k6 /usr/local/bin/k6 && k6 version"
+}
