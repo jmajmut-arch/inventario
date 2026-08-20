@@ -73,12 +73,11 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'conteo-nuevo-1'}]) };
   }
-  if(path.startsWith('/rest/v1/conteos?select=usuario_id,usuarios(nombre)')){
+  if(path.startsWith('/rest/v1/rpc/ranking_responsable')){
     const filas = [
-      {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-      {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-      {usuario_id:'u2', usuarios:{nombre:'Beto'}},
-      {usuario_id:null, usuarios:null},
+      {nombre:'Ana Torres', cantidad:2},
+      {nombre:'Beto', cantidad:1},
+      {nombre:'Sin asignar', cantidad:1},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -118,6 +117,13 @@ const fakeFetchImpl = async (url, opts) => {
     const filas = [
       {id:'p1', nombre:'Carlos Rojas', rol:'contador', activo:true},
       {id:'p2', nombre:'Ana Torres', rol:'supervisor', activo:false},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/usuarios?select=')){
+    const filas = [
+      {id:'eq1', nombre:'Beto Ríos', rol:'inventariador', activo:true},
+      {id:'eq2', nombre:'Marta Soto', rol:'admin', activo:false},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -759,24 +765,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(proyNormal.detalle.includes('10 días más') && proyNormal.detalle.includes('100 pendientes'), 'debe calcular los días restantes como pendientes/ritmo, obtuvo: '+JSON.stringify(proyNormal));
   assert(proyNormal.titulo!=='—' && proyNormal.titulo!=='Sin proyección' && proyNormal.titulo!=='¡Inventario completo!', 'el caso normal debe mostrar una fecha proyectada, obtuvo: '+JSON.stringify(proyNormal));
 
-  // rankingPorResponsable: cuenta conteos por nombre, agrupa los sin usuario como "Sin asignar", ordena de mayor a menor.
-  const rankingSuelto = ctx.rankingPorResponsable([
-    {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-    {usuario_id:'u1', usuarios:{nombre:'Ana Torres'}},
-    {usuario_id:'u2', usuarios:{nombre:'Beto'}},
-    {usuario_id:null, usuarios:null},
-  ]);
-  assert(rankingSuelto.length===3 && rankingSuelto[0].nombre==='Ana Torres' && rankingSuelto[0].cantidad===2, 'debe agrupar y ordenar de mayor a menor, obtuvo: '+JSON.stringify(rankingSuelto));
-  assert(rankingSuelto.some(r=>r.nombre==='Sin asignar' && r.cantidad===1), 'un conteo sin usuario debe agruparse como "Sin asignar", obtuvo: '+JSON.stringify(rankingSuelto));
-
-  // cargarDashboard: debe pedir los conteos de la ventana de proyección (con el join a usuarios)
-  // y dejar el ranking ya calculado en state.dash.ranking.
+  // cargarDashboard: el ranking por responsable ahora se calcula en SQL (rpc/ranking_responsable,
+  // ver ranking_responsable_en_sql), no trayendo filas crudas y agrupando en JS — evita el límite
+  // de 5000 filas que tenía el enfoque anterior si un cliente crece mucho en volumen.
   ctx.__appstate.session = { access_token:'x', user:{id:'user-1', email:'a@b.com'} };
   calls.length = 0;
   await ctx.cargarDashboard();
-  const rankingCall = calls.find(c=>c.url.includes('/rest/v1/conteos?select=usuario_id,usuarios(nombre)'));
-  assert(!!rankingCall && rankingCall.url.includes('fecha_conteo=gte.'), 'cargarDashboard debe pedir los conteos recientes con join a usuarios y filtro de fecha, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking ya calculado en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
+  const rankingCall = calls.find(c=>c.url.includes('/rest/v1/rpc/ranking_responsable'));
+  assert(!!rankingCall && rankingCall.opts.method==='POST' && JSON.parse(rankingCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC ranking_responsable con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking que devuelve el RPC en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
 
   // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
   ctx.__appstate.dash = {
@@ -1023,6 +1020,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.actualizarPersonaSuperAdmin('p2', {activo:true});
   const patchReactivarPersona = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/usuarios?id=eq.p2'));
   assert(!!patchReactivarPersona && JSON.parse(patchReactivarPersona.opts.body).activo===true, 'actualizarPersonaSuperAdmin debe poder reactivar el acceso, obtuvo: '+JSON.stringify(patchReactivarPersona));
+
+  // "Mi equipo": un admin de empresa (no super-admin) puede ver y editar a su propio equipo,
+  // sin pasar por el panel de super-admin. cargarEquipo no debe pedir empresa_id (RLS ya
+  // filtra por empresa_actual()) y no debe entrar en recursión infinita al renderizar
+  // (regresión real detectada: cargarEquipo llamaba render() antes de marcar cargado=true,
+  // y el wiring de eventos volvía a llamar cargarEquipo() en cada render).
+  ctx.__appstate.perfil = {id:'perfil-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ABC12345'}};
+  ctx.__appstate.equipo = { cargado:false, cargando:false, personas:[] };
+  await ctx.cargarEquipo();
+  assert(ctx.__appstate.equipo.cargado===true, 'cargarEquipo debe marcar cargado:true al terminar');
+  assert(ctx.__appstate.equipo.personas.length===2 && ctx.__appstate.equipo.personas[0].nombre==='Beto Ríos', 'cargarEquipo debe cargar el equipo de la propia empresa, obtuvo: '+JSON.stringify(ctx.__appstate.equipo.personas));
+  const htmlMiEquipo = ctx.renderConfiguraciones();
+  assert(htmlMiEquipo.includes('Beto Ríos') && htmlMiEquipo.includes('data-toggle-persona-equipo="eq1"'), 'Configuraciones debe listar el equipo propio con su botón de desactivar/reactivar, obtuvo: '+htmlMiEquipo);
+
+  calls.length = 0;
+  await ctx.actualizarPersonaEquipo('eq1', {rol:'admin'});
+  const patchRolEquipo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/usuarios?id=eq.eq1'));
+  assert(!!patchRolEquipo && JSON.parse(patchRolEquipo.opts.body).rol==='admin', 'actualizarPersonaEquipo debe poder cambiar el rol, obtuvo: '+JSON.stringify(patchRolEquipo));
+
+  // Restaurar el perfil de super-admin para los tests siguientes de este mismo bloque.
+  ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
 
   // El nombre de la empresa debe mostrarse en la barra superior de la app.
   ctx.__appstate.view = 'dashboard';
