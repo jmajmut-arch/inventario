@@ -320,6 +320,8 @@ let state = {
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [] },
   ultimosConteos: [],
+  ultimosConteosHayMas: false,
+  ultimosConteosCargandoMas: false,
   fotoModal: null,        // {urls:[...], index:0}
   skusPagina: { rows: [], page: 0, total: 0 },
   reconteos: [],
@@ -327,10 +329,10 @@ let state = {
   reconteosCargandoMas: false,
   tema: localStorage.getItem('tema_app') || 'ambar',
   cargaPreview: null,
-  busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
+  busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], resumen: [], leads: [], planes: [], errores: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], errores: [], erroresHayMas: false, erroresCargandoMas: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
@@ -621,7 +623,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],errores:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
   render();
   toast('Sesión cerrada');
 }
@@ -838,20 +840,48 @@ async function cargarResumenSuperAdmin(){
 // solo legible por super-admin — ver RLS de la tabla).
 async function cargarLeadsSuperAdmin(){
   try{
-    const filas = await rest('/leads_demo?select=*&order=creado_en.desc&limit=100');
+    const filas = await rest(`/leads_demo?select=*&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}`);
     state.superadmin.leads = filas || [];
+    state.superadmin.leadsHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
     render();
   }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarMasLeadsSuperAdmin(){
+  if(state.superadmin.leadsCargandoMas) return;
+  state.superadmin.leadsCargandoMas = true;
+  render();
+  try{
+    const filas = await rest(`/leads_demo?select=*&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.superadmin.leads.length}`);
+    state.superadmin.leads = state.superadmin.leads.concat(filas||[]);
+    state.superadmin.leadsHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.superadmin.leadsCargandoMas = false;
+  render();
 }
 
 // Errores del navegador de los clientes, reportados solos por reportarError()
 // (ver arriba en el bloque de MONITOREO DE ERRORES).
 async function cargarErroresSuperAdmin(){
   try{
-    const filas = await rest('/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=50');
+    const filas = await rest(`/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}`);
     state.superadmin.errores = filas || [];
+    state.superadmin.erroresHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
     render();
   }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarMasErroresSuperAdmin(){
+  if(state.superadmin.erroresCargandoMas) return;
+  state.superadmin.erroresCargandoMas = true;
+  render();
+  try{
+    const filas = await rest(`/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.superadmin.errores.length}`);
+    state.superadmin.errores = state.superadmin.errores.concat(filas||[]);
+    state.superadmin.erroresHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.superadmin.erroresCargandoMas = false;
+  render();
 }
 
 async function crearEmpresaSuperAdmin(nombre){
@@ -1117,9 +1147,22 @@ async function cargarDashboard(){
 
 async function cargarUltimosConteos(){
   try{
-    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=50`);
-    setState({ultimosConteos: rows||[]});
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}`);
+    setState({ultimosConteos: rows||[], ultimosConteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA});
   }catch(e){ /* silencioso */ }
+}
+
+async function cargarMasUltimosConteos(){
+  if(state.ultimosConteosCargandoMas) return;
+  state.ultimosConteosCargandoMas = true;
+  render();
+  try{
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.ultimosConteos.length}`);
+    state.ultimosConteos = state.ultimosConteos.concat(rows||[]);
+    state.ultimosConteosHayMas = (rows||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.ultimosConteosCargandoMas = false;
+  render();
 }
 
 // Quita caracteres que puedan romper la sintaxis de filtros de PostgREST (,()."*)
@@ -1127,28 +1170,53 @@ function sanearTextoFiltro(s){
   return String(s||'').replace(/[,()."*]/g, ' ').trim();
 }
 
+function construirPathBusqueda(offset){
+  let path = `/conteos?select=*,skus(sku_code,descripcion,categoria,ubicacion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${offset}`;
+  const bodega = sanearTextoFiltro(state.busqueda.bodega);
+  if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
+  if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
+  return path;
+}
+
+// El texto y "solo con fotos" se filtran en el cliente (no son filtros directos de
+// PostgREST sobre columnas propias), por eso se aplican después de traer cada página.
+function filtrarResultadosBusqueda(rows){
+  let filtradas = rows;
+  const texto = sanearTextoFiltro(state.busqueda.texto).toLowerCase();
+  if(texto){
+    filtradas = filtradas.filter(r=>{
+      const codigo = (r.skus? r.skus.sku_code : '').toLowerCase();
+      const desc = (r.skus? r.skus.descripcion||'' : '').toLowerCase();
+      return codigo.includes(texto) || desc.includes(texto);
+    });
+  }
+  if(state.busqueda.soloConFotos) filtradas = filtradas.filter(r=> (r.conteo_fotos||[]).length>0);
+  return filtradas;
+}
+
 async function buscarConteos(){
   try{
-    let path = `/conteos?select=*,skus(sku_code,descripcion,categoria,ubicacion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=300`;
-    const bodega = sanearTextoFiltro(state.busqueda.bodega);
-    if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
-    if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
-    let rows = await rest(path);
-    rows = rows || [];
-    const texto = sanearTextoFiltro(state.busqueda.texto).toLowerCase();
-    if(texto){
-      rows = rows.filter(r=>{
-        const codigo = (r.skus? r.skus.sku_code : '').toLowerCase();
-        const desc = (r.skus? r.skus.descripcion||'' : '').toLowerCase();
-        return codigo.includes(texto) || desc.includes(texto);
-      });
-    }
-    if(state.busqueda.soloConFotos) rows = rows.filter(r=> (r.conteo_fotos||[]).length>0);
-    setState({busqueda: {...state.busqueda, resultados: rows, buscando:false}});
+    const rows = await rest(construirPathBusqueda(0)) || [];
+    const resultados = filtrarResultadosBusqueda(rows);
+    setState({busqueda: {...state.busqueda, resultados, buscando:false, hayMas: rows.length===TAM_PAGINA_LISTA, paginaOffset: rows.length}});
   }catch(e){
     setState({busqueda: {...state.busqueda, buscando:false}});
     toast(e.message,'err');
   }
+}
+
+async function buscarMasConteos(){
+  if(state.busqueda.buscandoMas) return;
+  state.busqueda.buscandoMas = true;
+  render();
+  try{
+    const rows = await rest(construirPathBusqueda(state.busqueda.paginaOffset)) || [];
+    state.busqueda.resultados = state.busqueda.resultados.concat(filtrarResultadosBusqueda(rows));
+    state.busqueda.hayMas = rows.length===TAM_PAGINA_LISTA;
+    state.busqueda.paginaOffset += rows.length;
+  }catch(e){ toast(e.message,'err'); }
+  state.busqueda.buscandoMas = false;
+  render();
 }
 
 // Materiales cuyo último conteo no cuadra con el stock de sistema (ver vista reconteo_pendiente).
@@ -2172,7 +2240,7 @@ function renderDashboard(){
     <div class="section-head"><h2 style="font-size:17px">Mensual</h2></div>
     <div class="card">${periodTable(state.dash.mensual,'Mes','mes')}</div>
 
-    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}</span><h2 style="font-size:17px">Materiales contados</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados</h2></div></div>
     <div class="card">
       ${state.ultimosConteos.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
@@ -2189,6 +2257,9 @@ function renderDashboard(){
             : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
+      ${state.ultimosConteosHayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-conteos" style="width:auto;padding:8px 16px" ${state.ultimosConteosCargandoMas?'disabled':''}>${state.ultimosConteosCargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 
@@ -2524,6 +2595,9 @@ function renderBuscar(){
           </tr>`;
         }).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
+      ${b.hayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-busqueda" style="width:auto;padding:8px 16px" ${b.buscandoMas?'disabled':''}>${b.buscandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 }
@@ -2873,7 +2947,7 @@ function renderSuperAdmin(){
       ` : `<div class="empty" style="padding:14px 8px">Esta empresa aún no tiene personas.</div>`}
     </div>
     <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Personas que pidieron probar la demo desde el landing (${sa.leads.length}).</div>
+      <div class="hint" style="margin-bottom:10px">Personas que pidieron probar la demo desde el landing (${sa.leads.length}${sa.leadsHayMas?'+':''}).</div>
       ${sa.leads.length? sa.leads.map(l=>`
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -2883,9 +2957,12 @@ function renderSuperAdmin(){
           <div class="hint">${esc(l.email)}${l.telefono?' · '+esc(l.telefono):''}</div>
         </div>
       `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie que haya pedido la demo.</div>`}
+      ${sa.leadsHayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-leads-sa" style="width:auto;padding:8px 16px" ${sa.leadsCargandoMas?'disabled':''}>${sa.leadsCargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
     <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Errores reportados solos por el navegador de los clientes (${sa.errores.length} más recientes).</div>
+      <div class="hint" style="margin-bottom:10px">Errores reportados solos por el navegador de los clientes (${sa.errores.length}${sa.erroresHayMas?'+':''} más recientes).</div>
       ${sa.errores.length? sa.errores.map(er=>`
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -2895,6 +2972,9 @@ function renderSuperAdmin(){
           <div class="hint">${er.empresas? esc(er.empresas.nombre)+' · ' : ''}${esc(er.url||'')}</div>
         </div>
       `).join('') : `<div class="empty" style="padding:14px 8px">Sin errores reportados. Buena señal.</div>`}
+      ${sa.erroresHayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-errores-sa" style="width:auto;padding:8px 16px" ${sa.erroresCargandoMas?'disabled':''}>${sa.erroresCargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 }
@@ -3286,6 +3366,10 @@ function bind(){
           actualizarPersonaSuperAdmin(id, {activo: !activo});
         });
       });
+      const btnCargarMasLeadsSa = document.getElementById('btn-cargar-mas-leads-sa');
+      if(btnCargarMasLeadsSa) btnCargarMasLeadsSa.addEventListener('click', cargarMasLeadsSuperAdmin);
+      const btnCargarMasErroresSa = document.getElementById('btn-cargar-mas-errores-sa');
+      if(btnCargarMasErroresSa) btnCargarMasErroresSa.addEventListener('click', cargarMasErroresSuperAdmin);
     }
   }
 
@@ -3303,6 +3387,8 @@ function bind(){
     document.querySelectorAll('[data-dash-modo]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({dashboardModo: btn.dataset.dashModo}));
     });
+    const btnCargarMasConteos = document.getElementById('btn-cargar-mas-conteos');
+    if(btnCargarMasConteos) btnCargarMasConteos.addEventListener('click', cargarMasUltimosConteos);
   }
 
   if(state.view==='skus'){
@@ -3448,6 +3534,8 @@ function bind(){
         }catch(e){ toast(e.message,'err'); }
       });
     });
+    const btnCargarMasBusqueda = document.getElementById('btn-cargar-mas-busqueda');
+    if(btnCargarMasBusqueda) btnCargarMasBusqueda.addEventListener('click', buscarMasConteos);
   }
 
   if(state.view==='plan'){

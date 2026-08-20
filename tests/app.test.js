@@ -73,6 +73,28 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'conteo-nuevo-1'}]) };
   }
+  // Búsqueda (columnas categoria,ubicacion en el select) — chequear antes que "materiales
+  // contados" del dashboard, cuyo select es un prefijo del de búsqueda.
+  if(path.startsWith('/rest/v1/conteos?select=') && path.includes('categoria,ubicacion')){
+    const offsetMatch = path.match(/offset=(\d+)/);
+    const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+    const total = 34;
+    const filas = [];
+    for(let i=offset; i<Math.min(offset+30, total); i++){
+      filas.push({id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', bodega:'Nave', skus:{sku_code:'SKU-'+i, descripcion:'Item '+i}, conteo_fotos:[]});
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/conteos?select=')){
+    const offsetMatch = path.match(/offset=(\d+)/);
+    const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+    const total = 34;
+    const filas = [];
+    for(let i=offset; i<Math.min(offset+30, total); i++){
+      filas.push({id:'uc-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', skus:{sku_code:'SKU-'+i, descripcion:'Item '+i}, conteo_fotos:[]});
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/rpc/ranking_responsable')){
     const filas = [
       {nombre:'Ana Torres', cantidad:2},
@@ -147,12 +169,32 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/leads_demo')){
+    if(path.includes('offset=')){
+      const offsetMatch = path.match(/offset=(\d+)/);
+      const offset = Number(offsetMatch[1]);
+      const total = 34; // fuerza que la 1ra página (30) diga "hay más" y la 2da (4) ya no
+      const filas = [];
+      for(let i=offset; i<Math.min(offset+30, total); i++){
+        filas.push({id:'lead-pag-'+i, nombre:'Lead '+i, email:'lead'+i+'@test.cl', telefono:null, empresa:null, creado_en:'2026-08-18T10:00:00Z'});
+      }
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+    }
     const filas = [
       {id:'lead-1', nombre:'Pedro Soto', email:'pedro@clienteX.cl', telefono:'+56911112222', empresa:'Clientes X SpA', creado_en:'2026-08-18T10:00:00Z'},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/errores_cliente') && (!opts || opts.method!=='POST')){
+    if(path.includes('offset=')){
+      const offsetMatch = path.match(/offset=(\d+)/);
+      const offset = Number(offsetMatch[1]);
+      const total = 34;
+      const filas = [];
+      for(let i=offset; i<Math.min(offset+30, total); i++){
+        filas.push({id:'err-pag-'+i, mensaje:'error '+i, url:'https://inventiapp.cl/index.html', empresas:{nombre:'Minera Andes'}, creado_en:'2026-08-18T10:00:00Z'});
+      }
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+    }
     const filas = [
       {id:'err-1', mensaje:'algo falló', url:'https://inventiapp.cl/index.html', empresas:{nombre:'Minera Andes'}, creado_en:'2026-08-18T10:00:00Z'},
     ];
@@ -944,6 +986,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.superadmin.leads = [];
   assert(ctx.renderSuperAdmin().includes('Todavía no hay nadie'), 'sin leads debe mostrar un mensaje vacío, no una lista rota');
 
+  // cargarMasLeadsSuperAdmin: pide la página siguiente con offset=<lo ya cargado>, agrega
+  // (no reemplaza) y actualiza leadsHayMas cuando se agotan los datos.
+  ctx.__appstate.superadmin.leads = Array.from({length:30}, (_,i)=>({id:'seed-lead-'+i, nombre:'X', email:'x'+i+'@test.cl', creado_en:'2026-08-18T10:00:00Z'}));
+  ctx.__appstate.superadmin.leadsHayMas = true;
+  calls.length = 0;
+  await ctx.cargarMasLeadsSuperAdmin();
+  const leadsCallMas = calls.find(c=>c.url.includes('/leads_demo?select='));
+  assert(!!leadsCallMas && leadsCallMas.url.includes('offset=30'), 'cargarMasLeadsSuperAdmin debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.superadmin.leads.length===34, 'debe agregar las filas nuevas a las 30 que ya había, obtuvo: '+ctx.__appstate.superadmin.leads.length);
+  assert(ctx.__appstate.superadmin.leadsHayMas===false, 'al agotarse los datos (4 < 30), leadsHayMas debe pasar a false');
+
   // cargarPlanesSuperAdmin: pide /planes y los deja disponibles para el selector de plan.
   calls.length = 0;
   await ctx.cargarPlanesSuperAdmin();
@@ -961,6 +1014,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConErrores.includes('algo falló') && htmlConErrores.includes('Minera Andes'), 'el panel de super-admin debe mostrar el mensaje y la empresa del error, obtuvo: '+htmlConErrores);
   ctx.__appstate.superadmin.errores = [];
   assert(ctx.renderSuperAdmin().includes('Sin errores reportados'), 'sin errores debe mostrar un mensaje vacío, no una lista rota');
+
+  // cargarMasErroresSuperAdmin: mismo patrón de "cargar más" que leads.
+  ctx.__appstate.superadmin.errores = Array.from({length:30}, (_,i)=>({id:'seed-err-'+i, mensaje:'e'+i, url:'', empresas:null, creado_en:'2026-08-18T10:00:00Z'}));
+  ctx.__appstate.superadmin.erroresHayMas = true;
+  calls.length = 0;
+  await ctx.cargarMasErroresSuperAdmin();
+  const erroresCallMas = calls.find(c=>c.url.includes('/errores_cliente?select='));
+  assert(!!erroresCallMas && erroresCallMas.url.includes('offset=30'), 'cargarMasErroresSuperAdmin debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.superadmin.errores.length===34, 'debe agregar las filas nuevas a las 30 que ya había, obtuvo: '+ctx.__appstate.superadmin.errores.length);
+  assert(ctx.__appstate.superadmin.erroresHayMas===false, 'al agotarse los datos (4 < 30), erroresHayMas debe pasar a false');
 
   // reportarError: hace POST a /errores_cliente con el mensaje, la URL y el user agent.
   calls.length = 0;
@@ -1502,6 +1565,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.reconteosHayMas===false, 'al agotarse los datos (4 < 30), hayMas debe pasar a false');
   const htmlReconteoSinMas = ctx.renderReconteo();
   assert(!htmlReconteoSinMas.includes('id="btn-cargar-mas-reconteo"'), 'sin más páginas, el botón "Cargar más" no debe mostrarse, obtuvo: '+htmlReconteoSinMas);
+
+  // ===== Dashboard: "Materiales contados" con "Cargar más" =====
+  calls.length = 0;
+  await ctx.cargarUltimosConteos();
+  assert(ctx.__appstate.ultimosConteos.length===30 && ctx.__appstate.ultimosConteosHayMas===true, 'cargarUltimosConteos debe traer la primera página (30) y marcar hayMas, obtuvo: '+ctx.__appstate.ultimosConteos.length);
+  calls.length = 0;
+  await ctx.cargarMasUltimosConteos();
+  const conteosCallMas = calls.find(c=>c.url.includes('/conteos?select='));
+  assert(!!conteosCallMas && conteosCallMas.url.includes('offset=30'), 'cargarMasUltimosConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.ultimosConteos.length===34 && ctx.__appstate.ultimosConteosHayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.ultimosConteos.length);
+
+  // ===== Buscar: "Cargar más" respetando los filtros de texto y fotos (que se aplican en
+  // el cliente, no en la consulta) =====
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0};
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(ctx.__appstate.busqueda.resultados.length===30 && ctx.__appstate.busqueda.hayMas===true, 'buscarConteos debe traer la primera página (30) y marcar hayMas, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  assert(ctx.__appstate.busqueda.paginaOffset===30, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
+  calls.length = 0;
+  await ctx.buscarMasConteos();
+  const busquedaCallMas = calls.find(c=>c.url.includes('/conteos?select='));
+  assert(!!busquedaCallMas && busquedaCallMas.url.includes('offset=30'), 'buscarMasConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.resultados.length===34 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  const htmlBusquedaSinMas = ctx.renderBuscar();
+  assert(!htmlBusquedaSinMas.includes('id="btn-cargar-mas-busqueda"'), 'sin más páginas, el botón "Cargar más" de Buscar no debe mostrarse, obtuvo: '+htmlBusquedaSinMas);
 
   // ===== Escáner de códigos: resolución código → SKU y asociación =====
   // (debe ir antes de handleLogout más abajo, que reasigna `state` por completo y deja
