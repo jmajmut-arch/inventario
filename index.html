@@ -330,7 +330,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], resumen: [], leads: [], planes: [], errores: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], errores: [], erroresHayMas: false, erroresCargandoMas: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
@@ -621,7 +621,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],planes:[],errores:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], fotoModal:null, skusPagina:{rows:[],page:0,total:0}, reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]} };
   render();
   toast('Sesión cerrada');
 }
@@ -838,20 +838,48 @@ async function cargarResumenSuperAdmin(){
 // solo legible por super-admin — ver RLS de la tabla).
 async function cargarLeadsSuperAdmin(){
   try{
-    const filas = await rest('/leads_demo?select=*&order=creado_en.desc&limit=100');
+    const filas = await rest(`/leads_demo?select=*&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}`);
     state.superadmin.leads = filas || [];
+    state.superadmin.leadsHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
     render();
   }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarMasLeadsSuperAdmin(){
+  if(state.superadmin.leadsCargandoMas) return;
+  state.superadmin.leadsCargandoMas = true;
+  render();
+  try{
+    const filas = await rest(`/leads_demo?select=*&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.superadmin.leads.length}`);
+    state.superadmin.leads = state.superadmin.leads.concat(filas||[]);
+    state.superadmin.leadsHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.superadmin.leadsCargandoMas = false;
+  render();
 }
 
 // Errores del navegador de los clientes, reportados solos por reportarError()
 // (ver arriba en el bloque de MONITOREO DE ERRORES).
 async function cargarErroresSuperAdmin(){
   try{
-    const filas = await rest('/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=50');
+    const filas = await rest(`/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}`);
     state.superadmin.errores = filas || [];
+    state.superadmin.erroresHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
     render();
   }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarMasErroresSuperAdmin(){
+  if(state.superadmin.erroresCargandoMas) return;
+  state.superadmin.erroresCargandoMas = true;
+  render();
+  try{
+    const filas = await rest(`/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.superadmin.errores.length}`);
+    state.superadmin.errores = state.superadmin.errores.concat(filas||[]);
+    state.superadmin.erroresHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
+  }catch(e){ toast(e.message,'err'); }
+  state.superadmin.erroresCargandoMas = false;
+  render();
 }
 
 async function crearEmpresaSuperAdmin(nombre){
@@ -2873,7 +2901,7 @@ function renderSuperAdmin(){
       ` : `<div class="empty" style="padding:14px 8px">Esta empresa aún no tiene personas.</div>`}
     </div>
     <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Personas que pidieron probar la demo desde el landing (${sa.leads.length}).</div>
+      <div class="hint" style="margin-bottom:10px">Personas que pidieron probar la demo desde el landing (${sa.leads.length}${sa.leadsHayMas?'+':''}).</div>
       ${sa.leads.length? sa.leads.map(l=>`
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -2883,9 +2911,12 @@ function renderSuperAdmin(){
           <div class="hint">${esc(l.email)}${l.telefono?' · '+esc(l.telefono):''}</div>
         </div>
       `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie que haya pedido la demo.</div>`}
+      ${sa.leadsHayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-leads-sa" style="width:auto;padding:8px 16px" ${sa.leadsCargandoMas?'disabled':''}>${sa.leadsCargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
     <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Errores reportados solos por el navegador de los clientes (${sa.errores.length} más recientes).</div>
+      <div class="hint" style="margin-bottom:10px">Errores reportados solos por el navegador de los clientes (${sa.errores.length}${sa.erroresHayMas?'+':''} más recientes).</div>
       ${sa.errores.length? sa.errores.map(er=>`
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -2895,6 +2926,9 @@ function renderSuperAdmin(){
           <div class="hint">${er.empresas? esc(er.empresas.nombre)+' · ' : ''}${esc(er.url||'')}</div>
         </div>
       `).join('') : `<div class="empty" style="padding:14px 8px">Sin errores reportados. Buena señal.</div>`}
+      ${sa.erroresHayMas? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-errores-sa" style="width:auto;padding:8px 16px" ${sa.erroresCargandoMas?'disabled':''}>${sa.erroresCargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
     </div>
   `;
 }
@@ -3286,6 +3320,10 @@ function bind(){
           actualizarPersonaSuperAdmin(id, {activo: !activo});
         });
       });
+      const btnCargarMasLeadsSa = document.getElementById('btn-cargar-mas-leads-sa');
+      if(btnCargarMasLeadsSa) btnCargarMasLeadsSa.addEventListener('click', cargarMasLeadsSuperAdmin);
+      const btnCargarMasErroresSa = document.getElementById('btn-cargar-mas-errores-sa');
+      if(btnCargarMasErroresSa) btnCargarMasErroresSa.addEventListener('click', cargarMasErroresSuperAdmin);
     }
   }
 
