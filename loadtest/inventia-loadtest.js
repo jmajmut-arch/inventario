@@ -93,6 +93,24 @@ export function setup() {
     }
     const userId = JSON.parse(crear.body).id;
 
+    // La Admin API de Supabase no siempre deja el app_metadata puesto en el mismo INSERT
+    // (a veces lo agrega con un UPDATE aparte), así que el trigger que crea el perfil en
+    // "usuarios" a partir de app_metadata puede no alcanzar a verlo. Se crea el perfil acá
+    // directo, con la Service Role Key (salta RLS), para no depender de esa carrera de tiempos.
+    const perfil = http.post(`${SUPABASE_URL}/rest/v1/usuarios?on_conflict=auth_user_id`, JSON.stringify({
+      auth_user_id: userId, nombre: 'Carga de prueba', rol: 'admin', empresa_id: empresaId, activo: true,
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
+        'Prefer': 'return=minimal,resolution=merge-duplicates',
+      },
+    });
+    if (perfil.status < 200 || perfil.status >= 300) {
+      throw new Error(`No se pudo crear el perfil (usuarios) para ${empresaId}: ${perfil.status} ${perfil.body}`);
+    }
+
     const login = http.post(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, JSON.stringify({ email, password }), {
       headers: { 'Content-Type': 'application/json', 'apikey': ANON_KEY },
     });
@@ -153,8 +171,10 @@ export default function (data) {
 
   // 4) De vez en cuando, refresca el Dashboard (no en cada iteración — nadie lo hace tan seguido).
   if (Math.random() < 0.2) {
+    // avance_total no tiene columna empresa_id: RLS ya limita el resultado a la empresa
+    // del usuario logueado (mismo mecanismo que usa la app real).
     const dash = http.get(
-      `${SUPABASE_URL}/rest/v1/avance_total?empresa_id=eq.${u.empresaId}`,
+      `${SUPABASE_URL}/rest/v1/avance_total`,
       { headers, tags: { name: 'dashboard' } }
     );
     dashboardDuration.add(dash.timings.duration);
