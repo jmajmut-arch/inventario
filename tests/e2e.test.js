@@ -162,6 +162,49 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: formulario de contacto — honeypot silencioso no debe llamar a la red =====
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-contacto-honeypot: '+err.message));
+    let llamoRed = false;
+    await page.route('**/rest/v1/leads_demo', route => { llamoRed = true; route.abort(); });
+    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.click('[data-abrir-contacto]');
+    await page.fill('#contacto-nombre', 'Bot');
+    await page.fill('#contacto-email', 'bot@example.com');
+    await page.fill('#contacto-mensaje', 'mensaje de prueba');
+    await page.fill('#contacto-web', 'http://spam.example'); // campo trampa
+    await page.click('#contacto-submit-btn');
+    await page.waitForTimeout(300);
+    assert(!llamoRed, 'el honeypot lleno en el formulario de contacto no debe disparar ninguna llamada a la red');
+    assert(await page.isVisible('#contacto-modal-ok.open'), 'aun así debe mostrarse la pantalla de éxito (para no delatar la protección)');
+    await context.close();
+  }
+
+  // ===== Landing: formulario de contacto — un envío humano normal sí llama a la red =====
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-contacto: '+err.message));
+    let cuerpoEnviado = null;
+    await page.route('**/rest/v1/leads_demo', route => {
+      cuerpoEnviado = route.request().postDataJSON();
+      route.fulfill({ status:201, body:'' });
+    });
+    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.click('[data-abrir-contacto]');
+    await page.fill('#contacto-nombre', 'Persona Real');
+    await page.fill('#contacto-email', 'contacto@example.com');
+    await page.fill('#contacto-mensaje', 'Quiero cotizar el plan Profesional');
+    await page.waitForTimeout(2200); // pasa el chequeo anti-bot de "no fue instantáneo"
+    await page.click('#contacto-submit-btn');
+    await page.waitForTimeout(300);
+    assert(!!cuerpoEnviado && cuerpoEnviado[0].tipo==='contacto' && cuerpoEnviado[0].mensaje==='Quiero cotizar el plan Profesional', 'un envío humano normal debe llegar a Supabase con tipo=contacto y el mensaje correcto, obtuvo: '+JSON.stringify(cuerpoEnviado));
+    assert(await page.isVisible('#contacto-modal-ok.open'), 'debe mostrar la pantalla de éxito tras el envío');
+    await context.close();
+  }
+
   // ===== Landing: el acordeón de preguntas frecuentes abre con un click real =====
   {
     const context = await browser.newContext();

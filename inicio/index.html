@@ -201,6 +201,7 @@
         <a href="#funciona">Cómo funciona</a>
         <a href="#planes">Planes</a>
         <a href="#faq">Preguntas</a>
+        <a href="#" data-abrir-contacto>Contacto</a>
       </div>
       <a class="nav-cta" href="../index.html">Ingresar</a>
     </div>
@@ -537,6 +538,40 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="contacto-modal-backdrop">
+    <div class="modal-card">
+      <button type="button" class="modal-close" id="contacto-modal-close" aria-label="Cerrar">✕</button>
+
+      <div id="contacto-modal-form-wrap">
+        <h3>Escríbenos</h3>
+        <p class="modal-sub">Cuéntanos qué necesitas y te respondemos a la brevedad.</p>
+        <form id="contacto-form">
+          <label for="contacto-nombre">Nombre</label>
+          <input type="text" id="contacto-nombre" required autocomplete="name">
+          <label for="contacto-email">Correo</label>
+          <input type="email" id="contacto-email" required autocomplete="email">
+          <label for="contacto-empresa">Empresa <span style="font-weight:400;color:var(--text-faint)">(opcional)</span></label>
+          <input type="text" id="contacto-empresa" autocomplete="organization">
+          <label for="contacto-mensaje">Mensaje</label>
+          <textarea id="contacto-mensaje" required rows="4" style="width:100%;font:inherit;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);resize:vertical"></textarea>
+          <div style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden" aria-hidden="true">
+            <label for="contacto-web">No completar este campo</label>
+            <input type="text" id="contacto-web" name="website" tabindex="-1" autocomplete="off">
+          </div>
+          <button type="submit" class="modal-submit" id="contacto-submit-btn">Enviar mensaje</button>
+          <div class="modal-error" id="contacto-error" style="display:none"></div>
+        </form>
+      </div>
+
+      <div id="contacto-modal-ok" class="modal-ok">
+        <div class="check">✓</div>
+        <h3>¡Recibido!</h3>
+        <p class="modal-sub">Gracias por escribirnos. Te respondemos a la brevedad.</p>
+      </div>
+
+    </div>
+  </div>
+
 <script>
   var SUPABASE_URL = 'https://ncvwgsbcvklhbyvurxzz.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE';
@@ -614,6 +649,83 @@
     }).finally(function(){
       demoSubmitBtn.disabled = false;
       demoSubmitBtn.textContent = 'Ver la demo';
+    });
+  });
+</script>
+
+<script>
+  var contactoBackdrop = document.getElementById('contacto-modal-backdrop');
+  var contactoFormWrap = document.getElementById('contacto-modal-form-wrap');
+  var contactoOk = document.getElementById('contacto-modal-ok');
+  var contactoForm = document.getElementById('contacto-form');
+  var contactoError = document.getElementById('contacto-error');
+  var contactoSubmitBtn = document.getElementById('contacto-submit-btn');
+
+  var contactoAbiertoEn = 0;
+  function abrirContactoModal(){
+    contactoFormWrap.style.display = '';
+    contactoOk.classList.remove('open');
+    contactoError.style.display = 'none';
+    contactoBackdrop.classList.add('open');
+    contactoAbiertoEn = Date.now();
+  }
+  function cerrarContactoModal(){
+    contactoBackdrop.classList.remove('open');
+  }
+
+  document.querySelectorAll('[data-abrir-contacto]').forEach(function(btn){
+    btn.addEventListener('click', function(e){ e.preventDefault(); abrirContactoModal(); });
+  });
+  document.getElementById('contacto-modal-close').addEventListener('click', cerrarContactoModal);
+  contactoBackdrop.addEventListener('click', function(e){
+    if(e.target === contactoBackdrop) cerrarContactoModal();
+  });
+
+  contactoForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    contactoError.style.display = 'none';
+
+    // Mismo anti-spam silencioso que el formulario de demo: campo trampa lleno
+    // o envío casi instantáneo -> se simula éxito sin insertar nada.
+    var esBot = document.getElementById('contacto-web').value.trim() !== '' || (Date.now() - contactoAbiertoEn) < 2000;
+    if(esBot){
+      contactoFormWrap.style.display = 'none';
+      contactoOk.classList.add('open');
+      return;
+    }
+
+    contactoSubmitBtn.disabled = true;
+    contactoSubmitBtn.textContent = 'Enviando…';
+
+    var body = {
+      tipo: 'contacto',
+      nombre: document.getElementById('contacto-nombre').value.trim(),
+      email: document.getElementById('contacto-email').value.trim(),
+      empresa: document.getElementById('contacto-empresa').value.trim() || null,
+      mensaje: document.getElementById('contacto-mensaje').value.trim(),
+    };
+
+    fetch(SUPABASE_URL + '/rest/v1/leads_demo', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify([body]),
+    }).then(function(res){
+      if(!res.ok) return res.json().catch(function(){ return {}; }).then(function(data){
+        throw new Error((data && data.message) || 'No pudimos enviar tu mensaje. Intenta de nuevo.');
+      });
+      contactoFormWrap.style.display = 'none';
+      contactoOk.classList.add('open');
+    }).catch(function(err){
+      contactoError.textContent = err.message;
+      contactoError.style.display = 'block';
+    }).finally(function(){
+      contactoSubmitBtn.disabled = false;
+      contactoSubmitBtn.textContent = 'Enviar mensaje';
     });
   });
 </script>
