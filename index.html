@@ -313,6 +313,8 @@ let state = {
   debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
   authRecuperar: false,      // true muestra el formulario de "olvidé mi contraseña" en vez del login
   invitandoPersona: false,   // spinner del botón "Enviar invitación" (panel super-admin o equipo de la empresa)
+  iniciandoSuscripcionFlow: false, // spinner del botón "Suscribirme con tarjeta" en Configuraciones
+  avisoFlow: null,           // 'ok'|'error'|null, viene del ?flow= al volver de registrar la tarjeta en Flow
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
@@ -527,7 +529,7 @@ async function restaurarSesionGuardada(){
 
 async function cargarPerfil(){
   const uid = state.session.user.id;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
 }
@@ -578,6 +580,36 @@ async function procesarLlegadaPorInvitacion(){
     state.debeCrearPassword = true;
   }catch(e){
     toast(e.message,'err');
+  }
+}
+
+// Al volver de registrar la tarjeta en Flow, la Edge Function flow-registro-callback nos
+// redirige acá con ?flow=ok o ?flow=error. Solo mostramos el aviso; el estado real
+// (flow_subscription_status, plan_id) ya lo dejó puesto esa función en el backend.
+function procesarRetornoFlow(){
+  const params = new URLSearchParams(location.search);
+  const resultado = params.get('flow');
+  if(!resultado) return;
+  history.replaceState(null, '', location.pathname + location.hash);
+  state.avisoFlow = resultado;
+}
+
+async function iniciarSuscripcionFlow(planNombre){
+  state.iniciandoSuscripcionFlow = true;
+  render();
+  try{
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/flow-iniciar-suscripcion`, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+      body: JSON.stringify({planNombre})
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'No se pudo iniciar la suscripción');
+    location.href = data.url;
+  }catch(e){
+    toast(e.message,'err');
+    state.iniciandoSuscripcionFlow = false;
+    render();
   }
 }
 
@@ -3173,6 +3205,37 @@ function renderAuditoria(){
   `;
 }
 
+function renderPlanYFacturacion(empresa){
+  const plan = empresa.planes;
+  const nombrePlan = plan && plan.nombre;
+  const etiquetaPlan = plan? plan.etiqueta : '—';
+  const estado = empresa.flow_subscription_status;
+  const esAutoservicio = nombrePlan === 'basico' || nombrePlan === 'profesional';
+
+  let estadoHtml = '';
+  let botonHtml = '';
+  if(esAutoservicio){
+    if(estado === 'activa'){
+      estadoHtml = `<span class="badge badge-ok">Suscripción activa</span>`;
+      botonHtml = `<button type="button" class="btn btn-secondary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Actualizar método de pago'}</button>`;
+    } else if(estado === 'morosa'){
+      estadoHtml = `<span class="badge badge-danger">Hubo un problema con el último cobro</span>`;
+      botonHtml = `<button type="button" class="btn btn-primary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Actualizar tarjeta'}</button>`;
+    } else {
+      estadoHtml = `<div class="hint">Todavía no tienes un método de pago activo para este plan.</div>`;
+      botonHtml = `<button type="button" class="btn btn-primary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Suscribirme con tarjeta'}</button>`;
+    }
+  }
+
+  return `
+    <div class="card" style="margin-top:14px">
+      <label>Plan actual</label>
+      <div class="plan-item-ubic" style="font-weight:600;font-size:15px;margin-bottom:8px">${esc(etiquetaPlan)}</div>
+      ${esAutoservicio? `${estadoHtml}${botonHtml}` : `<div class="hint">Tu plan se coordina directo con nosotros. <a href="mailto:contacto@inventiapp.cl?subject=Plan%20InventIA">Escríbenos</a> para ajustarlo.</div>`}
+    </div>
+  `;
+}
+
 function renderConfiguraciones(){
   const p = state.plan;
   const empresa = state.perfil && state.perfil.empresas;
@@ -3194,6 +3257,7 @@ function renderConfiguraciones(){
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
     </div>
+    ${esAdmin && !esSuperAdmin? renderPlanYFacturacion(empresa) : ''}
     ${esAdmin && !esSuperAdmin? `
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:10px">Invita a alguien de tu equipo a ${esc(empresa.nombre)}. Le llegará un correo para crear su contraseña.</div>
@@ -3453,6 +3517,9 @@ function bind(){
     if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
       e.preventDefault();
       actualizarNombreEmpresa(document.getElementById('empresa-nombre-input').value.trim());
+    });
+    document.querySelectorAll('[data-suscribir-flow]').forEach(btn=>{
+      btn.addEventListener('click', ()=> iniciarSuscripcionFlow(btn.dataset.suscribirFlow));
     });
     const formInvitarEquipo = document.getElementById('form-invitar-equipo');
     if(formInvitarEquipo) formInvitarEquipo.addEventListener('submit', e=>{
@@ -3875,8 +3942,15 @@ async function iniciarApp(){
   }
   // Al recuperar la señal, intentamos enviar los conteos que quedaron guardados sin conexión.
   window.addEventListener('online', sincronizarColaOffline);
+  procesarRetornoFlow();
   await procesarLlegadaPorInvitacion();
   if(!state.debeCrearPassword) await restaurarSesionGuardada();
+  if(state.avisoFlow){
+    const ok = state.avisoFlow === 'ok';
+    state.avisoFlow = null;
+    if(state.perfil) setState({view:'config'});
+    toast(ok? 'Tarjeta registrada, tu plan quedó activo' : 'No se pudo completar la suscripción, intenta de nuevo', ok?'ok':'err');
+  }
   render();
 }
 iniciarApp();
