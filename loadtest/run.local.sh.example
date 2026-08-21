@@ -1,0 +1,13 @@
+#!/bin/bash
+# Copia este archivo a "run.local.sh" (mismo carpeta), completa tu Service Role Key
+# real abajo, guarda, y en la terminal corre: bash loadtest/run.local.sh
+#
+# run.local.sh nunca se sube a git (está en .gitignore) — es seguro dejar tu llave
+# real ahí adentro mientras trabajas en el Codespace.
+
+export SUPABASE_URL="https://ncvwgsbcvklhbyvurxzz.supabase.co"
+export SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE"
+export SUPABASE_SERVICE_ROLE_KEY="PEGA_AQUI_TU_SERVICE_ROLE_KEY"
+export EMPRESA_IDS="6c48f715-a2a3-4c04-a356-53d956443773,d66aad43-ac9d-49f4-8a4a-867639e8fcb1,32a41cca-f995-44e3-bfdb-edb3f0390f3d,b95a77fc-4bfa-4036-a3f0-8d2cd7ceba23,35e94cb9-1149-464e-8ccc-780109fde275"
+
+k6 run loadtest/inventia-loadtest.js
