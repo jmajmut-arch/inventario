@@ -3110,16 +3110,17 @@ function renderSuperAdmin(){
       ` : `<div class="empty" style="padding:14px 8px">Esta empresa aún no tiene personas.</div>`}
     </div>
     <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Personas que pidieron probar la demo desde el landing (${sa.leads.length}${sa.leadsHayMas?'+':''}).</div>
+      <div class="hint" style="margin-bottom:10px">Personas que pidieron la demo o escribieron desde el landing (${sa.leads.length}${sa.leadsHayMas?'+':''}).</div>
       ${sa.leads.length? sa.leads.map(l=>`
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-            <span style="font-weight:600">${esc(l.nombre)}${l.empresa?' · '+esc(l.empresa):''}</span>
+            <span style="font-weight:600">${l.tipo==='contacto'?'<span class="badge badge-warn" style="margin-right:6px">Contacto</span>':''}${esc(l.nombre)}${l.empresa?' · '+esc(l.empresa):''}</span>
             <span class="hint">${esc(new Date(l.creado_en).toLocaleString('es-CL'))}</span>
           </div>
           <div class="hint">${esc(l.email)}${l.telefono?' · '+esc(l.telefono):''}</div>
+          ${l.mensaje?`<div class="hint" style="margin-top:4px;white-space:pre-wrap">${esc(l.mensaje)}</div>`:''}
         </div>
-      `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie que haya pedido la demo.</div>`}
+      `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie que haya pedido la demo o escrito.</div>`}
       ${sa.leadsHayMas? `<div style="text-align:center;margin-top:12px">
         <button type="button" class="btn btn-secondary" id="btn-cargar-mas-leads-sa" style="width:auto;padding:8px 16px" ${sa.leadsCargandoMas?'disabled':''}>${sa.leadsCargandoMas?'Cargando…':'Cargar más'}</button>
       </div>` : ''}
