@@ -102,6 +102,26 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== App: con suscripción activa aparece el botón para cambiar de plan, y pide confirmación =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('cambiar-plan: '+err.message));
+    const perfilActivo = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilActivo.empresas.flow_subscription_status = 'activa';
+    await loguear(page, perfilActivo);
+    await page.click('#btn-config');
+    await page.waitForSelector('[data-cambiar-plan]');
+    const etiquetaBoton = await page.textContent('[data-cambiar-plan]');
+    assert(etiquetaBoton.includes('Básico'), 'con plan Profesional activo, el botón debe ofrecer cambiar a Básico, obtuvo: '+etiquetaBoton);
+    let dialogVisto = null;
+    page.on('dialog', async d => { dialogVisto = d.message(); await d.dismiss(); });
+    await page.click('[data-cambiar-plan]');
+    await page.waitForTimeout(200);
+    assert(!!dialogVisto && dialogVisto.includes('Básico'), 'al hacer click debe pedir confirmación antes de cambiar de plan, obtuvo: '+dialogVisto);
+    await context.close();
+  }
+
   // ===== App: el botón de escáner abre y cierra el modal de verdad =====
   {
     const context = await browser.newContext({ viewport:{ width:420, height:900 } });

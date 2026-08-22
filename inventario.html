@@ -311,11 +311,12 @@ let state = {
   view: 'dashboard',
   loading: false,
   debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
-  empresaBloqueada: null,    // {motivo:'inactiva'|'morosa', nombre} cuando la empresa del usuario está bloqueada
+  empresaBloqueada: null,    // {motivo:'inactiva'|'morosa'|'pendiente_tarjeta'|'vencida', nombre} cuando la empresa del usuario está bloqueada
   authRecuperar: false,      // true muestra el formulario de "olvidé mi contraseña" en vez del login
   invitandoPersona: false,   // spinner del botón "Enviar invitación" (panel super-admin o equipo de la empresa)
   iniciandoSuscripcionFlow: false, // spinner del botón "Suscribirme con tarjeta" en Configuraciones
   cancelandoSuscripcionFlow: false, // spinner del botón "Cancelar suscripción" en Configuraciones
+  cambiandoPlanFlow: false,  // spinner del botón "Cambiar a Básico/Profesional" en Configuraciones
   avisoFlow: null,           // 'ok'|'error'|null, viene del ?flow= al volver de registrar la tarjeta en Flow
   registroPlan: null,        // 'basico'|'profesional' cuando se llega desde el botón "Suscribirme" del landing
   creandoCuentaAutoservicio: false, // spinner del formulario de alta autoservicio
@@ -663,6 +664,32 @@ async function cancelarSuscripcionFlow(){
     toast(e.message,'err');
   }
   state.cancelandoSuscripcionFlow = false;
+  render();
+}
+
+// Cambiar entre Básico y Profesional estando ya suscrito: a diferencia de iniciarSuscripcionFlow
+// (que redirige a la página de Flow a registrar tarjeta), acá la tarjeta ya está registrada, así
+// que el cambio es inmediato — la Edge Function cancela la suscripción vieja y crea la nueva sobre
+// el mismo customerId de Flow, sin sacar a la persona de la app.
+async function cambiarPlanFlow(nuevoPlan){
+  const etiqueta = nuevoPlan === 'profesional' ? 'Profesional' : 'Básico';
+  if(!confirm(`¿Cambiar tu suscripción al plan ${etiqueta}? El plan actual se cancela de inmediato y el cobro nuevo empieza hoy.`)) return;
+  state.cambiandoPlanFlow = true;
+  render();
+  try{
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/flow-cambiar-plan`, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+      body: JSON.stringify({planNombre: nuevoPlan})
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'No se pudo cambiar de plan');
+    toast(`Listo, ahora estás en el plan ${etiqueta}`);
+    await cargarPerfil();
+  }catch(e){
+    toast(e.message,'err');
+  }
+  state.cambiandoPlanFlow = false;
   render();
 }
 
@@ -3437,13 +3464,17 @@ function renderPlanYFacturacion(empresa){
   const estado = empresa.flow_subscription_status;
   const esAutoservicio = nombrePlan === 'basico' || nombrePlan === 'profesional';
 
+  const otroPlan = PLANES_AUTOSERVICIO.find(p => p !== nombrePlan);
+  const otroPlanEtiqueta = otroPlan === 'profesional' ? 'Profesional' : 'Básico';
+
   let estadoHtml = '';
   let botonHtml = '';
   if(esAutoservicio){
     if(estado === 'activa'){
       estadoHtml = `<span class="badge badge-ok">Suscripción activa</span>`;
       botonHtml = `
-        <button type="button" class="btn btn-secondary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Actualizar método de pago'}</button>
+        <button type="button" data-cambiar-plan="${otroPlan}" class="btn btn-primary" style="width:auto;padding:8px 14px;margin-top:10px" ${state.cambiandoPlanFlow?'disabled':''}>${state.cambiandoPlanFlow?'Cambiando…':`Cambiar a ${otroPlanEtiqueta}`}</button>
+        <button type="button" class="btn btn-secondary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px;margin-left:8px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Actualizar método de pago'}</button>
         <button type="button" class="btn btn-secondary" id="btn-cancelar-suscripcion-flow" style="width:auto;padding:8px 14px;margin-top:10px;margin-left:8px;color:var(--danger)" ${state.cancelandoSuscripcionFlow?'disabled':''}>${state.cancelandoSuscripcionFlow?'Cancelando…':'Cancelar suscripción'}</button>
       `;
     } else if(estado === 'morosa'){
@@ -3452,6 +3483,9 @@ function renderPlanYFacturacion(empresa){
     } else if(estado === 'cancelada'){
       estadoHtml = `<div class="hint">Tu suscripción quedó cancelada: seguirá activa hasta el fin del período ya pagado, sin renovarse después.</div>`;
       botonHtml = `<button type="button" class="btn btn-primary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Suscribirme de nuevo'}</button>`;
+    } else if(estado === 'vencida'){
+      estadoHtml = `<span class="badge badge-danger">Suscripción vencida</span>`;
+      botonHtml = `<button type="button" data-suscribir-flow="${nombrePlan}" class="btn btn-primary" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Suscribirme de nuevo'}</button>`;
     } else {
       estadoHtml = `<div class="hint">Todavía no tienes un método de pago activo para este plan.</div>`;
       botonHtml = `<button type="button" class="btn btn-primary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Suscribirme con tarjeta'}</button>`;
@@ -3653,16 +3687,18 @@ function renderCuentaBloqueada(){
     ? 'Hubo un problema con el último cobro de tu suscripción y no se pudo regularizar automáticamente.'
     : motivo === 'pendiente_tarjeta'
     ? 'Creaste tu cuenta pero todavía no registraste un método de pago, así que no tienes acceso todavía.'
+    : motivo === 'vencida'
+    ? 'Tu suscripción fue cancelada y ya terminó el período que estaba pagado.'
     : 'Esta cuenta fue pausada.';
-  const accionHtml = motivo === 'pendiente_tarjeta'
-    ? `<button type="button" id="btn-registrar-tarjeta-bloqueada" class="btn btn-primary" style="margin-bottom:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Registrar método de pago'}</button><br>`
+  const accionHtml = (motivo === 'pendiente_tarjeta' || motivo === 'vencida')
+    ? `<button type="button" id="btn-registrar-tarjeta-bloqueada" class="btn btn-primary" style="margin-bottom:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':(motivo==='vencida'?'Suscribirme de nuevo':'Registrar método de pago')}</button><br>`
     : '';
   return `
     <div class="login-wrap">
       <div class="login-card">
         <div class="brand-badge" style="margin:0 auto 16px">IA</div>
         <h1 style="text-align:center">${esc(nombre)}</h1>
-        <p class="hint" style="text-align:center;margin-bottom:20px">${mensaje} ${motivo==='pendiente_tarjeta'?'':'Escríbenos a <a href="mailto:contacto@inventiapp.cl">contacto@inventiapp.cl</a> para reactivarla.'}</p>
+        <p class="hint" style="text-align:center;margin-bottom:20px">${mensaje} ${(motivo==='pendiente_tarjeta'||motivo==='vencida')?'':'Escríbenos a <a href="mailto:contacto@inventiapp.cl">contacto@inventiapp.cl</a> para reactivarla.'}</p>
         ${accionHtml}
         <button type="button" id="btn-salir-bloqueada" class="btn btn-secondary">Salir</button>
       </div>
@@ -3826,6 +3862,9 @@ function bind(){
     });
     document.querySelectorAll('[data-suscribir-flow]').forEach(btn=>{
       btn.addEventListener('click', ()=> iniciarSuscripcionFlow(btn.dataset.suscribirFlow));
+    });
+    document.querySelectorAll('[data-cambiar-plan]').forEach(btn=>{
+      btn.addEventListener('click', ()=> cambiarPlanFlow(btn.dataset.cambiarPlan));
     });
     const btnCancelarSuscripcion = document.getElementById('btn-cancelar-suscripcion-flow');
     if(btnCancelarSuscripcion) btnCancelarSuscripcion.addEventListener('click', cancelarSuscripcionFlow);
