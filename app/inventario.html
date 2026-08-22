@@ -325,7 +325,7 @@ let state = {
   skuSeleccionado: null,
   conteoFotos: [],       // [{file, preview}]
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -353,12 +353,13 @@ let state = {
   skuFormOpciones: { ubicaciones: [], bins: [] }, // sugerencias de ubicación/bin en "Cargar SKU", en cascada según la bodega/ubicación tipeada
 };
 
-const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
+const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo', skus:'SKU' };
 const ACCION_AUDITORIA_LABEL = { INSERT:'Creado', UPDATE:'Modificado', DELETE:'Eliminado' };
 const CAMPOS_AUDITADOS = {
   usuarios: [['nombre','Nombre'], ['rol','Rol'], ['activo','Activo']],
   empresas: [['nombre','Nombre'], ['activo','Activo']],
   conteos: [['cantidad_contada','Cantidad'], ['estado','Estado'], ['observacion','Observación']],
+  skus: [['descripcion','Descripción'], ['stock_sistema','Stock sistema'], ['costo_unitario','Costo unitario'], ['bodega','Ubicación general'], ['ubicacion','Ubicación específica'], ['activo','Activo']],
 };
 
 function formatearValorAuditoria(v){
@@ -378,6 +379,15 @@ function resumenCambioAuditoria(fila){
     .filter(([campo]) => JSON.stringify(antes[campo]) !== JSON.stringify(despues[campo]))
     .map(([campo,label]) => `${label}: ${formatearValorAuditoria(antes[campo])} → ${formatearValorAuditoria(despues[campo])}`);
   return cambios.length ? cambios.join(' · ') : 'Sin cambios visibles';
+}
+
+// Para SKU, mostrar el código además de tabla+acción: a diferencia de personas/empresas/conteos
+// (donde el registro no cambia de identidad visible), en el maestro de SKU el código es lo
+// primero que la persona necesita saber para ubicar qué material cambió.
+function identificadorAuditoria(fila){
+  if(fila.tabla!=='skus') return '';
+  const codigo = (fila.datos_despues && fila.datos_despues.sku_code) || (fila.datos_antes && fila.datos_antes.sku_code);
+  return codigo? ` · ${codigo}` : '';
 }
 
 const TEMAS = [
@@ -1379,7 +1389,7 @@ async function opcionesBins(bodega, ubicacion){
 
 async function cargarDashboard(){
   try{
-    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferencias] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferencias, valorizacion] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
@@ -1387,10 +1397,12 @@ async function cargarDashboard(){
       rest(`/rpc/ranking_responsable`, {method:'POST', body:{dias: VENTANA_PROYECCION_DIAS}}),
       rest(`/exactitud_por_bodega?order=bodega.asc`),
       rest(`/reconteo_pendiente?select=*&order=diferencia_abs.desc&limit=5`),
+      rest(`/valorizacion_diferencias?order=bodega.asc`),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
       ranking: ranking||[], exactitudBodega: exactitudBodega||[], topDiferencias: topDiferencias||[],
+      valorizacion: valorizacion||[],
     }});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1575,6 +1587,8 @@ const CAMPOS_SKU = [
     alias:['ubicacion general','description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
   { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
     alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
+  { campo:'costo_unitario', obligatorio:false, etiqueta:'Costo unitario',
+    alias:['costo unitario','costo_unitario','precio unitario','moving average price','standard price','unit cost','unit price','valor unitario','costo','precio'] },
 ];
 
 function normalizarTexto(s){
@@ -1681,6 +1695,7 @@ async function confirmarCargaMasiva(){
     if(!sku_code){ error++; errores.push({fila:idx+2, motivo:'Código de SKU vacío'}); return; }
     ok++;
     const stockRaw = valor(row,'stock_sistema');
+    const costoRaw = valor(row,'costo_unitario');
     const bodega = valor(row,'bodega') || null;
     porCodigoYBodega.set(JSON.stringify([sku_code, bodega]), {
       sku_code,
@@ -1692,6 +1707,7 @@ async function confirmarCargaMasiva(){
       storage_bin: valor(row,'storage_bin') || null,
       bodega,
       stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
+      costo_unitario: costoRaw!=='' ? Number(costoRaw) : null,
       activo: true,
       updated_at: marcaTiempo,
       capturado_en: marcaTiempo,
@@ -1963,7 +1979,7 @@ function conservandoCamposConteo(fn){
 // en "Cargar SKU" implica un render() completo, que si no se hace con cuidado borraría lo
 // que la persona ya tipeó en los otros campos del formulario (descripción, categoría, etc.).
 function conservandoCamposSku(fn){
-  const ids = ['s-code', 's-desc', 's-cat', 's-um', 's-bodega', 's-ubic', 's-bin', 's-stock'];
+  const ids = ['s-code', 's-desc', 's-cat', 's-um', 's-bodega', 's-ubic', 's-bin', 's-stock', 's-costo'];
   const valores = {};
   ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
   fn();
@@ -2258,6 +2274,7 @@ function renderCrearPassword(){
    RENDER — DASHBOARD
    ======================================================================= */
 function pct(n){ return n===null||n===undefined? '0' : Number(n).toFixed(1); }
+function clp(n){ return (Number(n)||0).toLocaleString('es-CL', {style:'currency', currency:'CLP', maximumFractionDigits:0}); }
 
 /* =======================================================================
    GRÁFICOS — SVG plano, sin librerías externas
@@ -2556,6 +2573,15 @@ function renderDashboard(){
     .sort((a,b)=> a.pct-b.pct); // peor exactitud primero: dónde conviene intervenir
   const topDiferencias = state.dash.topDiferencias||[];
 
+  // Valorización: mismo patrón que exactitud_por_bodega, agregado por bodega en la vista
+  // valorizacion_diferencias y sumado acá — solo cuenta los SKU con costo_unitario cargado,
+  // así que "Valor contado" no es el valor de todo el inventario, sino de lo que se pudo costear.
+  const valorizBodega = state.dash.valorizacion||[];
+  const valorContado = valorizBodega.reduce((s,r)=>s+(Number(r.valor_contado)||0),0);
+  const valorPerdidas = valorizBodega.reduce((s,r)=>s+(Number(r.valor_perdidas)||0),0);
+  const valorExcedentes = valorizBodega.reduce((s,r)=>s+(Number(r.valor_excedentes)||0),0);
+  const valorNeto = valorPerdidas + valorExcedentes;
+
   const vistaEjecutiva = `
     <div class="kpi-grid">
       <div class="tag-card">
@@ -2583,6 +2609,32 @@ function renderDashboard(){
         <div class="kpi-sub">${exactUbicOk.toLocaleString('es-CL')} de ${exactContados.toLocaleString('es-CL')} contados donde dice el maestro</div>
       </div>
     </div>
+
+    ${valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0? `
+      <div class="section-head"><div><span class="eyebrow">Con costo unitario cargado</span><h2 style="font-size:17px">Valorización de diferencias</h2></div></div>
+      <div class="kpi-grid" style="margin-bottom:14px">
+        <div class="tag-card">
+          <div class="kpi-label">Valor contado</div>
+          <div class="kpi-value" style="font-size:20px">${clp(valorContado)}</div>
+          <div class="kpi-sub">último conteo de cada SKU</div>
+        </div>
+        <div class="tag-card">
+          <div class="kpi-label">Pérdidas</div>
+          <div class="kpi-value" style="font-size:20px;color:var(--danger)">${clp(valorPerdidas)}</div>
+          <div class="kpi-sub">contado bajo el sistema</div>
+        </div>
+        <div class="tag-card">
+          <div class="kpi-label">Excedentes</div>
+          <div class="kpi-value" style="font-size:20px;color:var(--ok)">${clp(valorExcedentes)}</div>
+          <div class="kpi-sub">contado sobre el sistema</div>
+        </div>
+        <div class="tag-card">
+          <div class="kpi-label">Neto</div>
+          <div class="kpi-value" style="font-size:20px;${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${clp(valorNeto)}</div>
+          <div class="kpi-sub">impacto total de las diferencias</div>
+        </div>
+      </div>
+    ` : ''}
 
     ${rankingExactitud.length? `
       <div class="section-head"><div><span class="eyebrow">Exactitud de unidades</span><h2 style="font-size:17px">Ranking por ubicación general</h2></div></div>
@@ -2728,8 +2780,10 @@ function renderSkus(){
         </div>
         <label for="s-bin">Storage bin</label>
         <input type="text" id="s-bin" list="dl-sku-bins" autocomplete="off" placeholder="Ej. A-12-03">
-        <label for="s-stock">Stock según sistema</label>
-        <input type="number" id="s-stock" step="0.01" min="0" placeholder="0">
+        <div class="row2">
+          <div><label for="s-stock">Stock según sistema</label><input type="number" id="s-stock" step="0.01" min="0" placeholder="0"></div>
+          <div><label for="s-costo">Costo unitario</label><input type="number" id="s-costo" step="0.01" min="0" placeholder="$0"></div>
+        </div>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar SKU'}</button>
         </div>
@@ -3432,18 +3486,19 @@ function renderAuditoria(){
   return `
     <div class="section-head"><div><span class="eyebrow">Trazabilidad</span><h2>Auditoría de cambios</h2></div></div>
     <div class="card">
-      <div class="hint" style="margin-bottom:10px">Quién creó, modificó o eliminó personas, empresas y conteos.</div>
+      <div class="hint" style="margin-bottom:10px">Quién creó, modificó o eliminó personas, empresas, conteos y materiales del maestro de SKU.</div>
       <select id="auditoria-filtro-tabla">
         <option value="">Todas las tablas</option>
         <option value="usuarios" ${a.filtroTabla==='usuarios'?'selected':''}>Personas</option>
         <option value="empresas" ${a.filtroTabla==='empresas'?'selected':''}>Empresas</option>
         <option value="conteos" ${a.filtroTabla==='conteos'?'selected':''}>Conteos</option>
+        <option value="skus" ${a.filtroTabla==='skus'?'selected':''}>SKU</option>
       </select>
       ${a.cargando? `<div class="empty" style="padding:14px 8px">Cargando…</div>` :
         a.filas.length? `<div style="margin-top:12px">${a.filas.map(f=>`
           <div class="plan-item" style="display:block;padding:10px 0">
             <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-              <span style="font-weight:600">${esc(TABLA_AUDITORIA_LABEL[f.tabla]||f.tabla)} · ${esc(ACCION_AUDITORIA_LABEL[f.accion]||f.accion)}</span>
+              <span style="font-weight:600">${esc(TABLA_AUDITORIA_LABEL[f.tabla]||f.tabla)}${esc(identificadorAuditoria(f))} · ${esc(ACCION_AUDITORIA_LABEL[f.accion]||f.accion)}</span>
               <span class="hint">${esc(new Date(f.creado_en).toLocaleString('es-CL'))}</span>
             </div>
             <div class="hint">Por: ${esc(f.actor_nombre || 'Sistema')}</div>
@@ -4019,9 +4074,11 @@ function bind(){
         ubicacion: document.getElementById('s-ubic').value.trim() || null,
         storage_bin: document.getElementById('s-bin').value.trim() || null,
         stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
+        costo_unitario: document.getElementById('s-costo').value !== '' ? Number(document.getElementById('s-costo').value) : null,
       };
       if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
       if(payload.stock_sistema !== null && payload.stock_sistema < 0){ toast('El stock según sistema no puede ser negativo','err'); return; }
+      if(payload.costo_unitario !== null && payload.costo_unitario < 0){ toast('El costo unitario no puede ser negativo','err'); return; }
       setState({loading:true});
       const ok = await crearSkuManual(payload);
       setState({loading:false});
