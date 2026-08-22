@@ -184,14 +184,28 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/reconteo_pendiente') && path.includes('order=diferencia_abs.desc')){
+    const filas = [
+      {id:'top1', sku_code:'SKU-TOP-1', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Ubicación distinta y recurrente'},
+      {id:'top2', sku_code:'SKU-TOP-2', descripcion:'Filtro hidráulico', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, diferencia_abs:2, ultimo_conteo_fecha:'2026-08-09', causa_probable:'Sin patrón detectado'},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/reconteo_pendiente')){
     const offsetMatch = path.match(/offset=(\d+)/);
     const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
     const total = 34; // fuerza que la 1ra página (30) diga "hay más" y la 2da (4) ya no
     const filas = [];
     for(let i=offset; i<Math.min(offset+30, total); i++){
-      filas.push({id:'r'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10'});
+      filas.push({id:'r'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable: i===0?'Ubicación distinta':'Sin patrón detectado'});
     }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/exactitud_por_bodega')){
+    const filas = [
+      {bodega:'Nave Mina', skus_contados:20, sin_diferencia:16, con_diferencia:4, ubicacion_correcta:18},
+      {bodega:'Nave Planta', skus_contados:10, sin_diferencia:4, con_diferencia:6, ubicacion_correcta:9},
+    ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/auditoria')){
@@ -884,6 +898,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!rankingCall && rankingCall.opts.method==='POST' && JSON.parse(rankingCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC ranking_responsable con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking que devuelve el RPC en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
 
+  // cargarDashboard: exactitud de unidades/ubicación (vista exactitud_por_bodega) y top
+  // materiales con diferencia (reconteo_pendiente ordenado por diferencia_abs desc).
+  const exactitudCall = calls.find(c=>c.url.includes('/exactitud_por_bodega'));
+  assert(!!exactitudCall, 'cargarDashboard debe pedir /exactitud_por_bodega, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.exactitudBodega.length===2 && ctx.__appstate.dash.exactitudBodega[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la exactitud por bodega en state.dash.exactitudBodega, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudBodega));
+  const topDiferenciasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('order=diferencia_abs.desc'));
+  assert(!!topDiferenciasCall && topDiferenciasCall.url.includes('limit=5'), 'cargarDashboard debe pedir el top de diferencias ordenado por magnitud, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.topDiferencias.length===2 && ctx.__appstate.dash.topDiferencias[0].sku_code==='SKU-TOP-1', 'cargarDashboard debe dejar el top de diferencias en state.dash.topDiferencias, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferencias));
+
   // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
   ctx.__appstate.dash = {
     total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
@@ -898,6 +921,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dash = { ...ctx.__appstate.dash, ranking: [] };
   const htmlDashSinRanking = ctx.renderDashboard();
   assert(!htmlDashSinRanking.includes('Ranking por responsable'), 'sin conteos en la ventana, no debe mostrarse la sección de ranking, obtuvo: '+htmlDashSinRanking);
+
+  // ===== Dashboard de exactitud: % de unidades, % de ubicación, ranking por bodega y top diferencias =====
+  ctx.__appstate.dash = {
+    total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
+    diario: [], semanal: [], mensual: [], ranking: [],
+    exactitudBodega: [
+      {bodega:'Nave Mina', skus_contados:20, sin_diferencia:16, con_diferencia:4, ubicacion_correcta:18},
+      {bodega:'Nave Planta', skus_contados:10, sin_diferencia:4, con_diferencia:6, ubicacion_correcta:9},
+    ],
+    topDiferencias: [
+      {sku_code:'SKU-TOP-1', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, causa_probable:'Ubicación distinta y recurrente'},
+    ],
+  };
+  const htmlDashExactitud = ctx.renderDashboard();
+  // Global: (16+4)/(20+10) = 66.7% de unidades; (18+9)/30 = 90% de ubicación.
+  assert(htmlDashExactitud.includes('66.7%') && htmlDashExactitud.includes('De unidades'), 'debe calcular la exactitud de unidades sumando todas las bodegas, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('90.0%') && htmlDashExactitud.includes('De ubicación'), 'debe calcular la exactitud de ubicación sumando todas las bodegas, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Ranking por ubicación general') && htmlDashExactitud.includes('Nave Planta') && htmlDashExactitud.includes('Nave Mina'), 'debe mostrar el ranking de exactitud por bodega, obtuvo: '+htmlDashExactitud);
+  const idxNavePlanta = htmlDashExactitud.indexOf('Nave Planta');
+  const idxNaveMinaRanking = htmlDashExactitud.indexOf('Nave Mina', htmlDashExactitud.indexOf('Ranking por ubicación general'));
+  assert(idxNavePlanta>=0 && idxNaveMinaRanking>idxNavePlanta, 'la peor exactitud (Nave Planta, 40%) debe listarse antes que la mejor (Nave Mina, 80%), obtuvo índices: '+idxNavePlanta+' / '+idxNaveMinaRanking);
+  assert(htmlDashExactitud.includes('Top materiales con diferencia') && htmlDashExactitud.includes('SKU-TOP-1') && htmlDashExactitud.includes('badge-danger">Ubicación distinta y recurrente<'), 'debe mostrar el top de materiales con diferencia y su causa probable, obtuvo: '+htmlDashExactitud);
+
+  // Sin datos de exactitud (empresa recién empezando), no debe mostrarse el ranking ni el top.
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferencias: [] };
+  const htmlDashSinExactitud = ctx.renderDashboard();
+  assert(!htmlDashSinExactitud.includes('Ranking por ubicación general') && !htmlDashSinExactitud.includes('Top materiales con diferencia'), 'sin datos de exactitud todavía, no deben mostrarse esas secciones, obtuvo: '+htmlDashSinExactitud);
 
   // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
   // avance_total/avance_diario usan count()/count(distinct), que PostgREST devuelve como
@@ -1871,6 +1921,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.reconteosHayMas===true, 'con 30 filas llenando la página, hayMas debe quedar true');
   const htmlReconteoConMas = ctx.renderReconteo();
   assert(htmlReconteoConMas.includes('id="btn-cargar-mas-reconteo"') && htmlReconteoConMas.includes('30+'), 'debe mostrar el botón "Cargar más" y el contador con "+" cuando hay más filas, obtuvo: '+htmlReconteoConMas);
+  assert(htmlReconteoConMas.includes('Causa probable') && htmlReconteoConMas.includes('badge-warn">Ubicación distinta<') && htmlReconteoConMas.includes('badge-neutral">Sin patrón detectado<'), 'debe mostrar la columna de causa probable con el badge correspondiente a cada fila, obtuvo: '+htmlReconteoConMas);
 
   calls.length = 0;
   await ctx.cargarMasReconteos();
