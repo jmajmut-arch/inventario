@@ -126,8 +126,6 @@
   .phone-frame img{display:block;width:100%;border-radius:28px;}
   .phone-frame-fade{position:absolute;left:9px;right:9px;bottom:9px;height:84px;background:linear-gradient(180deg,rgba(24,19,16,0),#181310);border-radius:0 0 28px 28px;pointer-events:none;}
 
-  .escaneo-illus{display:block;width:min(300px,82vw);margin:0 auto;}
-
   .carousel{position:relative;}
   .carousel-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
   .carousel-track::-webkit-scrollbar{display:none;}
@@ -382,7 +380,10 @@
                 </ul>
               </div>
               <div>
-                <img class="escaneo-illus" src="img/fotos-demo.png" alt="Ilustración de un teléfono escaneando un código QR para registrar un conteo en InventIA">
+                <div class="phone-frame">
+                  <img src="img/fotos-demo.png" alt="Pantalla de Tomar inventario de InventIA con dos fotos de respaldo adjuntas a un conteo">
+                  <div class="phone-frame-fade"></div>
+                </div>
               </div>
             </div>
           </div>
