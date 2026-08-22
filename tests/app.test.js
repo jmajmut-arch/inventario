@@ -1482,12 +1482,55 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.crearSkuManual({sku_code:'SKU-999', descripcion:'Perno de prueba', activo:true});
   const postSku = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/skus'));
   assert(!!postSku, 'crearSkuManual debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(postSku.url.includes('on_conflict=empresa_id,sku_code'), 'crearSkuManual debe hacer upsert por (empresa_id, sku_code), obtuvo: '+postSku.url);
+  assert(postSku.url.includes('on_conflict=empresa_id,sku_code,bodega_key'), 'crearSkuManual debe hacer upsert por (empresa_id, sku_code, bodega_key) — bodega_key en vez de bodega para que el upsert también funcione con bodega en blanco, ver migración permitir_mismo_sku_en_varias_bodegas, obtuvo: '+postSku.url);
   assert((postSku.opts.headers.Prefer||'').includes('resolution=merge-duplicates'), 'el upsert debe pedir resolution=merge-duplicates para actualizar en vez de fallar si ya existe, obtuvo: '+postSku.opts.headers.Prefer);
   assert(JSON.parse(postSku.opts.body)[0].empresa_id==='emp-1', 'el POST de crearSkuManual debe incluir el empresa_id del perfil actual, obtuvo: '+postSku.opts.body);
   // crearSkuManual dispara refrescarListaSkus() sin esperarlo (fire-and-forget): hay que dejar
   // que esa cadena de promesas termine aquí, o su llamada a /ultimo_conteo_por_sku se cuela
   // más adelante y contamina el conteo de llamadas del siguiente bloque (perfil no cargado).
+  await new Promise(r=>setTimeout(r, 0));
+
+  // ===== Carga masiva: el mismo sku_code en dos bodegas distintas no debe deduplicarse =====
+  // (ver migración permitir_mismo_sku_en_varias_bodegas: cada bodega es su propia fila).
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', descripcion:'Desc', bodega:'Bodega', stock_sistema:'Stock' },
+    data: [
+      { Codigo:'SKU-MULTI', Desc:'Filtro', Bodega:'Nave', Stock:'10' },
+      { Codigo:'SKU-MULTI', Desc:'Filtro', Bodega:'Planta', Stock:'4' },
+    ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postCarga = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  assert(!!postCarga, 'confirmarCargaMasiva debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key'), 'la carga masiva debe hacer upsert por (empresa_id, sku_code, bodega_key), obtuvo: '+postCarga.url);
+  const filasCarga = JSON.parse(postCarga.opts.body);
+  assert(filasCarga.length===2, 'dos filas del mismo código en bodegas distintas deben llegar ambas al upsert, no deduplicarse a una sola, obtuvo: '+JSON.stringify(filasCarga));
+  assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
+
+  // Si el archivo trae dos filas del mismo código EN LA MISMA bodega, ahí sí no hay forma
+  // de saber cuál es la correcta: se queda con la última (mismo criterio que antes).
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', descripcion:'Desc', bodega:'Bodega', stock_sistema:'Stock' },
+    data: [
+      { Codigo:'SKU-DUP', Desc:'Filtro', Bodega:'Nave', Stock:'1' },
+      { Codigo:'SKU-DUP', Desc:'Filtro', Bodega:'Nave', Stock:'2' },
+    ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postCargaDup = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filasCargaDup = JSON.parse(postCargaDup.opts.body);
+  assert(filasCargaDup.length===1 && filasCargaDup[0].stock_sistema===2, 'dos filas del mismo código Y la misma bodega deben deduplicarse a la última, obtuvo: '+JSON.stringify(filasCargaDup));
+
+  ctx.__appstate.cargaPreview = null;
+  // confirmarCargaMasiva dispara refrescarListaSkus() sin esperarlo (fire-and-forget), igual
+  // que crearSkuManual: hay que drenar esa cadena o su llamada a /ultimo_conteo_por_sku se
+  // cuela en el conteo de llamadas del siguiente bloque (perfil no cargado).
   await new Promise(r=>setTimeout(r, 0));
 
   // ===== Perfil no cargado (sesión activa, pero sin fila en usuarios/empresa asignada) =====
@@ -1967,14 +2010,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     { id:'sku-b', sku_code:'SKU-B', descripcion:'Tuerca M8', bodega:'Nave', codigo_barras:'7801234567890' },
   ];
 
-  // resolverSkuPorCodigo: primero intenta contra el propio sku_code (stickers genéricos
-  // reimpresos con el código del SKU), luego contra codigo_barras (código de fábrica ya asociado).
-  assert(ctx.resolverSkuPorCodigo(skusEscaner, 'SKU-A').id==='sku-a', 'debe resolver por coincidencia exacta de sku_code');
-  assert(ctx.resolverSkuPorCodigo(skusEscaner, 'sku-a').id==='sku-a', 'la coincidencia de sku_code no debe ser sensible a mayúsculas/minúsculas');
-  assert(ctx.resolverSkuPorCodigo(skusEscaner, '7801234567890').id==='sku-b', 'debe resolver por codigo_barras cuando no coincide ningún sku_code');
-  assert(ctx.resolverSkuPorCodigo(skusEscaner, 'NO-EXISTE')===null, 'un código que no coincide con nada debe devolver null');
-  assert(ctx.resolverSkuPorCodigo(skusEscaner, '')===null, 'un código vacío debe devolver null sin romper');
-  assert(ctx.resolverSkuPorCodigo(skusEscaner, '  SKU-A  ').id==='sku-a', 'debe recortar espacios antes de comparar');
+  // resolverSkusPorCodigo: primero intenta contra el propio sku_code (stickers genéricos
+  // reimpresos con el código del SKU), luego contra codigo_barras (código de fábrica ya
+  // asociado). Devuelve un arreglo: puede haber más de una coincidencia si el mismo código
+  // existe en más de una bodega.
+  assert(ctx.resolverSkusPorCodigo(skusEscaner, 'SKU-A').length===1 && ctx.resolverSkusPorCodigo(skusEscaner, 'SKU-A')[0].id==='sku-a', 'debe resolver por coincidencia exacta de sku_code');
+  assert(ctx.resolverSkusPorCodigo(skusEscaner, 'sku-a')[0].id==='sku-a', 'la coincidencia de sku_code no debe ser sensible a mayúsculas/minúsculas');
+  assert(ctx.resolverSkusPorCodigo(skusEscaner, '7801234567890')[0].id==='sku-b', 'debe resolver por codigo_barras cuando no coincide ningún sku_code');
+  assert(ctx.resolverSkusPorCodigo(skusEscaner, 'NO-EXISTE').length===0, 'un código que no coincide con nada debe devolver un arreglo vacío');
+  assert(ctx.resolverSkusPorCodigo(skusEscaner, '').length===0, 'un código vacío debe devolver un arreglo vacío sin romper');
+  assert(ctx.resolverSkusPorCodigo(skusEscaner, '  SKU-A  ')[0].id==='sku-a', 'debe recortar espacios antes de comparar');
+
+  // El mismo sku_code puede existir en más de una bodega (cada bodega es su propia fila):
+  // resolverSkusPorCodigo debe devolver TODAS las coincidencias, no solo la primera.
+  const skusEscanerMultiBodega = [
+    { id:'sku-a', sku_code:'SKU-A', descripcion:'Perno M8', bodega:'Nave', codigo_barras:null },
+    { id:'sku-a-planta', sku_code:'SKU-A', descripcion:'Perno M8', bodega:'Planta', codigo_barras:null },
+  ];
+  const coincidenciasMultiples = ctx.resolverSkusPorCodigo(skusEscanerMultiBodega, 'SKU-A');
+  assert(coincidenciasMultiples.length===2, 'un código presente en dos bodegas debe devolver las dos filas, obtuvo: '+JSON.stringify(coincidenciasMultiples));
 
   // renderConteo: el botón de escanear solo debe verse en el paso de búsqueda, no una vez elegido el SKU.
   ctx.__appstate.skus = skusEscaner;
@@ -2015,6 +2069,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.onCodigoEscaneado('CODIGO-NUEVO-123');
   assert(ctx.__appstate.escanerModal && ctx.__appstate.escanerModal.codigo==='CODIGO-NUEVO-123', 'un código no reconocido debe quedar guardado en escanerModal para poder asociarlo, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
   assert(ctx.__appstate.skuSeleccionado===null, 'mientras no se asocie, no debe quedar ningún SKU seleccionado');
+
+  // onCodigoEscaneado: el código existe en más de una bodega -> deja el modal abierto con
+  // las opciones para elegir, sin seleccionar ninguna todavía (no hay forma de adivinar cuál).
+  ctx.__appstate.skus = skusEscanerMultiBodega;
+  ctx.__appstate.escanerModal = { codigo:null, error:null };
+  ctx.__appstate.skuSeleccionado = null;
+  await ctx.onCodigoEscaneado('SKU-A');
+  assert(ctx.__appstate.escanerModal && ctx.__appstate.escanerModal.opciones && ctx.__appstate.escanerModal.opciones.length===2, 'un código en dos bodegas debe dejar las dos opciones en escanerModal.opciones, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
+  assert(ctx.__appstate.skuSeleccionado===null, 'con más de una coincidencia, no debe seleccionarse ningún SKU automáticamente');
+  const htmlEscanerOpciones = ctx.renderEscanerModal();
+  assert(htmlEscanerOpciones.includes('data-escaner-elegir-btn="sku-a"') && htmlEscanerOpciones.includes('data-escaner-elegir-btn="sku-a-planta"'), 'debe mostrar un botón "Elegir" por cada bodega encontrada, obtuvo: '+htmlEscanerOpciones);
+  assert(htmlEscanerOpciones.includes('Nave') && htmlEscanerOpciones.includes('Planta'), 'cada opción debe mostrar su bodega para poder distinguirlas, obtuvo: '+htmlEscanerOpciones);
+
+  // elegirSkuEscaneado: al elegir una de las opciones, selecciona ese SKU exacto y cierra el modal.
+  ctx.elegirSkuEscaneado('sku-a-planta');
+  assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-a-planta' && ctx.__appstate.skuSeleccionado.bodega==='Planta', 'debe seleccionar exactamente la fila elegida (la de Planta, no la de Nave), obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
+  assert(ctx.__appstate.escanerModal===null, 'tras elegir, el modal debe cerrarse');
+  ctx.__appstate.skus = skusEscaner;
 
   // onCodigoEscaneado con destino 'campo-sku' (botón de escanear en "Cargar SKU"): no hay
   // nada que resolver contra el maestro existente, así que llena directo el campo de código
