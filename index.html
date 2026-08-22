@@ -531,6 +531,26 @@
                 </div>
               </div>
             </div>
+
+            <div class="roi-assumptions">
+              <div class="roi-assumptions-label">Diferencias no detectadas hoy (opcional): si sabes cuánto vale en promedio tu material y qué porcentaje del inventario hoy no cuadra sin que nadie lo sepa, súmalo acá.</div>
+              <div class="roi-assumptions-row">
+                <div class="roi-field">
+                  <label for="roi-costo-unitario">Costo unitario promedio</label>
+                  <div class="roi-field-input">
+                    <input type="number" id="roi-costo-unitario" value="" min="0" step="1000" placeholder="Ej. 15000">
+                    <span class="roi-suffix">CLP</span>
+                  </div>
+                </div>
+                <div class="roi-field">
+                  <label for="roi-pct-diferencia">% del inventario sin cuadrar hoy</label>
+                  <div class="roi-field-input">
+                    <input type="number" id="roi-pct-diferencia" value="" min="0" max="100" step="0.5" placeholder="Ej. 3">
+                    <span class="roi-suffix">%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="roi-col roi-result">
@@ -553,13 +573,18 @@
               <div class="roi-result-value roi-good" id="roi-out-costo-anual">—</div>
             </div>
 
+            <div class="roi-result-block" id="roi-bloque-exposicion" style="display:none">
+              <div class="roi-result-label">Valor de inventario hoy sin visibilidad</div>
+              <div class="roi-result-value" id="roi-out-exposicion">—</div>
+            </div>
+
             <div class="roi-payoff">
               <div class="roi-payoff-icon"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
               <div class="roi-payoff-text" id="roi-out-payoff">—</div>
             </div>
 
             <div class="roi-fineprint">
-              Estimación con fines ilustrativos, basada en los supuestos de mejora indicados a la izquierda. El ahorro real depende de tu operación. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial).
+              Estimación con fines ilustrativos, basada en los supuestos de mejora indicados a la izquierda. El ahorro real depende de tu operación. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial). El valor de inventario sin visibilidad es una referencia de exposición, no una promesa de ahorro: cuánto de eso se recupera depende de cada caso.
             </div>
           </div>
 
@@ -973,6 +998,7 @@
     var PRECIO_PLAN_MENSUAL_CLP = 273000;
 
     function roiCalcular(){
+      var skus = parseFloat($('roi-skus').value) || 0;
       var dias = parseFloat($('roi-dias').value) || 0;
       var personas = parseFloat($('roi-personas').value) || 0;
       var consolidacion = parseFloat($('roi-consolidacion').value) || 0;
@@ -980,6 +1006,8 @@
       var frecuencia = parseFloat($('roi-frecuencia').value) || 0;
       var mejoraConteo = (parseFloat($('roi-mejora-conteo').value) || 0) / 100;
       var mejoraConsolidacion = (parseFloat($('roi-mejora-consolidacion').value) || 0) / 100;
+      var costoUnitario = parseFloat($('roi-costo-unitario').value) || 0;
+      var pctDiferencia = (parseFloat($('roi-pct-diferencia').value) || 0) / 100;
 
       var horasConteoHoy = dias * 8 * personas;
       var horasTotalesHoy = horasConteoHoy + consolidacion;
@@ -995,12 +1023,30 @@
       $('roi-out-costo-evento').textContent = fmtCLP(costoEvitadoPorEvento);
       $('roi-out-costo-anual').textContent = fmtCLP(costoEvitadoAnual);
 
+      // Valor de inventario expuesto a diferencias no detectadas: solo aparece si la persona
+      // cargó sus propios supuestos (costo unitario y % sin cuadrar) — no inventamos un
+      // porcentaje de merma por defecto, sería un número de negocio que no nos consta.
+      var valorExpuesto = skus * costoUnitario * pctDiferencia;
+      if(valorExpuesto > 0){
+        $('roi-bloque-exposicion').style.display = '';
+        $('roi-out-exposicion').textContent = fmtCLP(valorExpuesto);
+      }else{
+        $('roi-bloque-exposicion').style.display = 'none';
+      }
+
       var costoPlanAnual = PRECIO_PLAN_MENSUAL_CLP * 12;
       if(costoEvitadoAnual <= 0){
         $('roi-out-payoff').innerHTML = 'Ajusta los datos de la izquierda para ver el resultado.';
-      }else{
+      }else if(costoEvitadoAnual >= costoPlanAnual){
         var vecesElPlan = costoEvitadoAnual / costoPlanAnual;
-        $('roi-out-payoff').innerHTML = 'El ahorro anual equivale a <b>' + vecesElPlan.toFixed(1).replace('.', ',') + '×</b> el costo del plan Profesional durante todo el año.';
+        $('roi-out-payoff').innerHTML = 'Solo en horas, el ahorro anual ya cubre <b>' + vecesElPlan.toFixed(1).replace('.', ',') + '×</b> el costo del plan Profesional durante todo el año.';
+      }else{
+        var mesesCubiertos = costoEvitadoAnual / PRECIO_PLAN_MENSUAL_CLP;
+        var mensaje = 'Solo en horas, el ahorro anual cubre <b>' + mesesCubiertos.toFixed(1).replace('.', ',') + ' de 12 meses</b> del plan Profesional.';
+        mensaje += valorExpuesto > 0
+          ? ' El resto se compara mejor contra el valor de inventario hoy sin visibilidad, arriba.'
+          : ' El mayor impacto suele venir de las diferencias de inventario que hoy no se detectan — si tienes un costo unitario aproximado, cárgalo arriba para verlo.';
+        $('roi-out-payoff').innerHTML = mensaje;
       }
     }
 
