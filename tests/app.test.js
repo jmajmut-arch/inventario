@@ -220,6 +220,13 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/valorizacion_diferencias')){
+    const filas = [
+      {bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000},
+      {bodega:'Nave Planta', valor_contado:500000, valor_perdidas:-20000, valor_excedentes:10000},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/auditoria')){
     const todas = [
       {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
@@ -936,6 +943,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const topDiferenciasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('order=diferencia_abs.desc'));
   assert(!!topDiferenciasCall && topDiferenciasCall.url.includes('limit=5'), 'cargarDashboard debe pedir el top de diferencias ordenado por magnitud, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.topDiferencias.length===2 && ctx.__appstate.dash.topDiferencias[0].sku_code==='SKU-TOP-1', 'cargarDashboard debe dejar el top de diferencias en state.dash.topDiferencias, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferencias));
+  const valorizacionCall = calls.find(c=>c.url.includes('/valorizacion_diferencias'));
+  assert(!!valorizacionCall, 'cargarDashboard debe pedir /valorizacion_diferencias, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.valorizacion.length===2 && ctx.__appstate.dash.valorizacion[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la valorización por bodega en state.dash.valorizacion, obtuvo: '+JSON.stringify(ctx.__appstate.dash.valorizacion));
 
   // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
   ctx.__appstate.dash = {
@@ -963,6 +973,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     topDiferencias: [
       {sku_code:'SKU-TOP-1', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, causa_probable:'Ubicación distinta y recurrente'},
     ],
+    valorizacion: [
+      {bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000},
+      {bodega:'Nave Planta', valor_contado:500000, valor_perdidas:-20000, valor_excedentes:10000},
+    ],
   };
   const htmlDashExactitud = ctx.renderDashboard();
   // Global: (16+4)/(20+10) = 66.7% de unidades; (18+9)/30 = 90% de ubicación.
@@ -974,10 +988,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(idxNavePlanta>=0 && idxNaveMinaRanking>idxNavePlanta, 'la peor exactitud (Nave Planta, 40%) debe listarse antes que la mejor (Nave Mina, 80%), obtuvo índices: '+idxNavePlanta+' / '+idxNaveMinaRanking);
   assert(htmlDashExactitud.includes('Top materiales con diferencia') && htmlDashExactitud.includes('SKU-TOP-1') && htmlDashExactitud.includes('badge-danger">Ubicación distinta y recurrente<'), 'debe mostrar el top de materiales con diferencia y su causa probable, obtuvo: '+htmlDashExactitud);
 
-  // Sin datos de exactitud (empresa recién empezando), no debe mostrarse el ranking ni el top.
-  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferencias: [] };
+  // Valorización de diferencias: 4 tarjetas (contado/pérdidas/excedentes/neto) sumadas sobre todas las bodegas.
+  // Contado: 1.000.000+500.000=1.500.000; pérdidas: -150.000-20.000=-170.000; excedentes: 40.000+10.000=50.000; neto: -120.000.
+  assert(htmlDashExactitud.includes('Valorización de diferencias'), 'debe mostrar la sección de valorización de diferencias, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Valor contado') && htmlDashExactitud.includes('$1.500.000'), 'debe mostrar el valor contado sumado, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Pérdidas') && htmlDashExactitud.includes('$-170.000'), 'debe mostrar las pérdidas sumadas, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Excedentes') && htmlDashExactitud.includes('$50.000'), 'debe mostrar los excedentes sumados, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Neto') && htmlDashExactitud.includes('$-120.000'), 'debe mostrar el neto (pérdidas+excedentes), obtuvo: '+htmlDashExactitud);
+
+  // Sin datos de exactitud (empresa recién empezando), no debe mostrarse el ranking ni el top ni la valorización.
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferencias: [], valorizacion: [] };
   const htmlDashSinExactitud = ctx.renderDashboard();
   assert(!htmlDashSinExactitud.includes('Ranking por ubicación general') && !htmlDashSinExactitud.includes('Top materiales con diferencia'), 'sin datos de exactitud todavía, no deben mostrarse esas secciones, obtuvo: '+htmlDashSinExactitud);
+  assert(!htmlDashSinExactitud.includes('Valorización de diferencias'), 'sin datos de valorización, no debe mostrarse esa sección, obtuvo: '+htmlDashSinExactitud);
 
   // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
   // avance_total/avance_diario usan count()/count(distinct), que PostgREST devuelve como
@@ -1525,10 +1548,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.cargaPreview = {
     file: { name: 'materiales.csv' },
     modo: 'complementar',
-    mapeo: { sku_code:'Codigo', descripcion:'Desc', bodega:'Bodega', stock_sistema:'Stock' },
+    mapeo: { sku_code:'Codigo', descripcion:'Desc', bodega:'Bodega', stock_sistema:'Stock', costo_unitario:'Costo' },
     data: [
-      { Codigo:'SKU-MULTI', Desc:'Filtro', Bodega:'Nave', Stock:'10' },
-      { Codigo:'SKU-MULTI', Desc:'Filtro', Bodega:'Planta', Stock:'4' },
+      { Codigo:'SKU-MULTI', Desc:'Filtro', Bodega:'Nave', Stock:'10', Costo:'1500' },
+      { Codigo:'SKU-MULTI', Desc:'Filtro', Bodega:'Planta', Stock:'4', Costo:'' },
     ],
   };
   calls.length = 0;
@@ -1539,6 +1562,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filasCarga = JSON.parse(postCarga.opts.body);
   assert(filasCarga.length===2, 'dos filas del mismo código en bodegas distintas deben llegar ambas al upsert, no deduplicarse a una sola, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
+  assert(filasCarga.some(f=>f.bodega==='Nave' && f.costo_unitario===1500) && filasCarga.some(f=>f.bodega==='Planta' && f.costo_unitario===null), 'la carga masiva debe mapear costo_unitario cuando viene en el archivo, y dejarlo null cuando la celda viene vacía, obtuvo: '+JSON.stringify(filasCarga));
 
   // Si el archivo trae dos filas del mismo código EN LA MISMA bodega, ahí sí no hay forma
   // de saber cuál es la correcta: se queda con la última (mismo criterio que antes).
