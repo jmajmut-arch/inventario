@@ -317,6 +317,8 @@ let state = {
   iniciandoSuscripcionFlow: false, // spinner del botón "Suscribirme con tarjeta" en Configuraciones
   cancelandoSuscripcionFlow: false, // spinner del botón "Cancelar suscripción" en Configuraciones
   avisoFlow: null,           // 'ok'|'error'|null, viene del ?flow= al volver de registrar la tarjeta en Flow
+  registroPlan: null,        // 'basico'|'profesional' cuando se llega desde el botón "Suscribirme" del landing
+  creandoCuentaAutoservicio: false, // spinner del formulario de alta autoservicio
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
@@ -540,7 +542,7 @@ async function cargarPerfil(){
     const info = estado && estado[0];
     if(info && info.bloqueada){
       state.perfil = null;
-      state.empresaBloqueada = {motivo: info.motivo, nombre: info.empresa_nombre};
+      state.empresaBloqueada = {motivo: info.motivo, nombre: info.empresa_nombre, planNombre: info.plan_nombre};
       return;
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
@@ -610,6 +612,18 @@ function procesarRetornoFlow(){
   state.avisoFlow = resultado;
 }
 
+const PLANES_AUTOSERVICIO = ['basico', 'profesional'];
+
+// Al llegar desde el botón "Suscribirme" del landing (?plan=basico o ?plan=profesional),
+// mostramos la pantalla de alta autoservicio en vez del login normal.
+function procesarRegistroPlanDesdeUrl(){
+  const params = new URLSearchParams(location.search);
+  const plan = params.get('plan');
+  if(!PLANES_AUTOSERVICIO.includes(plan)) return;
+  history.replaceState(null, '', location.pathname + location.hash);
+  state.registroPlan = plan;
+}
+
 async function iniciarSuscripcionFlow(planNombre){
   state.iniciandoSuscripcionFlow = true;
   render();
@@ -647,6 +661,36 @@ async function cancelarSuscripcionFlow(){
   }
   state.cancelandoSuscripcionFlow = false;
   render();
+}
+
+// Alta autoservicio (Básico/Profesional): crea la empresa + la cuenta de admin, inicia
+// sesión con las mismas credenciales que la persona acaba de tipear, y sigue directo al
+// registro de tarjeta en Flow — la empresa queda "pendiente_tarjeta" (sin acceso real)
+// hasta que ese paso se completa.
+async function crearCuentaAutoservicio(nombreEmpresa, nombreAdmin, email, password){
+  state.creandoCuentaAutoservicio = true;
+  render();
+  try{
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/crear-empresa-autoservicio`, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
+      body: JSON.stringify({nombreEmpresa, nombreAdmin, email, password, planNombre: state.registroPlan})
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'No se pudo crear la cuenta');
+
+    const planNombre = state.registroPlan;
+    state.registroPlan = null;
+    const sesion = await authRequest('/token?grant_type=password', {email, password});
+    state.session = sesion;
+    guardarSesion(sesion);
+    await cargarPerfil();
+    await iniciarSuscripcionFlow(planNombre);
+  }catch(e){
+    toast(e.message,'err');
+    state.creandoCuentaAutoservicio = false;
+    render();
+  }
 }
 
 async function establecerPassword(nuevaPassword){
@@ -694,7 +738,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
   render();
   toast('Sesión cerrada');
 }
@@ -3455,25 +3499,61 @@ function tabBtn(view,label){
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
   const root = document.getElementById('app');
-  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderEscanerModal();
+  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderEscanerModal();
   bind();
 }
 
 function renderCuentaBloqueada(){
-  const {motivo, nombre} = state.empresaBloqueada;
+  const {motivo, nombre, planNombre} = state.empresaBloqueada;
   const mensaje = motivo === 'morosa'
     ? 'Hubo un problema con el último cobro de tu suscripción y no se pudo regularizar automáticamente.'
+    : motivo === 'pendiente_tarjeta'
+    ? 'Creaste tu cuenta pero todavía no registraste un método de pago, así que no tienes acceso todavía.'
     : 'Esta cuenta fue pausada.';
+  const accionHtml = motivo === 'pendiente_tarjeta'
+    ? `<button type="button" id="btn-registrar-tarjeta-bloqueada" class="btn btn-primary" style="margin-bottom:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Registrar método de pago'}</button><br>`
+    : '';
   return `
     <div class="login-wrap">
       <div class="login-card">
         <div class="brand-badge" style="margin:0 auto 16px">IA</div>
         <h1 style="text-align:center">${esc(nombre)}</h1>
-        <p class="hint" style="text-align:center;margin-bottom:20px">${mensaje} Escríbenos a <a href="mailto:contacto@inventiapp.cl">contacto@inventiapp.cl</a> para reactivarla.</p>
+        <p class="hint" style="text-align:center;margin-bottom:20px">${mensaje} ${motivo==='pendiente_tarjeta'?'':'Escríbenos a <a href="mailto:contacto@inventiapp.cl">contacto@inventiapp.cl</a> para reactivarla.'}</p>
+        ${accionHtml}
         <button type="button" id="btn-salir-bloqueada" class="btn btn-secondary">Salir</button>
       </div>
     </div>
   `;
+}
+
+function renderRegistroAutoservicio(){
+  const plan = state.registroPlan;
+  const etiquetaPlan = plan === 'profesional' ? 'Profesional — $199 USD/mes' : 'Básico — $99 USD/mes';
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">IA</div>
+      <h1 class="login-title">Crea tu cuenta</h1>
+      <div class="login-sub">Plan ${esc(etiquetaPlan)}</div>
+      <form id="registro-autoservicio-form">
+        <label for="ra-empresa">Nombre de tu empresa</label>
+        <input type="text" id="ra-empresa" required>
+        <label for="ra-nombre">Tu nombre</label>
+        <input type="text" id="ra-nombre" required>
+        <label for="ra-email">Correo</label>
+        <input type="email" id="ra-email" required>
+        <label for="ra-pass">Contraseña</label>
+        <input type="password" id="ra-pass" placeholder="••••••••" required minlength="10">
+        <div class="hint" style="margin-top:6px">Mínimo 10 caracteres.</div>
+        <div style="margin-top:20px">
+          <button type="submit" class="btn btn-primary" ${state.creandoCuentaAutoservicio?'disabled':''}>
+            ${state.creandoCuentaAutoservicio? '<span class="spinner"></span>' : 'Crear cuenta y continuar al pago'}
+          </button>
+        </div>
+      </form>
+      <div class="login-toggle"><button type="button" id="btn-ya-tengo-cuenta">Ya tengo cuenta, iniciar sesión</button></div>
+    </div>
+  </div>`;
 }
 
 function bind(){
@@ -3530,6 +3610,20 @@ function bind(){
   }
   if(state.session && state.empresaBloqueada){
     document.getElementById('btn-salir-bloqueada').addEventListener('click', handleLogout);
+    const btnRegistrarTarjeta = document.getElementById('btn-registrar-tarjeta-bloqueada');
+    if(btnRegistrarTarjeta) btnRegistrarTarjeta.addEventListener('click', ()=> iniciarSuscripcionFlow(state.empresaBloqueada.planNombre));
+    return;
+  }
+  if(!state.session && state.registroPlan){
+    document.getElementById('registro-autoservicio-form').addEventListener('submit', e=>{
+      e.preventDefault();
+      const nombreEmpresa = document.getElementById('ra-empresa').value.trim();
+      const nombreAdmin = document.getElementById('ra-nombre').value.trim();
+      const email = document.getElementById('ra-email').value.trim();
+      const pass = document.getElementById('ra-pass').value;
+      crearCuentaAutoservicio(nombreEmpresa, nombreAdmin, email, pass);
+    });
+    document.getElementById('btn-ya-tengo-cuenta').addEventListener('click', ()=> setState({registroPlan:null}));
     return;
   }
   if(!state.session){
@@ -4009,6 +4103,7 @@ async function iniciarApp(){
   // Al recuperar la señal, intentamos enviar los conteos que quedaron guardados sin conexión.
   window.addEventListener('online', sincronizarColaOffline);
   procesarRetornoFlow();
+  procesarRegistroPlanDesdeUrl();
   await procesarLlegadaPorInvitacion();
   if(!state.debeCrearPassword) await restaurarSesionGuardada();
   if(state.avisoFlow){

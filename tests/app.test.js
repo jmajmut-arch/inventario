@@ -19,6 +19,7 @@ function assert(cond, msg){
 }
 
 let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
+let autoservicioRespuesta = { error: null };
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
@@ -142,6 +143,14 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/functions/v1/flow-iniciar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"url":"https://sandbox.flow.cl/app/customer/disclaimer.php?token=tok-flow-1"}', json: async()=>({url:'https://sandbox.flow.cl/app/customer/disclaimer.php?token=tok-flow-1'}) };
+  }
+  if(path.startsWith('/functions/v1/crear-empresa-autoservicio')){
+    if(autoservicioRespuesta.error) return { status: autoservicioRespuesta.status||400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({error:autoservicioRespuesta.error}), json: async()=>({error:autoservicioRespuesta.error}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true,"empresaId":"emp-nueva","empresaNombre":"Minera Nueva SA"}', json: async()=>({ok:true,empresaId:'emp-nueva',empresaNombre:'Minera Nueva SA'}) };
+  }
+  if(path.startsWith('/auth/v1/token?grant_type=password')){
+    const sesion = {access_token:'tok-autoservicio', refresh_token:'refresh-autoservicio', user:{id:'user-nuevo', email:'vicky@minera.cl'}};
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(sesion), json: async()=>sesion };
   }
   if(path.startsWith('/auth/v1/token?grant_type=refresh_token')){
     const sesion = {access_token:'token-refrescado', refresh_token:'refresh-2', user:{id:'user-1', email:'joel@test.com'}};
@@ -1033,6 +1042,73 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarPerfil();
   assert(ctx.__appstate.empresaBloqueada===null, 'sin bloqueo, empresaBloqueada debe quedar en null, obtuvo: '+JSON.stringify(ctx.__appstate.empresaBloqueada));
   assert(!!ctx.__appstate.perfil, 'sin bloqueo, debe cargar el perfil normal, obtuvo: '+JSON.stringify(ctx.__appstate.perfil));
+
+  // ===== Alta autoservicio (Básico/Profesional) desde el landing =====
+
+  // procesarRegistroPlanDesdeUrl: sin ?plan= en la URL, no debe activar la pantalla de registro.
+  ctx.__appstate.registroPlan = null;
+  ctx.location.search = '';
+  ctx.procesarRegistroPlanDesdeUrl();
+  assert(ctx.__appstate.registroPlan===null, 'sin ?plan= en la URL no debe activarse el registro autoservicio, obtuvo: '+ctx.__appstate.registroPlan);
+
+  // Con ?plan=basico|profesional válido, sí lo activa.
+  ctx.location.search = '?plan=profesional';
+  ctx.procesarRegistroPlanDesdeUrl();
+  assert(ctx.__appstate.registroPlan==='profesional', 'con ?plan=profesional debe guardar el plan elegido, obtuvo: '+ctx.__appstate.registroPlan);
+
+  // Un valor de plan que no existe se ignora (no cualquier string debería activar el registro).
+  ctx.__appstate.registroPlan = null;
+  ctx.location.search = '?plan=empresa';
+  ctx.procesarRegistroPlanDesdeUrl();
+  assert(ctx.__appstate.registroPlan===null, 'un plan inválido no debe activar el registro autoservicio, obtuvo: '+ctx.__appstate.registroPlan);
+
+  ctx.__appstate.registroPlan = 'profesional';
+  const htmlRegistro = ctx.renderRegistroAutoservicio();
+  assert(htmlRegistro.includes('Profesional') && htmlRegistro.includes('registro-autoservicio-form'), 'la pantalla de registro debe mostrar el plan elegido y el formulario, obtuvo: '+htmlRegistro);
+
+  // crearCuentaAutoservicio: crea la empresa+cuenta, inicia sesión con las mismas credenciales
+  // y sigue derecho al registro de tarjeta en Flow (mismo mecanismo que iniciarSuscripcionFlow).
+  ctx.__appstate.session = null;
+  ctx.__appstate.registroPlan = 'basico';
+  ctx.location.href = '';
+  autoservicioRespuesta = { error: null };
+  calls.length = 0;
+  await ctx.crearCuentaAutoservicio('Minera Nueva SA', 'Vicky', 'vicky@minera.cl', 'password1234');
+  const invokeAltaCall = calls.find(c=>c.url.includes('/functions/v1/crear-empresa-autoservicio'));
+  assert(!!invokeAltaCall, 'crearCuentaAutoservicio debe llamar a la Edge Function crear-empresa-autoservicio, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoAlta = JSON.parse(invokeAltaCall.opts.body);
+  assert(cuerpoAlta.nombreEmpresa==='Minera Nueva SA' && cuerpoAlta.email==='vicky@minera.cl' && cuerpoAlta.planNombre==='basico', 'debe mandar empresa, correo y plan elegido, obtuvo: '+invokeAltaCall.opts.body);
+  const invokeLoginCall = calls.find(c=>c.url.includes('/auth/v1/token?grant_type=password'));
+  assert(!!invokeLoginCall, 'tras crear la cuenta debe iniciar sesión con las mismas credenciales, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.registroPlan===null, 'al completar el alta debe salir de la pantalla de registro, obtuvo: '+ctx.__appstate.registroPlan);
+  assert(!!ctx.__appstate.session && ctx.__appstate.session.access_token==='tok-autoservicio', 'debe quedar con sesión iniciada, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  const invokeFlowTrasAlta = calls.find(c=>c.url.includes('/functions/v1/flow-iniciar-suscripcion'));
+  assert(!!invokeFlowTrasAlta, 'tras el alta debe seguir directo a registrar la tarjeta en Flow, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.location.href==='https://sandbox.flow.cl/app/customer/disclaimer.php?token=tok-flow-1', 'debe redirigir a Flow igual que iniciarSuscripcionFlow, obtuvo: '+ctx.location.href);
+
+  // Si la Edge Function falla (ej. correo ya registrado), no debe iniciar sesión ni avanzar.
+  ctx.__appstate.session = null;
+  ctx.__appstate.registroPlan = 'basico';
+  autoservicioRespuesta = { error: 'Ya existe una cuenta con ese correo', status: 409 };
+  calls.length = 0;
+  await ctx.crearCuentaAutoservicio('Minera Nueva SA', 'Vicky', 'vicky@minera.cl', 'password1234');
+  assert(!calls.some(c=>c.url.includes('/auth/v1/token?grant_type=password')), 'si el alta falla, no debe intentar iniciar sesión, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.session===null, 'si el alta falla, no debe quedar con sesión, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  assert(ctx.__appstate.creandoCuentaAutoservicio===false, 'si el alta falla, el spinner debe apagarse, obtuvo: '+ctx.__appstate.creandoCuentaAutoservicio);
+  assert(ctx.__appstate.registroPlan==='basico', 'si el alta falla, debe seguir en la pantalla de registro, obtuvo: '+ctx.__appstate.registroPlan);
+  autoservicioRespuesta = { error: null };
+
+  // Bloqueo por "pendiente_tarjeta": una empresa autoservicio que nunca registró su tarjeta
+  // debe ver un mensaje distinto al de mora, con un botón para retomar el registro en Flow.
+  ctx.__appstate.session = { access_token:'tok-x', user:{id:'user-1', email:'vicky@minera.cl'} };
+  ctx.__appstate.perfil = null;
+  estadoBloqueoRespuesta = { bloqueada: true, motivo: 'pendiente_tarjeta', empresa_nombre: 'Minera Nueva SA', plan_nombre: 'basico' };
+  await ctx.cargarPerfil();
+  assert(ctx.__appstate.empresaBloqueada.motivo==='pendiente_tarjeta' && ctx.__appstate.empresaBloqueada.planNombre==='basico', 'cargarPerfil debe guardar el motivo y el plan, obtuvo: '+JSON.stringify(ctx.__appstate.empresaBloqueada));
+  const htmlPendienteTarjeta = ctx.renderCuentaBloqueada();
+  assert(/no registraste/i.test(htmlPendienteTarjeta) && !/último cobro/i.test(htmlPendienteTarjeta), 'debe explicar que falta registrar la tarjeta, no el mensaje de mora, obtuvo: '+htmlPendienteTarjeta);
+  assert(htmlPendienteTarjeta.includes('id="btn-registrar-tarjeta-bloqueada"'), 'debe ofrecer retomar el registro de la tarjeta, obtuvo: '+htmlPendienteTarjeta);
+  estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
 
   // ===== Multi-tenencia (empresas) =====
 
