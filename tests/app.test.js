@@ -232,6 +232,7 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
       {id:'a2', tabla:'conteos', accion:'INSERT', actor_nombre:'Beto', datos_antes:null, datos_despues:{cantidad_contada:5, estado:'pendiente_revision'}, creado_en:'2026-08-14T09:00:00Z'},
       {id:'a3', tabla:'empresas', accion:'DELETE', actor_nombre:null, datos_antes:{nombre:'Minera Vieja'}, datos_despues:null, creado_en:'2026-08-13T08:00:00Z'},
+      {id:'a4', tabla:'skus', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{sku_code:'FIL-1001', costo_unitario:1000}, datos_despues:{sku_code:'FIL-1001', costo_unitario:1500}, creado_en:'2026-08-16T11:00:00Z'},
     ];
     const filas = path.includes('tabla=eq.usuarios') ? todas.filter(f=>f.tabla==='usuarios') : todas;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -1975,19 +1976,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const resumenSinCambios = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos'}, datos_despues:{nombre:'Carlos'}});
   assert(resumenSinCambios==='Sin cambios visibles', 'UPDATE sin diferencias en los campos auditados debe decirlo, obtuvo: '+resumenSinCambios);
 
+  // Auditoría del maestro de SKU: mismo patrón (trigger genérico + CAMPOS_AUDITADOS), pero
+  // además se muestra el sku_code como identificador (a diferencia de personas/empresas/conteos,
+  // acá hace falta saber qué material cambió).
+  const resumenSku = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'skus', datos_antes:{sku_code:'FIL-1001', costo_unitario:1000}, datos_despues:{sku_code:'FIL-1001', costo_unitario:1500}});
+  assert(resumenSku==='Costo unitario: 1000 → 1500', 'UPDATE de SKU debe listar los campos auditados que cambiaron, obtuvo: '+resumenSku);
+  assert(ctx.identificadorAuditoria({tabla:'skus', datos_despues:{sku_code:'FIL-1001'}})===' · FIL-1001', 'identificadorAuditoria debe mostrar el código del SKU, obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'skus', datos_despues:{sku_code:'FIL-1001'}})));
+  assert(ctx.identificadorAuditoria({tabla:'usuarios', datos_despues:{nombre:'Carlos'}})==='', 'identificadorAuditoria no debe agregar nada para tablas que no sean skus, obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'usuarios', datos_despues:{nombre:'Carlos'}})));
+
   // cargarAuditoria: pide /auditoria ordenado por fecha, con filtro opcional de tabla.
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   calls.length = 0;
   await ctx.cargarAuditoria('');
   const auditoriaCallTodas = calls.find(c=>c.url.includes('/auditoria?select='));
   assert(!!auditoriaCallTodas && auditoriaCallTodas.url.includes('order=creado_en.desc'), 'cargarAuditoria debe pedir /auditoria ordenado por fecha descendente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.auditoria.filas.length===3, 'debe cargar las filas devueltas por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
+  assert(ctx.__appstate.auditoria.filas.length===4, 'debe cargar las filas devueltas por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
 
   // renderConfiguraciones: la sección de auditoría solo debe verse para admin/super-admin, no para inventariador.
   const htmlConfigAdminAuditoria = ctx.renderConfiguraciones();
   assert(htmlConfigAdminAuditoria.includes('id="auditoria-filtro-tabla"') && htmlConfigAdminAuditoria.includes('Auditoría de cambios'), 'un admin debe ver la sección de auditoría, obtuvo: '+htmlConfigAdminAuditoria);
   assert(htmlConfigAdminAuditoria.includes('Ana Torres') && htmlConfigAdminAuditoria.includes('Rol: inventariador → admin'), 'debe listar la actividad con actor y el resumen del cambio, obtuvo: '+htmlConfigAdminAuditoria);
   assert(htmlConfigAdminAuditoria.includes('Por: Sistema'), 'un actor nulo (alta automática) debe mostrarse como "Sistema", obtuvo: '+htmlConfigAdminAuditoria);
+  assert(htmlConfigAdminAuditoria.includes('<option value="skus"') && htmlConfigAdminAuditoria.includes('>SKU<'), 'el filtro de tabla debe incluir la opción SKU, obtuvo: '+htmlConfigAdminAuditoria);
+  assert(htmlConfigAdminAuditoria.includes('SKU · FIL-1001 · Modificado') && htmlConfigAdminAuditoria.includes('Costo unitario: 1000 → 1500'), 'debe listar el cambio de SKU con su código y el costo unitario antes/después, obtuvo: '+htmlConfigAdminAuditoria);
 
   calls.length = 0;
   await ctx.cargarAuditoria('usuarios');
