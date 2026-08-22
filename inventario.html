@@ -1590,7 +1590,7 @@ async function crearSkuManual(payload){
     // upsert por (empresa_id, sku_code): si el código ya existía para esta empresa, se
     // actualiza con los datos ingresados en vez de fallar por la restricción única —
     // mismo criterio que usa la carga masiva por CSV.
-    await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id, capturado_en: capturadoEn}], prefer:'return=minimal,resolution=merge-duplicates'});
+    await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id, capturado_en: capturadoEn}], prefer:'return=minimal,resolution=merge-duplicates'});
     toast('SKU guardado correctamente');
     refrescarListaSkus();
     return true;
@@ -1625,13 +1625,19 @@ async function confirmarCargaMasiva(){
 
   const marcaTiempo = new Date().toISOString();
   let ok=0, error=0; const errores=[];
-  const porCodigo = new Map();
+  // Un mismo sku_code puede vivir en más de una bodega (cada bodega es su propia fila, con
+  // su propio stock/ubicación), así que la clave de deduplicado es código+bodega, no solo
+  // el código: si el archivo trae dos filas del mismo código en bodegas distintas, ambas
+  // deben llegar al upsert. Si trae dos filas del mismo código EN LA MISMA bodega, ahí sí
+  // nos quedamos con la última (no hay forma de saber cuál es la correcta).
+  const porCodigoYBodega = new Map();
   data.forEach((row,idx)=>{
     const sku_code = valor(row,'sku_code');
     if(!sku_code){ error++; errores.push({fila:idx+2, motivo:'Código de SKU vacío'}); return; }
     ok++;
     const stockRaw = valor(row,'stock_sistema');
-    porCodigo.set(sku_code, {
+    const bodega = valor(row,'bodega') || null;
+    porCodigoYBodega.set(JSON.stringify([sku_code, bodega]), {
       sku_code,
       empresa_id: state.perfil.empresa_id,
       descripcion: valor(row,'descripcion') || null,
@@ -1639,16 +1645,16 @@ async function confirmarCargaMasiva(){
       unidad_medida: valor(row,'unidad_medida') || null,
       ubicacion: valor(row,'ubicacion') || null,
       storage_bin: valor(row,'storage_bin') || null,
-      bodega: valor(row,'bodega') || null,
+      bodega,
       stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
       activo: true,
       updated_at: marcaTiempo,
       capturado_en: marcaTiempo,
-    }); // si el archivo trae una fila por planta/ubicación para el mismo código, nos quedamos con la última
+    });
   });
-  const lote = Array.from(porCodigo.values());
+  const lote = Array.from(porCodigoYBodega.values());
   try{
-    if(lote.length) await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+    if(lote.length) await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
       await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
@@ -1798,7 +1804,7 @@ async function procesarUnItemOffline(item){
   const capturadoEn = new Date(item.creado_en).toISOString();
   try{
     if(item.tipo==='sku'){
-      await rest('/skus?on_conflict=empresa_id,sku_code', {method:'POST', body:[{
+      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:[{
         sku_code: item.sku_code,
         descripcion: item.descripcion,
         categoria: item.categoria,
@@ -1976,15 +1982,17 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
 // de coincidencia, en orden: (1) el propio código del SKU (cubre el caso de imprimir
 // stickers genéricos con el sku_code como código de barras, la salida más barata para
 // ítems que nunca trajeron código de fábrica) y (2) el código de barras de fábrica ya
-// asociado en una lectura anterior (columna codigo_barras). Función pura para poder
-// testearla sin cámara real.
-function resolverSkuPorCodigo(skus, codigo){
+// asociado en una lectura anterior (columna codigo_barras). Devuelve TODAS las filas que
+// calzan, no solo la primera: el mismo código puede existir en más de una bodega (cada
+// bodega es su propia fila de SKU) y quien llama decide qué hacer si hay más de un
+// resultado. Función pura para poder testearla sin cámara real.
+function resolverSkusPorCodigo(skus, codigo){
   const c = (codigo||'').trim();
-  if(!c) return null;
+  if(!c) return [];
   const cLower = c.toLowerCase();
-  return skus.find(s=> (s.sku_code||'').toLowerCase() === cLower)
-      || skus.find(s=> (s.codigo_barras||'').toLowerCase() === cLower)
-      || null;
+  const porCodigo = skus.filter(s=> (s.sku_code||'').toLowerCase() === cLower);
+  if(porCodigo.length) return porCodigo;
+  return skus.filter(s=> (s.codigo_barras||'').toLowerCase() === cLower);
 }
 
 async function iniciarEscaner(){
@@ -2056,13 +2064,26 @@ async function onCodigoEscaneado(codigo){
     toast('Código escaneado');
     return;
   }
-  const sku = resolverSkuPorCodigo(state.skus, codigo);
-  if(sku){
-    setState({skuSeleccionado: sku});
-    toast(`SKU ${sku.sku_code} encontrado`);
+  const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
+  if(coincidencias.length===1){
+    setState({skuSeleccionado: coincidencias[0]});
+    toast(`SKU ${coincidencias[0].sku_code} encontrado`);
+  }else if(coincidencias.length>1){
+    // El mismo código existe en más de una bodega (el código físico es el mismo sin
+    // importar dónde esté guardado el material): no hay forma de saber cuál es sin
+    // preguntar.
+    setState({escanerModal: { codigo, opciones: coincidencias, destino }});
   }else{
     setState({escanerModal: { codigo, buscarAsociar:'', asociando:false, destino }});
   }
+}
+
+// La persona elige a cuál de las bodegas encontradas corresponde el código escaneado.
+function elegirSkuEscaneado(skuId){
+  const sku = state.skus.find(s=>s.id===skuId);
+  if(!sku) return;
+  setState({skuSeleccionado: sku, escanerModal: null});
+  toast(`SKU ${sku.sku_code} encontrado`);
 }
 
 // Primera vez que se ve este código: la persona elige a mano el SKU correcto y desde
@@ -2376,13 +2397,23 @@ function renderEscanerModal(){
   const resultados = q.length? state.skus.filter(s =>
     s.sku_code.toLowerCase().includes(q) || (s.descripcion||'').toLowerCase().includes(q)
   ).slice(0,8) : [];
+  const titulo = m.opciones? 'En más de una bodega' : m.codigo? 'Código no encontrado' : 'Escanear código';
   return `<div class="foto-modal-backdrop" id="escaner-modal-backdrop">
     <div class="card" style="width:min(92vw,440px);max-height:88vh;overflow-y:auto;margin-bottom:0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h2 style="margin:0;font-size:17px">${m.codigo? 'Código no encontrado' : 'Escanear código'}</h2>
+        <h2 style="margin:0;font-size:17px">${esc(titulo)}</h2>
         <button id="escaner-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
-      ${!m.codigo? `
+      ${m.opciones? `
+        <div class="hint">Este código existe en más de una bodega. Elige cuál estás contando:</div>
+        <div style="margin-top:10px">
+          ${m.opciones.map(s=>`
+            <div class="sku-pick" data-escaner-elegir="${s.id}">
+              <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'Sin ubicación general')}</span></div>
+              <button data-escaner-elegir-btn="${s.id}">Elegir</button>
+            </div>`).join('')}
+        </div>
+      ` : !m.codigo? `
         <div id="escaner-reader" style="width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:220px"></div>
         <div class="hint" style="margin-top:10px">Apunta la cámara al código de barras o QR pegado en el SKU.</div>
         ${m.error? `<div style="color:var(--danger);font-size:12.5px;margin-top:8px">${esc(m.error)}</div>` : ''}
@@ -3669,7 +3700,11 @@ function bind(){
     document.getElementById('escaner-modal-backdrop').addEventListener('click', e=>{
       if(e.target.id === 'escaner-modal-backdrop') cerrarEscaner();
     });
-    if(!state.escanerModal.codigo){
+    if(state.escanerModal.opciones){
+      document.querySelectorAll('[data-escaner-elegir-btn]').forEach(btn=>{
+        btn.addEventListener('click', ()=> elegirSkuEscaneado(btn.dataset.escanerElegirBtn));
+      });
+    }else if(!state.escanerModal.codigo){
       if(!state.escanerModal.error) iniciarEscaner();
     }else{
       const buscar = document.getElementById('escaner-buscar');
