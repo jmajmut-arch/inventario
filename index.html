@@ -324,7 +324,7 @@ let state = {
   skuSeleccionado: null,
   conteoFotos: [],       // [{file, preview}]
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -1334,16 +1334,18 @@ async function opcionesBins(bodega, ubicacion){
 
 async function cargarDashboard(){
   try{
-    const [total, diario, semanal, mensual, ranking] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferencias] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
       rest(`/avance_mensual?order=mes.desc&limit=6`),
       rest(`/rpc/ranking_responsable`, {method:'POST', body:{dias: VENTANA_PROYECCION_DIAS}}),
+      rest(`/exactitud_por_bodega?order=bodega.asc`),
+      rest(`/reconteo_pendiente?select=*&order=diferencia_abs.desc&limit=5`),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
-      ranking: ranking||[],
+      ranking: ranking||[], exactitudBodega: exactitudBodega||[], topDiferencias: topDiferencias||[],
     }});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -2262,6 +2264,19 @@ function renderRankedBarList(filas){
   }).join('');
 }
 
+// Ranking de exactitud por bodega: a diferencia de renderRankedBarList, cada barra ya es
+// un porcentaje (0-100), así que se escala contra 100 fijo, no contra el máximo del grupo.
+function renderExactitudBarList(filas){
+  if(!filas.length) return `<div class="empty">Sin datos todavía.</div>`;
+  return filas.map(f=>`<div style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+      <span style="font-size:12.5px;color:var(--text-dim)">${esc(f.nombre)}</span>
+      <span class="mono" style="font-size:12.5px;color:var(--text)">${pct(f.pct)}% · ${f.sub}</span>
+    </div>
+    <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100,f.pct)}%"></div></div>
+  </div>`).join('');
+}
+
 // SKU que faltan por contar en cada ubicación general, de mayor a menor — dónde falta trabajar.
 function resumenPendientesPorBodega(t){
   return t
@@ -2435,6 +2450,25 @@ function renderDashboard(){
   const proyeccion = proyeccionTermino(totUniverso, totContados, totContadosPeriodo);
   const rankingResponsables = (state.dash.ranking||[]).slice(0,8);
 
+  // Exactitud: sobre el último conteo de cada SKU (no sobre cada conteo histórico), qué
+  // porcentaje cuadró contra el stock de sistema (unidades) y qué porcentaje se contó en
+  // la ubicación que dice el maestro (ubicación) — agregado por bodega en exactitud_por_bodega,
+  // igual patrón que avance_total: se suman los totales acá, en el cliente.
+  const exactBodega = state.dash.exactitudBodega||[];
+  const exactContados = exactBodega.reduce((s,r)=>s+(Number(r.skus_contados)||0),0);
+  const exactSinDif = exactBodega.reduce((s,r)=>s+(Number(r.sin_diferencia)||0),0);
+  const exactUbicOk = exactBodega.reduce((s,r)=>s+(Number(r.ubicacion_correcta)||0),0);
+  const exactitudUnidades = exactContados? (exactSinDif/exactContados*100) : 0;
+  const exactitudUbicacion = exactContados? (exactUbicOk/exactContados*100) : 0;
+  const rankingExactitud = exactBodega
+    .map(r=>({
+      nombre: r.bodega||'Sin ubicación general',
+      pct: (Number(r.skus_contados)||0)? (Number(r.sin_diferencia)||0)/Number(r.skus_contados)*100 : 0,
+      sub: `${r.sin_diferencia||0}/${r.skus_contados||0}`,
+    }))
+    .sort((a,b)=> a.pct-b.pct); // peor exactitud primero: dónde conviene intervenir
+  const topDiferencias = state.dash.topDiferencias||[];
+
   const vistaEjecutiva = `
     <div class="kpi-grid">
       <div class="tag-card">
@@ -2448,6 +2482,39 @@ function renderDashboard(){
         <div class="kpi-sub">últimos registrados</div>
       </div>
     </div>
+
+    <div class="section-head"><div><span class="eyebrow">Sobre el último conteo de cada SKU</span><h2 style="font-size:17px">Exactitud</h2></div></div>
+    <div class="kpi-grid" style="margin-bottom:14px">
+      <div class="tag-card">
+        <div class="kpi-label">De unidades</div>
+        <div class="kpi-value">${pct(exactitudUnidades)}%</div>
+        <div class="kpi-sub">${exactSinDif.toLocaleString('es-CL')} de ${exactContados.toLocaleString('es-CL')} SKU sin diferencia</div>
+      </div>
+      <div class="tag-card">
+        <div class="kpi-label">De ubicación</div>
+        <div class="kpi-value">${pct(exactitudUbicacion)}%</div>
+        <div class="kpi-sub">${exactUbicOk.toLocaleString('es-CL')} de ${exactContados.toLocaleString('es-CL')} contados donde dice el maestro</div>
+      </div>
+    </div>
+
+    ${rankingExactitud.length? `
+      <div class="section-head"><div><span class="eyebrow">Exactitud de unidades</span><h2 style="font-size:17px">Ranking por ubicación general</h2></div></div>
+      <div class="card">${renderExactitudBarList(rankingExactitud)}</div>
+    ` : ''}
+
+    ${topDiferencias.length? `
+      <div class="section-head"><div><span class="eyebrow">Mayor magnitud</span><h2 style="font-size:17px">Top materiales con diferencia</h2></div></div>
+      <div class="card"><div class="table-wrap"><table>
+        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th></tr></thead>
+        <tbody>${topDiferencias.map(r=>`<tr>
+          <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
+          <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
+          <td class="num">${r.ultima_cantidad_contada}</td>
+          <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
+          <td>${causaProbableBadge(r.causa_probable)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div></div>
+    ` : ''}
 
     <div class="section-head"><div><span class="eyebrow">Al ritmo actual</span><h2 style="font-size:17px">Proyección de término</h2></div></div>
     <div class="tag-card" style="margin-bottom:14px">
@@ -2516,6 +2583,17 @@ function renderDashboard(){
     </div>
     ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
   `;
+}
+
+const CAUSA_PROBABLE_BADGE = {
+  'Ubicación distinta y recurrente': 'badge-danger',
+  'Diferencia recurrente': 'badge-danger',
+  'Ubicación distinta': 'badge-warn',
+  'Sin patrón detectado': 'badge-neutral',
+};
+function causaProbableBadge(causa){
+  if(!causa) return '';
+  return `<span class="badge ${CAUSA_PROBABLE_BADGE[causa]||'badge-neutral'}">${esc(causa)}</span>`;
 }
 
 function estadoBadge(estado, diferencia){
@@ -2791,12 +2869,13 @@ function renderReconteo(){
     <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo no cuadra con el stock de sistema. Recuenta para corregir o confirmar la diferencia.</div>
     <div class="card">
       ${rows.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Fecha</th><th></th></tr></thead>
+        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
           <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
           <td class="num">${r.ultima_cantidad_contada}</td>
           <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
+          <td>${causaProbableBadge(r.causa_probable)}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
           <td class="num"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button></td>
         </tr>`).join('')}</tbody>
