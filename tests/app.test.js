@@ -56,6 +56,18 @@ const fakeFetchImpl = async (url, opts) => {
       ]),
     };
   }
+  if(path.startsWith('/rest/v1/categorias_sku')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {categoria:'Repuestos', cantidad_skus:120},
+      {categoria:'Seguridad', cantidad_skus:8},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/unidades_medida_sku')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {unidad_medida:'KG', cantidad_skus:15},
+      {unidad_medida:'UN', cantidad_skus:300},
+    ]) };
+  }
   if(path.startsWith('/rest/v1/ubicaciones_especificas')){
     return {
       status: 200,
@@ -433,6 +445,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const generales = ctx.__appstate.plan.generales;
   assert(Array.isArray(generales) && generales.length===2, 'cargarOpcionesGenerales debe cargar 2 filas, obtuvo: '+JSON.stringify(generales));
   assert(generales[0].bodega==='Nave Mina', 'primer valor debe ser Nave Mina');
+
+  // cargarOpcionesCategoriasUnidades: sugerencias (datalist) de categoría/unidad de medida
+  // para "Cargar SKU", basadas en lo que la empresa ya usó.
+  await ctx.cargarOpcionesCategoriasUnidades();
+  assert(JSON.stringify(ctx.__appstate.opcionesCategorias)===JSON.stringify(['Repuestos','Seguridad']), 'cargarOpcionesCategoriasUnidades debe dejar las categorías en state.opcionesCategorias, obtuvo: '+JSON.stringify(ctx.__appstate.opcionesCategorias));
+  assert(JSON.stringify(ctx.__appstate.opcionesUnidades)===JSON.stringify(['KG','UN']), 'cargarOpcionesCategoriasUnidades debe dejar las unidades en state.opcionesUnidades, obtuvo: '+JSON.stringify(ctx.__appstate.opcionesUnidades));
+
+  // renderSkus: los campos de categoría/unidad/bodega/ubicación/bin deben tener datalist
+  // con las sugerencias cargadas, sin dejar de ser texto libre (se puede cargar un valor
+  // nuevo que todavía no existe).
+  ctx.__appstate.skuFormOpciones = { ubicaciones: [{ubicacion:'Interior Nave'}], bins: [{storage_bin:'A-01'}] };
+  const htmlSkus = ctx.renderSkus();
+  assert(htmlSkus.includes('id="s-cat" list="dl-categorias"') && htmlSkus.includes('<option value="Repuestos">') && htmlSkus.includes('<option value="Seguridad">'), 'el campo categoría debe tener datalist con las categorías sugeridas, obtuvo: '+htmlSkus);
+  assert(htmlSkus.includes('id="s-um" list="dl-unidades"') && htmlSkus.includes('<option value="KG">') && htmlSkus.includes('<option value="UN">'), 'el campo unidad de medida debe tener datalist con las unidades sugeridas, obtuvo: '+htmlSkus);
+  assert(htmlSkus.includes('id="s-bodega" list="dl-sku-bodegas"') && htmlSkus.includes('<option value="Nave Mina">') && htmlSkus.includes('<option value="Nave Planta">'), 'el campo bodega debe tener datalist con las bodegas ya usadas, obtuvo: '+htmlSkus);
+  assert(htmlSkus.includes('id="s-ubic" list="dl-sku-ubicaciones"') && htmlSkus.includes('<datalist id="dl-sku-ubicaciones"><option value="Interior Nave">'), 'el campo ubicación debe tener datalist con las ubicaciones de la bodega elegida, obtuvo: '+htmlSkus);
+  assert(htmlSkus.includes('id="s-bin" list="dl-sku-bins"') && htmlSkus.includes('<datalist id="dl-sku-bins"><option value="A-01">'), 'el campo storage bin debe tener datalist con los bins de esa ubicación, obtuvo: '+htmlSkus);
+  ctx.__appstate.skuFormOpciones = { ubicaciones: [], bins: [] };
 
   const especificas = await ctx.opcionesEspecificas('Nave Mina');
   assert(especificas.length===2 && especificas[0].ubicacion==='Interior Nave', 'opcionesEspecificas debe filtrar por bodega, obtuvo: '+JSON.stringify(especificas));

@@ -347,6 +347,9 @@ let state = {
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
   equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
   ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
+  opcionesCategorias: [], // valores de categoría ya usados por la empresa (sugerencia en "Cargar SKU")
+  opcionesUnidades: [],   // valores de unidad de medida ya usados por la empresa (idem)
+  skuFormOpciones: { ubicaciones: [], bins: [] }, // sugerencias de ubicación/bin en "Cargar SKU", en cascada según la bodega/ubicación tipeada
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo' };
@@ -747,7 +750,7 @@ function handleLogout(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()]);
 }
 
 async function cargarSkus(){
@@ -1316,6 +1319,21 @@ async function cargarConteoSinUbicacion(){
     const total = await contarUniversoUbicacion({soloSinUbicacion:true});
     setState({plan: {...state.plan, sinUbicacionCount: total}});
   }catch(e){ /* no bloquea la planificación normal si esto falla */ }
+}
+
+// Categorías y unidades de medida ya usadas por la empresa, para sugerirlas (datalist) al
+// cargar un SKU nuevo y evitar variantes del mismo valor por typo (ej. "Repuesto" vs "Repuestos").
+async function cargarOpcionesCategoriasUnidades(){
+  try{
+    const [categorias, unidades] = await Promise.all([
+      rest('/categorias_sku?order=categoria.asc'),
+      rest('/unidades_medida_sku?order=unidad_medida.asc'),
+    ]);
+    setState({
+      opcionesCategorias: (categorias||[]).map(c=>c.categoria),
+      opcionesUnidades: (unidades||[]).map(u=>u.unidad_medida),
+    });
+  }catch(e){ /* la sugerencia es un plus, no bloquea el formulario si falla */ }
 }
 
 async function opcionesEspecificas(bodega){
@@ -1908,6 +1926,17 @@ async function reintentarAccionOffline(id){
 // agregada/quitada borraba lo que la persona ya había tipeado, en especial la cantidad.
 function conservandoCamposConteo(fn){
   const ids = ['c-cant', 'c-bodega', 'c-ubic', 'c-obs'];
+  const valores = {};
+  ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
+  fn();
+  ids.forEach(id=>{ const el = document.getElementById(id); if(el && valores[id]!==undefined) el.value = valores[id]; });
+}
+
+// Mismo problema que conservandoCamposConteo: refrescar las sugerencias de ubicación/bin
+// en "Cargar SKU" implica un render() completo, que si no se hace con cuidado borraría lo
+// que la persona ya tipeó en los otros campos del formulario (descripción, categoría, etc.).
+function conservandoCamposSku(fn){
+  const ids = ['s-code', 's-desc', 's-cat', 's-um', 's-bodega', 's-ubic', 's-bin', 's-stock'];
   const valores = {};
   ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
   fn();
@@ -2663,21 +2692,26 @@ function renderSkus(){
         <label for="s-desc">Descripción</label>
         <input type="text" id="s-desc" placeholder="Ej. Filtro hidraulico 3 pulgadas">
         <div class="row2">
-          <div><label for="s-cat">Categoría</label><input type="text" id="s-cat" placeholder="Repuestos"></div>
-          <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" placeholder="UN, KG, LT..."></div>
+          <div><label for="s-cat">Categoría</label><input type="text" id="s-cat" list="dl-categorias" autocomplete="off" placeholder="Repuestos"></div>
+          <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" list="dl-unidades" autocomplete="off" placeholder="UN, KG, LT..."></div>
         </div>
         <div class="row2">
-          <div><label for="s-bodega">Ubicación general</label><input type="text" id="s-bodega" placeholder="Bodega Central"></div>
-          <div><label for="s-ubic">Ubicación específica</label><input type="text" id="s-ubic" placeholder="Pasillo 3"></div>
+          <div><label for="s-bodega">Ubicación general</label><input type="text" id="s-bodega" list="dl-sku-bodegas" autocomplete="off" placeholder="Bodega Central"></div>
+          <div><label for="s-ubic">Ubicación específica</label><input type="text" id="s-ubic" list="dl-sku-ubicaciones" autocomplete="off" placeholder="Pasillo 3"></div>
         </div>
         <label for="s-bin">Storage bin</label>
-        <input type="text" id="s-bin" placeholder="Ej. A-12-03">
+        <input type="text" id="s-bin" list="dl-sku-bins" autocomplete="off" placeholder="Ej. A-12-03">
         <label for="s-stock">Stock según sistema</label>
         <input type="number" id="s-stock" step="0.01" min="0" placeholder="0">
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar SKU'}</button>
         </div>
       </form>
+      <datalist id="dl-categorias">${state.opcionesCategorias.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+      <datalist id="dl-unidades">${state.opcionesUnidades.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
+      <datalist id="dl-sku-bodegas">${(state.plan.generales||[]).map(g=>`<option value="${esc(g.bodega)}">`).join('')}</datalist>
+      <datalist id="dl-sku-ubicaciones">${state.skuFormOpciones.ubicaciones.map(u=>`<option value="${esc(u.ubicacion)}">`).join('')}</datalist>
+      <datalist id="dl-sku-bins">${state.skuFormOpciones.bins.map(b=>`<option value="${esc(b.storage_bin)}">`).join('')}</datalist>
     </div>
 
     ${renderTablaSkus()}
@@ -3923,6 +3957,18 @@ function bind(){
   if(state.view==='skus'){
     const btnEscanearSkuCode = document.getElementById('btn-escanear-sku-code');
     if(btnEscanearSkuCode) btnEscanearSkuCode.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'campo-sku'}}));
+    // Sugerencias en cascada (datalist, no select forzado: acá se puede estar cargando una
+    // ubicación nueva que todavía no existe) — al salir del campo bodega/ubicación, se
+    // refrescan las opciones de ubicación específica/storage bin para esa bodega.
+    document.getElementById('s-bodega').addEventListener('change', async e=>{
+      const opciones = await opcionesEspecificas(e.target.value.trim());
+      conservandoCamposSku(()=> setState({skuFormOpciones: {...state.skuFormOpciones, ubicaciones: opciones}}));
+    });
+    document.getElementById('s-ubic').addEventListener('change', async e=>{
+      const bodega = document.getElementById('s-bodega').value.trim();
+      const opciones = await opcionesBins(bodega, e.target.value.trim());
+      conservandoCamposSku(()=> setState({skuFormOpciones: {...state.skuFormOpciones, bins: opciones}}));
+    });
     document.getElementById('form-sku').addEventListener('submit', async e=>{
       e.preventDefault();
       const payload = {
