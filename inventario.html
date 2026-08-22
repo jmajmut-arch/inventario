@@ -311,9 +311,11 @@ let state = {
   view: 'dashboard',
   loading: false,
   debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
+  empresaBloqueada: null,    // {motivo:'inactiva'|'morosa', nombre} cuando la empresa del usuario está bloqueada
   authRecuperar: false,      // true muestra el formulario de "olvidé mi contraseña" en vez del login
   invitandoPersona: false,   // spinner del botón "Enviar invitación" (panel super-admin o equipo de la empresa)
   iniciandoSuscripcionFlow: false, // spinner del botón "Suscribirme con tarjeta" en Configuraciones
+  cancelandoSuscripcionFlow: false, // spinner del botón "Cancelar suscripción" en Configuraciones
   avisoFlow: null,           // 'ok'|'error'|null, viene del ?flow= al volver de registrar la tarjeta en Flow
   skus: [],
   skuSearch: '',
@@ -523,12 +525,26 @@ async function restaurarSesionGuardada(){
   const ok = await refrescarSesion();
   if(!ok){ state.session = null; borrarSesionGuardada(); return; }
   await cargarPerfil();
+  if(state.empresaBloqueada) return; // sesión sigue viva: se muestra la pantalla de cuenta bloqueada
   if(!state.perfil){ state.session = null; borrarSesionGuardada(); return; }
   cargarTodo();
 }
 
 async function cargarPerfil(){
   const uid = state.session.user.id;
+  // Antes de pedir el perfil normal, revisamos si la empresa está bloqueada (inactiva o
+  // con la suscripción morosa). empresa_actual() ya no deja leer nada en ese caso, así que
+  // sin este chequeo aparte el usuario vería un login roto en vez de saber por qué.
+  try{
+    const estado = await rest('/rpc/mi_estado_bloqueo', {method:'POST'});
+    const info = estado && estado[0];
+    if(info && info.bloqueada){
+      state.perfil = null;
+      state.empresaBloqueada = {motivo: info.motivo, nombre: info.empresa_nombre};
+      return;
+    }
+  }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
+  state.empresaBloqueada = null;
   const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
@@ -613,6 +629,26 @@ async function iniciarSuscripcionFlow(planNombre){
   }
 }
 
+async function cancelarSuscripcionFlow(){
+  if(!confirm('¿Cancelar tu suscripción? Seguirás con acceso hasta el fin del período ya pagado, pero no se renovará después.')) return;
+  state.cancelandoSuscripcionFlow = true;
+  render();
+  try{
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/flow-cancelar-suscripcion`, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'No se pudo cancelar la suscripción');
+    if(state.perfil && state.perfil.empresas) state.perfil.empresas.flow_subscription_status = 'cancelada';
+    toast('Suscripción cancelada');
+  }catch(e){
+    toast(e.message,'err');
+  }
+  state.cancelandoSuscripcionFlow = false;
+  render();
+}
+
 async function establecerPassword(nuevaPassword){
   try{
     setState({loading:true});
@@ -626,6 +662,7 @@ async function establecerPassword(nuevaPassword){
     guardarSesion(state.session);
     await cargarPerfil();
     setState({loading:false, debeCrearPassword:false, view:'dashboard'});
+    if(state.empresaBloqueada) return;
     toast(`Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
     cargarTodo();
   }catch(e){
@@ -657,7 +694,7 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
   render();
   toast('Sesión cerrada');
 }
@@ -3217,10 +3254,16 @@ function renderPlanYFacturacion(empresa){
   if(esAutoservicio){
     if(estado === 'activa'){
       estadoHtml = `<span class="badge badge-ok">Suscripción activa</span>`;
-      botonHtml = `<button type="button" class="btn btn-secondary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Actualizar método de pago'}</button>`;
+      botonHtml = `
+        <button type="button" class="btn btn-secondary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Actualizar método de pago'}</button>
+        <button type="button" class="btn btn-secondary" id="btn-cancelar-suscripcion-flow" style="width:auto;padding:8px 14px;margin-top:10px;margin-left:8px;color:var(--danger)" ${state.cancelandoSuscripcionFlow?'disabled':''}>${state.cancelandoSuscripcionFlow?'Cancelando…':'Cancelar suscripción'}</button>
+      `;
     } else if(estado === 'morosa'){
       estadoHtml = `<span class="badge badge-danger">Hubo un problema con el último cobro</span>`;
       botonHtml = `<button type="button" class="btn btn-primary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Actualizar tarjeta'}</button>`;
+    } else if(estado === 'cancelada'){
+      estadoHtml = `<div class="hint">Tu suscripción quedó cancelada: seguirá activa hasta el fin del período ya pagado, sin renovarse después.</div>`;
+      botonHtml = `<button type="button" class="btn btn-primary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Suscribirme de nuevo'}</button>`;
     } else {
       estadoHtml = `<div class="hint">Todavía no tienes un método de pago activo para este plan.</div>`;
       botonHtml = `<button type="button" class="btn btn-primary" data-suscribir-flow="${nombrePlan}" style="width:auto;padding:8px 14px;margin-top:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':'Suscribirme con tarjeta'}</button>`;
@@ -3412,8 +3455,25 @@ function tabBtn(view,label){
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
   const root = document.getElementById('app');
-  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : state.session ? renderShell() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderEscanerModal();
+  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderEscanerModal();
   bind();
+}
+
+function renderCuentaBloqueada(){
+  const {motivo, nombre} = state.empresaBloqueada;
+  const mensaje = motivo === 'morosa'
+    ? 'Hubo un problema con el último cobro de tu suscripción y no se pudo regularizar automáticamente.'
+    : 'Esta cuenta fue pausada.';
+  return `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="brand-badge" style="margin:0 auto 16px">IA</div>
+        <h1 style="text-align:center">${esc(nombre)}</h1>
+        <p class="hint" style="text-align:center;margin-bottom:20px">${mensaje} Escríbenos a <a href="mailto:contacto@inventiapp.cl">contacto@inventiapp.cl</a> para reactivarla.</p>
+        <button type="button" id="btn-salir-bloqueada" class="btn btn-secondary">Salir</button>
+      </div>
+    </div>
+  `;
 }
 
 function bind(){
@@ -3466,6 +3526,10 @@ function bind(){
       e.preventDefault();
       establecerPassword(document.getElementById('f-nueva-pass').value);
     });
+    return;
+  }
+  if(state.session && state.empresaBloqueada){
+    document.getElementById('btn-salir-bloqueada').addEventListener('click', handleLogout);
     return;
   }
   if(!state.session){
@@ -3521,6 +3585,8 @@ function bind(){
     document.querySelectorAll('[data-suscribir-flow]').forEach(btn=>{
       btn.addEventListener('click', ()=> iniciarSuscripcionFlow(btn.dataset.suscribirFlow));
     });
+    const btnCancelarSuscripcion = document.getElementById('btn-cancelar-suscripcion-flow');
+    if(btnCancelarSuscripcion) btnCancelarSuscripcion.addEventListener('click', cancelarSuscripcionFlow);
     const formInvitarEquipo = document.getElementById('form-invitar-equipo');
     if(formInvitarEquipo) formInvitarEquipo.addEventListener('submit', e=>{
       e.preventDefault();

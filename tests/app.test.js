@@ -18,11 +18,18 @@ function assert(cond, msg){
   }
 }
 
+let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
   const u = new URL(url);
   const path = u.pathname + u.search;
+  if(path.startsWith('/rest/v1/rpc/mi_estado_bloqueo')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([estadoBloqueoRespuesta]) };
+  }
+  if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
+  }
   if(path.startsWith('/rest/v1/plan_semanal_detalle')){
     return {
       status: 200,
@@ -973,6 +980,59 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.location.search = '?flow=ok';
   ctx.procesarRetornoFlow();
   assert(ctx.__appstate.avisoFlow==='ok', 'debe guardar el resultado del retorno de Flow en el estado, obtuvo: '+ctx.__appstate.avisoFlow);
+
+  // Con suscripción activa debe verse el botón para cancelar, además del de actualizar tarjeta.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', flow_subscription_status:'activa', planes:{nombre:'profesional', etiqueta:'Profesional'}} };
+  const htmlPlanConCancelar = ctx.renderConfiguraciones();
+  assert(htmlPlanConCancelar.includes('id="btn-cancelar-suscripcion-flow"') && htmlPlanConCancelar.includes('Cancelar suscripción'), 'con suscripción activa debe ofrecer cancelarla, obtuvo: '+htmlPlanConCancelar);
+
+  // Suscripción cancelada: sin botón de cancelar, con aviso y opción de re-suscribirse.
+  // (iniciarSuscripcionFlow, más arriba, dejó iniciandoSuscripcionFlow en true porque en la app
+  // real la redirección a Flow saca de la página antes de que importe resetearlo.)
+  ctx.__appstate.iniciandoSuscripcionFlow = false;
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', flow_subscription_status:'cancelada', planes:{nombre:'profesional', etiqueta:'Profesional'}} };
+  const htmlPlanCancelada = ctx.renderConfiguraciones();
+  assert(!htmlPlanCancelada.includes('id="btn-cancelar-suscripcion-flow"'), 'una suscripción ya cancelada no debe ofrecer cancelarla de nuevo, obtuvo: '+htmlPlanCancelada);
+  assert(htmlPlanCancelada.includes('Suscribirme de nuevo'), 'debe ofrecer volver a suscribirse, obtuvo: '+htmlPlanCancelada);
+
+  // cancelarSuscripcionFlow: pide confirmación, y si se cancela no llama a nada.
+  ctx.__appstate.session = { access_token:'tok-ana', user:{email:'ana@minera.cl'} };
+  confirmRespuesta = false; calls.length = 0;
+  await ctx.cancelarSuscripcionFlow();
+  assert(!calls.some(c=>c.url.includes('/functions/v1/flow-cancelar-suscripcion')), 'si no se confirma, no debe llamar a la Edge Function, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si se confirma, llama a la Edge Function y deja la suscripción marcada como cancelada.
+  confirmRespuesta = true; calls.length = 0;
+  await ctx.cancelarSuscripcionFlow();
+  const invokeCancelarCall = calls.find(c=>c.url.includes('/functions/v1/flow-cancelar-suscripcion'));
+  assert(!!invokeCancelarCall, 'cancelarSuscripcionFlow debe llamar a la Edge Function flow-cancelar-suscripcion, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(invokeCancelarCall.opts.headers.Authorization==='Bearer tok-ana', 'debe mandar el access_token de la sesión, obtuvo: '+invokeCancelarCall.opts.headers.Authorization);
+  assert(ctx.__appstate.perfil.empresas.flow_subscription_status==='cancelada', 'debe reflejar la cancelación en el estado local sin esperar a recargar el perfil, obtuvo: '+ctx.__appstate.perfil.empresas.flow_subscription_status);
+  confirmRespuesta = true;
+
+  // ===== Flow.cl: bloqueo de cuenta (inactiva o morosa) =====
+
+  // cargarPerfil consulta primero mi_estado_bloqueo(); si la empresa está bloqueada, no debe
+  // ni intentar traer el perfil normal (que igual fallaría por RLS), sino dejar marcado el motivo.
+  ctx.__appstate.session = { access_token:'tok-x', user:{id:'user-1', email:'joel@test.com'} };
+  ctx.__appstate.perfil = null;
+  estadoBloqueoRespuesta = { bloqueada: true, motivo: 'morosa', empresa_nombre: 'Minera Andes' };
+  calls.length = 0;
+  await ctx.cargarPerfil();
+  assert(!!ctx.__appstate.empresaBloqueada && ctx.__appstate.empresaBloqueada.motivo==='morosa', 'cargarPerfil debe marcar la empresa como bloqueada con el motivo correcto, obtuvo: '+JSON.stringify(ctx.__appstate.empresaBloqueada));
+  assert(ctx.__appstate.perfil===null, 'con la empresa bloqueada, perfil debe quedar null, obtuvo: '+JSON.stringify(ctx.__appstate.perfil));
+  assert(!calls.some(c=>c.url.includes('/rest/v1/usuarios?auth_user_id=eq.')), 'no debe intentar traer el perfil normal si ya sabe que está bloqueada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  const htmlBloqueadaMorosa = ctx.renderCuentaBloqueada();
+  assert(htmlBloqueadaMorosa.includes('Minera Andes') && /último cobro/i.test(htmlBloqueadaMorosa), 'debe mostrar el nombre de la empresa y explicar el motivo de mora, obtuvo: '+htmlBloqueadaMorosa);
+  assert(htmlBloqueadaMorosa.includes('id="btn-salir-bloqueada"'), 'debe ofrecer un botón para salir, obtuvo: '+htmlBloqueadaMorosa);
+
+  // Sin bloqueo, cargarPerfil sigue funcionando como antes (perfil normal, sin motivo de bloqueo).
+  estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
+  ctx.__appstate.session = { access_token:'tok-x', user:{id:'user-1', email:'joel@test.com'} };
+  await ctx.cargarPerfil();
+  assert(ctx.__appstate.empresaBloqueada===null, 'sin bloqueo, empresaBloqueada debe quedar en null, obtuvo: '+JSON.stringify(ctx.__appstate.empresaBloqueada));
+  assert(!!ctx.__appstate.perfil, 'sin bloqueo, debe cargar el perfil normal, obtuvo: '+JSON.stringify(ctx.__appstate.perfil));
 
   // ===== Multi-tenencia (empresas) =====
 
