@@ -13,6 +13,7 @@
     --bg:#faf6ee; --surface:#ffffff; --surface-2:#f1e9d8; --line:#e7dcc4;
     --amber:#bd5b2c; --amber-dim:#8c4520; --on-amber:#fffaf3;
     --text:#241a10; --text-dim:#5f5142; --text-faint:#9c8b76;
+    --good:#3f7d4f; --good-bg:rgba(63,125,79,.1);
   }
   *{box-sizing:border-box;}
   html{scroll-behavior:smooth;}
@@ -186,6 +187,43 @@
   .footer-credit a{display:inline-flex;align-items:center;gap:5px;margin-left:4px;color:var(--amber-dim);font-weight:600;text-decoration:none;border-bottom:1px solid transparent;padding-bottom:1px;transition:border-color .15s ease,color .15s ease;}
   .footer-credit a:hover{color:var(--amber);border-color:var(--amber);}
   .footer-credit a svg{width:13px;height:13px;}
+
+  /* ---- calculadora de ROI ---- */
+  .roi-panel{background:var(--surface);border-radius:22px;box-shadow:0 18px 40px -26px rgba(36,26,16,.28);overflow:hidden;}
+  .roi-grid{display:grid;grid-template-columns:1fr 1fr;}
+  @media (max-width:760px){ .roi-grid{grid-template-columns:1fr;} }
+  .roi-col{padding:34px 32px;}
+  .roi-col + .roi-col{border-left:1px solid var(--line);}
+  @media (max-width:760px){ .roi-col + .roi-col{border-left:none;border-top:1px solid var(--line);} }
+  .roi-col.roi-result{background:var(--surface-2);}
+  .roi-col-label{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--amber-dim);margin-bottom:20px;}
+  .roi-field{margin-bottom:20px;}
+  .roi-field label{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;}
+  .roi-field label .roi-hint{font-weight:400;color:var(--text-faint);font-size:11.5px;}
+  .roi-field-input{position:relative;}
+  .roi-field-input input[type="number"]{width:100%;padding:11px 64px 11px 14px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--text);font-family:'Inter';font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;transition:border-color .15s ease,box-shadow .15s ease;}
+  .roi-field-input input[type="number"]:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(189,91,44,.14);}
+  .roi-field-input .roi-suffix{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-faint);pointer-events:none;font-family:'IBM Plex Mono',monospace;}
+  .roi-assumptions{margin-top:26px;padding-top:22px;border-top:1px dashed var(--line);}
+  .roi-assumptions-label{font-size:11.5px;color:var(--text-faint);margin-bottom:14px;line-height:1.5;}
+  .roi-assumptions-row{display:flex;gap:14px;}
+  .roi-assumptions .roi-field{flex:1;margin-bottom:0;}
+  .roi-assumptions input[type="number"]{font-size:13px;padding:9px 38px 9px 12px;font-weight:600;}
+  .roi-assumptions .roi-field-input .roi-suffix{right:12px;}
+  .roi-assumptions .roi-field label{font-size:11.5px;font-weight:500;color:var(--text-dim);}
+  .roi-result-block{margin-bottom:26px;}
+  .roi-result-block:last-of-type{margin-bottom:0;}
+  .roi-result-label{font-size:12.5px;color:var(--text-dim);margin-bottom:4px;}
+  .roi-result-value{font-family:'Barlow Condensed';font-weight:800;font-size:clamp(1.9rem,4vw,2.4rem);line-height:1;color:var(--text);font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:8px;}
+  .roi-result-value .roi-unit{font-size:14px;font-weight:600;color:var(--text-faint);font-family:'Inter';}
+  .roi-result-value.roi-good{color:var(--good);}
+  .roi-result-divider{height:1px;background:var(--line);margin:24px 0;}
+  .roi-payoff{background:var(--good-bg);border-radius:14px;padding:16px 18px;display:flex;align-items:center;gap:12px;}
+  .roi-payoff-icon{width:34px;height:34px;border-radius:50%;background:var(--good);flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+  .roi-payoff-icon svg{width:16px;height:16px;stroke:var(--surface);stroke-width:3;fill:none;}
+  .roi-payoff-text{font-size:13px;line-height:1.5;color:var(--text);}
+  .roi-payoff-text b{color:var(--good);font-family:'Barlow Condensed';font-size:15px;font-weight:800;}
+  .roi-fineprint{margin-top:20px;font-size:11px;line-height:1.6;color:var(--text-faint);}
 </style>
 </head>
 <body>
@@ -373,6 +411,123 @@
           <div class="ghost-num mono">03</div>
           <h3>Cuenta en terreno</h3>
           <p>Busca el SKU, ingresa la cantidad y saca una o más fotografías de respaldo, incluso sin señal. El dashboard se actualiza solo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="roi">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="section-title">¿Cuánto te cuesta hoy tu inventario?</div>
+        <div class="section-sub">Cuéntanos cómo lo haces ahora y te mostramos cuánto tiempo y plata podrías dejar de gastar contando a mano.</div>
+      </div>
+
+      <div class="roi-panel reveal">
+        <div class="roi-grid">
+
+          <div class="roi-col">
+            <div class="roi-col-label">Tu operación hoy</div>
+
+            <div class="roi-field">
+              <label for="roi-skus">Materiales (SKU) a contar</label>
+              <div class="roi-field-input">
+                <input type="number" id="roi-skus" value="8000" min="0" step="100">
+                <span class="roi-suffix">SKU</span>
+              </div>
+            </div>
+
+            <div class="roi-field">
+              <label for="roi-personas">Personas en el equipo de conteo</label>
+              <div class="roi-field-input">
+                <input type="number" id="roi-personas" value="4" min="1" step="1">
+                <span class="roi-suffix">pers.</span>
+              </div>
+            </div>
+
+            <div class="roi-field">
+              <label for="roi-dias">Días que toma un inventario completo</label>
+              <div class="roi-field-input">
+                <input type="number" id="roi-dias" value="5" min="0.5" step="0.5">
+                <span class="roi-suffix">días</span>
+              </div>
+            </div>
+
+            <div class="roi-field">
+              <label for="roi-consolidacion">Horas de consolidación manual después<span class="roi-hint">Excel, cruces, revisión</span></label>
+              <div class="roi-field-input">
+                <input type="number" id="roi-consolidacion" value="16" min="0" step="1">
+                <span class="roi-suffix">horas</span>
+              </div>
+            </div>
+
+            <div class="roi-field">
+              <label for="roi-costo">Costo cargado por hora, por persona</label>
+              <div class="roi-field-input">
+                <input type="number" id="roi-costo" value="6000" min="0" step="500">
+                <span class="roi-suffix">CLP</span>
+              </div>
+            </div>
+
+            <div class="roi-field">
+              <label for="roi-frecuencia">Inventarios completos al año</label>
+              <div class="roi-field-input">
+                <input type="number" id="roi-frecuencia" value="2" min="1" step="1">
+                <span class="roi-suffix">al año</span>
+              </div>
+            </div>
+
+            <div class="roi-assumptions">
+              <div class="roi-assumptions-label">Supuestos de mejora con InventIA (ajústalos si tu caso es distinto):</div>
+              <div class="roi-assumptions-row">
+                <div class="roi-field">
+                  <label for="roi-mejora-conteo">Menos tiempo contando</label>
+                  <div class="roi-field-input">
+                    <input type="number" id="roi-mejora-conteo" value="30" min="0" max="90" step="5">
+                    <span class="roi-suffix">%</span>
+                  </div>
+                </div>
+                <div class="roi-field">
+                  <label for="roi-mejora-consolidacion">Menos consolidación</label>
+                  <div class="roi-field-input">
+                    <input type="number" id="roi-mejora-consolidacion" value="90" min="0" max="100" step="5">
+                    <span class="roi-suffix">%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="roi-col roi-result">
+            <div class="roi-col-label">Con InventIA</div>
+
+            <div class="roi-result-block">
+              <div class="roi-result-label">Horas que te ahorras por inventario</div>
+              <div class="roi-result-value roi-good" id="roi-out-horas">—<span class="roi-unit">horas</span></div>
+            </div>
+
+            <div class="roi-result-block">
+              <div class="roi-result-label">Costo evitado por inventario</div>
+              <div class="roi-result-value" id="roi-out-costo-evento">—</div>
+            </div>
+
+            <div class="roi-result-divider"></div>
+
+            <div class="roi-result-block">
+              <div class="roi-result-label">Costo evitado al año</div>
+              <div class="roi-result-value roi-good" id="roi-out-costo-anual">—</div>
+            </div>
+
+            <div class="roi-payoff">
+              <div class="roi-payoff-icon"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+              <div class="roi-payoff-text" id="roi-out-payoff">—</div>
+            </div>
+
+            <div class="roi-fineprint">
+              Estimación con fines ilustrativos, basada en los supuestos de mejora indicados a la izquierda. El ahorro real depende de tu operación. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial).
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -766,6 +921,55 @@
       vistaSlides.forEach(function(s){ vistaIo.observe(s); });
     }
   }
+</script>
+
+<script>
+  (function(){
+    var roiSkus = document.getElementById('roi-skus');
+    if(!roiSkus) return;
+
+    var $ = function(id){ return document.getElementById(id); };
+    var fmtCLP = function(n){ return '$' + Math.round(n).toLocaleString('es-CL'); };
+    var fmtHoras = function(n){ return Math.round(n).toLocaleString('es-CL'); };
+    var PRECIO_PLAN_MENSUAL_CLP = 273000;
+
+    function roiCalcular(){
+      var dias = parseFloat($('roi-dias').value) || 0;
+      var personas = parseFloat($('roi-personas').value) || 0;
+      var consolidacion = parseFloat($('roi-consolidacion').value) || 0;
+      var costoHora = parseFloat($('roi-costo').value) || 0;
+      var frecuencia = parseFloat($('roi-frecuencia').value) || 0;
+      var mejoraConteo = (parseFloat($('roi-mejora-conteo').value) || 0) / 100;
+      var mejoraConsolidacion = (parseFloat($('roi-mejora-consolidacion').value) || 0) / 100;
+
+      var horasConteoHoy = dias * 8 * personas;
+      var horasTotalesHoy = horasConteoHoy + consolidacion;
+
+      var horasConteoAhorradas = horasConteoHoy * mejoraConteo;
+      var horasConsolidacionAhorradas = consolidacion * mejoraConsolidacion;
+      var horasAhorradasPorEvento = horasConteoAhorradas + horasConsolidacionAhorradas;
+
+      var costoEvitadoPorEvento = horasAhorradasPorEvento * costoHora;
+      var costoEvitadoAnual = costoEvitadoPorEvento * frecuencia;
+
+      $('roi-out-horas').innerHTML = fmtHoras(horasAhorradasPorEvento) + '<span class="roi-unit">de ' + fmtHoras(horasTotalesHoy) + ' horas</span>';
+      $('roi-out-costo-evento').textContent = fmtCLP(costoEvitadoPorEvento);
+      $('roi-out-costo-anual').textContent = fmtCLP(costoEvitadoAnual);
+
+      var costoPlanAnual = PRECIO_PLAN_MENSUAL_CLP * 12;
+      if(costoEvitadoAnual <= 0){
+        $('roi-out-payoff').innerHTML = 'Ajusta los datos de la izquierda para ver el resultado.';
+      }else{
+        var vecesElPlan = costoEvitadoAnual / costoPlanAnual;
+        $('roi-out-payoff').innerHTML = 'El ahorro anual equivale a <b>' + vecesElPlan.toFixed(1).replace('.', ',') + '×</b> el costo del plan Profesional durante todo el año.';
+      }
+    }
+
+    document.querySelectorAll('#roi input[type="number"]').forEach(function(el){
+      el.addEventListener('input', roiCalcular);
+    });
+    roiCalcular();
+  })();
 </script>
 
 <script>
