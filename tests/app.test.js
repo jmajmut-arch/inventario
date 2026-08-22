@@ -133,6 +133,9 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/functions/v1/invite-user')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
   }
+  if(path.startsWith('/functions/v1/flow-iniciar-suscripcion')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"url":"https://sandbox.flow.cl/app/customer/disclaimer.php?token=tok-flow-1"}', json: async()=>({url:'https://sandbox.flow.cl/app/customer/disclaimer.php?token=tok-flow-1'}) };
+  }
   if(path.startsWith('/auth/v1/token?grant_type=refresh_token')){
     const sesion = {access_token:'token-refrescado', refresh_token:'refresh-2', user:{id:'user-1', email:'joel@test.com'}};
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(sesion), json: async()=>sesion };
@@ -928,6 +931,48 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashPro.includes('data-dash-modo="ejecutivo"'), 'plan profesional debe mostrar el botón del modo Ejecutivo, obtuvo: '+htmlDashPro);
   const htmlConfigPro = ctx.renderConfiguraciones();
   assert(htmlConfigPro.includes('Auditoría de cambios'), 'plan profesional debe mostrar la sección de auditoría para un admin, obtuvo: '+htmlConfigPro);
+
+  // ===== Flow.cl: sección "Plan y facturación" en Configuraciones =====
+
+  // Plan básico sin suscripción activa (flow_subscription_status null): debe ofrecer suscribirse.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', flow_subscription_status:null, planes:{nombre:'basico', etiqueta:'Básico'}} };
+  const htmlPlanSinSuscribir = ctx.renderConfiguraciones();
+  assert(htmlPlanSinSuscribir.includes('data-suscribir-flow="basico"'), 'plan básico sin suscripción debe ofrecer el botón para suscribirse con Flow, obtuvo: '+htmlPlanSinSuscribir);
+  assert(htmlPlanSinSuscribir.includes('Suscribirme con tarjeta'), 'debe mostrar el texto del botón de suscripción, obtuvo: '+htmlPlanSinSuscribir);
+
+  // Plan profesional con suscripción activa: badge de activa + botón para actualizar tarjeta, no de suscribirse por primera vez.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', flow_subscription_status:'activa', planes:{nombre:'profesional', etiqueta:'Profesional'}} };
+  const htmlPlanActivo = ctx.renderConfiguraciones();
+  assert(htmlPlanActivo.includes('badge-ok') && htmlPlanActivo.includes('Suscripción activa'), 'con suscripción activa debe mostrar el badge correspondiente, obtuvo: '+htmlPlanActivo);
+  assert(htmlPlanActivo.includes('Actualizar método de pago'), 'con suscripción activa el botón debe ofrecer actualizar el método de pago, obtuvo: '+htmlPlanActivo);
+
+  // Suscripción morosa: badge de alerta + botón para actualizar la tarjeta.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', flow_subscription_status:'morosa', planes:{nombre:'basico', etiqueta:'Básico'}} };
+  const htmlPlanMoroso = ctx.renderConfiguraciones();
+  assert(htmlPlanMoroso.includes('badge-danger') && htmlPlanMoroso.includes('problema con el último cobro'), 'suscripción morosa debe avisar del problema con el cobro, obtuvo: '+htmlPlanMoroso);
+  assert(htmlPlanMoroso.includes('Actualizar tarjeta'), 'suscripción morosa debe ofrecer actualizar la tarjeta, obtuvo: '+htmlPlanMoroso);
+
+  // Plan Empresa: no es autoservicio, no debe ofrecer el botón de Flow, sino el contacto por correo.
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', flow_subscription_status:null, planes:{nombre:'empresa', etiqueta:'Empresa'}} };
+  const htmlPlanEmpresa = ctx.renderConfiguraciones();
+  assert(!htmlPlanEmpresa.includes('data-suscribir-flow'), 'plan Empresa no debe ofrecer suscripción automática, obtuvo: '+htmlPlanEmpresa);
+  assert(htmlPlanEmpresa.includes('contacto@inventiapp.cl'), 'plan Empresa debe invitar a escribir directo, obtuvo: '+htmlPlanEmpresa);
+
+  // iniciarSuscripcionFlow: llama a la Edge Function con el plan elegido y redirige al link de Flow.
+  ctx.__appstate.session = { access_token:'tok-ana', user:{email:'ana@minera.cl'} };
+  ctx.location.href = '';
+  calls.length = 0;
+  await ctx.iniciarSuscripcionFlow('basico');
+  const invokeFlowCall = calls.find(c=>c.url.includes('/functions/v1/flow-iniciar-suscripcion'));
+  assert(!!invokeFlowCall, 'iniciarSuscripcionFlow debe llamar a la Edge Function flow-iniciar-suscripcion, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(invokeFlowCall.opts.headers.Authorization==='Bearer tok-ana', 'debe mandar el access_token de la sesión, obtuvo: '+invokeFlowCall.opts.headers.Authorization);
+  assert(JSON.parse(invokeFlowCall.opts.body).planNombre==='basico', 'debe mandar el plan elegido, obtuvo: '+invokeFlowCall.opts.body);
+  assert(ctx.location.href==='https://sandbox.flow.cl/app/customer/disclaimer.php?token=tok-flow-1', 'debe redirigir al link que devuelve Flow, obtuvo: '+ctx.location.href);
+
+  // procesarRetornoFlow: detecta ?flow=ok/error en la URL de retorno y limpia el query string.
+  ctx.location.search = '?flow=ok';
+  ctx.procesarRetornoFlow();
+  assert(ctx.__appstate.avisoFlow==='ok', 'debe guardar el resultado del retorno de Flow en el estado, obtuvo: '+ctx.__appstate.avisoFlow);
 
   // ===== Multi-tenencia (empresas) =====
 
