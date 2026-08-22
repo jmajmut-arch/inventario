@@ -236,6 +236,7 @@
   .roi-field-input input[type="number"]{width:100%;padding:11px 64px 11px 14px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--text);font-family:'Inter';font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;transition:border-color .15s ease,box-shadow .15s ease;}
   .roi-field-input input[type="number"]:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(189,91,44,.14);}
   .roi-field-input .roi-suffix{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-faint);pointer-events:none;font-family:'IBM Plex Mono',monospace;}
+  .roi-implied{margin-top:8px;font-size:11.5px;color:var(--text-faint);}
   .roi-assumptions{margin-top:26px;padding-top:22px;border-top:1px dashed var(--line);}
   .roi-assumptions-label{font-size:11.5px;color:var(--text-faint);margin-bottom:14px;line-height:1.5;}
   .roi-assumptions-row{display:flex;gap:14px;}
@@ -492,6 +493,7 @@
                 <input type="number" id="roi-dias" value="5" min="0.5" step="0.5">
                 <span class="roi-suffix">días</span>
               </div>
+              <div class="roi-implied" id="roi-implied-ritmo">—</div>
             </div>
 
             <div class="roi-field">
@@ -1022,6 +1024,16 @@
       var mejoraConsolidacion = (parseFloat($('roi-mejora-consolidacion').value) || 0) / 100;
       var costoUnitario = parseFloat($('roi-costo-unitario').value) || 0;
       var pctDiferencia = (parseFloat($('roi-pct-diferencia').value) || 0) / 100;
+
+      // Ritmo implícito de conteo: puramente informativo, no juzga si es realista ni
+      // condiciona el resto del cálculo — "días" sigue siendo lo que la persona ingresó.
+      // Es para que se note si el SKU declarado no calza con los días/personas declarados.
+      if(skus > 0 && dias > 0 && personas > 0){
+        var skuPorPersonaDia = skus / (dias * personas);
+        $('roi-implied-ritmo').textContent = 'A este ritmo, cada persona cuenta ≈ ' + Math.round(skuPorPersonaDia).toLocaleString('es-CL') + ' SKU por día.';
+      }else{
+        $('roi-implied-ritmo').textContent = '';
+      }
 
       var horasConteoHoy = dias * 8 * personas;
       var horasTotalesHoy = horasConteoHoy + consolidacion;
