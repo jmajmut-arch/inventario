@@ -1,6 +1,6 @@
 # Inventario — Toma Física con Respaldo Fotográfico
 
-Aplicación web (una sola página, `index.html` / `inventario.html`) conectada a una base de datos [Supabase](https://supabase.com) real. Permite:
+Aplicación web (una sola página, `app/index.html` / `app/inventario.html`) conectada a una base de datos [Supabase](https://supabase.com) real, con el landing comercial en `index.html` (raíz). Permite:
 
 - **Cargar SKU** uno por uno o de forma masiva (CSV exportado de SAP).
 - **Carga masiva de respaldo** (nuevo corte de stock del sistema) para comparar contra el conteo físico.
@@ -12,7 +12,7 @@ No requiere instalar nada ni levantar un servidor propio: es un archivo HTML est
 
 ## Uso
 
-1. Abre `index.html` en un navegador (celular o computador), o publícalo en cualquier hosting estático (ver abajo).
+1. Abre `app/index.html` en un navegador (celular o computador), o publica todo el repo en cualquier hosting estático (ver abajo) — quedará en `/app/`.
 2. La primera vez, crea tu cuenta con "Regístrate" (nombre, correo, contraseña). Tu perfil se crea automáticamente en la base de datos.
 3. Pestaña **SKUs**: agrega materiales manualmente.
 4. Pestaña **Carga**: sube un CSV masivo de SKU o de respaldo de stock.
@@ -53,7 +53,7 @@ Seguridad: Row Level Security habilitado en todas las tablas — solo usuarios a
 
 Como es un archivo estático, puedes publicarlo en minutos con cualquiera de estas opciones:
 
-- **GitHub Pages**: Settings → Pages → Deploy from branch → selecciona la rama y `/ (root)`. Queda disponible en `https://<usuario>.github.io/inventario/`.
+- **GitHub Pages**: Settings → Pages → Deploy from branch → selecciona la rama y `/ (root)`. El landing queda en `https://<usuario>.github.io/inventario/` y la app en `.../app/`.
 - **Netlify / Vercel**: arrastra la carpeta o conecta el repo; no requiere build.
 - Cualquier hosting estático (S3, Cloudflare Pages, etc.).
 

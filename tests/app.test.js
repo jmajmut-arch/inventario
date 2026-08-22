@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
 const m = html.match(/<script>([\s\S]*)<\/script>\s*<\/body>/);
 if(!m) throw new Error('No se encontró el bloque <script>');
 let script = m[1];

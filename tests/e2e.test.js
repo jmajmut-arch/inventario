@@ -64,7 +64,7 @@ async function mockearSupabaseApp(page, perfil){
 
 async function loguear(page, perfil){
   await mockearSupabaseApp(page, perfil);
-  await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+  await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
   await page.fill('#f-email', 'ana@minera-andes.cl');
   await page.fill('#f-pass', '123456');
   await page.click('#auth-form button[type="submit"]');
@@ -146,7 +146,7 @@ async function loguear(page, perfil){
     page.on('pageerror', err => erroresPagina.push('landing-honeypot: '+err.message));
     let llamoRed = false;
     await page.route('**/rest/v1/leads_demo', route => { llamoRed = true; route.abort(); });
-    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     await page.click('[data-abrir-demo]');
     await page.fill('#demo-nombre', 'Bot');
     await page.fill('#demo-email', 'bot@example.com');
@@ -169,7 +169,7 @@ async function loguear(page, perfil){
       cuerpoEnviado = route.request().postDataJSON();
       route.fulfill({ status:201, body:'' });
     });
-    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     await page.click('[data-abrir-demo]');
     await page.fill('#demo-nombre', 'Persona Real');
     await page.fill('#demo-email', 'real@example.com');
@@ -189,7 +189,7 @@ async function loguear(page, perfil){
     page.on('pageerror', err => erroresPagina.push('landing-contacto-honeypot: '+err.message));
     let llamoRed = false;
     await page.route('**/rest/v1/leads_demo', route => { llamoRed = true; route.abort(); });
-    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     await page.click('[data-abrir-contacto]');
     await page.fill('#contacto-nombre', 'Bot');
     await page.fill('#contacto-email', 'bot@example.com');
@@ -212,7 +212,7 @@ async function loguear(page, perfil){
       cuerpoEnviado = route.request().postDataJSON();
       route.fulfill({ status:201, body:'' });
     });
-    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     await page.click('[data-abrir-contacto]');
     await page.fill('#contacto-nombre', 'Persona Real');
     await page.fill('#contacto-email', 'contacto@example.com');
@@ -230,7 +230,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-faq: '+err.message));
-    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     const primeraPregunta = await page.$('.faq-item summary');
     assert(primeraPregunta !== null, 'debe existir al menos una pregunta frecuente');
     const detalleAbierto = await page.evaluate(() => document.querySelector('.faq-item').open);
@@ -246,7 +246,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-carousel: '+err.message));
-    await page.goto(`http://localhost:${PORT}/inicio/index.html`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     await page.addStyleTag({ content:'html{scroll-behavior:auto !important}' });
     await page.click('#vista-dots .carousel-dot:nth-child(2)');
     await page.waitForTimeout(600);
