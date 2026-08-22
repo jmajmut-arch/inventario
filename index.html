@@ -256,6 +256,12 @@
   .roi-payoff-text{font-size:13px;line-height:1.5;color:var(--text);}
   .roi-payoff-text b{color:var(--good);font-family:'Barlow Condensed';font-size:15px;font-weight:800;}
   .roi-fineprint{margin-top:20px;font-size:11px;line-height:1.6;color:var(--text-faint);}
+  .roi-scenarios{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
+  .roi-scenario-btn{flex:1;min-width:118px;text-align:left;padding:10px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);cursor:pointer;transition:border-color .15s ease,background .15s ease;font-family:inherit;}
+  .roi-scenario-btn:hover{border-color:var(--amber-dim);}
+  .roi-scenario-btn.active{border-color:var(--amber);background:rgba(189,91,44,.08);}
+  .roi-scenario-name{display:block;font-size:13px;font-weight:700;color:var(--text);}
+  .roi-scenario-detail{display:block;font-size:11px;color:var(--text-faint);margin-top:2px;font-family:'IBM Plex Mono',monospace;}
 </style>
 </head>
 <body>
@@ -454,8 +460,8 @@
   <section id="roi">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">¿Cuánto te cuesta hoy tu inventario?</div>
-        <div class="section-sub">Cuéntanos cómo lo haces ahora y te mostramos cuánto tiempo y plata podrías dejar de gastar contando a mano.</div>
+        <div class="section-title">¿Cuánto podrías ahorrar digitalizando tu inventario?</div>
+        <div class="section-sub">Ingresa los datos de tu operación y elige un escenario de mejora. El resultado es una estimación, no una promesa: el ahorro real depende de tu operación.</div>
       </div>
 
       <div class="roi-panel reveal">
@@ -513,22 +519,24 @@
             </div>
 
             <div class="roi-assumptions">
-              <div class="roi-assumptions-label">Supuestos de mejora con InventIA (ajústalos si tu caso es distinto):</div>
-              <div class="roi-assumptions-row">
-                <div class="roi-field">
-                  <label for="roi-mejora-conteo">Menos tiempo contando</label>
-                  <div class="roi-field-input">
-                    <input type="number" id="roi-mejora-conteo" value="30" min="0" max="90" step="5">
-                    <span class="roi-suffix">%</span>
-                  </div>
+              <div class="roi-field" style="margin-bottom:0">
+                <label for="roi-scenarios">Escenario de mejora con InventIA<span class="roi-hint">Hipótesis comerciales, sin validar aún con pilotos reales</span></label>
+                <div class="roi-scenarios" id="roi-scenarios">
+                  <button type="button" class="roi-scenario-btn" data-conteo="10" data-consolidacion="50">
+                    <span class="roi-scenario-name">Conservador</span>
+                    <span class="roi-scenario-detail">10% conteo · 50% consolidación</span>
+                  </button>
+                  <button type="button" class="roi-scenario-btn active" data-conteo="20" data-consolidacion="70">
+                    <span class="roi-scenario-name">Probable</span>
+                    <span class="roi-scenario-detail">20% conteo · 70% consolidación</span>
+                  </button>
+                  <button type="button" class="roi-scenario-btn" data-conteo="30" data-consolidacion="90">
+                    <span class="roi-scenario-name">Alto</span>
+                    <span class="roi-scenario-detail">30% conteo · 90% consolidación</span>
+                  </button>
                 </div>
-                <div class="roi-field">
-                  <label for="roi-mejora-consolidacion">Menos consolidación</label>
-                  <div class="roi-field-input">
-                    <input type="number" id="roi-mejora-consolidacion" value="90" min="0" max="100" step="5">
-                    <span class="roi-suffix">%</span>
-                  </div>
-                </div>
+                <input type="hidden" id="roi-mejora-conteo" value="20">
+                <input type="hidden" id="roi-mejora-consolidacion" value="70">
               </div>
             </div>
 
@@ -557,20 +565,25 @@
             <div class="roi-col-label">Con InventIA</div>
 
             <div class="roi-result-block">
-              <div class="roi-result-label">Horas que te ahorras por inventario</div>
+              <div class="roi-result-label">Horas potencialmente ahorradas por inventario</div>
               <div class="roi-result-value roi-good" id="roi-out-horas">—<span class="roi-unit">horas</span></div>
             </div>
 
             <div class="roi-result-block">
-              <div class="roi-result-label">Costo evitado por inventario</div>
+              <div class="roi-result-label">Valor equivalente por inventario</div>
               <div class="roi-result-value" id="roi-out-costo-evento">—</div>
             </div>
 
             <div class="roi-result-divider"></div>
 
             <div class="roi-result-block">
-              <div class="roi-result-label">Costo evitado al año</div>
+              <div class="roi-result-label">Valor equivalente anual</div>
               <div class="roi-result-value roi-good" id="roi-out-costo-anual">—</div>
+            </div>
+
+            <div class="roi-result-block">
+              <div class="roi-result-label">Días menos para cerrar el proceso</div>
+              <div class="roi-result-value" id="roi-out-dias">—<span class="roi-unit">días</span></div>
             </div>
 
             <div class="roi-result-block" id="roi-bloque-exposicion" style="display:none">
@@ -584,7 +597,7 @@
             </div>
 
             <div class="roi-fineprint">
-              Estimación con fines ilustrativos, basada en los supuestos de mejora indicados a la izquierda. El ahorro real depende de tu operación. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial). El valor de inventario sin visibilidad es una referencia de exposición, no una promesa de ahorro: cuánto de eso se recupera depende de cada caso.
+              Estimación con fines ilustrativos, basada en el escenario de mejora elegido a la izquierda — hipótesis comercial, no validada aún con pilotos. El valor equivalente es el valor de las horas liberadas, no necesariamente presupuesto que se elimina: el mismo equipo hace el trabajo en menos tiempo. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial). El valor de inventario sin visibilidad es una referencia de exposición, no una promesa de ahorro.
             </div>
           </div>
 
@@ -995,6 +1008,7 @@
     var $ = function(id){ return document.getElementById(id); };
     var fmtCLP = function(n){ return '$' + Math.round(n).toLocaleString('es-CL'); };
     var fmtHoras = function(n){ return Math.round(n).toLocaleString('es-CL'); };
+    var fmtDias = function(n){ return n.toLocaleString('es-CL', {minimumFractionDigits:1, maximumFractionDigits:1}); };
     var PRECIO_PLAN_MENSUAL_CLP = 273000;
 
     function roiCalcular(){
@@ -1023,6 +1037,15 @@
       $('roi-out-costo-evento').textContent = fmtCLP(costoEvitadoPorEvento);
       $('roi-out-costo-anual').textContent = fmtCLP(costoEvitadoAnual);
 
+      // Días de cierre: días de conteo (dado directo) + días equivalentes de consolidación
+      // (horas de consolidación / 8) — mismo criterio de jornada de 8h que usa horasConteoHoy.
+      // Cada tramo se reduce por su propio % de mejora, igual que las horas.
+      var diasConsolidacionHoy = consolidacion / 8;
+      var diasCierreHoy = dias + diasConsolidacionHoy;
+      var diasCierreInventIA = dias * (1 - mejoraConteo) + diasConsolidacionHoy * (1 - mejoraConsolidacion);
+      var diasMenos = Math.max(0, diasCierreHoy - diasCierreInventIA);
+      $('roi-out-dias').innerHTML = fmtDias(diasMenos) + '<span class="roi-unit">de ' + fmtDias(diasCierreHoy) + ' días</span>';
+
       // Valor de inventario expuesto a diferencias no detectadas: solo aparece si la persona
       // cargó sus propios supuestos (costo unitario y % sin cuadrar) — no inventamos un
       // porcentaje de merma por defecto, sería un número de negocio que no nos consta.
@@ -1035,14 +1058,15 @@
       }
 
       var costoPlanAnual = PRECIO_PLAN_MENSUAL_CLP * 12;
+      var costoPlanTexto = 'Costo InventIA Profesional: <b>' + fmtCLP(costoPlanAnual) + '/año</b>. ';
       if(costoEvitadoAnual <= 0){
         $('roi-out-payoff').innerHTML = 'Ajusta los datos de la izquierda para ver el resultado.';
       }else if(costoEvitadoAnual >= costoPlanAnual){
-        var vecesElPlan = costoEvitadoAnual / costoPlanAnual;
-        $('roi-out-payoff').innerHTML = 'Solo en horas, el ahorro anual ya cubre <b>' + vecesElPlan.toFixed(1).replace('.', ',') + '×</b> el costo del plan Profesional durante todo el año.';
+        var retorno = costoEvitadoAnual / costoPlanAnual;
+        $('roi-out-payoff').innerHTML = costoPlanTexto + 'Retorno potencial: <b>' + retorno.toFixed(1).replace('.', ',') + '×</b> (solo en horas).';
       }else{
         var mesesCubiertos = costoEvitadoAnual / PRECIO_PLAN_MENSUAL_CLP;
-        var mensaje = 'Solo en horas, el ahorro anual cubre <b>' + mesesCubiertos.toFixed(1).replace('.', ',') + ' de 12 meses</b> del plan Profesional.';
+        var mensaje = costoPlanTexto + 'Solo en horas, el ahorro cubre <b>' + mesesCubiertos.toFixed(1).replace('.', ',') + ' de 12 meses</b>.';
         mensaje += valorExpuesto > 0
           ? ' El resto se compara mejor contra el valor de inventario hoy sin visibilidad, arriba.'
           : ' El mayor impacto suele venir de las diferencias de inventario que hoy no se detectan — si tienes un costo unitario aproximado, cárgalo arriba para verlo.';
@@ -1052,6 +1076,15 @@
 
     document.querySelectorAll('#roi input[type="number"]').forEach(function(el){
       el.addEventListener('input', roiCalcular);
+    });
+    document.querySelectorAll('.roi-scenario-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        document.querySelectorAll('.roi-scenario-btn').forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        $('roi-mejora-conteo').value = btn.dataset.conteo;
+        $('roi-mejora-consolidacion').value = btn.dataset.consolidacion;
+        roiCalcular();
+      });
     });
     roiCalcular();
   })();
