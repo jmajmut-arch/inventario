@@ -3645,6 +3645,8 @@ function renderConfiguraciones(){
       `).join('')}</div>
       ` : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie más en tu equipo.</div>`}
     </div>
+    ` : ''}
+    ${esAdmin? `
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:10px">Ciclos de conteo (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</div>
       <form id="form-crear-ciclo">

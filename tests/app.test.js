@@ -1303,6 +1303,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlConfigSuperAdmin.includes('Supervisor'), 'ya no debe existir el rol Supervisor en ningún selector, obtuvo: '+htmlConfigSuperAdmin);
   assert(!htmlConfigSuperAdmin.includes('id="form-invitar-equipo"'), 'un super-admin ya tiene su propio panel para invitar; no debe duplicarse con el de "invitar a tu equipo", obtuvo: '+htmlConfigSuperAdmin);
 
+  // Un super-admin que también es admin de su propia empresa (ej. la cuenta de prueba interna)
+  // sí debe poder crear y gestionar ciclos de conteo para esa empresa — antes quedaba oculto
+  // por error junto con "invitar equipo" y "plan y facturación", que si son exclusivos del
+  // admin normal (no super-admin).
+  assert(htmlConfigSuperAdmin.includes('id="form-crear-ciclo"'), 'un super-admin que también es admin de empresa debe ver "Ciclos de conteo", obtuvo: '+htmlConfigSuperAdmin);
+
   // crearEmpresaSuperAdmin: POST a /empresas con solo el nombre (el código se genera solo en la BD).
   calls.length = 0;
   await ctx.crearEmpresaSuperAdmin('Minera Nueva');
