@@ -4032,17 +4032,20 @@ function bind(){
           actualizarPersonaEquipo(id, {activo: !activo});
         });
       });
-      const formCrearCiclo = document.getElementById('form-crear-ciclo');
-      if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
-        e.preventDefault();
-        const input = document.getElementById('ciclo-nombre');
-        crearCiclo(input.value.trim());
-        input.value = '';
-      });
-      document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
-        btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
-      });
     }
+    // "Ciclos de conteo" lo ve cualquier esAdmin (incluye super-admin que administra su propia
+    // empresa, ver #125) — a diferencia del bloque de arriba (invitar/editar equipo), que sigue
+    // siendo exclusivo del admin normal. Por eso estos bindings van fuera de ese if.
+    const formCrearCiclo = document.getElementById('form-crear-ciclo');
+    if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
+      e.preventDefault();
+      const input = document.getElementById('ciclo-nombre');
+      crearCiclo(input.value.trim());
+      input.value = '';
+    });
+    document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
+      btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
+    });
     const selectAuditoriaTabla = document.getElementById('auditoria-filtro-tabla');
     if(selectAuditoriaTabla){
       if(!state.auditoria.cargado){ state.auditoria.cargado = true; cargarAuditoria(''); }
