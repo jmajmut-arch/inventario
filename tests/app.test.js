@@ -19,6 +19,7 @@ function assert(cond, msg){
 }
 
 let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
+let tengoOtraSesionActivaRespuesta = false;
 let autoservicioRespuesta = { error: null };
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
@@ -27,6 +28,9 @@ const fakeFetchImpl = async (url, opts) => {
   const path = u.pathname + u.search;
   if(path.startsWith('/rest/v1/rpc/mi_estado_bloqueo')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([estadoBloqueoRespuesta]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/tengo_otra_sesion_activa')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(tengoOtraSesionActivaRespuesta) };
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -1453,6 +1457,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.restaurarSesionGuardada();
   assert(!!ctx.__appstate.session && ctx.__appstate.session.access_token==='token-refrescado', 'restaurarSesionGuardada debe refrescar el token guardado y restaurar la sesión, obtuvo: '+JSON.stringify(ctx.__appstate.session));
   assert(!!ctx.__appstate.perfil && ctx.__appstate.perfil.nombre==='Joel Restaurado', 'restaurarSesionGuardada debe volver a cargar el perfil, obtuvo: '+JSON.stringify(ctx.__appstate.perfil));
+
+  // handleLogin: si tengo_otra_sesion_activa() dice que sí (con "Single session per user"
+  // activado, esta cuenta ya tenía otra sesión abierta en otro dispositivo, que quedará
+  // invalidada en su próximo refresh), se lo avisamos a quien recién entró en vez del
+  // saludo normal.
+  {
+    const toastRootLogin = elements['toast-root'];
+    tengoOtraSesionActivaRespuesta = true;
+    let toastsAntes = toastRootLogin.hijos.length;
+    await ctx.handleLogin('vicky@minera.cl', 'clave-cualquiera');
+    let nuevosToasts = toastRootLogin.hijos.slice(toastsAntes);
+    assert(nuevosToasts.some(t=>t.textContent==='Cerramos tu sesión anterior en otro dispositivo.'), 'si tengo_otra_sesion_activa() devuelve true, debe avisar que se cerró la otra sesión, obtuvo: '+JSON.stringify(nuevosToasts.map(t=>t.textContent)));
+
+    // Y si no había otra sesión, sigue mostrando el saludo normal de siempre.
+    tengoOtraSesionActivaRespuesta = false;
+    toastsAntes = toastRootLogin.hijos.length;
+    await ctx.handleLogin('vicky@minera.cl', 'clave-cualquiera');
+    nuevosToasts = toastRootLogin.hijos.slice(toastsAntes);
+    assert(nuevosToasts.some(t=>t.textContent.startsWith('Bienvenido')), 'si tengo_otra_sesion_activa() devuelve false, debe mostrar el saludo normal, obtuvo: '+JSON.stringify(nuevosToasts.map(t=>t.textContent)));
+  }
 
   // rest(): si la API responde 401 (token vencido), debe refrescar la sesión y reintentar una sola vez.
   // Se espera un momento antes de simular esto para dejar que terminen otras llamadas de fondo
