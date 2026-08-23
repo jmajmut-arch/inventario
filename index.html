@@ -545,26 +545,6 @@
                 <input type="hidden" id="roi-mejora-consolidacion" value="70">
               </div>
             </div>
-
-            <div class="roi-assumptions">
-              <div class="roi-assumptions-label">Diferencias no detectadas hoy (opcional): si sabes cuánto vale en promedio tu material y qué porcentaje del inventario hoy no cuadra sin que nadie lo sepa, súmalo acá.</div>
-              <div class="roi-assumptions-row">
-                <div class="roi-field">
-                  <label for="roi-costo-unitario">Costo unitario promedio</label>
-                  <div class="roi-field-input">
-                    <input type="number" id="roi-costo-unitario" value="" min="0" step="1000" placeholder="Ej. 15000">
-                    <span class="roi-suffix">CLP</span>
-                  </div>
-                </div>
-                <div class="roi-field">
-                  <label for="roi-pct-diferencia">% del inventario sin cuadrar hoy</label>
-                  <div class="roi-field-input">
-                    <input type="number" id="roi-pct-diferencia" value="" min="0" max="100" step="0.5" placeholder="Ej. 3">
-                    <span class="roi-suffix">%</span>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
           <div class="roi-col roi-result">
@@ -593,18 +573,13 @@
               <div class="roi-result-value" id="roi-out-dias">—<span class="roi-unit">días</span></div>
             </div>
 
-            <div class="roi-result-block" id="roi-bloque-exposicion" style="display:none">
-              <div class="roi-result-label">Valor de inventario hoy sin visibilidad</div>
-              <div class="roi-result-value" id="roi-out-exposicion">—</div>
-            </div>
-
             <div class="roi-payoff" id="roi-payoff-box">
               <div class="roi-payoff-icon" id="roi-payoff-icon"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
               <div class="roi-payoff-text" id="roi-out-payoff">—</div>
             </div>
 
             <div class="roi-fineprint">
-              Estimación con fines ilustrativos, basada en el escenario de mejora elegido a la izquierda — hipótesis comercial, no validada aún con pilotos. El valor equivalente es el valor de las horas liberadas, no necesariamente presupuesto que se elimina: el mismo equipo hace el trabajo en menos tiempo. El ROI potencial y el payback comparan solo contra el ahorro en horas, sin contar el valor de diferencias no detectadas. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial). El valor de inventario sin visibilidad es una referencia de exposición, no una promesa de ahorro.
+              Estimación con fines ilustrativos, basada en el escenario de mejora elegido a la izquierda — hipótesis comercial, no validada aún con pilotos. El valor equivalente es el valor de las horas liberadas, no necesariamente presupuesto que se elimina: el mismo equipo hace el trabajo en menos tiempo. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial).
             </div>
           </div>
 
@@ -1027,9 +1002,6 @@
       var frecuencia = parseFloat($('roi-frecuencia').value) || 0;
       var mejoraConteo = (parseFloat($('roi-mejora-conteo').value) || 0) / 100;
       var mejoraConsolidacion = (parseFloat($('roi-mejora-consolidacion').value) || 0) / 100;
-      var costoUnitario = parseFloat($('roi-costo-unitario').value) || 0;
-      var pctDiferencia = (parseFloat($('roi-pct-diferencia').value) || 0) / 100;
-
       // Ritmo implícito de conteo: puramente informativo, no juzga si es realista ni
       // condiciona el resto del cálculo — "días" sigue siendo lo que la persona ingresó.
       // Es para que se note si el SKU declarado no calza con los días/personas declarados.
@@ -1063,17 +1035,6 @@
       var diasMenos = Math.max(0, diasCierreHoy - diasCierreInventIA);
       $('roi-out-dias').innerHTML = fmtDias(diasMenos) + '<span class="roi-unit">de ' + fmtDias(diasCierreHoy) + ' días</span>';
 
-      // Valor de inventario expuesto a diferencias no detectadas: solo aparece si la persona
-      // cargó sus propios supuestos (costo unitario y % sin cuadrar) — no inventamos un
-      // porcentaje de merma por defecto, sería un número de negocio que no nos consta.
-      var valorExpuesto = skus * costoUnitario * pctDiferencia;
-      if(valorExpuesto > 0){
-        $('roi-bloque-exposicion').style.display = '';
-        $('roi-out-exposicion').textContent = fmtCLP(valorExpuesto);
-      }else{
-        $('roi-bloque-exposicion').style.display = 'none';
-      }
-
       // ROI potencial: definición estándar (ganancia neta / costo), no el ahorro bruto sobre
       // el costo — así un escenario donde el ahorro en horas no alcanza a cubrir el plan
       // queda como un % negativo, que es la lectura correcta, no algo que haya que esconder.
@@ -1092,9 +1053,7 @@
           + 'ROI potencial: <b>' + (roiPct >= 0 ? '+' : '') + Math.round(roiPct) + '%</b> (solo en horas). '
           + 'Payback: <b>' + paybackTexto + '</b> (solo en horas).';
         if(roiPct < 0){
-          mensaje += valorExpuesto > 0
-            ? ' El resto se compara mejor contra el valor de inventario hoy sin visibilidad, arriba.'
-            : ' El mayor impacto suele venir de las diferencias de inventario que hoy no se detectan — si tienes un costo unitario aproximado, cárgalo arriba para verlo.';
+          mensaje += ' El mayor impacto suele venir de las diferencias de inventario que hoy no se detectan, no solo de las horas.';
           $('roi-payoff-box').classList.add('warn');
           $('roi-payoff-icon').innerHTML = '<svg viewBox="0 0 24 24"><line x1="12" y1="6" x2="12" y2="13" stroke-linecap="round"/><line x1="12" y1="17" x2="12" y2="17.01" stroke-linecap="round"/></svg>';
         }else{
