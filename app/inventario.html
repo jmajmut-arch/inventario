@@ -1408,9 +1408,22 @@ async function opcionesEspecificas(bodega){
 }
 
 async function opcionesBins(bodega, ubicacion){
-  if(!bodega || !ubicacion) return [];
+  if(!bodega) return [];
   try{
-    return await rest(`/ubicaciones_bins?bodega=eq.${encodeURIComponent(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
+    if(ubicacion){
+      return await rest(`/ubicaciones_bins?bodega=eq.${encodeURIComponent(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
+    }
+    // "Todas" las ubicaciones específicas: el mismo storage_bin puede repetirse en más de
+    // una (la vista viene agrupada por bodega+ubicacion+storage_bin), así que se suman antes
+    // de listarlo — si no, un mismo bin aparecería duplicado varias veces en el <select>.
+    const filas = await rest(`/ubicaciones_bins?bodega=eq.${encodeURIComponent(bodega)}&order=storage_bin.asc`) || [];
+    const porBin = new Map();
+    for(const f of filas){
+      const acc = porBin.get(f.storage_bin) || {storage_bin:f.storage_bin, cantidad_skus:0};
+      acc.cantidad_skus += Number(f.cantidad_skus)||0;
+      porBin.set(f.storage_bin, acc);
+    }
+    return Array.from(porBin.values()).sort((a,b)=> a.storage_bin.localeCompare(b.storage_bin));
   }catch(e){ return []; }
 }
 
@@ -4393,10 +4406,12 @@ function bind(){
       const ubicacion = e.target.value;
       const selBin = document.getElementById('p-bin');
       const chkTodos = document.getElementById('p-bin-todos');
-      if(!ubicacion){
+      if(!bodega){
         resetPBin();
         return;
       }
+      // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
+      // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
       selBin.innerHTML = '<option value="">Cargando…</option>';
       selBin.disabled = true;
       chkTodos.checked = false;

@@ -84,14 +84,20 @@ const fakeFetchImpl = async (url, opts) => {
     };
   }
   if(path.startsWith('/rest/v1/ubicaciones_bins')){
+    // A-01 se repite en dos ubicaciones distintas de la misma bodega a propósito: sirve para
+    // probar que, sin filtro de ubicación ("Todas"), opcionesBins suma cantidad_skus en vez de
+    // listar el mismo bin duplicado.
+    const todas = [
+      {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', cantidad_skus: 5},
+      {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', cantidad_skus: 3},
+      {bodega:'Nave Mina', ubicacion:'Rack Exterior', storage_bin:'A-01', cantidad_skus: 2},
+    ];
+    const filas = path.includes('ubicacion=eq.') ? todas.filter(f=>path.includes('ubicacion=eq.'+encodeURIComponent(f.ubicacion))) : todas;
     return {
       status: 200,
       ok: true,
       headers: { get: () => null },
-      text: async () => JSON.stringify([
-        {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', cantidad_skus: 5},
-        {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', cantidad_skus: 3},
-      ]),
+      text: async () => JSON.stringify(filas),
     };
   }
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
@@ -464,8 +470,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const bins = await ctx.opcionesBins('Nave Mina', 'Interior Nave');
   assert(bins.length===2 && bins[0].storage_bin==='A-01', 'opcionesBins debe filtrar por bodega+ubicacion, obtuvo: '+JSON.stringify(bins));
-  const binsVacio = await ctx.opcionesBins('Nave Mina', '');
-  assert(binsVacio.length===0, 'opcionesBins sin ubicación debe devolver []');
+  // "Todas" las ubicaciones (ubicacion vacío, ej. al elegir "Todas" en el <select>) debe listar
+  // los storage bin de TODA la bodega, no devolver [] — A-01 existe en dos ubicaciones distintas
+  // (Interior Nave y Rack Exterior) y debe aparecer una sola vez, con la cantidad sumada (5+2=7).
+  const binsTodasUbic = await ctx.opcionesBins('Nave Mina', '');
+  assert(binsTodasUbic.length===2, 'opcionesBins sin ubicación debe listar los bins de toda la bodega (sin duplicar A-01), obtuvo: '+JSON.stringify(binsTodasUbic));
+  const a01Todas = binsTodasUbic.find(b=>b.storage_bin==='A-01');
+  assert(!!a01Todas && a01Todas.cantidad_skus===7, 'un storage bin repetido en más de una ubicación debe sumar cantidad_skus entre todas, obtuvo: '+JSON.stringify(binsTodasUbic));
 
   // Verificar que las URLs generadas llevan los filtros esperados.
   const especificasCall = calls.find(c=>c.url.includes('/ubicaciones_especificas') && c.url.includes('bodega=eq.Nave'));
@@ -555,6 +566,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(binEl.innerHTML.includes('A-01 — 5 SKU') && binEl.innerHTML.includes('A-02 — 3 SKU'), 'p-bin debe listar los storage bin con su cantidad de SKU, obtuvo: '+binEl.innerHTML);
   assert(!binEl.innerHTML.includes('Todos'), 'p-bin multiple no debe tener la opción "Todos" (sin selección ya significa todos), obtuvo: '+binEl.innerHTML);
   assert(chkTodosEl.disabled === false, 'el checkbox "Seleccionar todos" debe habilitarse tras cargar los storage bin');
+
+  // Volver a "Todas" en Ubicación específica (value vacío) NO debe vaciar/deshabilitar el
+  // storage bin — debe seguir mostrando los bin de toda la bodega (con las cantidades sumadas
+  // si un mismo bin se repite en más de una ubicación, como A-01 acá).
+  ubicEl.value = '';
+  await new Promise(resolve => {
+    ubicEl.dispatch('change', {target: ubicEl});
+    setTimeout(resolve, 50);
+  });
+  assert(binEl.disabled === false, 'p-bin debe seguir habilitado al elegir "Todas" en ubicación específica, obtuvo disabled='+binEl.disabled);
+  assert(binEl.innerHTML.includes('A-01 — 7 SKU') && binEl.innerHTML.includes('A-02 — 3 SKU'), 'con "Todas" elegido, p-bin debe listar los bin de toda la bodega con las cantidades sumadas (A-01 aparece en dos ubicaciones: 5+2=7), obtuvo: '+binEl.innerHTML);
+  ubicEl.value = 'Interior Nave';
+  await new Promise(resolve => {
+    ubicEl.dispatch('change', {target: ubicEl});
+    setTimeout(resolve, 50);
+  });
 
   // Marcar "Seleccionar todos" y enviar el formulario real (no crearPlanEntrada directo) debe
   // crear una sola fila con storage_bin null (sin filtro), NO una fila por cada bin visible —
