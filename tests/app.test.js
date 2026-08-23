@@ -1022,6 +1022,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlDashBasico = ctx.renderDashboard();
   assert(!htmlDashBasico.includes('data-dash-modo="ejecutivo"'), 'plan básico no debe mostrar el botón para activar el modo Ejecutivo, obtuvo: '+htmlDashBasico);
   assert(!htmlDashBasico.includes('Proyección de término'), 'plan básico no debe mostrar la proyección de término aunque dashboardModo siga en "ejecutivo", obtuvo: '+htmlDashBasico);
+  assert(/id="btn-exportar-informe"[^>]*disabled/.test(htmlDashBasico), 'plan básico debe mostrar el botón "Exportar informe" deshabilitado, obtuvo: '+htmlDashBasico);
+  assert(htmlDashBasico.includes('Exportar informe 🔒'), 'plan básico debe mostrar el candado en el botón de exportar informe, obtuvo: '+htmlDashBasico);
 
   const htmlConfigBasico = ctx.renderConfiguraciones();
   assert(!htmlConfigBasico.includes('Auditoría de cambios'), 'plan básico no debe mostrar la sección de auditoría aunque el usuario sea admin, obtuvo: '+htmlConfigBasico);
@@ -1030,8 +1032,45 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', max_bodegas:null, max_usuarios:15, offline_habilitado:true, dashboard_ejecutivo_habilitado:true, auditoria_habilitada:true}} };
   const htmlDashPro = ctx.renderDashboard();
   assert(htmlDashPro.includes('data-dash-modo="ejecutivo"'), 'plan profesional debe mostrar el botón del modo Ejecutivo, obtuvo: '+htmlDashPro);
+  assert(/id="btn-exportar-informe"(?![^>]*disabled)[^>]*>/.test(htmlDashPro), 'plan profesional debe mostrar el botón "Exportar informe" habilitado, obtuvo: '+htmlDashPro);
+  assert(!htmlDashPro.includes('Exportar informe 🔒'), 'plan profesional no debe mostrar el candado en el botón de exportar informe, obtuvo: '+htmlDashPro);
   const htmlConfigPro = ctx.renderConfiguraciones();
   assert(htmlConfigPro.includes('Auditoría de cambios'), 'plan profesional debe mostrar la sección de auditoría para un admin, obtuvo: '+htmlConfigPro);
+
+  // imprimirInformeCiclo(): debe volcar exactamente el contenido de la vista ejecutiva del
+  // dashboard (mismos KPI) en #print-informe, con encabezado de empresa/ciclo/fecha, y llamar
+  // a window.print() — reusando el plan profesional recién dejado en ctx.__appstate.perfil.
+  ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T1 2027', es_actual:true}, {id:'ciclo-2', nombre:'T4 2026', es_actual:false}];
+  ctx.__appstate.dash = {
+    total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
+    diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [],
+  };
+  const printInformeEl = makeEl('print-informe');
+  printInformeEl.innerHTML = '';
+  const printPlanElPrevio = makeEl('print-plan');
+  printPlanElPrevio.innerHTML = '<h1>Plan de conteo semanal</h1>';
+  printCalled = 0;
+  ctx.imprimirInformeCiclo();
+  assert(printCalled===1, 'imprimirInformeCiclo debe llamar a window.print()');
+  assert(printInformeEl.innerHTML.includes('Informe de ciclo de conteo'), 'el informe debe tener título propio, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('Minera Andes') && printInformeEl.innerHTML.includes('T1 2027'), 'el encabezado del informe debe indicar la empresa y el ciclo actual, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('Avance global') && printInformeEl.innerHTML.includes('Nave Mina'), 'el informe debe incluir el mismo contenido de la vista ejecutiva del dashboard, obtuvo: '+printInformeEl.innerHTML);
+  assert(printPlanElPrevio.innerHTML==='', 'imprimirInformeCiclo debe limpiar #print-plan para que no queden ambos informes visibles al imprimir');
+
+  // Sin ciclo marcado como actual, debe indicarlo explícitamente en vez de omitirlo.
+  ctx.__appstate.ciclos = [{id:'ciclo-2', nombre:'T4 2026', es_actual:false}];
+  printInformeEl.innerHTML = '';
+  printCalled = 0;
+  ctx.imprimirInformeCiclo();
+  assert(printInformeEl.innerHTML.includes('Sin ciclo asignado'), 'sin ciclo actual, el informe debe indicar "Sin ciclo asignado", obtuvo: '+printInformeEl.innerHTML);
+
+  // Plan básico: imprimirInformeCiclo no debe hacer nada (el botón ya está deshabilitado en el DOM real).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', dashboard_ejecutivo_habilitado:false}} };
+  printInformeEl.innerHTML = '';
+  printCalled = 0;
+  ctx.imprimirInformeCiclo();
+  assert(printCalled===0, 'plan básico: imprimirInformeCiclo no debe llamar a window.print()');
+  assert(printInformeEl.innerHTML==='', 'plan básico: imprimirInformeCiclo no debe escribir contenido en #print-informe');
 
   // ===== Flow.cl: sección "Plan y facturación" en Configuraciones =====
 
