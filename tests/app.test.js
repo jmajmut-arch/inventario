@@ -304,7 +304,7 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/eliminar_skus_sin_contar')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'4' };
   }
-  if(path.startsWith('/rest/v1/skus?activo=eq.true') && path.includes('bodega=is.null') && path.includes('ubicacion=is.null')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true') && path.includes('bodega=is.null') && path.includes('ubicacion=is.null')){
     const filas = [{sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}];
     return {
       status: 200, ok: true,
@@ -312,7 +312,7 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
-  if(path.startsWith('/rest/v1/skus?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
     const filas = binFiltro==='A-01'
       ? [{sku_code:'SKU-001', descripcion:'Perno M8', storage_bin:'A-01', unidad_medida:'UN'}]
@@ -796,8 +796,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.plan.semanaInicio = '2026-08-10';
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
-  const skusCallE1 = calls.find(c=>c.url.includes('/skus?activo=eq.true&select=sku_code') && c.url.includes('storage_bin=eq.A-01'));
-  assert(!!skusCallE1, 'cargarPlanSemanal debe consultar /skus (detalle) para cada entrada automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const skusCallE1 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=sku_code') && c.url.includes('storage_bin=eq.A-01'));
+  assert(!!skusCallE1, 'cargarPlanSemanal debe consultar /skus_planificables (detalle) para cada entrada automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(Array.isArray(ctx.__appstate.plan.detalle.e1) && ctx.__appstate.plan.detalle.e1[0].sku_code==='SKU-001', 'debe quedar cargado el detalle real de SKU (código/descripción) para A-01, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle.e1));
 
   const htmlConDetalle = ctx.renderPlanificacion();
@@ -807,9 +807,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // La entrada e2 tiene SKU-002 excluido (skus_excluidos en la vista): tanto el conteo como el detalle
   // deben pedirse con el filtro sku_code=not.in.(...) para no volver a mostrarlo.
-  const skusCallE2 = calls.find(c=>c.url.includes('/skus?activo=eq.true&select=sku_code') && c.url.includes('storage_bin=eq.A-02'));
+  const skusCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=sku_code') && c.url.includes('storage_bin=eq.A-02'));
   assert(!!skusCallE2 && skusCallE2.url.includes('sku_code=not.in.(SKU-002)'), 'la consulta de detalle para e2 debe excluir SKU-002, obtuvo: '+JSON.stringify(skusCallE2));
-  const universoCallE2 = calls.find(c=>c.url.includes('/skus?activo=eq.true') && !c.url.includes('select=sku_code') && c.url.includes('storage_bin=eq.A-02'));
+  const universoCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true') && !c.url.includes('select=sku_code') && c.url.includes('storage_bin=eq.A-02'));
   assert(!!universoCallE2 && universoCallE2.url.includes('sku_code=not.in.(SKU-002)'), 'la consulta de conteo (universo) para e2 debe excluir SKU-002, obtuvo: '+JSON.stringify(universoCallE2));
 
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.

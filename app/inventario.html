@@ -960,8 +960,10 @@ function filtroSoloSinUbicacion(soloSinUbicacion){
   return soloSinUbicacion ? '&bodega=is.null&ubicacion=is.null' : '';
 }
 
+// Usa skus_planificables (no skus): un SKU ya contado en el ciclo actual (con diferencia o
+// sin ella) no debe seguir ofreciéndose para planificar — planificarlo de nuevo solo confunde.
 async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion}){
-  let filtro = '/skus?activo=eq.true';
+  let filtro = '/skus_planificables?activo=eq.true';
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -986,7 +988,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
 async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion}){
-  let filtro = '/skus?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc';
+  let filtro = '/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc';
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
