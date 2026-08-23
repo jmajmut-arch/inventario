@@ -1431,6 +1431,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Restaurar el perfil de super-admin para los tests siguientes de este mismo bloque.
   ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
 
+  // bind() en 'config': un super-admin que también es admin de su empresa (ver #125) debe
+  // poder crear un ciclo de verdad, no solo verlo — antes el binding de form-crear-ciclo
+  // seguía adentro del `if(...&& !es_super_admin)` de "invitar/editar equipo" aunque la
+  // tarjeta de Ciclos ya se mostrara afuera de esa condición: el formulario aparecía pero
+  // el submit no tenía ningún listener, así que el navegador lo mandaba como un GET normal
+  // (recarga completa de la página, de vuelta al dashboard) en vez de llamar a crearCiclo.
+  ctx.__appstate.view = 'config';
+  // elements[] es un registro global sin reset entre pruebas: si no se limpia acá, un
+  // listener pegado de una vinculación anterior (con otro perfil) taparía el bug real.
+  delete elements['form-crear-ciclo'];
+  ctx.bind();
+  calls.length = 0;
+  makeEl('ciclo-nombre').value = 'T2 2027';
+  const formCrearCicloEl = elements['form-crear-ciclo'];
+  assert(!!formCrearCicloEl, 'bind() debe haber consultado #form-crear-ciclo (con perfil super-admin+admin), obtuvo: '+formCrearCicloEl);
+  await new Promise(resolve => {
+    formCrearCicloEl.dispatch('submit', {target: formCrearCicloEl, preventDefault(){}});
+    setTimeout(resolve, 20);
+  });
+  const postCicloSuperAdmin = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/ciclos_conteo'));
+  assert(!!postCicloSuperAdmin && JSON.parse(postCicloSuperAdmin.opts.body)[0].nombre==='T2 2027', 'un super-admin que es admin de su empresa debe poder crear un ciclo enviando el formulario real (no solo verlo), obtuvo: '+JSON.stringify(postCicloSuperAdmin));
+
   // El nombre de la empresa debe mostrarse en la barra superior de la app.
   ctx.__appstate.view = 'dashboard';
   ctx.__appstate.dash = { total: [], diario: [], semanal: [], mensual: [] };
