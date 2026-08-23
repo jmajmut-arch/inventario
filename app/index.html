@@ -4390,7 +4390,12 @@ function bind(){
   }
 
   if(state.view==='conteo'){
-    if(!state.contarPlan.cargado) cargarPlanDeHoy(state.contarPlan.fecha);
+    // Ojo: cargarPlanDeHoy() hace un setState() síncrono ANTES de su primer await (para
+    // marcar cargando:true) — ese setState dispara render()→bind() de nuevo, así que sin
+    // el chequeo de "cargando" aquí también, cada re-entrada volvía a ver cargado:false y
+    // llamaba a cargarPlanDeHoy() otra vez, en una recursión síncrona infinita (RangeError:
+    // Maximum call stack size exceeded — visto en Sentry y en los e2e de la pestaña Contar).
+    if(!state.contarPlan.cargado && !state.contarPlan.cargando) cargarPlanDeHoy(state.contarPlan.fecha);
     if(!state.skuSeleccionado){
       const search = document.getElementById('sku-search');
       search.addEventListener('input', e=> setState({skuSearch: e.target.value}));
