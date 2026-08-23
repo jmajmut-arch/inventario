@@ -248,6 +248,14 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/adherencia_por_ciclo')){
+    const filas = [
+      {ciclo_id:'ciclo-actual', bodega:'Nave Mina', total_conteos:8, en_plan:6, fuera_de_plan:2},
+      {ciclo_id:'ciclo-actual', bodega:'Nave Planta', total_conteos:2, en_plan:2, fuera_de_plan:0},
+      {ciclo_id:'ciclo-viejo', bodega:'Nave Mina', total_conteos:10, en_plan:5, fuera_de_plan:5},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/auditoria')){
     const todas = [
       {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
@@ -976,6 +984,54 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const valorizacionCall = calls.find(c=>c.url.includes('/valorizacion_diferencias'));
   assert(!!valorizacionCall, 'cargarDashboard debe pedir /valorizacion_diferencias, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.valorizacion.length===2 && ctx.__appstate.dash.valorizacion[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la valorización por bodega en state.dash.valorizacion, obtuvo: '+JSON.stringify(ctx.__appstate.dash.valorizacion));
+  const adherenciaCall = calls.find(c=>c.url.includes('/adherencia_por_ciclo'));
+  assert(!!adherenciaCall, 'cargarDashboard debe pedir /adherencia_por_ciclo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.adherenciaPorCiclo.length===3 && ctx.__appstate.dash.adherenciaPorCiclo[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la adherencia por ciclo/bodega en state.dash.adherenciaPorCiclo, obtuvo: '+JSON.stringify(ctx.__appstate.dash.adherenciaPorCiclo));
+
+  // ===== Dashboard: "Adherencia al plan" por período (selector client-side, no dispara fetch) =====
+  ctx.__appstate.ciclos = [{id:'ciclo-actual', nombre:'T1 2027', es_actual:true}, {id:'ciclo-viejo', nombre:'T4 2026', es_actual:false}];
+  ctx.__appstate.dashPeriodo = '';
+  ctx.__appstate.dash = {
+    total: [], diario: [], semanal: [], mensual: [],
+    adherenciaPorCiclo: [
+      {ciclo_id:'ciclo-actual', bodega:'Nave Mina', total_conteos:8, en_plan:6, fuera_de_plan:2},
+      {ciclo_id:'ciclo-actual', bodega:'Nave Planta', total_conteos:2, en_plan:2, fuera_de_plan:0},
+      {ciclo_id:'ciclo-viejo', bodega:'Nave Mina', total_conteos:10, en_plan:5, fuera_de_plan:5},
+      {ciclo_id:null, bodega:'Nave Mina', total_conteos:1, en_plan:0, fuera_de_plan:1},
+    ],
+  };
+  const htmlAdherenciaActual = ctx.renderDashboard();
+  assert(htmlAdherenciaActual.includes('Adherencia al plan'), 'debe existir la sección de adherencia al plan, obtuvo: '+htmlAdherenciaActual);
+  assert(htmlAdherenciaActual.includes('id="dash-periodo"') && htmlAdherenciaActual.includes('Período actual — T1 2027'), 'el selector debe ofrecer el período actual por nombre, obtuvo: '+htmlAdherenciaActual);
+  // Período actual (default ''): 6+2=8 en_plan, 8+2=10 total -> 80.0%.
+  assert(htmlAdherenciaActual.includes('80.0%') && htmlAdherenciaActual.includes('8 de 10 conteos'), 'con el período actual seleccionado debe calcular 8/10=80% sumando todas las bodegas de ese ciclo, obtuvo: '+htmlAdherenciaActual);
+  assert(htmlAdherenciaActual.includes('75.0%') && htmlAdherenciaActual.includes('6/8'), 'el desglose por bodega debe mostrar solo los datos del período elegido (Nave Mina: 6/8=75%), no mezclar con el ciclo viejo (que tendría 5/10=50%), obtuvo: '+htmlAdherenciaActual);
+
+  // Cambiar a un período puntual (el viejo): 5 de 10 -> 50.0%.
+  ctx.__appstate.dashPeriodo = 'ciclo-viejo';
+  const htmlAdherenciaViejo = ctx.renderDashboard();
+  assert(htmlAdherenciaViejo.includes('50.0%') && htmlAdherenciaViejo.includes('5 de 10 conteos'), 'con el período viejo seleccionado debe recalcular 5/10=50%, sin volver a pedir datos al servidor, obtuvo: '+htmlAdherenciaViejo);
+
+  // "Sin período": el conteo con ciclo_id null.
+  ctx.__appstate.dashPeriodo = '__sin_periodo__';
+  const htmlAdherenciaSinPeriodo = ctx.renderDashboard();
+  assert(htmlAdherenciaSinPeriodo.includes('0.0%') && htmlAdherenciaSinPeriodo.includes('0 de 1 conteos'), 'con "Sin período" debe usar solo las filas con ciclo_id null, obtuvo: '+htmlAdherenciaSinPeriodo);
+
+  // "Todos los períodos": tabla comparativa, más reciente primero, "Sin período" al final.
+  ctx.__appstate.dashPeriodo = '__todos__';
+  const htmlAdherenciaTodos = ctx.renderDashboard();
+  const idxActualTodos = htmlAdherenciaTodos.indexOf('T1 2027');
+  const idxViejoTodos = htmlAdherenciaTodos.indexOf('T4 2026');
+  const idxSinPeriodoTodos = htmlAdherenciaTodos.indexOf('Sin período');
+  assert(idxActualTodos>=0 && idxViejoTodos>idxActualTodos && idxSinPeriodoTodos>idxViejoTodos, 'en "todos los períodos" el orden debe ser: actual, luego el resto (más reciente primero), "Sin período" al final, obtuvo índices: '+idxActualTodos+'/'+idxViejoTodos+'/'+idxSinPeriodoTodos);
+  assert(htmlAdherenciaTodos.includes('80.0%') && htmlAdherenciaTodos.includes('50.0%'), 'la tabla comparativa debe mostrar el % de adherencia de cada período, obtuvo: '+htmlAdherenciaTodos);
+
+  // Sin conteos en el período elegido: mensaje vacío, no un cálculo con división por cero.
+  ctx.__appstate.dashPeriodo = '';
+  ctx.__appstate.ciclos = [{id:'ciclo-sin-datos', nombre:'T2 2027', es_actual:true}];
+  const htmlAdherenciaVacio = ctx.renderDashboard();
+  assert(htmlAdherenciaVacio.includes('Sin conteos registrados en este período'), 'sin conteos para el período actual, debe mostrar el estado vacío en vez de NaN%, obtuvo: '+htmlAdherenciaVacio);
+  ctx.__appstate.ciclos = [{id:'ciclo-actual', nombre:'T1 2027', es_actual:true}, {id:'ciclo-viejo', nombre:'T4 2026', es_actual:false}];
 
   // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
   ctx.__appstate.dash = {

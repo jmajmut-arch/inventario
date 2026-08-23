@@ -334,7 +334,7 @@ let state = {
   // ningún operador (no hay plan personal que mostrar, solo el buscador libre de siempre).
   contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), miResponsableId: null, entradas: [], bodega:'', ubicacion:'', bin:'', skusPendientes: null },
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [], adherenciaPorCiclo: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -348,6 +348,12 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
+  // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
+  // actual (el marcado es_actual en state.ciclos), '__todos__' = comparar todos los
+  // períodos uno junto al otro, '__sin_periodo__' = conteos sin ciclo_id, o el id de un
+  // ciclo puntual. Puramente client-side: no dispara una nueva carga, solo recalcula sobre
+  // dash.adherenciaPorCiclo (que ya trae todos los períodos).
+  dashPeriodo: '',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
@@ -1489,7 +1495,7 @@ async function opcionesBins(bodega, ubicacion){
 
 async function cargarDashboard(){
   try{
-    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferencias, valorizacion] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferencias, valorizacion, adherenciaPorCiclo] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
@@ -1498,11 +1504,12 @@ async function cargarDashboard(){
       rest(`/exactitud_por_bodega?order=bodega.asc`),
       rest(`/reconteo_pendiente?select=*&order=diferencia_abs.desc&limit=5`),
       rest(`/valorizacion_diferencias?order=bodega.asc`),
+      rest(`/adherencia_por_ciclo?order=bodega.asc`),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
       ranking: ranking||[], exactitudBodega: exactitudBodega||[], topDiferencias: topDiferencias||[],
-      valorizacion: valorizacion||[],
+      valorizacion: valorizacion||[], adherenciaPorCiclo: adherenciaPorCiclo||[],
     }});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -2774,6 +2781,113 @@ function renderInformeEjecutivo(){
   `;
 }
 
+// Opciones del selector de período para "Adherencia al plan": el período actual (marcado
+// es_actual en state.ciclos) primero, luego el resto de los ciclos, "Sin período" (conteos
+// con ciclo_id null — antes de que existiera el ciclo actual, o capturados sin conexión
+// mientras no había un ciclo marcado) y "Todos los períodos" para compararlos uno junto a otro.
+function opcionesPeriodoDash(){
+  const cicloActual = (state.ciclos||[]).find(c=>c.es_actual);
+  const p = state.dashPeriodo;
+  const opciones = [`<option value="" ${p===''?'selected':''}>${cicloActual? 'Período actual — '+esc(cicloActual.nombre) : 'Período actual'}</option>`];
+  (state.ciclos||[]).forEach(c=>{
+    if(cicloActual && c.id===cicloActual.id) return; // ya aparece como "Período actual"
+    opciones.push(`<option value="${esc(c.id)}" ${p===c.id?'selected':''}>${esc(c.nombre)}</option>`);
+  });
+  opciones.push(`<option value="__sin_periodo__" ${p==='__sin_periodo__'?'selected':''}>Sin período</option>`);
+  opciones.push(`<option value="__todos__" ${p==='__todos__'?'selected':''}>Todos los períodos</option>`);
+  return opciones.join('');
+}
+
+// "Adherencia al plan": de todo lo contado en un período, qué porcentaje vino del plan
+// asignado (Planificación → "Plan del día" en Contar) versus se agregó fuera de plan
+// (buscador libre o escáner — ver #130). El selector de período es puramente client-side
+// sobre dash.adherenciaPorCiclo (ya trae todos los períodos agrupados por bodega): cambiar
+// de período solo recalcula esto, no dispara una nueva carga.
+function renderAdherenciaPlan(){
+  const filas = state.dash.adherenciaPorCiclo || [];
+  const periodo = state.dashPeriodo;
+  const cabecera = `
+    <div class="section-head">
+      <div><span class="eyebrow">Cuánto de lo contado vino del plan asignado</span><h2 style="font-size:17px">Adherencia al plan</h2></div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <label for="dash-periodo">Período</label>
+      <select id="dash-periodo">${opcionesPeriodoDash()}</select>
+    </div>
+  `;
+
+  const sumar = (rows) => rows.reduce((acc,r)=>({
+    total: acc.total + (Number(r.total_conteos)||0),
+    enPlan: acc.enPlan + (Number(r.en_plan)||0),
+    fueraPlan: acc.fueraPlan + (Number(r.fuera_de_plan)||0),
+  }), {total:0, enPlan:0, fueraPlan:0});
+  const nombrePeriodo = (cicloId) => cicloId===null ? 'Sin período' : (((state.ciclos||[]).find(c=>c.id===cicloId)||{}).nombre || 'Período eliminado');
+
+  if(periodo==='__todos__'){
+    const porCiclo = new Map();
+    filas.forEach(r=>{
+      const key = r.ciclo_id || '__null__';
+      if(!porCiclo.has(key)) porCiclo.set(key, []);
+      porCiclo.get(key).push(r);
+    });
+    const filasTabla = Array.from(porCiclo.entries()).map(([key, rows])=>{
+      const cicloId = key==='__null__' ? null : key;
+      const s = sumar(rows);
+      return {cicloId, nombre: nombrePeriodo(cicloId), ...s, pctAdherencia: s.total? s.enPlan/s.total*100 : 0};
+    }).sort((a,b)=>{
+      if(a.cicloId===null) return 1;
+      if(b.cicloId===null) return -1;
+      const ia = (state.ciclos||[]).findIndex(c=>c.id===a.cicloId);
+      const ib = (state.ciclos||[]).findIndex(c=>c.id===b.cicloId);
+      return ia-ib; // state.ciclos viene ordenado created_at.desc: más reciente primero
+    });
+
+    return cabecera + `
+      <div class="card">
+        ${filasTabla.length? `<div class="table-wrap"><table>
+          <thead><tr><th>Período</th><th class="num">Conteos</th><th class="num">En plan</th><th class="num">Fuera de plan</th><th class="num">Adherencia</th></tr></thead>
+          <tbody>${filasTabla.map(f=>`<tr>
+            <td>${esc(f.nombre)}</td>
+            <td class="num">${f.total}</td>
+            <td class="num">${f.enPlan}</td>
+            <td class="num">${f.fueraPlan? `<span class="badge badge-warn">${f.fueraPlan}</span>` : '0'}</td>
+            <td class="num mono">${pct(f.pctAdherencia)}%</td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : `<div class="empty">Todavía no hay conteos registrados.</div>`}
+      </div>
+    `;
+  }
+
+  const cicloActual = (state.ciclos||[]).find(c=>c.es_actual);
+  const cicloId = periodo==='' ? (cicloActual? cicloActual.id : null) : (periodo==='__sin_periodo__' ? null : periodo);
+  const filasPeriodo = filas.filter(r=> (r.ciclo_id||null) === cicloId);
+  const s = sumar(filasPeriodo);
+  const pctAdherencia = s.total? s.enPlan/s.total*100 : 0;
+  const porBodega = filasPeriodo
+    .map(r=>({
+      nombre: r.bodega||'Sin ubicación general',
+      pct: (Number(r.total_conteos)||0) ? (Number(r.en_plan)||0)/Number(r.total_conteos)*100 : 0,
+      sub: `${r.en_plan||0}/${r.total_conteos||0}`,
+    }))
+    .sort((a,b)=> a.pct-b.pct); // menor adherencia primero: dónde conviene reforzar el plan
+
+  return cabecera + (s.total? `
+    <div class="kpi-grid" style="margin-bottom:14px">
+      <div class="tag-card">
+        <div class="kpi-label">Adherencia al plan</div>
+        <div class="kpi-value">${pct(pctAdherencia)}%</div>
+        <div class="kpi-sub">${s.enPlan.toLocaleString('es-CL')} de ${s.total.toLocaleString('es-CL')} conteos</div>
+      </div>
+      <div class="tag-card">
+        <div class="kpi-label">Fuera de plan</div>
+        <div class="kpi-value">${s.fueraPlan.toLocaleString('es-CL')}</div>
+        <div class="kpi-sub">buscador libre o escáner</div>
+      </div>
+    </div>
+    ${porBodega.length? `<div class="card">${renderExactitudBarList(porBodega)}</div>` : ''}
+  ` : `<div class="empty">Sin conteos registrados en este período.</div>`);
+}
+
 function renderDashboard(){
   const periodTable = (rows, keyLabel, keyField) => {
     if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
@@ -2835,6 +2949,7 @@ function renderDashboard(){
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
+    ${renderAdherenciaPlan()}
     ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
   `;
 }
@@ -4289,6 +4404,8 @@ function bind(){
     document.querySelectorAll('[data-dash-modo]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({dashboardModo: btn.dataset.dashModo}));
     });
+    const selDashPeriodo = document.getElementById('dash-periodo');
+    if(selDashPeriodo) selDashPeriodo.addEventListener('change', e=> setState({dashPeriodo: e.target.value}));
     const btnCargarMasConteos = document.getElementById('btn-cargar-mas-conteos');
     if(btnCargarMasConteos) btnCargarMasConteos.addEventListener('click', cargarMasUltimosConteos);
     const btnExportarInforme = document.getElementById('btn-exportar-informe');
