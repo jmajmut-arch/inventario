@@ -591,13 +591,24 @@ async function handleLogin(email, password){
     state.session = data;
     guardarSesion(data);
     await cargarPerfil();
+    const otraSesionCerrada = await hayOtraSesionActiva();
     setState({loading:false, view:'dashboard'});
-    toast(`Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
+    toast(otraSesionCerrada
+      ? 'Cerramos tu sesión anterior en otro dispositivo.'
+      : `Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
     cargarTodo();
   }catch(e){
     setState({loading:false});
     toast(e.message,'err');
   }
+}
+
+// Con "Single session per user" activado, este login deja invalidada (en su próximo
+// refresh) cualquier otra sesión activa de la cuenta. Se lo decimos a quien recién
+// entró para que no se sorprenda si el otro dispositivo se desconecta solo más tarde.
+async function hayOtraSesionActiva(){
+  try{ return await rest('/rpc/tengo_otra_sesion_activa', {method:'POST'}); }
+  catch(e){ return false; }
 }
 
 // Al llegar desde el link del correo de invitación, Supabase redirige con el
