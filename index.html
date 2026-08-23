@@ -260,6 +260,8 @@
   .roi-payoff.warn .roi-payoff-icon{background:var(--amber);}
   .roi-payoff.warn .roi-payoff-text b{color:var(--amber-dim);}
   .roi-resultado-heading{font-family:'Barlow Condensed';font-weight:800;font-size:19px;color:var(--text);margin-bottom:16px;}
+  .roi-result-value.roi-context{font-family:'Inter';font-weight:700;font-size:20px;color:var(--text-dim);}
+  #roi-bloque-ritmo{margin-bottom:22px;padding-bottom:22px;border-bottom:1px dashed var(--line);}
   .roi-fineprint{margin-top:20px;font-size:11px;line-height:1.6;color:var(--text-faint);}
   .roi-scenarios{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
   .roi-scenario-btn{flex:1;min-width:118px;text-align:left;padding:10px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);cursor:pointer;transition:border-color .15s ease,background .15s ease;font-family:inherit;}
@@ -497,7 +499,6 @@
                 <input type="number" id="roi-dias" value="5" min="0.5" step="0.5">
                 <span class="roi-suffix">días</span>
               </div>
-              <div class="roi-implied" id="roi-implied-ritmo">—</div>
             </div>
 
             <div class="roi-field">
@@ -549,6 +550,12 @@
 
           <div class="roi-col roi-result">
             <div class="roi-col-label">Con InventIA</div>
+
+            <div class="roi-result-block" id="roi-bloque-ritmo">
+              <div class="roi-result-label">Ritmo de conteo implícito, hoy</div>
+              <div class="roi-result-value roi-context" id="roi-out-ritmo">—<span class="roi-unit">SKU/persona/día</span></div>
+            </div>
+
             <div class="roi-resultado-heading">Tu resultado</div>
 
             <div class="roi-result-block">
@@ -1007,9 +1014,10 @@
       // Es para que se note si el SKU declarado no calza con los días/personas declarados.
       if(skus > 0 && dias > 0 && personas > 0){
         var skuPorPersonaDia = skus / (dias * personas);
-        $('roi-implied-ritmo').textContent = 'A este ritmo, cada persona cuenta ≈ ' + Math.round(skuPorPersonaDia).toLocaleString('es-CL') + ' SKU por día.';
+        $('roi-out-ritmo').innerHTML = '≈ ' + Math.round(skuPorPersonaDia).toLocaleString('es-CL') + '<span class="roi-unit">SKU/persona/día</span>';
+        $('roi-bloque-ritmo').style.display = '';
       }else{
-        $('roi-implied-ritmo').textContent = '';
+        $('roi-bloque-ritmo').style.display = 'none';
       }
 
       var horasConteoHoy = dias * 8 * personas;
