@@ -289,11 +289,6 @@ function configurarContextoSentry(){
   });
 }
 
-// Gatillo manual para verificar que Sentry recibe eventos (?sentry_test=1), sin depender de la consola del navegador.
-if(new URLSearchParams(location.search).get('sentry_test')){
-  setTimeout(()=>{ throw new Error('Prueba manual de Sentry (sentry_test)'); }, 300);
-}
-
 /* =======================================================================
    ESTADO
    ======================================================================= */
