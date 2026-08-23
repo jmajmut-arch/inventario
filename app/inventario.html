@@ -2632,7 +2632,7 @@ function renderInformeEjecutivo(){
     </div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
-    <div class="card">${renderBarChart(diarioAgg, 'contados', 'var(--amber)')}</div>
+    <div class="card">${renderBarChart(diarioAgg, 'contados', 'var(--amber)', fmtDiaCorto, true)}</div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>

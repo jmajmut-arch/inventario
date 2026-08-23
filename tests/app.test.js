@@ -932,12 +932,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
   ctx.__appstate.dash = {
     total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
-    diario: [], semanal: [], mensual: [],
+    diario: [{dia:'2026-08-10', skus_contados:'7', con_diferencia:'1'}], semanal: [], mensual: [],
     ranking: [{nombre:'Ana Torres', cantidad:9}, {nombre:'Beto', cantidad:4}],
   };
   const htmlDashProyeccion = ctx.renderDashboard();
   assert(htmlDashProyeccion.includes('Proyección de término'), 'la vista ejecutiva debe mostrar la sección de proyección, obtuvo: '+htmlDashProyeccion);
   assert(htmlDashProyeccion.includes('Ranking por responsable') && htmlDashProyeccion.includes('Ana Torres') && htmlDashProyeccion.includes('Beto'), 'la vista ejecutiva debe mostrar el ranking por responsable, obtuvo: '+htmlDashProyeccion);
+  // El gráfico "Conteos por día" debe mostrar el valor sobre cada barra, no solo la fecha debajo.
+  assert(htmlDashProyeccion.includes('font-weight="600" fill="var(--text-dim)">7</text>'), 'el gráfico de conteos por día debe mostrar el valor (7) encima de la barra, obtuvo: '+htmlDashProyeccion);
 
   // Sin conteos recientes (ranking vacío), no debe mostrarse la sección de ranking (nada que mostrar).
   ctx.__appstate.dash = { ...ctx.__appstate.dash, ranking: [] };
