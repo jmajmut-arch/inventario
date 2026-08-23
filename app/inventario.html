@@ -2,6 +2,10 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<script
+  src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js"
+  crossorigin="anonymous"
+></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>InventIA</title>
 <link rel="manifest" href="manifest.json">
@@ -265,42 +269,25 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const BUCKET = 'fotos-inventario';
 
 /* =======================================================================
-   MONITOREO DE ERRORES — reporta errores del navegador del cliente a
-   errores_cliente, para enterarnos aunque nadie nos escriba. Nunca debe
-   romper nada ni mostrarle algo al usuario: es "mejor esfuerzo", en silencio.
+   MONITOREO DE ERRORES — Sentry captura solo (errores JS + promesas
+   rechazadas) vía el Loader Script cargado en <head>; acá solo le pasamos
+   contexto de quién está mirando, para que cada error diga de qué empresa
+   vino. Sentry.onLoad encola el callback hasta que el SDK real esté listo
+   (el Loader Script parte como un stub liviano), así que es seguro llamar
+   a esto apenas cambia el perfil, sin esperar a que Sentry haya cargado.
    ======================================================================= */
-const erroresYaReportados = new Set();
-function reportarError(mensaje, stack){
-  try{
-    const clave = String(mensaje).slice(0,200);
-    if(erroresYaReportados.has(clave)) return; // no floodear con el mismo error repetido
-    erroresYaReportados.add(clave);
-    fetch(`${SUPABASE_URL}/rest/v1/errores_cliente`, {
-      method:'POST',
-      headers:{
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${(typeof state!=='undefined' && state.session) ? state.session.access_token : SUPABASE_ANON_KEY}`,
-        'Content-Type':'application/json',
-        'Prefer':'return=minimal',
-      },
-      body: JSON.stringify([{
-        empresa_id: (typeof state!=='undefined' && state.perfil) ? state.perfil.empresa_id : null,
-        usuario_id: (typeof state!=='undefined' && state.perfil) ? state.perfil.id : null,
-        mensaje: String(mensaje).slice(0,2000),
-        stack: stack ? String(stack).slice(0,4000) : null,
-        url: location.href,
-        user_agent: navigator.userAgent,
-      }]),
-    }).catch(()=>{}); // si falla el reporte mismo, no hay nada más que hacer
-  }catch(e){ /* nunca dejar que el reporte de errores rompa la app */ }
+function configurarContextoSentry(){
+  if(typeof Sentry === 'undefined' || !Sentry.onLoad) return;
+  Sentry.onLoad(function(){
+    if(state.perfil){
+      Sentry.setUser({ id: state.perfil.id });
+      Sentry.setTag('empresa_id', state.perfil.empresa_id);
+      Sentry.setTag('empresa_nombre', state.perfil.empresas ? state.perfil.empresas.nombre : null);
+    }else{
+      Sentry.setUser(null);
+    }
+  });
 }
-window.addEventListener('error', function(e){
-  reportarError(e.message || 'Error desconocido', e.error && e.error.stack);
-});
-window.addEventListener('unhandledrejection', function(e){
-  const razon = e.reason;
-  reportarError((razon && razon.message) || String(razon), razon && razon.stack);
-});
 
 /* =======================================================================
    ESTADO
@@ -340,7 +327,7 @@ let state = {
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
-  superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], errores: [], erroresHayMas: false, erroresCargandoMas: false, cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
@@ -557,6 +544,7 @@ async function cargarPerfil(){
     if(info && info.bloqueada){
       state.perfil = null;
       state.empresaBloqueada = {motivo: info.motivo, nombre: info.empresa_nombre, planNombre: info.plan_nombre};
+      configurarContextoSentry();
       return;
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
@@ -564,6 +552,7 @@ async function cargarPerfil(){
   const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
+  configurarContextoSentry();
 }
 
 // Si no hay plan cargado (aún no llegó del backend, o el embed falló) se asume acceso
@@ -778,7 +767,8 @@ async function solicitarRecuperacion(email){
 
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],errores:[],erroresHayMas:false,erroresCargandoMas:false,cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
+  state = { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
+  configurarContextoSentry();
   render();
   toast('Sesión cerrada');
 }
@@ -1103,29 +1093,6 @@ async function cargarMasLeadsSuperAdmin(){
   render();
 }
 
-// Errores del navegador de los clientes, reportados solos por reportarError()
-// (ver arriba en el bloque de MONITOREO DE ERRORES).
-async function cargarErroresSuperAdmin(){
-  try{
-    const filas = await rest(`/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}`);
-    state.superadmin.errores = filas || [];
-    state.superadmin.erroresHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
-    render();
-  }catch(e){ toast(e.message,'err'); }
-}
-
-async function cargarMasErroresSuperAdmin(){
-  if(state.superadmin.erroresCargandoMas) return;
-  state.superadmin.erroresCargandoMas = true;
-  render();
-  try{
-    const filas = await rest(`/errores_cliente?select=*,empresas(nombre)&order=creado_en.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.superadmin.errores.length}`);
-    state.superadmin.errores = state.superadmin.errores.concat(filas||[]);
-    state.superadmin.erroresHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
-  }catch(e){ toast(e.message,'err'); }
-  state.superadmin.erroresCargandoMas = false;
-  render();
-}
 
 async function crearEmpresaSuperAdmin(nombre){
   if(!nombre) return;
@@ -3463,21 +3430,6 @@ function renderSuperAdmin(){
         <button type="button" class="btn btn-secondary" id="btn-cargar-mas-leads-sa" style="width:auto;padding:8px 16px" ${sa.leadsCargandoMas?'disabled':''}>${sa.leadsCargandoMas?'Cargando…':'Cargar más'}</button>
       </div>` : ''}
     </div>
-    <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Errores reportados solos por el navegador de los clientes (${sa.errores.length}${sa.erroresHayMas?'+':''} más recientes).</div>
-      ${sa.errores.length? sa.errores.map(er=>`
-        <div class="plan-item" style="display:block;padding:10px 0">
-          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-            <span style="font-weight:600">${esc(er.mensaje)}</span>
-            <span class="hint">${esc(new Date(er.creado_en).toLocaleString('es-CL'))}</span>
-          </div>
-          <div class="hint">${er.empresas? esc(er.empresas.nombre)+' · ' : ''}${esc(er.url||'')}</div>
-        </div>
-      `).join('') : `<div class="empty" style="padding:14px 8px">Sin errores reportados. Buena señal.</div>`}
-      ${sa.erroresHayMas? `<div style="text-align:center;margin-top:12px">
-        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-errores-sa" style="width:auto;padding:8px 16px" ${sa.erroresCargandoMas?'disabled':''}>${sa.erroresCargandoMas?'Cargando…':'Cargar más'}</button>
-      </div>` : ''}
-    </div>
   `;
 }
 
@@ -3970,7 +3922,7 @@ function bind(){
     const btnCargarMasAuditoria = document.getElementById('btn-cargar-mas-auditoria');
     if(btnCargarMasAuditoria) btnCargarMasAuditoria.addEventListener('click', cargarMasAuditoria);
     if(state.perfil && state.perfil.es_super_admin){
-      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); cargarPlanesSuperAdmin(); cargarErroresSuperAdmin(); }
+      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); cargarPlanesSuperAdmin(); }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
         e.preventDefault();
         const input = document.getElementById('nueva-empresa-nombre');
@@ -4025,8 +3977,6 @@ function bind(){
       });
       const btnCargarMasLeadsSa = document.getElementById('btn-cargar-mas-leads-sa');
       if(btnCargarMasLeadsSa) btnCargarMasLeadsSa.addEventListener('click', cargarMasLeadsSuperAdmin);
-      const btnCargarMasErroresSa = document.getElementById('btn-cargar-mas-errores-sa');
-      if(btnCargarMasErroresSa) btnCargarMasErroresSa.addEventListener('click', cargarMasErroresSuperAdmin);
     }
   }
 
