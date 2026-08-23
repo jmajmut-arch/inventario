@@ -251,6 +251,21 @@ textarea{resize:vertical;min-height:60px;}
   #print-plan th{background:#eee;}
   #print-plan td.print-blank{min-width:60px;}
   #print-plan .print-vacio{font-size:11px;color:#555;}
+
+  /* Informe de ciclo: reusa los mismos componentes del dashboard (.card, .kpi-grid, etc.),
+     así que solo hace falta reescalar las variables de color al esquema del tema "claro" —
+     ya pensado para fondo blanco — en vez de duplicar cada regla de componente. */
+  #print-informe{
+    display:block; padding:0; background:#fff; color:#181b1a;
+    --bg:#f4f5f3; --surface:#ffffff; --surface-2:#eef0ed; --line:#dde0db;
+    --amber:#c9720f; --amber-dim:#f0d4ae; --steel:#3d6d8a;
+    --ok:#2f8f52; --warn:#a8720a; --danger:#c23b2f;
+    --text:#181b1a; --text-dim:#4c5450; --text-faint:#7c8480;
+  }
+  #print-informe h1{font-size:19px;margin:0 0 2px;}
+  #print-informe .print-meta{font-size:11px;color:var(--text-dim);margin-bottom:16px;}
+  #print-informe .segmented{display:none;}
+  #print-informe .section-head,#print-informe .card,#print-informe .tag-card{page-break-inside:avoid;}
 }
 </style>
 </head>
@@ -258,6 +273,7 @@ textarea{resize:vertical;min-height:60px;}
 <div id="app"></div>
 <div id="toast-root"></div>
 <div id="print-plan"></div>
+<div id="print-informe"></div>
 <div id="marca-agua" aria-hidden="true">Joel Majmut</div>
 
 <script>
@@ -2476,7 +2492,10 @@ function renderEscanerModal(){
   </div>`;
 }
 
-function renderDashboard(){
+// Contenido de la vista ejecutiva del dashboard, extraído de renderDashboard() porque también
+// lo usa imprimirInformeCiclo(): así el informe PDF muestra exactamente los mismos números que
+// el dashboard, calculados una sola vez, en un solo lugar.
+function renderInformeEjecutivo(){
   const t = state.dash.total;
   // skus_universo/skus_contados vienen de count(distinct) en la vista SQL: PostgREST los
   // serializa como string (bigint), así que sin Number() la suma concatena texto en vez de
@@ -2498,26 +2517,10 @@ function renderDashboard(){
     </div>
   `).join('') || `<div class="empty"><div class="glyph">◧</div>Aún no hay SKUs cargados para calcular avance.</div>`;
 
-  const periodTable = (rows, keyLabel, keyField) => {
-    if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
-    return `<div class="table-wrap"><table>
-      <thead><tr><th>${keyLabel}</th><th>Ubic. general</th><th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr>
-        <td class="mono">${fmtFecha(r[keyField])}</td>
-        <td>${esc(r.bodega||'—')}</td>
-        <td class="num">${r.skus_contados||0}</td>
-        <td class="num">${r.con_diferencia? `<span class="badge badge-warn">${r.con_diferencia}</span>` : '0'}</td>
-        <td class="num">${r.total_unidades_contadas!==null? Number(r.total_unidades_contadas).toLocaleString('es-CL') : '—'}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>`;
-  };
-
   const diarioAgg = agregarPorDia(state.dash.diario, VENTANA_PROYECCION_DIAS);
   const totConDif = diarioAgg.reduce((s,d)=>s+d.diferencias,0);
   const totContadosPeriodo = diarioAgg.reduce((s,d)=>s+d.contados,0);
   const totSinDif = Math.max(0, totContadosPeriodo - totConDif);
-  const ejecutivoIncluido = planIncluye('dashboard_ejecutivo_habilitado');
-  const modo = (state.dashboardModo==='ejecutivo' && !ejecutivoIncluido) ? 'operativo' : state.dashboardModo;
   const proyeccion = proyeccionTermino(totUniverso, totContados, totContadosPeriodo);
   const rankingResponsables = (state.dash.ranking||[]).slice(0,8);
 
@@ -2549,7 +2552,7 @@ function renderDashboard(){
   const valorExcedentes = valorizBodega.reduce((s,r)=>s+(Number(r.valor_excedentes)||0),0);
   const valorNeto = valorPerdidas + valorExcedentes;
 
-  const vistaEjecutiva = `
+  return `
     <div class="kpi-grid">
       <div class="tag-card">
         <div class="kpi-label">Avance global</div>
@@ -2629,7 +2632,7 @@ function renderDashboard(){
     </div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
-    <div class="card">${renderBarChart(diarioAgg, 'contados', 'var(--amber)')}</div>
+    <div class="card">${renderBarChart(diarioAgg, 'contados', 'var(--amber)', fmtDiaCorto, true)}</div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>
@@ -2647,6 +2650,26 @@ function renderDashboard(){
     <div class="section-head"><h2 style="font-size:17px">Avance por ubicación general</h2></div>
     ${filasBodega}
   `;
+}
+
+function renderDashboard(){
+  const periodTable = (rows, keyLabel, keyField) => {
+    if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
+    return `<div class="table-wrap"><table>
+      <thead><tr><th>${keyLabel}</th><th>Ubic. general</th><th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td class="mono">${fmtFecha(r[keyField])}</td>
+        <td>${esc(r.bodega||'—')}</td>
+        <td class="num">${r.skus_contados||0}</td>
+        <td class="num">${r.con_diferencia? `<span class="badge badge-warn">${r.con_diferencia}</span>` : '0'}</td>
+        <td class="num">${r.total_unidades_contadas!==null? Number(r.total_unidades_contadas).toLocaleString('es-CL') : '—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  };
+
+  const ejecutivoIncluido = planIncluye('dashboard_ejecutivo_habilitado');
+  const modo = (state.dashboardModo==='ejecutivo' && !ejecutivoIncluido) ? 'operativo' : state.dashboardModo;
+  const vistaEjecutiva = renderInformeEjecutivo();
 
   const vistaOperativa = `
     <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
@@ -2682,7 +2705,10 @@ function renderDashboard(){
   `;
 
   return `
-    <div class="section-head"><div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div></div>
+    <div class="section-head">
+      <div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div>
+      <button class="btn btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${ejecutivoIncluido?'':'disabled title="Disponible en el plan Profesional"'}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
+    </div>
     <div class="segmented">
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
@@ -3143,6 +3169,24 @@ async function imprimirPlan(){
   }finally{
     if(btn){ btn.disabled = !p.entradas.length; btn.innerHTML = `${ICONS.download} Exportar PDF`; }
   }
+}
+
+// Informe de ciclo: exporta a PDF (vía impresión del navegador) exactamente lo que muestra
+// el dashboard en modo Ejecutivo — mismos números, mismo cálculo, un solo lugar de verdad
+// (renderInformeEjecutivo). No hace ninguna consulta nueva: usa lo que ya está cargado en
+// state.dash, así que refleja el ciclo actual tal como lo agrupan las vistas SQL (ver #103).
+function imprimirInformeCiclo(){
+  if(!planIncluye('dashboard_ejecutivo_habilitado')) return;
+  const cicloActual = (state.ciclos||[]).find(c=>c.es_actual);
+  const empresaNombre = (state.perfil && state.perfil.empresas && state.perfil.empresas.nombre) || '';
+  const metaPartes = [empresaNombre, cicloActual? cicloActual.nombre : 'Sin ciclo asignado', new Date().toLocaleString('es-CL')].filter(Boolean);
+  document.getElementById('print-plan').innerHTML = '';
+  document.getElementById('print-informe').innerHTML = `
+    <h1>Informe de ciclo de conteo</h1>
+    <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
+    ${renderInformeEjecutivo()}
+  `;
+  window.print();
 }
 
 /* =======================================================================
@@ -3996,6 +4040,8 @@ function bind(){
     });
     const btnCargarMasConteos = document.getElementById('btn-cargar-mas-conteos');
     if(btnCargarMasConteos) btnCargarMasConteos.addEventListener('click', cargarMasUltimosConteos);
+    const btnExportarInforme = document.getElementById('btn-exportar-informe');
+    if(btnExportarInforme) btnExportarInforme.addEventListener('click', imprimirInformeCiclo);
   }
 
   if(state.view==='skus'){
