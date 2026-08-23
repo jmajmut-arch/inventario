@@ -452,6 +452,10 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
   if(res.status===401 && state.session && state.session.refresh_token){
     const refrescada = await refrescarSesion();
     if(refrescada) res = await hacerLlamada();
+    else{
+      manejarSesionInvalida();
+      throw new Error(MENSAJE_SESION_TERMINADA);
+    }
   }
   const text = await res.text(); // POST/PATCH con Prefer: return=minimal responden 200/201 con cuerpo vacío, no 204 — no asumir JSON siempre presente
   let data = null;
@@ -781,12 +785,33 @@ async function solicitarRecuperacion(email){
   }
 }
 
+// Estado con el que queda la app tras cerrar sesión, sea porque la persona hizo clic en
+// "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
+// en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
+function estadoTrasCerrarSesion(){
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
+}
+
 function handleLogout(){
   borrarSesionGuardada();
-  state = { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
+  state = estadoTrasCerrarSesion();
   configurarContextoSentry();
   render();
   toast('Sesión cerrada');
+}
+
+// Si el refresh_token ya no sirve mientras la persona está usando la app activamente (no
+// solo al abrirla), lo más probable es que haya iniciado sesión en otro dispositivo/pestaña
+// — con "Single session per user" activo en Supabase Auth, la sesión más nueva invalida a
+// las anteriores. Sin este manejo, rest() solo lanzaría el error 401 crudo del servidor y la
+// pantalla quedaría a medio cargar en vez de volver limpiamente al login.
+const MENSAJE_SESION_TERMINADA = 'Tu sesión terminó — probablemente iniciaste sesión en otro dispositivo. Inicia sesión de nuevo.';
+function manejarSesionInvalida(){
+  borrarSesionGuardada();
+  state = estadoTrasCerrarSesion();
+  configurarContextoSentry();
+  render();
+  toast(MENSAJE_SESION_TERMINADA, 'err');
 }
 
 /* =======================================================================

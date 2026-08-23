@@ -2173,6 +2173,36 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-c', 'tras asociar, ese SKU debe quedar seleccionado para continuar con el conteo, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
   assert(ctx.__appstate.escanerModal===null, 'tras asociar con éxito, el modal debe cerrarse');
 
+  // rest(): si el refresh_token YA NO SIRVE (ej. "Single session per user" de Supabase Auth
+  // invalidó la sesión porque la cuenta inició sesión en otro dispositivo), debe cerrar la
+  // sesión localmente con un mensaje claro en vez de dejar la pantalla a medio cargar con
+  // el error 401 crudo del servidor. Debe ir antes de handleLogout más abajo, que reasigna
+  // `state` por completo y deja desactualizada la referencia __appstate (misma razón que la
+  // nota junto al escáner más arriba) — y esta prueba necesita fijar __appstate.session
+  // sobre el `state` todavía vivo antes de llamar rest().
+  const toastRootSesionInvalida = elements['toast-root'];
+  ctx.__appstate.session = { access_token:'token-vencido-2', refresh_token:'refresh-de-otra-sesion', user:{id:'user-1'} };
+  ctx.guardarSesion(ctx.__appstate.session);
+  const toastsAntesSesionInvalida = toastRootSesionInvalida ? toastRootSesionInvalida.hijos.length : 0;
+  const fetchOriginal2 = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/ruta-de-prueba-401b' && (opts.headers.Authorization||'').includes('token-vencido-2')){
+      return { status:401, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'JWT expired'}) };
+    }
+    if(u.pathname==='/auth/v1/token' && u.searchParams.get('grant_type')==='refresh_token'){
+      return { status:401, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({error:'invalid_grant', error_description:'Invalid Refresh Token: Session not found'}) };
+    }
+    return fetchOriginal2(url, opts);
+  };
+  let errorSesionInvalida = null;
+  try{ await ctx.rest('/ruta-de-prueba-401b'); }catch(e){ errorSesionInvalida = e; }
+  ctx.fetch = fetchOriginal2;
+  assert(!!errorSesionInvalida, 'rest() debe lanzar un error cuando el refresh_token ya no sirve');
+  assert(ctx.localStorage.getItem('sesion_inventario')===null, 'con el refresh_token inválido, rest() debe borrar la sesión persistida en localStorage');
+  const nuevosToastsSesionInvalida = toastRootSesionInvalida.hijos.slice(toastsAntesSesionInvalida);
+  assert(nuevosToastsSesionInvalida.some(t=>t.textContent.includes('otro dispositivo')), 'debe mostrar un toast explicando que la sesión terminó en otro dispositivo, obtuvo: '+JSON.stringify(nuevosToastsSesionInvalida.map(t=>t.textContent)));
+
   // handleLogout debe avisar con un toast temporal, igual que el resto de las acciones (login, guardar, borrar, etc.),
   // y borrar la sesión persistida en localStorage para que el próximo que abra el navegador no la herede.
   // Nota: handleLogout hace `state = {...}` (reasignación completa, no Object.assign), así que __appstate
