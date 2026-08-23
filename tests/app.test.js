@@ -1762,6 +1762,52 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(patchesCiclo[0].url.includes('es_actual=eq.true') && JSON.parse(patchesCiclo[0].opts.body).es_actual===false, 'el primer PATCH debe desmarcar el ciclo actual anterior, obtuvo: '+JSON.stringify(patchesCiclo[0]));
   assert(patchesCiclo[1].url.includes('id=eq.ciclo-2') && JSON.parse(patchesCiclo[1].opts.body).es_actual===true, 'el segundo PATCH debe marcar el ciclo elegido como actual, obtuvo: '+JSON.stringify(patchesCiclo[1]));
 
+  // ===== Planificación vinculada a ciclos de conteo (períodos) =====
+
+  // crearPlanEntrada: con cicloId, debe mandar ciclo_id en el POST; sin cicloId, null (el
+  // trigger del lado del servidor lo completa solo con el ciclo marcado como actual).
+  calls.length = 0;
+  await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:[], responsableId:'', nota:'', cicloId:'ciclo-2'});
+  const postPlanConCiclo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(!!postPlanConCiclo && JSON.parse(postPlanConCiclo.opts.body)[0].ciclo_id==='ciclo-2', 'crearPlanEntrada con cicloId debe mandar ese ciclo_id en el POST, obtuvo: '+JSON.stringify(postPlanConCiclo));
+
+  calls.length = 0;
+  await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:[], responsableId:'', nota:''});
+  const postPlanSinCiclo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(!!postPlanSinCiclo && JSON.parse(postPlanSinCiclo.opts.body)[0].ciclo_id===null, 'crearPlanEntrada sin cicloId debe mandar ciclo_id null (lo completa el trigger del servidor), obtuvo: '+JSON.stringify(postPlanSinCiclo));
+
+  // cargarPlanSemanal: con un período elegido en el filtro, debe pedir TODO ese período por
+  // ciclo_id (sin rango de fechas); sin período elegido, sigue pidiendo por semana como antes.
+  ctx.__appstate.plan.cicloFiltro = 'ciclo-1';
+  calls.length = 0;
+  await ctx.cargarPlanSemanal();
+  const getPlanPorCiclo = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!getPlanPorCiclo && getPlanPorCiclo.url.includes('ciclo_id=eq.ciclo-1') && !getPlanPorCiclo.url.includes('fecha=gte'), 'con un período elegido, cargarPlanSemanal debe filtrar por ciclo_id sin rango de fechas, obtuvo: '+JSON.stringify(getPlanPorCiclo));
+
+  ctx.__appstate.plan.cicloFiltro = '';
+  calls.length = 0;
+  await ctx.cargarPlanSemanal();
+  const getPlanPorSemana = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!getPlanPorSemana && getPlanPorSemana.url.includes('fecha=gte') && !getPlanPorSemana.url.includes('ciclo_id'), 'sin período elegido, cargarPlanSemanal debe volver a filtrar por semana (fecha), obtuvo: '+JSON.stringify(getPlanPorSemana));
+
+  // renderPlanificacion: el selector de período debe listar los ciclos, y elegir uno debe
+  // ocultar la navegación por semana (no aplica en modo período); cada entrada debe mostrar
+  // a qué período quedó asociada (o que no tiene ninguno).
+  ctx.__appstate.plan.entradas = [
+    {id:'e1', fecha:'2026-08-10', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', responsable_nombre:'Ana Torres', nota:'', skus_excluidos:[], ciclo_nombre:'T1 2027'},
+    {id:'e2', fecha:'2026-08-11', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', responsable_nombre:null, nota:'', skus_excluidos:[], ciclo_nombre:null},
+  ];
+  const htmlPlanSinFiltro = ctx.renderPlanificacion();
+  assert(htmlPlanSinFiltro.includes('id="plan-filtro-ciclo"') && htmlPlanSinFiltro.includes('T1 2027') && htmlPlanSinFiltro.includes('T4 2026'), 'el selector de período debe listar los ciclos existentes, obtuvo: '+htmlPlanSinFiltro);
+  assert(htmlPlanSinFiltro.includes('id="plan-semana-prev"'), 'sin período elegido, debe seguir mostrando la navegación por semana, obtuvo: '+htmlPlanSinFiltro);
+  assert(htmlPlanSinFiltro.includes('Período: T1 2027') && htmlPlanSinFiltro.includes('Período: Sin período asignado'), 'cada entrada debe mostrar a qué período quedó asociada (o que no tiene), obtuvo: '+htmlPlanSinFiltro);
+
+  ctx.__appstate.plan.cicloFiltro = 'ciclo-1';
+  const htmlPlanConFiltro = ctx.renderPlanificacion();
+  assert(!htmlPlanConFiltro.includes('id="plan-semana-prev"'), 'con un período elegido, la navegación por semana debe ocultarse (no aplica), obtuvo: '+htmlPlanConFiltro);
+  assert(htmlPlanConFiltro.includes('Mostrando toda la planificación de <strong>T1 2027</strong>'), 'debe indicar claramente qué período se está mostrando, obtuvo: '+htmlPlanConFiltro);
+  ctx.__appstate.plan.cicloFiltro = '';
+
   // renderBuscar: el filtro de ciclo solo debe verse si hay ciclos creados, y debe incluir
   // la opción "Sin ciclo asignado" además de cada ciclo real.
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };

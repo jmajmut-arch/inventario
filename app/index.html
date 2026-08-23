@@ -342,7 +342,7 @@ let state = {
   cargaPreview: null,
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
@@ -1022,8 +1022,13 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloS
 async function cargarPlanSemanal(){
   const inicio = state.plan.semanaInicio || fechaISO(inicioSemana(new Date()));
   const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 6));
+  // Con un período (ciclo) elegido en el filtro, se muestra toda su planificación sin
+  // importar la semana; sin período elegido, se sigue mostrando semana por semana como antes.
+  const cicloFiltro = state.plan.cicloFiltro;
   try{
-    const rows = await rest(`/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
+    const rows = await rest(cicloFiltro
+      ? `/plan_semanal_detalle?ciclo_id=eq.${cicloFiltro}&order=fecha.asc`
+      : `/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[], seleccionados:[]}});
     (rows||[]).forEach(async r=>{
       const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
@@ -1283,7 +1288,7 @@ async function quitarResponsable(id){
   }catch(e){ toast(e.message,'err'); }
 }
 
-async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsableId, nota, soloSinUbicacion}){
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsableId, nota, soloSinUbicacion, cicloId}){
   if(!fecha){ toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
   // "SKU sin ubicación" es una sola entrada (no tiene bodega/ubicación/bin que cascadear).
@@ -1295,6 +1300,9 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsa
       ubicacion: soloSinUbicacion ? null : (ubicacion||null),
       storage_bin: soloSinUbicacion ? null : (bin||null),
       solo_sin_ubicacion: !!soloSinUbicacion,
+      // Sin período elegido, el trigger asignar_ciclo_plan_semanal la deja en el ciclo
+      // marcado como actual (igual que ya pasa con los conteos).
+      ciclo_id: cicloId||null,
       responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
       empresa_id: state.perfil.empresa_id,
     })), prefer:'return=minimal'});
@@ -3164,20 +3172,26 @@ async function imprimirPlan(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
   const finSemana = sumarDias(inicio,6);
-  const dias = Array.from({length:7},(_,i)=> sumarDias(inicio,i));
-  const porDia = dias.map(d=>{
-    const iso = fechaISO(d);
-    return {
-      label: d.toLocaleDateString('es-CL',{weekday:'long', day:'2-digit', month:'short'}),
-      entradas: p.entradas.filter(e=>e.fecha===iso),
-    };
-  }).filter(d=>d.entradas.length);
+  // Igual que en renderPlanificacion: con un período elegido se exporta TODO lo planificado
+  // para ese período (todas las semanas), no solo la semana que se esté mirando.
+  const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
+  const titulo = cicloFiltroObj ? `Plan de conteo — ${cicloFiltroObj.nombre}` : 'Plan de conteo semanal';
+  const meta = cicloFiltroObj
+    ? `${esc(cicloFiltroObj.nombre)} · Generado ${new Date().toLocaleString('es-CL')}`
+    : `Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}`;
+  const porDia = (p.cicloFiltro
+    ? Array.from(new Set(p.entradas.map(e=>e.fecha))).sort()
+    : Array.from({length:7},(_,i)=> fechaISO(sumarDias(inicio,i)))
+  ).map(iso=>({
+    label: new Date(iso+'T00:00:00').toLocaleDateString('es-CL',{weekday:'long', day:'2-digit', month:'short'}),
+    entradas: p.entradas.filter(e=>e.fecha===iso),
+  })).filter(d=>d.entradas.length);
 
   if(!porDia.length){
     document.getElementById('print-plan').innerHTML = `
-      <h1>Plan de conteo semanal</h1>
-      <div class="print-meta">Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}</div>
-      <p class="print-vacio">No hay conteos planificados para esta semana.</p>
+      <h1>${esc(titulo)}</h1>
+      <div class="print-meta">${meta}</div>
+      <p class="print-vacio">No hay conteos planificados${cicloFiltroObj?'':' para esta semana'}.</p>
     `;
     window.print();
     return;
@@ -3195,8 +3209,8 @@ async function imprimirPlan(){
       }
     }
     document.getElementById('print-plan').innerHTML = `
-      <h1>Plan de conteo semanal</h1>
-      <div class="print-meta">Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}</div>
+      <h1>${esc(titulo)}</h1>
+      <div class="print-meta">${meta}</div>
       ${cuerpo}
     `;
     window.print();
@@ -3232,19 +3246,33 @@ function renderPlanificacion(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
   const finSemana = sumarDias(inicio,6);
-  const dias = Array.from({length:7},(_,i)=> sumarDias(inicio,i));
+  const cicloActual = (state.ciclos||[]).find(c=>c.es_actual);
+  const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
 
-  const porDia = dias.map(d=>{
-    const iso = fechaISO(d);
-    return {
-      iso,
-      label: d.toLocaleDateString('es-CL',{weekday:'long'}),
-      corta: d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}),
-      entradas: p.entradas.filter(e=>e.fecha===iso),
-    };
-  });
+  // En modo semana se muestran los 7 días de la semana elegida aunque estén vacíos (para
+  // que se note qué falta planificar); en modo período no hay una semana de referencia —
+  // se agrupa por cada fecha que realmente tenga algo planificado, sin importar la semana.
+  const grupos = p.cicloFiltro
+    ? Array.from(new Set(p.entradas.map(e=>e.fecha))).sort().map(iso=>{
+        const d = new Date(iso+'T00:00:00');
+        return {
+          iso,
+          label: d.toLocaleDateString('es-CL',{weekday:'long', day:'2-digit', month:'short'}),
+          corta: d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}),
+          entradas: p.entradas.filter(e=>e.fecha===iso),
+        };
+      })
+    : Array.from({length:7},(_,i)=> sumarDias(inicio,i)).map(d=>{
+        const iso = fechaISO(d);
+        return {
+          iso,
+          label: d.toLocaleDateString('es-CL',{weekday:'long'}),
+          corta: d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}),
+          entradas: p.entradas.filter(e=>e.fecha===iso),
+        };
+      });
 
-  const datosPorDia = porDia.map(d=>({
+  const datosPorDia = grupos.map(d=>({
     dia: d.iso,
     cantidad: d.entradas.reduce((s,e)=> s+(p.universos[e.id]||0), 0),
   }));
@@ -3256,11 +3284,22 @@ function renderPlanificacion(){
       <div><span class="eyebrow">Planificación</span><h2>Semana de conteo</h2></div>
       <button class="btn btn-secondary" id="btn-exportar-plan" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${p.entradas.length?'':'disabled'}>${ICONS.download} Exportar PDF</button>
     </div>
+    ${state.ciclos.length? `
+    <label for="plan-filtro-ciclo" class="hint" style="margin:0 0 4px;display:block">Período</label>
+    <select id="plan-filtro-ciclo" style="margin-bottom:12px">
+      <option value="">Todos los períodos (navegar por semana)</option>
+      ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${p.cicloFiltro===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
+    </select>
+    ` : ''}
+    ${p.cicloFiltro? `
+    <div class="hint" style="margin-bottom:14px">Mostrando toda la planificación de <strong>${esc(cicloFiltroObj? cicloFiltroObj.nombre : '')}</strong>, de todas las semanas.</div>
+    ` : `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
       <button class="btn btn-secondary" id="plan-semana-prev" style="width:auto;padding:8px 12px;flex:none">‹</button>
       <span class="hint" style="margin:0;text-align:center">${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))}</span>
       <button class="btn btn-secondary" id="plan-semana-next" style="width:auto;padding:8px 12px;flex:none">›</button>
     </div>
+    `}
 
     <div class="card">
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
@@ -3290,6 +3329,13 @@ function renderPlanificacion(){
             <div class="hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
           </div>
         </div>
+        ${state.ciclos.length? `
+        <label for="p-ciclo">Período</label>
+        <select id="p-ciclo">
+          <option value="">${cicloActual? `Automático (${esc(cicloActual.nombre)}, el actual)` : 'Automático (sin ciclo marcado como actual)'}</option>
+          ${state.ciclos.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join('')}
+        </select>
+        ` : ''}
         <label for="p-responsable">Responsable</label>
         <select id="p-responsable">
           <option value="">Sin asignar</option>
@@ -3308,7 +3354,7 @@ function renderPlanificacion(){
       <div class="section-head"><h2 style="font-size:15px">Resumen de la semana</h2></div>
       <div class="card">
         <div class="hint" style="margin-bottom:8px">SKU a contar por día (${totalSemana} en total)</div>
-        ${renderBarChart(datosPorDia, 'cantidad', 'var(--amber)', abrevDiaSemana, true)}
+        ${renderBarChart(datosPorDia, 'cantidad', 'var(--amber)', p.cicloFiltro? fmtDiaCorto : abrevDiaSemana, true)}
       </div>
       <div class="card">
         <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
@@ -3331,8 +3377,8 @@ function renderPlanificacion(){
       </div>
     ` : ''}
 
-    ${porDia.map(d=>`
-      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)} · ${d.corta}</h2></div>
+    ${grupos.map(d=>`
+      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${p.cicloFiltro?'':' · '+d.corta}</h2></div>
       <div class="card">
         ${d.entradas.length? d.entradas.map(e=> p.editando===e.id ? `
           <div class="plan-item" style="flex-direction:column;align-items:stretch;gap:0">
@@ -3358,6 +3404,7 @@ function renderPlanificacion(){
             <div class="plan-item-info">
               <div class="plan-item-ubic">${e.solo_sin_ubicacion? 'SKU sin ubicación' : esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
               <div class="plan-item-responsable">Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}</div>
+              <div class="plan-item-responsable">Período: ${esc(e.ciclo_nombre || 'Sin período asignado')}</div>
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
               <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}</div>
               <div class="plan-item-detalle">
@@ -4271,12 +4318,19 @@ function bind(){
   if(state.view==='plan'){
     const btnExportarPlan = document.getElementById('btn-exportar-plan');
     if(btnExportarPlan) btnExportarPlan.addEventListener('click', imprimirPlan);
-    document.getElementById('plan-semana-prev').addEventListener('click', ()=>{
+    const selFiltroCiclo = document.getElementById('plan-filtro-ciclo');
+    if(selFiltroCiclo) selFiltroCiclo.addEventListener('change', e=>{
+      setState({plan:{...state.plan, cicloFiltro:e.target.value}});
+      cargarPlanSemanal();
+    });
+    const btnSemanaPrev = document.getElementById('plan-semana-prev');
+    if(btnSemanaPrev) btnSemanaPrev.addEventListener('click', ()=>{
       const nueva = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), -7));
       setState({plan:{...state.plan, semanaInicio:nueva}});
       cargarPlanSemanal();
     });
-    document.getElementById('plan-semana-next').addEventListener('click', ()=>{
+    const btnSemanaNext = document.getElementById('plan-semana-next');
+    if(btnSemanaNext) btnSemanaNext.addEventListener('click', ()=>{
       const nueva = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), 7));
       setState({plan:{...state.plan, semanaInicio:nueva}});
       cargarPlanSemanal();
@@ -4291,12 +4345,14 @@ function bind(){
       // trata "sin selección" como "sin filtro de storage bin" (cubre también los que no tienen).
       const chkBinTodos = document.getElementById('p-bin-todos');
       const storageBins = (chkBinTodos && chkBinTodos.checked) ? [] : [...document.getElementById('p-bin').selectedOptions].map(o=>o.value).filter(Boolean);
+      const selCiclo = document.getElementById('p-ciclo');
       crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
         bodega: soloSinUbicacion ? '' : bodegaSeleccionada,
         ubicacion: document.getElementById('p-ubic').value.trim(),
         storageBins,
         soloSinUbicacion,
+        cicloId: selCiclo ? selCiclo.value : '',
         responsableId: document.getElementById('p-responsable').value,
         nota: document.getElementById('p-nota').value.trim(),
       });
