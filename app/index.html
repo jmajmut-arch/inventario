@@ -326,7 +326,13 @@ let state = {
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
+  conteoOrigenPlan: false, // el SKU seleccionado viene del plan del día (true) o del buscador libre (false, "fuera de plan")
   conteoFotos: [],       // [{file, preview}]
+  // "Mi plan del día" en Contar: qué le toca hoy a la cuenta logueada (según su vínculo en
+  // responsables_proceso.usuario_id) y con qué bodega/ubicación/storage bin está trabajando
+  // ahora mismo. miResponsableId null = todavía no se resolvió; '' = no está vinculada a
+  // ningún operador (no hay plan personal que mostrar, solo el buscador libre de siempre).
+  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), miResponsableId: null, entradas: [], bodega:'', ubicacion:'', bin:'', skusPendientes: null },
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [] },
   ultimosConteos: [],
@@ -340,7 +346,7 @@ let state = {
   reconteosCargandoMas: false,
   tema: localStorage.getItem('tema_app') || 'ambar',
   cargaPreview: null,
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
@@ -1053,7 +1059,7 @@ async function excluirSkuDePlan(planId, skuCode){
 
 async function cargarResponsables(){
   try{
-    const rows = await rest('/responsables_proceso?activo=eq.true&order=nombre.asc&select=id,nombre');
+    const rows = await rest('/responsables_proceso?activo=eq.true&order=nombre.asc&select=id,nombre,usuario_id');
     setState({plan: {...state.plan, responsables: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1273,11 +1279,21 @@ function perfilCargado(){
   return true;
 }
 
-async function crearResponsable(nombre){
+async function crearResponsable(nombre, usuarioId){
   if(!nombre || !perfilCargado()) return;
   try{
-    await rest('/responsables_proceso', {method:'POST', body:[{nombre, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
+    await rest('/responsables_proceso', {method:'POST', body:[{nombre, empresa_id: state.perfil.empresa_id, usuario_id: usuarioId||null}], prefer:'return=minimal'});
     toast('Operador agregado');
+    cargarResponsables();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Vincula (o desvincula) un operador con la cuenta de login real que corresponde a esa
+// persona — así "Contar" le puede mostrar su propio plan del día (ver renderConteo).
+async function actualizarResponsable(id, cambios){
+  try{
+    await rest(`/responsables_proceso?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
+    toast('Operador actualizado');
     cargarResponsables();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1287,6 +1303,48 @@ async function quitarResponsable(id){
     await rest(`/responsables_proceso?id=eq.${id}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
     toast('Operador eliminado');
     cargarResponsables();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// "Mi plan del día" en Contar: qué le corresponde hoy (o el día elegido) a la cuenta
+// logueada, según su vínculo en responsables_proceso.usuario_id. miResponsableId se
+// resuelve una sola vez (no cambia de un día a otro) y queda cacheado en el estado.
+async function cargarPlanDeHoy(fecha){
+  if(!state.perfil) return;
+  setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null}});
+  try{
+    let miResponsableId = state.contarPlan.miResponsableId;
+    if(miResponsableId===null){
+      const filas = await rest(`/responsables_proceso?usuario_id=eq.${state.perfil.id}&activo=eq.true&select=id`);
+      miResponsableId = (filas && filas[0] && filas[0].id) || '';
+    }
+    const entradas = miResponsableId
+      ? await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&responsable_id=eq.${miResponsableId}&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || []
+      : [];
+    setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, miResponsableId, entradas}});
+  }catch(e){
+    toast(e.message,'err');
+    setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false}});
+  }
+}
+
+// De las entradas de hoy, cuál corresponde exactamente a la bodega/ubicación/bin elegidos
+// en los <select> en cascada (o la entrada "SKU sin ubicación", un caso aparte que no
+// cascadea). null mientras la selección todavía no narrow a una sola entrada.
+function entradaActivaContar(cp){
+  if(cp.bodega === BODEGA_SIN_UBICACION) return cp.entradas.find(e=>e.solo_sin_ubicacion) || null;
+  if(!cp.bodega) return null;
+  return cp.entradas.find(e=> !e.solo_sin_ubicacion && e.bodega===cp.bodega && (e.ubicacion||'')===cp.ubicacion && (e.storage_bin||'')===cp.bin) || null;
+}
+
+async function elegirCascadaContar(cambios){
+  const cp = {...state.contarPlan, ...cambios, skusPendientes:null};
+  setState({contarPlan: cp});
+  const activa = entradaActivaContar(cp);
+  if(!activa) return;
+  try{
+    const skus = await skusDeUbicacion({bodega:activa.bodega, ubicacion:activa.ubicacion, storage_bin:activa.storage_bin, excluidos:activa.skus_excluidos, soloSinUbicacion:activa.solo_sin_ubicacion});
+    setState({contarPlan:{...state.contarPlan, skusPendientes: skus}});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1481,6 +1539,7 @@ function construirPathBusqueda(offset){
   if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
   if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null`;
   else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
+  if(state.busqueda.soloFueraDePlan) path += `&fuera_de_plan=eq.true`;
   return path;
 }
 
@@ -1938,6 +1997,7 @@ async function procesarUnItemOffline(item){
       bodega: item.bodega,
       observacion: item.observacion,
       capturado_en: capturadoEn,
+      fuera_de_plan: item.fuera_de_plan,
     }], prefer:'return=representation'});
     const conteoId = filas && filas[0] && filas[0].id;
     if(conteoId && urls.length){
@@ -2046,6 +2106,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
       bodega: bodega || state.skuSeleccionado.bodega || null,
       observacion: observacion || null,
       capturado_en: capturadoEn,
+      fuera_de_plan: !state.conteoOrigenPlan,
     }], prefer:'return=representation'});
     const conteoId = filas && filas[0] && filas[0].id;
 
@@ -2060,7 +2121,8 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
     }
 
     toast('Conteo registrado');
-    setState({loading:false, skuSeleccionado:null, conteoFotos:[], skuSearch:''});
+    setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoFotos:[], skuSearch:''});
+    if(state.contarPlan.skusPendientes) elegirCascadaContar({});
     cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
     // Sin conexión de verdad (no un error del servidor): guardamos el conteo (y sus
@@ -2078,9 +2140,10 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
         bodega: bodega || state.skuSeleccionado.bodega || null,
         observacion: observacion || null,
         fotosCount: fotosAEncolar.length,
+        fuera_de_plan: !state.conteoOrigenPlan,
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
-      setState({loading:false, skuSeleccionado:null, conteoFotos:[], skuSearch:''});
+      setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoFotos:[], skuSearch:''});
       toast('Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
       return;
     }
@@ -2180,7 +2243,7 @@ async function onCodigoEscaneado(codigo){
   }
   const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
   if(coincidencias.length===1){
-    setState({skuSeleccionado: coincidencias[0]});
+    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan:false});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
   }else if(coincidencias.length>1){
     // El mismo código existe en más de una bodega (el código físico es el mismo sin
@@ -2196,7 +2259,7 @@ async function onCodigoEscaneado(codigo){
 function elegirSkuEscaneado(skuId){
   const sku = state.skus.find(s=>s.id===skuId);
   if(!sku) return;
-  setState({skuSeleccionado: sku, escanerModal: null});
+  setState({skuSeleccionado: sku, conteoOrigenPlan:false, escanerModal: null});
   toast(`SKU ${sku.sku_code} encontrado`);
 }
 
@@ -2210,7 +2273,7 @@ async function asociarCodigoBarras(skuId, codigo){
     await rest(`/skus?id=eq.${skuId}`, {method:'PATCH', body:{codigo_barras: codigo}, prefer:'return=minimal'});
     sku.codigo_barras = codigo;
     toast(`Código asociado a ${sku.sku_code}`);
-    setState({skuSeleccionado: sku, escanerModal: null});
+    setState({skuSeleccionado: sku, conteoOrigenPlan:false, escanerModal: null});
   }catch(e){
     toast(e.message,'err');
     setState({escanerModal: {...state.escanerModal, asociando:false}});
@@ -2983,6 +3046,69 @@ function renderCargaPreview(){
   `;
 }
 
+// "Mi plan del día": bodega/patio y storage bin en cascada, limitados a lo que le toca hoy
+// a la cuenta logueada — no al universo completo de la empresa (eso es "Agregar a la
+// planificación", en otra pantalla). Al llegar a una sola entrada resuelta, se ve el
+// checklist de SKU todavía pendientes (ya excluye los contados en este ciclo, ver #129).
+function renderPlanDelDia(){
+  const cp = state.contarPlan;
+  if(cp.cargado && cp.miResponsableId==='') return ''; // cuenta sin vincular a ningún operador: nada personal que mostrar
+  const normales = cp.entradas.filter(e=>!e.solo_sin_ubicacion);
+  const haySueltos = cp.entradas.some(e=>e.solo_sin_ubicacion);
+  const bodegas = Array.from(new Set(normales.map(e=>e.bodega).filter(Boolean))).sort();
+  const porBodega = normales.filter(e=> e.bodega===cp.bodega);
+  const ubicaciones = Array.from(new Set(porBodega.map(e=> e.ubicacion || ''))).filter(Boolean).sort();
+  const porUbicacion = porBodega.filter(e=> (e.ubicacion||'')===cp.ubicacion);
+  const bins = Array.from(new Set(porUbicacion.map(e=> e.storage_bin || ''))).filter(Boolean).sort();
+  const activa = entradaActivaContar(cp);
+  const bodegaElegida = !!cp.bodega;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Mi plan</span><h2>Plan del día</h2></div></div>
+    <div class="card">
+      <label for="contar-fecha">Día</label>
+      <input type="date" id="contar-fecha" value="${cp.fecha}">
+      ${cp.cargando? `<div class="hint" style="margin-top:10px">Cargando…</div>` :
+        !cp.entradas.length? `<div class="empty" style="padding:14px 8px;margin-top:10px">Sin nada planificado para ti este día.</div>` : `
+        <div class="row2" style="margin-top:10px">
+          <div><label for="contar-bodega">Bodega/patio</label>
+            <select id="contar-bodega">
+              <option value="">Elige…</option>
+              ${haySueltos? `<option value="${BODEGA_SIN_UBICACION}" ${cp.bodega===BODEGA_SIN_UBICACION?'selected':''}>SKU sin ubicación</option>` : ''}
+              ${bodegas.map(b=>`<option value="${esc(b)}" ${cp.bodega===b?'selected':''}>${esc(b)}</option>`).join('')}
+            </select>
+          </div>
+          <div><label for="contar-ubic">Ubicación</label>
+            <select id="contar-ubic" ${bodegaElegida && cp.bodega!==BODEGA_SIN_UBICACION? '' : 'disabled'}>
+              <option value="">Todas</option>
+              ${ubicaciones.map(u=>`<option value="${esc(u)}" ${cp.ubicacion===u?'selected':''}>${esc(u)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <label for="contar-bin">Storage bin</label>
+        <select id="contar-bin" ${bodegaElegida && cp.bodega!==BODEGA_SIN_UBICACION? '' : 'disabled'}>
+          <option value="">Todos</option>
+          ${bins.map(b=>`<option value="${esc(b)}" ${cp.bin===b?'selected':''}>${esc(b)}</option>`).join('')}
+        </select>
+        ${activa? `
+          ${cp.skusPendientes===null? `<div class="hint" style="margin-top:10px">Cargando SKU pendientes…</div>` :
+            cp.skusPendientes.length? `
+            <div class="hint" style="margin-top:10px">${cp.skusPendientes.length} SKU pendientes</div>
+            <ul class="plan-sku-lista" style="margin-top:6px">
+              ${cp.skusPendientes.map(s=>`
+                <li>
+                  <button type="button" data-pick-plan="${esc(s.sku_code)}" style="width:100%;text-align:left;background:none;border:none;padding:8px 0;cursor:pointer;color:inherit">
+                    <span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}
+                  </button>
+                </li>
+              `).join('')}
+            </ul>
+            ` : `<div class="empty" style="padding:14px 8px;margin-top:10px">Ya contaste todo lo pendiente aquí.</div>`}
+        ` : bodegaElegida? `<div class="hint" style="margin-top:10px">Elige ubicación/storage bin para ver los SKU pendientes.</div>` : ''}
+      `}
+    </div>
+  `;
+}
+
 /* =======================================================================
    RENDER — Toma de inventario
    ======================================================================= */
@@ -2995,7 +3121,10 @@ function renderConteo(){
   return `
     <div class="section-head"><div><span class="eyebrow">Terreno · Bodega</span><h2>Tomar inventario</h2></div></div>
 
+    ${!state.skuSeleccionado? renderPlanDelDia() : ''}
+
     ${!state.skuSeleccionado? `
+      <div class="section-head"><h2 style="font-size:15px">Agregar algo fuera del plan</h2></div>
       <div class="card">
         <label for="sku-search">Buscar SKU por código o descripción</label>
         <div style="display:flex;gap:8px;align-items:center">
@@ -3120,6 +3249,10 @@ function renderBuscar(){
           <input type="checkbox" id="b-solo-fotos" ${b.soloConFotos?'checked':''}>
           Solo conteos con fotografías
         </label>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
+          <input type="checkbox" id="b-solo-fuera-plan" ${b.soloFueraDePlan?'checked':''}>
+          Solo fuera de plan
+        </label>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
         </div>
@@ -3129,7 +3262,7 @@ function renderBuscar(){
     <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
         <tbody>${resultados.map(r=>{
           const urls = (r.conteo_fotos||[]).map(f=>f.foto_url);
           return `<tr>
@@ -3137,6 +3270,7 @@ function renderBuscar(){
             <td>${esc(r.bodega||'—')}</td>
             <td class="num">${r.cantidad_contada}</td>
             <td>${estadoBadge(r.estado, r.diferencia)}</td>
+            <td>${r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`}</td>
             <td class="mono" style="font-size:11.5px">
               ${fmtFechaHora(r.fecha_conteo)}
               ${fueCapturadoOffline(r.capturado_en, r.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(r.capturado_en)} · sin conexión</div>` : ''}
@@ -3749,13 +3883,23 @@ function renderConfiguraciones(){
       <form id="form-operador">
         <label for="nuevo-operador">Nombre</label>
         <input type="text" id="nuevo-operador" placeholder="Ej. Ana Torres" required>
+        <label for="operador-usuario">Cuenta de login (opcional)</label>
+        <select id="operador-usuario">
+          <option value="">Sin vincular</option>
+          ${state.equipo.personas.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+        </select>
+        <div class="hint" style="margin:4px 0 0">Si esta persona también cuenta desde su celular, vincúlala a su cuenta para que "Contar" le muestre su plan del día.</div>
         <div style="margin-top:10px">
           <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar operador</button>
         </div>
       </form>
       ${p.responsables.length? `<div style="margin-top:12px">${p.responsables.map(u=>`
-        <div class="plan-item" style="padding:8px 0">
-          <div class="plan-item-ubic" style="font-weight:500">${esc(u.nombre)}</div>
+        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <div class="plan-item-ubic" style="font-weight:500;flex:1">${esc(u.nombre)}</div>
+          <select class="operador-usuario-select" data-operador-id="${esc(u.id)}" style="flex:none;width:auto;margin:0">
+            <option value="">Sin vincular</option>
+            ${state.equipo.personas.map(p2=>`<option value="${esc(p2.id)}" ${p2.id===u.usuario_id?'selected':''}>${esc(p2.nombre)}</option>`).join('')}
+          </select>
           <button class="icon-btn" data-eliminar-operador="${esc(u.id)}" aria-label="Eliminar" style="color:var(--danger)">${ICONS.x}</button>
         </div>
       `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Sin operadores agregados.</div>`}
@@ -3999,12 +4143,16 @@ function bind(){
         setState({tema});
       });
     });
+    if(!state.equipo.cargado) cargarEquipo();
     document.getElementById('form-operador').addEventListener('submit', e=>{
       e.preventDefault();
-      crearResponsable(document.getElementById('nuevo-operador').value.trim());
+      crearResponsable(document.getElementById('nuevo-operador').value.trim(), document.getElementById('operador-usuario').value);
     });
     document.querySelectorAll('[data-eliminar-operador]').forEach(btn=>{
       btn.addEventListener('click', ()=> quitarResponsable(btn.dataset.eliminarOperador));
+    });
+    document.querySelectorAll('.operador-usuario-select').forEach(sel=>{
+      sel.addEventListener('change', ()=> actualizarResponsable(sel.dataset.operadorId, {usuario_id: sel.value || null}));
     });
     const formEmpresaNombre = document.getElementById('form-empresa-nombre');
     if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
@@ -4242,6 +4390,7 @@ function bind(){
   }
 
   if(state.view==='conteo'){
+    if(!state.contarPlan.cargado) cargarPlanDeHoy(state.contarPlan.fecha);
     if(!state.skuSeleccionado){
       const search = document.getElementById('sku-search');
       search.addEventListener('input', e=> setState({skuSearch: e.target.value}));
@@ -4249,13 +4398,28 @@ function bind(){
       document.querySelectorAll('[data-pick-btn]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           const sku = state.skus.find(s=>s.id===btn.dataset.pickBtn);
-          setState({skuSeleccionado: sku});
+          setState({skuSeleccionado: sku, conteoOrigenPlan:false});
         });
       });
       const btnEscaner = document.getElementById('btn-abrir-escaner');
       if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
+      const fechaEl = document.getElementById('contar-fecha');
+      if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value) cargarPlanDeHoy(e.target.value); });
+      const cBodega = document.getElementById('contar-bodega');
+      if(cBodega) cBodega.addEventListener('change', e=> elegirCascadaContar({bodega:e.target.value, ubicacion:'', bin:''}));
+      const cUbic = document.getElementById('contar-ubic');
+      if(cUbic) cUbic.addEventListener('change', e=> elegirCascadaContar({ubicacion:e.target.value, bin:''}));
+      const cBin = document.getElementById('contar-bin');
+      if(cBin) cBin.addEventListener('change', e=> elegirCascadaContar({bin:e.target.value}));
+      document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const sku = state.skus.find(s=>s.sku_code===btn.dataset.pickPlan);
+          if(!sku) return;
+          setState({skuSeleccionado: sku, conteoOrigenPlan:true});
+        });
+      });
     }else{
-      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoFotos:[]}));
+      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoFotos:[]}));
       document.getElementById('c-foto').addEventListener('change', e=>{
         const files = Array.from(e.target.files || []);
         files.forEach(file=>{
@@ -4293,7 +4457,7 @@ function bind(){
         setState({
           view:'conteo',
           skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, stock_sistema:r.stock_sistema },
-          conteoFotos:[], skuSearch:'',
+          conteoOrigenPlan:false, conteoFotos:[], skuSearch:'',
         });
       });
     });
@@ -4315,6 +4479,7 @@ function bind(){
         estado: document.getElementById('b-estado').value,
         ciclo: selCiclo ? selCiclo.value : '',
         soloConFotos: document.getElementById('b-solo-fotos').checked,
+        soloFueraDePlan: document.getElementById('b-solo-fuera-plan').checked,
         buscando: true,
       }});
       buscarConteos();
