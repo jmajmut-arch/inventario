@@ -2987,6 +2987,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!filaNoContada.includes('data-ver-fotos'), 'un SKU nunca contado no debe ofrecer botón de fotos, obtuvo: '+filaNoContada);
   assert(filaContada.includes('data-ver-fotos') && filaContada.includes('T1 2027'), 'un SKU ya contado debe seguir mostrando su botón de fotos y el ciclo, obtuvo: '+filaContada);
 
+  // Pedido: la descripción del SKU debe verse como columna propia en la tabla de resultados,
+  // no solo como subtítulo chico debajo del código.
+  assert(htmlBuscarMixto.includes('<th>Descripción</th>'), 'la tabla de resultados debe tener una columna "Descripción", obtuvo: '+htmlBuscarMixto);
+  assert(filaNoContada.includes('Nunca contado') && filaContada.includes('Ya contado'), 'cada fila debe mostrar la descripción del SKU en su propia celda, obtuvo: '+htmlBuscarMixto);
+
   // handleLogout debe avisar con un toast temporal, igual que el resto de las acciones (login, guardar, borrar, etc.),
   // y borrar la sesión persistida en localStorage para que el próximo que abra el navegador no la herede.
   // Nota: handleLogout hace `state = {...}` (reasignación completa, no Object.assign), así que __appstate
