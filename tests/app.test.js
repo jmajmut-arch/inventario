@@ -1172,6 +1172,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dashboardModo = 'operativo';
   const htmlDashOperativo = ctx.renderDashboard();
   assert(htmlDashOperativo.includes('Materiales contados (ciclo actual)'), 'la lista de materiales contados (vista Operativo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDashOperativo);
+
+  // Pedido del usuario: en el Dashboard operativo, Semanal debe mostrar el número de semana (no
+  // la fecha cruda del lunes) y Mensual el nombre del mes (no la fecha cruda del día 1). Diario
+  // debe paginar de a 10 filas con botón Siguiente/Anterior, en vez de listar todo de una vez.
+  // Fechas en UTC 00:00 (igual que devuelve PostgREST desde columnas timestamptz truncadas) — el
+  // entorno de test corre en UTC, así que la fecha local coincide con la UTC.
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    diario: Array.from({length:15}, (_,i)=>({
+      dia: `2026-08-${String(24-i).padStart(2,'0')}T00:00:00+00:00`,
+      bodega:'Nave Mina', skus_contados:5, con_diferencia:1, total_unidades_contadas:20,
+    })),
+    semanal: [{semana:'2026-08-17T00:00:00+00:00', bodega:'Nave Mina', skus_contados:20, con_diferencia:3, total_unidades_contadas:150}],
+    mensual: [{mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:80, con_diferencia:5, total_unidades_contadas:600}],
+  };
+  ctx.__appstate.dashDiarioPagina = 0;
+  const htmlDashPeriodos = ctx.renderDashboard();
+  assert(htmlDashPeriodos.includes('Semana 34 (2026)'), 'Semanal debe mostrar el número de semana ISO, no la fecha cruda del lunes (17 ago 2026 = semana 34), obtuvo: '+htmlDashPeriodos);
+  assert(htmlDashPeriodos.includes('Agosto 2026'), 'Mensual debe mostrar el nombre del mes, no la fecha cruda del día 1, obtuvo: '+htmlDashPeriodos);
+  assert(htmlDashPeriodos.includes('24 ago') && !htmlDashPeriodos.includes('10 ago'), 'Diario (página 1) debe mostrar los primeros 10 días (24 ago a 15 ago), no el día 11 (10 ago), obtuvo: '+htmlDashPeriodos);
+  assert(htmlDashPeriodos.includes('id="dash-diario-next"') && !/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodos), 'con 15 filas (2 páginas), el botón Siguiente debe estar habilitado, obtuvo: '+htmlDashPeriodos);
+  assert(/id="dash-diario-prev"[^>]*disabled/.test(htmlDashPeriodos), 'en la primera página, el botón Anterior debe estar deshabilitado, obtuvo: '+htmlDashPeriodos);
+  ctx.__appstate.dashDiarioPagina = 1;
+  const htmlDashPeriodosPag2 = ctx.renderDashboard();
+  assert(htmlDashPeriodosPag2.includes('10 ago') && !htmlDashPeriodosPag2.includes('24 ago'), 'Diario (página 2) debe mostrar las 5 filas restantes (10 ago), no las de la página 1 (24 ago), obtuvo: '+htmlDashPeriodosPag2);
+  assert(/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodosPag2), 'en la última página, el botón Siguiente debe estar deshabilitado, obtuvo: '+htmlDashPeriodosPag2);
+  ctx.__appstate.dashDiarioPagina = 0;
+
   ctx.__appstate.dashboardModo = 'ejecutivo';
   assert(htmlDash.includes('SKU pendientes por ubicación general'), 'debe existir la sección de pendientes por ubicación general, obtuvo: '+htmlDash);
   assert(htmlDash.includes('Nave Mina') && htmlDash.includes('20 SKU'), 'debe mostrar Nave Mina con 20 SKU pendientes, obtuvo: '+htmlDash);

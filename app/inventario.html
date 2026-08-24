@@ -363,6 +363,7 @@ let state = {
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
+  dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 10 filas por página
   // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
   // actual (el marcado es_actual en state.ciclos), '__todos__' = comparar todos los
   // períodos uno junto al otro, '__sin_periodo__' = conteos sin ciclo_id, o el id de un
@@ -463,6 +464,9 @@ const TAM_PAGINA_LISTA = 30;
 // Trazabilidad usa una página más chica: la tabla de auditoría es más densa de leer que las
 // otras listas paginadas, así que conviene una tanda menor por carga.
 const TAM_PAGINA_AUDITORIA = 20;
+// Tabla "Diario" del Dashboard operativo: pagina client-side sobre las filas ya cargadas
+// (avance_diario trae hasta 60 de una vez, ver cargarDashboard), 10 a la vez.
+const TAM_PAGINA_DASH_DIARIO = 10;
 // Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
 // que no tienen ni bodega ni ubicación específica (no aparecen en ubicaciones_generales).
 const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
@@ -1649,7 +1653,7 @@ async function cargarDashboard(){
       ranking: ranking||[], exactitudBodega: exactitudBodega||[],
       topDiferenciasPositivas: topDiferenciasPositivas||[], topDiferenciasNegativas: topDiferenciasNegativas||[],
       valorizacion: valorizacion||[], adherenciaPorCiclo: adherenciaPorCiclo||[],
-    }});
+    }, dashDiarioPagina: 0});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -3096,12 +3100,12 @@ function renderAdherenciaPlan(){
 }
 
 function renderDashboard(){
-  const periodTable = (rows, keyLabel, keyField) => {
+  const periodTable = (rows, keyLabel, keyField, formatKey=fmtFecha) => {
     if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
     return `<div class="table-wrap"><table>
       <thead><tr><th>${keyLabel}</th><th>Ubic. general</th><th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
-        <td class="mono">${fmtFecha(r[keyField])}</td>
+        <td class="mono">${formatKey(r[keyField])}</td>
         <td>${esc(r.bodega||'—')}</td>
         <td class="num">${r.skus_contados||0}</td>
         <td class="num">${r.con_diferencia? `<span class="badge badge-warn">${r.con_diferencia}</span>` : '0'}</td>
@@ -3114,15 +3118,29 @@ function renderDashboard(){
   const modo = (state.dashboardModo==='ejecutivo' && !ejecutivoIncluido) ? 'operativo' : state.dashboardModo;
   const vistaEjecutiva = renderInformeEjecutivo();
 
+  // Diario pagina de a 10 filas (ya vienen cargadas hasta 60 desde el servidor, ver
+  // cargarDashboard): sin esto, una empresa con varias bodegas activas termina con decenas de
+  // filas (una por día+bodega) en una sola tabla larga sin fin.
+  const diarioTotalPaginas = Math.max(1, Math.ceil(state.dash.diario.length/TAM_PAGINA_DASH_DIARIO));
+  const diarioPaginaActual = Math.min(state.dashDiarioPagina||0, diarioTotalPaginas-1);
+  const diarioRows = state.dash.diario.slice(diarioPaginaActual*TAM_PAGINA_DASH_DIARIO, diarioPaginaActual*TAM_PAGINA_DASH_DIARIO + TAM_PAGINA_DASH_DIARIO);
+
   const vistaOperativa = `
     <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
-    <div class="card">${periodTable(state.dash.diario,'Día','dia')}</div>
+    <div class="card">
+      ${periodTable(diarioRows,'Día','dia')}
+      ${state.dash.diario.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
+        <button class="btn btn-secondary" id="dash-diario-prev" style="width:auto;flex:none;padding:8px 14px" ${diarioPaginaActual<=0?'disabled':''}>Anterior</button>
+        <span class="hint" style="margin:0">pág. ${diarioPaginaActual+1}/${diarioTotalPaginas}</span>
+        <button class="btn btn-secondary" id="dash-diario-next" style="width:auto;flex:none;padding:8px 14px" ${diarioPaginaActual>=diarioTotalPaginas-1?'disabled':''}>Siguiente</button>
+      </div>` : ''}
+    </div>
 
     <div class="section-head"><h2 style="font-size:17px">Semanal</h2></div>
-    <div class="card">${periodTable(state.dash.semanal,'Semana','semana')}</div>
+    <div class="card">${periodTable(state.dash.semanal,'Semana','semana',fmtSemana)}</div>
 
     <div class="section-head"><h2 style="font-size:17px">Mensual</h2></div>
-    <div class="card">${periodTable(state.dash.mensual,'Mes','mes')}</div>
+    <div class="card">${periodTable(state.dash.mensual,'Mes','mes',fmtMes)}</div>
 
     <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados (ciclo actual)</h2></div></div>
     <div class="card">
@@ -3189,6 +3207,29 @@ function fmtFecha(iso){
   if(!iso) return '—';
   const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(iso+'T00:00:00') : new Date(iso);
   return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'});
+}
+// Número de semana ISO 8601 (lunes a domingo, semana 1 = la que contiene el primer jueves del
+// año) — coincide con el criterio que ya usa date_trunc('week', ...) en avance_semanal.
+function numeroSemanaISO(fecha){
+  const d = new Date(Date.UTC(fecha.getFullYear(), fecha.getMonth(), fecha.getDate()));
+  const diaSemana = d.getUTCDay() || 7; // domingo (0) pasa a 7
+  d.setUTCDate(d.getUTCDate() + 4 - diaSemana);
+  const inicioAnio = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - inicioAnio) / 86400000) + 1) / 7);
+}
+// avance_semanal.semana / avance_mensual.mes son date_trunc('week'|'month', fecha_conteo): el
+// lunes de esa semana o el día 1 de ese mes. Mostrar esa fecha cruda (ej. "18 ago") no dice nada
+// del período real de un vistazo — mejor el número de semana y el nombre del mes directamente.
+function fmtSemana(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  return `Semana ${numeroSemanaISO(d)} (${d.getFullYear()})`;
+}
+const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function fmtMes(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  return `${MESES_ES[d.getMonth()]} ${d.getFullYear()}`;
 }
 function fmtFechaHora(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
 
@@ -4669,6 +4710,10 @@ function bind(){
     if(selDashPeriodo) selDashPeriodo.addEventListener('change', e=> setState({dashPeriodo: e.target.value}));
     const btnCargarMasConteos = document.getElementById('btn-cargar-mas-conteos');
     if(btnCargarMasConteos) btnCargarMasConteos.addEventListener('click', cargarMasUltimosConteos);
+    const btnDashDiarioPrev = document.getElementById('dash-diario-prev');
+    const btnDashDiarioNext = document.getElementById('dash-diario-next');
+    if(btnDashDiarioPrev) btnDashDiarioPrev.addEventListener('click', ()=> setState({dashDiarioPagina: Math.max(0, (state.dashDiarioPagina||0)-1)}));
+    if(btnDashDiarioNext) btnDashDiarioNext.addEventListener('click', ()=> setState({dashDiarioPagina: (state.dashDiarioPagina||0)+1}));
     const btnExportarInforme = document.getElementById('btn-exportar-informe');
     if(btnExportarInforme) btnExportarInforme.addEventListener('click', imprimirInformeCiclo);
   }
