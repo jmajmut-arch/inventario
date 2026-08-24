@@ -968,6 +968,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Esta aserción es válida en cualquier huso (medianoche local de un día siempre cae en ese
   // mismo día); el corrimiento real a UTC se verificó aparte, a mano, con TZ=America/Santiago.
   assert(ctx.fmtDiaCorto('2026-08-26').includes('26'), 'fmtDiaCorto debe mostrar el día 26 para "2026-08-26" (medianoche local, no UTC), obtuvo: '+ctx.fmtDiaCorto('2026-08-26'));
+
+  // Reportado: en Planificación, el rango "Lun 24 – Dom 30" se mostraba como "23 ago – 29 ago"
+  // (mismo bug de zona horaria, pero en fmtFecha). fmtFecha recibe tanto fechas puras "YYYY-MM-DD"
+  // (deben leerse en medianoche local, como fmtDiaCorto) como timestamps completos con su propia
+  // hora/zona (esos NO deben tocarse — no tiene sentido forzarles T00:00:00). Esta aserción es
+  // válida en cualquier huso horario; el corrimiento real a UTC se verificó a mano con
+  // TZ=America/Santiago (24 ago y 30 ago correctos) y con un navegador real.
+  assert(ctx.fmtFecha('2026-08-24').includes('24'), 'fmtFecha debe mostrar el día 24 para la fecha pura "2026-08-24" (medianoche local, no UTC), obtuvo: '+ctx.fmtFecha('2026-08-24'));
+  assert(ctx.fmtFecha('2026-08-30').includes('30'), 'fmtFecha debe mostrar el día 30 para la fecha pura "2026-08-30" (medianoche local, no UTC), obtuvo: '+ctx.fmtFecha('2026-08-30'));
+  assert(ctx.fmtFecha('2026-08-20T23:30:00+00:00').includes('20'), 'fmtFecha no debe alterar un timestamp completo (ya trae su propia hora/zona), obtuvo: '+ctx.fmtFecha('2026-08-20T23:30:00+00:00'));
   const resumenSuelto = ctx.resumenPorResponsable(
     [{id:'a', responsable_nombre:'Ana'}, {id:'b', responsable_nombre:'Ana'}, {id:'c', responsable_nombre:null}],
     {a:2, b:1, c:10}
