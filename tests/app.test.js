@@ -72,9 +72,9 @@ const fakeFetchImpl = async (url, opts) => {
       ok: true,
       headers: { get: () => null },
       text: async () => JSON.stringify([
-        {bodega:'Nave Mina', cantidad_skus: 23708},
-        {bodega:'Nave Planta', cantidad_skus: 4235},
-        {bodega:null, cantidad_skus: 8},
+        {bodega:'Nave Mina', cantidad_pendiente: 18234, cantidad_skus: 23708},
+        {bodega:'Nave Planta', cantidad_pendiente: 4235, cantidad_skus: 4235},
+        {bodega:null, cantidad_pendiente: 6, cantidad_skus: 8},
       ]),
     };
   }
@@ -93,10 +93,10 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/ubicaciones_especificas')){
     // bodega=is.null: SKU con ubicación específica pero sin bodega asignada (BODEGA_VACIA).
     const filas = path.includes('bodega=is.null') ? [
-      {bodega:null, ubicacion:'Piso', cantidad_skus: 8},
+      {bodega:null, ubicacion:'Piso', cantidad_pendiente: 6, cantidad_skus: 8},
     ] : [
-      {bodega:'Nave Mina', ubicacion:'Interior Nave', cantidad_skus: 100},
-      {bodega:'Nave Mina', ubicacion:'Rack', cantidad_skus: 50},
+      {bodega:'Nave Mina', ubicacion:'Interior Nave', cantidad_pendiente: 80, cantidad_skus: 100},
+      {bodega:'Nave Mina', ubicacion:'Rack', cantidad_pendiente: 50, cantidad_skus: 50},
     ];
     return {
       status: 200,
@@ -141,15 +141,14 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  // Búsqueda (columnas categoria,ubicacion en el select) — chequear antes que "materiales
-  // contados" del dashboard, cuyo select es un prefijo del de búsqueda.
-  if(path.startsWith('/rest/v1/conteos?select=') && path.includes('categoria,ubicacion')){
+  // Buscar: skus_busqueda (un renglón por SKU, contado o no) — paginación de 30 + 4.
+  if(path.startsWith('/rest/v1/skus_busqueda?select=')){
     const offsetMatch = path.match(/offset=(\d+)/);
     const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
     const total = 34;
     const filas = [];
     for(let i=offset; i<Math.min(offset+30, total); i++){
-      filas.push({id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', bodega:'Nave', skus:{sku_code:'SKU-'+i, descripcion:'Item '+i}, conteo_fotos:[]});
+      filas.push({sku_id:'sku-busq-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', fuera_de_plan:false, ciclo_id:null, ciclo_nombre:null, foto_urls:[]});
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -561,8 +560,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlOut.includes('<select id="p-bodega">'), 'p-bodega debe ser un <select>');
   assert(htmlOut.includes('<select id="p-ubic" disabled>'), 'p-ubic debe iniciar como <select disabled>');
   assert(htmlOut.includes('<select id="p-bin" multiple size="6" disabled>'), 'p-bin debe iniciar como <select multiple disabled>');
-  assert(htmlOut.includes('<option value="Nave Mina">Nave Mina (23708)</option>'), 'debe listar Nave Mina como opción de bodega con su cantidad de SKU, obtuvo: '+htmlOut);
-  assert(htmlOut.includes('<option value="__bodega_vacia__">Sin bodega asignada (8)</option>'), 'debe ofrecer el grupo "Sin bodega asignada" para los SKU con ubicación pero sin bodega, obtuvo: '+htmlOut);
+  assert(htmlOut.includes('<option value="Nave Mina">Nave Mina (18234/23708)</option>'), 'debe listar Nave Mina como opción de bodega con lo pendiente y el total de SKU, obtuvo: '+htmlOut);
+  assert(htmlOut.includes('<option value="__bodega_vacia__">Sin bodega asignada (6/8)</option>'), 'debe ofrecer el grupo "Sin bodega asignada" para los SKU con ubicación pero sin bodega, obtuvo: '+htmlOut);
   assert(!htmlOut.includes('datalist'), 'no debe quedar ningún <datalist> residual');
   assert(!htmlOut.includes('placeholder="Ej. Nave Mina"'), 'el placeholder de texto libre no debe seguir ahí');
   assert(htmlOut.includes('<input type="checkbox" id="p-bin-todos" disabled>'), 'debe existir el checkbox "Seleccionar todos", inicialmente deshabilitado');
@@ -602,8 +601,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const ubicEl = elements['p-ubic'];
   assert(ubicEl.disabled === false, 'p-ubic debe habilitarse tras elegir bodega');
   assert(ubicEl.innerHTML.includes('Interior Nave') && ubicEl.innerHTML.includes('Rack'), 'p-ubic debe listar las ubicaciones específicas de Nave Mina, obtuvo: '+ubicEl.innerHTML);
-  assert(ubicEl.innerHTML.includes('<option value="">Todas (23708)</option>'), 'p-ubic debe mostrar el total de SKU de la bodega junto a "Todas", obtuvo: '+ubicEl.innerHTML);
-  assert(ubicEl.innerHTML.includes('<option value="Interior Nave">Interior Nave (100)</option>') && ubicEl.innerHTML.includes('<option value="Rack">Rack (50)</option>'), 'cada ubicación específica debe mostrar su propia cantidad de SKU, obtuvo: '+ubicEl.innerHTML);
+  assert(ubicEl.innerHTML.includes('<option value="">Todas (18234/23708)</option>'), 'p-ubic debe mostrar lo pendiente y el total de la bodega junto a "Todas", obtuvo: '+ubicEl.innerHTML);
+  assert(ubicEl.innerHTML.includes('<option value="Interior Nave">Interior Nave (80/100)</option>') && ubicEl.innerHTML.includes('<option value="Rack">Rack (50/50)</option>'), 'cada ubicación específica debe mostrar lo pendiente y el total, obtuvo: '+ubicEl.innerHTML);
 
   // Regresión real reportada: "Ubicación específica" queda en "Todas" por defecto al elegir
   // la bodega (primera opción del <select> recién poblado), sin que la persona tenga que
@@ -1242,8 +1241,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(/id="btn-exportar-informe"[^>]*disabled/.test(htmlDashBasico), 'plan básico debe mostrar el botón "Exportar informe" deshabilitado, obtuvo: '+htmlDashBasico);
   assert(htmlDashBasico.includes('Exportar informe 🔒'), 'plan básico debe mostrar el candado en el botón de exportar informe, obtuvo: '+htmlDashBasico);
 
+  // Cupo de operadores restante (hintCupoOperadores): max_usuarios cuenta solo activos con
+  // rol<>'admin' (ver el trigger chequear_limite_usuarios) — 2 de 3 activos usados = queda 1.
+  ctx.__appstate.equipo = { cargado:true, cargando:false, personas: [
+    {id:'e1', nombre:'Op 1', rol:'operador', activo:true},
+    {id:'e2', nombre:'Op 2', rol:'operador', activo:true},
+    {id:'e3', nombre:'Op 3 inactiva', rol:'operador', activo:false},
+    {id:'e4', nombre:'Admin', rol:'admin', activo:true},
+  ] };
   const htmlConfigBasico = ctx.renderConfiguraciones();
   assert(!htmlConfigBasico.includes('Auditoría de cambios'), 'plan básico no debe mostrar la sección de auditoría aunque el usuario sea admin, obtuvo: '+htmlConfigBasico);
+  assert(htmlConfigBasico.includes('Puedes crear 1 operador más') && htmlConfigBasico.includes('hasta 3'), 'debe mostrar cuántos operadores más caben en el plan (3 - 2 activos = 1), obtuvo: '+htmlConfigBasico);
+
+  // Cupo agotado: 3 de 3 activos usados.
+  ctx.__appstate.equipo.personas.push({id:'e5', nombre:'Op 3', rol:'operador', activo:true});
+  const htmlConfigCupoLleno = ctx.renderConfiguraciones();
+  assert(htmlConfigCupoLleno.includes('Alcanzaste el límite de operadores de tu plan (3)'), 'con el cupo lleno, debe avisar que se alcanzó el límite en vez de un número negativo, obtuvo: '+htmlConfigCupoLleno);
 
   // Plan profesional: sí debe verse todo.
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', max_bodegas:null, max_usuarios:15, offline_habilitado:true, dashboard_ejecutivo_habilitado:true, auditoria_habilitada:true}} };
@@ -1253,6 +1266,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlDashPro.includes('Exportar informe 🔒'), 'plan profesional no debe mostrar el candado en el botón de exportar informe, obtuvo: '+htmlDashPro);
   const htmlConfigPro = ctx.renderConfiguraciones();
   assert(htmlConfigPro.includes('Auditoría de cambios'), 'plan profesional debe mostrar la sección de auditoría para un admin, obtuvo: '+htmlConfigPro);
+
+  // Plan sin límite de operadores (max_usuarios null, ej. plan Empresa): no debe mostrarse
+  // ningún cupo, ni positivo ni "límite alcanzado".
+  assert(ctx.hintCupoOperadores({planes:{max_usuarios:null}})==='', 'sin max_usuarios definido (plan sin límite), no debe mostrarse ningún hint de cupo');
 
   // imprimirInformeCiclo(): debe volcar exactamente el contenido de la vista ejecutiva del
   // dashboard (mismos KPI) en #print-informe, con encabezado de empresa/ciclo/fecha, y llamar
@@ -2143,8 +2160,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // renderBuscar: debe indicar "Capturado ... sin conexión" solo en la fila que de verdad
   // se capturó offline (fechas separadas), no en un conteo online normal (fechas iguales).
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', soloConFotos:false, buscando:false, yaBuscado:true, resultados: [
-    { id:'c1', skus:{sku_code:'SKU-A', descripcion:''}, bodega:'Nave', cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T08:00:00Z', conteo_fotos:[] },
-    { id:'c2', skus:{sku_code:'SKU-B', descripcion:''}, bodega:'Nave', cantidad_contada:2, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-11T09:00:00Z', capturado_en:'2026-08-11T09:00:00Z', conteo_fotos:[] },
+    { sku_code:'SKU-A', descripcion:'', bodega:'Nave', conteo_id:'c1', cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T08:00:00Z', ciclo_nombre:null, foto_urls:[] },
+    { sku_code:'SKU-B', descripcion:'', bodega:'Nave', conteo_id:'c2', cantidad_contada:2, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-11T09:00:00Z', capturado_en:'2026-08-11T09:00:00Z', ciclo_nombre:null, foto_urls:[] },
   ]};
   const htmlBuscar = ctx.renderBuscar();
   const filaOffline = htmlBuscar.slice(htmlBuscar.indexOf('SKU-A'), htmlBuscar.indexOf('SKU-B'));
@@ -2383,6 +2400,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarAuditoria('');
   const auditoriaCallTodas = calls.find(c=>c.url.includes('/auditoria?select='));
   assert(!!auditoriaCallTodas && auditoriaCallTodas.url.includes('order=creado_en.desc'), 'cargarAuditoria debe pedir /auditoria ordenado por fecha descendente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(auditoriaCallTodas.url.includes('limit=20'), 'la tabla de Trazabilidad debe paginar de a 20 filas (no 30), obtuvo: '+auditoriaCallTodas.url);
   assert(ctx.__appstate.auditoria.filas.length===4, 'debe cargar las filas devueltas por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
 
   // renderConfiguraciones: la sección de auditoría solo debe verse para admin/super-admin, no para operador.
@@ -2458,7 +2476,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.busqueda.paginaOffset===30, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
   calls.length = 0;
   await ctx.buscarMasConteos();
-  const busquedaCallMas = calls.find(c=>c.url.includes('/conteos?select='));
+  const busquedaCallMas = calls.find(c=>c.url.includes('/skus_busqueda?select='));
   assert(!!busquedaCallMas && busquedaCallMas.url.includes('offset=30'), 'buscarMasConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.resultados.length===34 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
   const htmlBusquedaSinMas = ctx.renderBuscar();
@@ -2754,11 +2772,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.conteoOtraUbicacion = false;
 
   // Buscar: filtro "Solo fuera de plan" y badge de origen por resultado.
-  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:true, resultados:[{skus:{sku_code:'SKU-9', descripcion:'X'}, bodega:'Nave', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, conteo_fotos:[]}], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
+  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:true, resultados:[{sku_code:'SKU-9', descripcion:'X', bodega:'Nave', conteo_id:'c-9', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, ciclo_nombre:null, foto_urls:[]}], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
   const pathBuscarFueraPlan = ctx.construirPathBusqueda(0);
   assert(pathBuscarFueraPlan.includes('fuera_de_plan=eq.true'), 'con "Solo fuera de plan" marcado, la búsqueda debe filtrar por fuera_de_plan=eq.true, obtuvo: '+pathBuscarFueraPlan);
   const htmlBuscarFueraPlan = ctx.renderBuscar();
   assert(htmlBuscarFueraPlan.includes('id="b-solo-fuera-plan"') && htmlBuscarFueraPlan.includes('Fuera de plan'), 'debe mostrar el checkbox del filtro y el badge "Fuera de plan" en el resultado, obtuvo: '+htmlBuscarFueraPlan);
+
+  // Buscar ahora busca en todo el maestro de SKU (skus_busqueda), no solo en el historial de
+  // conteos: un SKU nunca contado debe aparecer con "No contado", sin fecha/estado/fotos.
+  ctx.__appstate.busqueda = { texto:'filtro', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 };
+  const pathBuscarTexto = ctx.construirPathBusqueda(0);
+  assert(pathBuscarTexto.includes('or=(sku_code.ilike.*filtro*,descripcion.ilike.*filtro*)'), 'el texto debe buscarse en el servidor (sku_code o descripción), no solo filtrarse en el cliente, obtuvo: '+pathBuscarTexto);
+
+  ctx.__appstate.busqueda.estado = 'no_contado';
+  const pathBuscarNoContado = ctx.construirPathBusqueda(0);
+  assert(pathBuscarNoContado.includes('conteo_id=is.null') && !pathBuscarNoContado.includes('estado=eq.'), 'el estado "No contado" debe filtrar por conteo_id=is.null, no por la columna estado, obtuvo: '+pathBuscarNoContado);
+  ctx.__appstate.busqueda.estado = '';
+
+  ctx.__appstate.busqueda.ciclo = '__sin_ciclo__';
+  const pathBuscarSinCiclo = ctx.construirPathBusqueda(0);
+  assert(pathBuscarSinCiclo.includes('ciclo_id=is.null') && pathBuscarSinCiclo.includes('conteo_id=not.is.null'), '"Sin ciclo asignado" debe exigir que sí haya un conteo (si no, mostraría todos los SKU nunca contados como si fueran de ese grupo), obtuvo: '+pathBuscarSinCiclo);
+  ctx.__appstate.busqueda.ciclo = '';
+
+  ctx.__appstate.busqueda.resultados = [
+    {sku_code:'SKU-NC', descripcion:'Nunca contado', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, foto_urls:[]},
+    {sku_code:'SKU-C', descripcion:'Ya contado', bodega:'Nave', conteo_id:'c-1', cantidad_contada:7, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', foto_urls:['foto.jpg']},
+  ];
+  const htmlBuscarMixto = ctx.renderBuscar();
+  const filaNoContada = htmlBuscarMixto.slice(htmlBuscarMixto.indexOf('SKU-NC'), htmlBuscarMixto.indexOf('SKU-C'));
+  const filaContada = htmlBuscarMixto.slice(htmlBuscarMixto.indexOf('SKU-C'));
+  assert(filaNoContada.includes('badge-neutral">No contado<') && filaNoContada.includes('>—<'), 'un SKU nunca contado debe mostrar el badge "No contado" y guiones donde no hay dato, obtuvo: '+filaNoContada);
+  assert(!filaNoContada.includes('data-ver-fotos'), 'un SKU nunca contado no debe ofrecer botón de fotos, obtuvo: '+filaNoContada);
+  assert(filaContada.includes('data-ver-fotos') && filaContada.includes('T1 2027'), 'un SKU ya contado debe seguir mostrando su botón de fotos y el ciclo, obtuvo: '+filaContada);
 
   // handleLogout debe avisar con un toast temporal, igual que el resto de las acciones (login, guardar, borrar, etc.),
   // y borrar la sesión persistida en localStorage para que el próximo que abra el navegador no la herede.
