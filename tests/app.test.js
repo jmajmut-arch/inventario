@@ -357,10 +357,22 @@ const fakeFetchImpl = async (url, opts) => {
   if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=sku_code,descripcion,storage_bin,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
     // "Piso" (bodega=is.null) no tiene ningún storage_bin cargado -> cargarBinsPara cae al
     // listado de SKU puntuales (ver "sin bin, elegir SKU" más abajo en este archivo).
-    const filas = [
-      {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', storage_bin:null, unidad_medida:'UN'},
-      {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', storage_bin:null, unidad_medida:'UN'},
-    ];
+    // SKU-P3 ya está cubierto por OTRA entrada de plan vigente: skus_disponibles_planificar (la
+    // lista que se ofrece para elegir) no lo incluye, pero skus_planificables (el universo real
+    // que se usa para calcular el conteo/detalle de la entrada YA CREADA) sí. Reproduce el bug
+    // reportado: "selecciono dos y pasan cuatro" — un SKU ya cubierto por otra entrada, invisible
+    // en la lista de selección, se colaba de vuelta en la entrada nueva porque nunca quedaba en
+    // la lista de exclusión.
+    const filas = path.startsWith('/rest/v1/skus_disponibles_planificar')
+      ? [
+          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', storage_bin:null, unidad_medida:'UN'},
+        ]
+      : [
+          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P3', descripcion:'Repuesto Piso 3 (ya en otra entrada)', storage_bin:null, unidad_medida:'UN'},
+        ];
     return {
       status: 200, ok: true,
       headers: { get: (h) => h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null },
@@ -777,7 +789,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postExclusionSku = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
   assert(!!postExclusionSku, 'eligiendo solo algunos SKU, debe mandar el resto como exclusión de la entrada creada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const filasExclusion = JSON.parse(postExclusionSku.opts.body);
-  assert(filasExclusion.length===1 && filasExclusion[0].sku_code==='SKU-P2' && filasExclusion[0].plan_id==='plan-nuevo-1', 'debe excluir SKU-P2 (el no elegido) de la entrada recién creada, obtuvo: '+JSON.stringify(filasExclusion));
+  // SKU-P3 nunca apareció en la lista para elegir (ya está cubierto por otra entrada de plan),
+  // pero igual debe quedar excluido acá: si no, se cuela de vuelta en el conteo/detalle de esta
+  // entrada nueva (que sí usa el universo completo, sin ese filtro) — bug real reportado:
+  // "selecciono dos y pasan cuatro".
+  const codigosExcluidos = filasExclusion.map(f=>f.sku_code).sort();
+  assert(filasExclusion.length===2 && codigosExcluidos[0]==='SKU-P2' && codigosExcluidos[1]==='SKU-P3' && filasExclusion.every(f=>f.plan_id==='plan-nuevo-1'), 'debe excluir tanto SKU-P2 (visible, no elegido) como SKU-P3 (ya cubierto por otra entrada, ni siquiera ofrecido) de la entrada recién creada, obtuvo: '+JSON.stringify(filasExclusion));
 
   // ===== SKU sin ubicación (bodega/ubicación en null): deben poder incluirse en el plan =====
 

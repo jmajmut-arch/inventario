@@ -4798,10 +4798,22 @@ function bind(){
         // elegir puntualmente cuáles incluir (misma mecánica de "sin selección = todos", pero
         // sobre SKU en vez de bins — ver el submit de #form-plan y crearPlanEntrada).
         const bodegaReal = bodega===BODEGA_VACIA ? '' : bodega;
-        const skus = await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true});
+        // La lista que se ofrece para elegir excluye los SKU que ya quedaron cubiertos por OTRA
+        // entrada de plan (buena UX: no tiene sentido volver a ofrecerlos). Pero el submit calcula
+        // "seleccionados = todos MENOS los elegidos" (ver el submit de #form-plan): si esa base
+        // fuera la misma lista angosta, un SKU ya cubierto por otra entrada (invisible acá, así
+        // que nunca queda "elegido") tampoco quedaría en la exclusión — y se colaría de nuevo en
+        // el conteo de ESTA entrada (que sí usa el universo completo, sin ese filtro: ver el
+        // comentario en contarUniversoUbicacion). Por eso se guarda acá la lista COMPLETA (sin
+        // excluirYaPlanificados) como base real para calcular exclusiones, aunque el <select>
+        // solo muestre/permita elegir de la lista angosta.
+        const [skus, skusUniversoCompleto] = await Promise.all([
+          skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true}),
+          skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false}),
+        ]);
         if(skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES){
           selBin.dataset.modo = 'skus';
-          selBin.dataset.skuCodes = JSON.stringify(skus.map(s=>s.sku_code));
+          selBin.dataset.skuCodes = JSON.stringify(skusUniversoCompleto.map(s=>s.sku_code));
           selBin.innerHTML = skus.map(s=>`<option value="${esc(s.sku_code)}">${esc(s.sku_code)} — ${esc(s.descripcion||'')}</option>`).join('');
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación: puedes elegir SKU puntuales. Sin selección = todos los SKU de esta ubicación.';
         }else{
