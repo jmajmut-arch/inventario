@@ -230,10 +230,17 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/reconteo_pendiente') && path.includes('order=diferencia_abs.desc')){
+  // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario),
+  // top 10 excedentes (valor_diferencia_linea=gt.0) y top 10 pérdidas (lt.0), por separado.
+  if(path.startsWith('/rest/v1/reconteo_pendiente') && path.includes('valor_diferencia_linea=gt.0')){
     const filas = [
-      {id:'top1', sku_code:'SKU-TOP-1', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Ubicación distinta y recurrente'},
-      {id:'top2', sku_code:'SKU-TOP-2', descripcion:'Filtro hidráulico', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, diferencia_abs:2, ultimo_conteo_fecha:'2026-08-09', causa_probable:'Sin patrón detectado'},
+      {id:'topPos1', sku_code:'SKU-TOP-POS', descripcion:'Cable eléctrico', stock_sistema:10, ultima_cantidad_contada:40, ultima_diferencia:30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', costo_unitario:5000, valor_diferencia_linea:150000},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/reconteo_pendiente') && path.includes('valor_diferencia_linea=lt.0')){
+    const filas = [
+      {id:'topNeg1', sku_code:'SKU-TOP-NEG', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Ubicación distinta y recurrente', costo_unitario:10000, valor_diferencia_linea:-300000},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -1167,9 +1174,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const exactitudCall = calls.find(c=>c.url.includes('/exactitud_por_bodega'));
   assert(!!exactitudCall, 'cargarDashboard debe pedir /exactitud_por_bodega, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.exactitudBodega.length===2 && ctx.__appstate.dash.exactitudBodega[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la exactitud por bodega en state.dash.exactitudBodega, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudBodega));
-  const topDiferenciasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('order=diferencia_abs.desc'));
-  assert(!!topDiferenciasCall && topDiferenciasCall.url.includes('limit=5'), 'cargarDashboard debe pedir el top de diferencias ordenado por magnitud, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.dash.topDiferencias.length===2 && ctx.__appstate.dash.topDiferencias[0].sku_code==='SKU-TOP-1', 'cargarDashboard debe dejar el top de diferencias en state.dash.topDiferencias, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferencias));
+  const topPositivasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=gt.0'));
+  const topNegativasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=lt.0'));
+  assert(!!topPositivasCall && topPositivasCall.url.includes('order=valor_diferencia_linea.desc') && topPositivasCall.url.includes('limit=10'), 'cargarDashboard debe pedir el top 10 de excedentes ordenado por valor (costo total de la línea), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!topNegativasCall && topNegativasCall.url.includes('order=valor_diferencia_linea.asc') && topNegativasCall.url.includes('limit=10'), 'cargarDashboard debe pedir el top 10 de pérdidas ordenado por valor (costo total de la línea), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.topDiferenciasPositivas.length===1 && ctx.__appstate.dash.topDiferenciasPositivas[0].sku_code==='SKU-TOP-POS', 'cargarDashboard debe dejar el top de excedentes en state.dash.topDiferenciasPositivas, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferenciasPositivas));
+  assert(ctx.__appstate.dash.topDiferenciasNegativas.length===1 && ctx.__appstate.dash.topDiferenciasNegativas[0].sku_code==='SKU-TOP-NEG', 'cargarDashboard debe dejar el top de pérdidas en state.dash.topDiferenciasNegativas, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferenciasNegativas));
   const valorizacionCall = calls.find(c=>c.url.includes('/valorizacion_diferencias'));
   assert(!!valorizacionCall, 'cargarDashboard debe pedir /valorizacion_diferencias, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.valorizacion.length===2 && ctx.__appstate.dash.valorizacion[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la valorización por bodega en state.dash.valorizacion, obtuvo: '+JSON.stringify(ctx.__appstate.dash.valorizacion));
@@ -1247,8 +1257,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       {bodega:'Nave Mina', skus_contados:20, sin_diferencia:16, con_diferencia:4, ubicacion_correcta:18},
       {bodega:'Nave Planta', skus_contados:10, sin_diferencia:4, con_diferencia:6, ubicacion_correcta:9},
     ],
-    topDiferencias: [
-      {sku_code:'SKU-TOP-1', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, causa_probable:'Ubicación distinta y recurrente'},
+    topDiferenciasPositivas: [
+      {sku_code:'SKU-TOP-POS', descripcion:'Cable eléctrico', stock_sistema:10, ultima_cantidad_contada:40, ultima_diferencia:30, causa_probable:'Sin patrón detectado', valor_diferencia_linea:150000},
+    ],
+    topDiferenciasNegativas: [
+      {sku_code:'SKU-TOP-NEG', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, causa_probable:'Ubicación distinta y recurrente', valor_diferencia_linea:-300000},
     ],
     valorizacion: [
       {bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000},
@@ -1263,7 +1276,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const idxNavePlanta = htmlDashExactitud.indexOf('Nave Planta');
   const idxNaveMinaRanking = htmlDashExactitud.indexOf('Nave Mina', htmlDashExactitud.indexOf('Ranking por ubicación general'));
   assert(idxNavePlanta>=0 && idxNaveMinaRanking>idxNavePlanta, 'la peor exactitud (Nave Planta, 40%) debe listarse antes que la mejor (Nave Mina, 80%), obtuvo índices: '+idxNavePlanta+' / '+idxNaveMinaRanking);
-  assert(htmlDashExactitud.includes('Top materiales con diferencia') && htmlDashExactitud.includes('SKU-TOP-1') && htmlDashExactitud.includes('badge-danger">Ubicación distinta y recurrente<'), 'debe mostrar el top de materiales con diferencia y su causa probable, obtuvo: '+htmlDashExactitud);
+  // Top materiales con diferencia: ahora dos listas por costo total de la línea, no una sola por
+  // magnitud en unidades — pedido explícito: top 10 de excedentes y top 10 de pérdidas, por separado.
+  assert(htmlDashExactitud.includes('Excedentes con más impacto') && htmlDashExactitud.includes('SKU-TOP-POS') && htmlDashExactitud.includes('$150.000'), 'debe mostrar el top de excedentes con su valor en plata, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Pérdidas con más impacto') && htmlDashExactitud.includes('SKU-TOP-NEG') && htmlDashExactitud.includes('$-300.000') && htmlDashExactitud.includes('badge-danger">Ubicación distinta y recurrente<'), 'debe mostrar el top de pérdidas con su valor en plata y la causa probable, obtuvo: '+htmlDashExactitud);
 
   // Valorización de diferencias: 4 tarjetas (contado/pérdidas/excedentes/neto) sumadas sobre todas las bodegas.
   // Contado: 1.000.000+500.000=1.500.000; pérdidas: -150.000-20.000=-170.000; excedentes: 40.000+10.000=50.000; neto: -120.000.
@@ -1274,9 +1290,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashExactitud.includes('Neto') && htmlDashExactitud.includes('$-120.000'), 'debe mostrar el neto (pérdidas+excedentes), obtuvo: '+htmlDashExactitud);
 
   // Sin datos de exactitud (empresa recién empezando), no debe mostrarse el ranking ni el top ni la valorización.
-  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferencias: [], valorizacion: [] };
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [] };
   const htmlDashSinExactitud = ctx.renderDashboard();
-  assert(!htmlDashSinExactitud.includes('Ranking por ubicación general') && !htmlDashSinExactitud.includes('Top materiales con diferencia'), 'sin datos de exactitud todavía, no deben mostrarse esas secciones, obtuvo: '+htmlDashSinExactitud);
+  assert(!htmlDashSinExactitud.includes('Ranking por ubicación general') && !htmlDashSinExactitud.includes('Excedentes con más impacto') && !htmlDashSinExactitud.includes('Pérdidas con más impacto'), 'sin datos de exactitud todavía, no deben mostrarse esas secciones, obtuvo: '+htmlDashSinExactitud);
   assert(!htmlDashSinExactitud.includes('Valorización de diferencias'), 'sin datos de valorización, no debe mostrarse esa sección, obtuvo: '+htmlDashSinExactitud);
 
   // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
@@ -1356,7 +1372,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T1 2027', es_actual:true}, {id:'ciclo-2', nombre:'T4 2026', es_actual:false}];
   ctx.__appstate.dash = {
     total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
-    diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [],
+    diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [],
   };
   const printInformeEl = makeEl('print-informe');
   printInformeEl.innerHTML = '';
