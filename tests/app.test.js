@@ -554,7 +554,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlOut.includes('<select id="p-bodega">'), 'p-bodega debe ser un <select>');
   assert(htmlOut.includes('<select id="p-ubic" disabled>'), 'p-ubic debe iniciar como <select disabled>');
   assert(htmlOut.includes('<select id="p-bin" multiple size="6" disabled>'), 'p-bin debe iniciar como <select multiple disabled>');
-  assert(htmlOut.includes('<option value="Nave Mina">Nave Mina</option>'), 'debe listar Nave Mina como opción de bodega');
+  assert(htmlOut.includes('<option value="Nave Mina">Nave Mina (23708)</option>'), 'debe listar Nave Mina como opción de bodega con su cantidad de SKU, obtuvo: '+htmlOut);
   assert(htmlOut.includes('<option value="__bodega_vacia__">Sin bodega asignada (8)</option>'), 'debe ofrecer el grupo "Sin bodega asignada" para los SKU con ubicación pero sin bodega, obtuvo: '+htmlOut);
   assert(!htmlOut.includes('datalist'), 'no debe quedar ningún <datalist> residual');
   assert(!htmlOut.includes('placeholder="Ej. Nave Mina"'), 'el placeholder de texto libre no debe seguir ahí');
@@ -603,6 +603,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const ubicEl = elements['p-ubic'];
   assert(ubicEl.disabled === false, 'p-ubic debe habilitarse tras elegir bodega');
   assert(ubicEl.innerHTML.includes('Interior Nave') && ubicEl.innerHTML.includes('Rack'), 'p-ubic debe listar las ubicaciones específicas de Nave Mina, obtuvo: '+ubicEl.innerHTML);
+  assert(ubicEl.innerHTML.includes('<option value="">Todas (23708)</option>'), 'p-ubic debe mostrar el total de SKU de la bodega junto a "Todas", obtuvo: '+ubicEl.innerHTML);
+  assert(ubicEl.innerHTML.includes('<option value="Interior Nave">Interior Nave (100)</option>') && ubicEl.innerHTML.includes('<option value="Rack">Rack (50)</option>'), 'cada ubicación específica debe mostrar su propia cantidad de SKU, obtuvo: '+ubicEl.innerHTML);
 
   // Regresión real reportada: "Ubicación específica" queda en "Todas" por defecto al elegir
   // la bodega (primera opción del <select> recién poblado), sin que la persona tenga que
@@ -708,6 +710,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   });
   const binesCallVacia = calls.find(c=>c.url.includes('/ubicaciones_bins'));
   assert(!!binesCallVacia && binesCallVacia.url.includes('bodega=is.null'), 'debe pedir ubicaciones_bins con bodega=is.null también, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // El fixture de ubicaciones_bins no tiene ningún storage_bin para "Piso" (solo para las
+  // ubicaciones de Nave Mina) -> lista vacía real, igual que los 8 SKU reales sin bin cargado.
+  // Reportado por el usuario: la caja quedaba vacía sin explicación y no quedaba claro que se
+  // podía seguir sin elegir nada ahí. Debe mostrar un mensaje que invite a continuar igual.
+  assert(elements['p-bin'].innerHTML==='', 'Storage bin debe quedar vacío cuando no hay bins cargados para la ubicación, obtuvo: '+elements['p-bin'].innerHTML);
+  assert(elements['p-bin-hint'].textContent.includes('No hay storage bin cargado') && elements['p-bin-hint'].textContent.includes('Puedes agregar igual'), 'debe explicar que se puede agregar igual sin bin, obtuvo: '+elements['p-bin-hint'].textContent);
 
   // Al enviar, la bodega debe guardarse como '' (bodega IS NULL explícito), NO como null —
   // null ya significa otra cosa: el comodín "sin restricción de bodega" del campo dejado en
