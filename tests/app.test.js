@@ -20,6 +20,7 @@ function assert(cond, msg){
 
 let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
 let tengoOtraSesionActivaRespuesta = false;
+let cicloActualRpcRespuesta = null;
 let autoservicioRespuesta = { error: null };
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
@@ -31,6 +32,11 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/rpc/tengo_otra_sesion_activa')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(tengoOtraSesionActivaRespuesta) };
+  }
+  if(path.startsWith('/rest/v1/rpc/ciclo_actual')){
+    // Función escalar (RETURNS uuid, no TABLE/SETOF): PostgREST devuelve el valor crudo, no
+    // envuelto en un array — por defecto sin ciclo actual (null), como mi_estado_bloqueo etc.
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cicloActualRpcRespuesta) };
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -2572,6 +2578,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const conteosCallMas = calls.find(c=>c.url.includes('/conteos?select='));
   assert(!!conteosCallMas && conteosCallMas.url.includes('offset=30'), 'cargarMasUltimosConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.ultimosConteos.length===34 && ctx.__appstate.ultimosConteosHayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.ultimosConteos.length);
+
+  // Bug real reportado: "Conteos recientes" no calzaba con el resto del dashboard porque no se
+  // acotaba al ciclo actual (a diferencia de avance_total, exactitud_por_bodega, etc.) — mostraba
+  // siempre el tope de la página aunque esos conteos fueran de períodos ya cerrados.
+  cicloActualRpcRespuesta = 'ciclo-actual-xyz';
+  calls.length = 0;
+  await ctx.cargarUltimosConteos();
+  const rpcCicloCall = calls.find(c=>c.url.includes('/rpc/ciclo_actual'));
+  assert(!!rpcCicloCall, 'cargarUltimosConteos debe resolver el ciclo actual vía /rpc/ciclo_actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const conteosCallConCiclo = calls.find(c=>c.url.includes('/conteos?select='));
+  assert(!!conteosCallConCiclo && conteosCallConCiclo.url.includes('ciclo_id=eq.ciclo-actual-xyz'), 'cargarUltimosConteos debe acotar al ciclo actual, igual que el resto del dashboard, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.ultimosConteosCicloId==='ciclo-actual-xyz', 'debe guardar el ciclo resuelto en state.ultimosConteosCicloId para reusarlo en "Cargar más", obtuvo: '+ctx.__appstate.ultimosConteosCicloId);
+  calls.length = 0;
+  await ctx.cargarMasUltimosConteos();
+  const conteosCallMasConCiclo = calls.find(c=>c.url.includes('/conteos?select='));
+  assert(!!conteosCallMasConCiclo && conteosCallMasConCiclo.url.includes('ciclo_id=eq.ciclo-actual-xyz'), 'cargarMasUltimosConteos debe reusar el mismo filtro de ciclo que la primera página, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!calls.some(c=>c.url.includes('/rpc/ciclo_actual')), 'cargarMasUltimosConteos no debe volver a pedir el ciclo actual (ya quedó guardado), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  cicloActualRpcRespuesta = null; // dejar el mock como estaba para el resto de los tests
 
   // ===== Buscar: "Cargar más" respetando los filtros de texto y fotos (que se aplican en
   // el cliente, no en la consulta) =====

@@ -351,6 +351,7 @@ let state = {
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
+  ultimosConteosCicloId: null,
   fotoModal: null,        // {urls:[...], index:0}
   skusPagina: { rows: [], page: 0, total: 0 },
   skusSeleccionados: [],
@@ -1602,10 +1603,16 @@ async function cargarDashboard(){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Igual que el resto de las métricas del dashboard ejecutivo (avance_total, exactitud_por_bodega,
+// etc.): se acota al ciclo de conteo actual, no a todo el histórico — si no, "Conteos recientes"
+// termina mostrando siempre el límite de la página (TAM_PAGINA_LISTA) aunque esos conteos sean de
+// períodos ya cerrados, sin relación con la actividad del período vigente.
 async function cargarUltimosConteos(){
   try{
-    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}`);
-    setState({ultimosConteos: rows||[], ultimosConteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA});
+    const cicloId = await rest('/rpc/ciclo_actual', {method:'POST'});
+    const filtroCiclo = cicloId ? `&ciclo_id=eq.${cicloId}` : '';
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}${filtroCiclo}`);
+    setState({ultimosConteos: rows||[], ultimosConteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, ultimosConteosCicloId: cicloId||null});
   }catch(e){ /* silencioso */ }
 }
 
@@ -1614,7 +1621,8 @@ async function cargarMasUltimosConteos(){
   state.ultimosConteosCargandoMas = true;
   render();
   try{
-    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.ultimosConteos.length}`);
+    const filtroCiclo = state.ultimosConteosCicloId ? `&ciclo_id=eq.${state.ultimosConteosCicloId}` : '';
+    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.ultimosConteos.length}${filtroCiclo}`);
     state.ultimosConteos = state.ultimosConteos.concat(rows||[]);
     state.ultimosConteosHayMas = (rows||[]).length === TAM_PAGINA_LISTA;
   }catch(e){ toast(e.message,'err'); }
@@ -2836,8 +2844,8 @@ function renderInformeEjecutivo(){
       </div>
       <div class="tag-card">
         <div class="kpi-label">Conteos recientes</div>
-        <div class="kpi-value">${state.ultimosConteos.length}</div>
-        <div class="kpi-sub">últimos registrados</div>
+        <div class="kpi-value">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</div>
+        <div class="kpi-sub">últimos del período actual</div>
       </div>
     </div>
 
@@ -2942,7 +2950,10 @@ function opcionesPeriodoDash(){
 
 // "Adherencia al plan": de todo lo contado en un período, qué porcentaje vino del plan
 // asignado (Planificación → "Plan del día" en Contar) versus se agregó fuera de plan
-// (buscador libre o escáner — ver #130). El selector de período es puramente client-side
+// (buscador libre o escáner — ver #130). Igual que el resto del dashboard, es sobre el
+// último conteo de cada SKU dentro de su período (no cada conteo histórico): si un SKU se
+// recontó varias veces, solo cuenta su estado más reciente, si no "Fuera de plan" queda
+// inflado con intentos ya corregidos. El selector de período es puramente client-side
 // sobre dash.adherenciaPorCiclo (ya trae todos los períodos agrupados por bodega): cambiar
 // de período solo recalcula esto, no dispara una nueva carga.
 function renderAdherenciaPlan(){
