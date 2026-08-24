@@ -327,12 +327,12 @@ let state = {
   skuSearch: '',
   skuSeleccionado: null,
   conteoOrigenPlan: false, // el SKU seleccionado viene del plan del día (true) o del buscador libre (false, "fuera de plan")
-  // "Lo encontré en otra ubicación": por defecto los campos de ubicación quedan bloqueados
-  // con el valor del maestro (nadie tiene que retipear la ubicación correcta) — marcar esto
-  // los desbloquea y los vacía para forzar un registro explícito de dónde se encontró
-  // realmente, dato limpio para la causa probable "Ubicación distinta" y el % de exactitud
-  // de ubicación del Dashboard (antes dependían de que alguien se acordara de editar el
-  // campo precargado).
+  // "Lo encontré en otra ubicación": los campos de ubicación siempre muestran el valor del
+  // maestro, fijos (nadie tiene que escribir dónde lo encontró) — marcar este check solo
+  // manda el flag conteos.ubicacion_distinta=true, que alimenta directo la causa probable
+  // "Ubicación distinta" y el % de exactitud de ubicación del Dashboard (antes se inferían
+  // comparando texto contra el maestro, frágil ante mayúsculas/typos y fácil de dejar mal
+  // por inercia si alguien no editaba el campo precargado).
   conteoOtraUbicacion: false,
   conteoFotos: [],       // [{file, preview}]
   // "Mi plan del día" en Contar: qué le toca hoy a la cuenta logueada (según su vínculo en
@@ -2012,6 +2012,7 @@ async function procesarUnItemOffline(item){
       observacion: item.observacion,
       capturado_en: capturadoEn,
       fuera_de_plan: item.fuera_de_plan,
+      ubicacion_distinta: !!item.ubicacion_distinta,
     }], prefer:'return=representation'});
     const conteoId = filas && filas[0] && filas[0].id;
     if(conteoId && urls.length){
@@ -2092,10 +2093,9 @@ function conservandoCamposConteo(fn){
 }
 
 // Marcar/desmarcar "Lo encontré en otra ubicación" dispara un render() completo (para
-// bloquear/desbloquear y vaciar los campos de ubicación) — se preserva cantidad y
-// observación igual que conservandoCamposConteo, pero a propósito NO se preservan
-// bodega/ubicación: al marcar, deben quedar vacíos para forzar un registro explícito de
-// dónde se encontró realmente (no dejar el valor del maestro por inercia).
+// reflejar el check) — se preserva cantidad y observación igual que conservandoCamposConteo.
+// Los campos de ubicación no necesitan preservarse: siempre muestran el valor del maestro,
+// fijos, sin importar el estado del check (ver guardarConteo/ubicacion_distinta).
 function alternarOtraUbicacionConteo(marcado){
   const cant = document.getElementById('c-cant');
   const obs = document.getElementById('c-obs');
@@ -2119,7 +2119,7 @@ function conservandoCamposSku(fn){
   ids.forEach(id=>{ const el = document.getElementById(id); if(el && valores[id]!==undefined) el.value = valores[id]; });
 }
 
-async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
+async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacionDistinta}){
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad)) || Number(cantidad) < 0){ toast('Ingresa una cantidad contada válida','err'); return; }
   if(!perfilCargado()) return;
@@ -2138,6 +2138,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
       observacion: observacion || null,
       capturado_en: capturadoEn,
       fuera_de_plan: !state.conteoOrigenPlan,
+      ubicacion_distinta: !!ubicacionDistinta,
     }], prefer:'return=representation'});
     const conteoId = filas && filas[0] && filas[0].id;
 
@@ -2172,6 +2173,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion}){
         observacion: observacion || null,
         fotosCount: fotosAEncolar.length,
         fuera_de_plan: !state.conteoOrigenPlan,
+        ubicacion_distinta: !!ubicacionDistinta,
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
       setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:''});
@@ -3301,8 +3303,8 @@ function renderConteo(){
             Lo encontré en otra ubicación
           </label>
           <div class="row2">
-            <div><label for="c-bodega">Ubicación general</label><input type="text" id="c-bodega" placeholder="Bodega Central" value="${state.conteoOtraUbicacion?'':esc(state.skuSeleccionado.bodega||'')}" ${state.conteoOtraUbicacion?'':'disabled'}></div>
-            <div><label for="c-ubic">Ubicación contada</label><input type="text" id="c-ubic" placeholder="${state.conteoOtraUbicacion?'¿Dónde lo encontraste?':'Rack A-12'}" value="${state.conteoOtraUbicacion?'':esc(state.skuSeleccionado.ubicacion||'')}" ${state.conteoOtraUbicacion?'required':'disabled'}></div>
+            <div><label for="c-bodega">Ubicación general</label><input type="text" id="c-bodega" value="${esc(state.skuSeleccionado.bodega||'')}" disabled></div>
+            <div><label for="c-ubic">Ubicación contada</label><input type="text" id="c-ubic" value="${esc(state.skuSeleccionado.ubicacion||'')}" disabled></div>
           </div>
           <label for="c-obs">Observación</label>
           <textarea id="c-obs" placeholder="Notas del conteo (opcional)"></textarea>
@@ -4593,6 +4595,7 @@ function bind(){
           bodega: document.getElementById('c-bodega').value.trim(),
           ubicacion: document.getElementById('c-ubic').value.trim(),
           observacion: document.getElementById('c-obs').value.trim(),
+          ubicacionDistinta: document.getElementById('c-otra-ubic').checked,
         });
       });
     }

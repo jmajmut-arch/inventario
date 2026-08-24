@@ -2509,22 +2509,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.skuSeleccionado = null;
   ctx.__appstate.conteoOrigenPlan = false;
 
-  // "Lo encontré en otra ubicación": por defecto bodega/ubicación quedan bloqueadas con el
-  // valor del maestro (dato limpio para la causa probable "Ubicación distinta" y el % de
-  // exactitud de ubicación del Dashboard); marcar el checkbox las desbloquea y las vacía
-  // para forzar un registro explícito de dónde se encontró realmente (ver #131-bis).
+  // "Lo encontré en otra ubicación": los campos de ubicación SIEMPRE muestran el valor del
+  // maestro, fijos — nunca se escribe nada. Marcar el checkbox solo manda el flag
+  // conteos.ubicacion_distinta=true, que alimenta directo la causa probable "Ubicación
+  // distinta" y el % de exactitud de ubicación del Dashboard (ya no comparación de texto).
   ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
   ctx.__appstate.conteoOtraUbicacion = false;
   const htmlConteoUbicNormal = ctx.renderConteo();
-  assert(htmlConteoUbicNormal.includes('id="c-bodega" placeholder="Bodega Central" value="Nave Mina" disabled'), 'sin marcar, "Ubicación general" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
-  assert(htmlConteoUbicNormal.includes('id="c-ubic" placeholder="Rack A-12" value="Interior Nave" disabled'), 'sin marcar, "Ubicación contada" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
+  assert(htmlConteoUbicNormal.includes('id="c-bodega" value="Nave Mina" disabled'), 'sin marcar, "Ubicación general" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
+  assert(htmlConteoUbicNormal.includes('id="c-ubic" value="Interior Nave" disabled'), 'sin marcar, "Ubicación contada" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
   assert(!htmlConteoUbicNormal.includes('id="c-otra-ubic" checked'), 'sin marcar, el checkbox no debe aparecer marcado, obtuvo: '+htmlConteoUbicNormal);
 
   ctx.__appstate.conteoOtraUbicacion = true;
   const htmlConteoUbicOtra = ctx.renderConteo();
   assert(htmlConteoUbicOtra.includes('id="c-otra-ubic" checked'), 'marcado, el checkbox debe aparecer marcado, obtuvo: '+htmlConteoUbicOtra);
-  assert(htmlConteoUbicOtra.includes('id="c-bodega" placeholder="Bodega Central" value=""') && !htmlConteoUbicOtra.includes('id="c-bodega" placeholder="Bodega Central" value="" disabled'), 'marcado, "Ubicación general" debe quedar vacía y editable, obtuvo: '+htmlConteoUbicOtra);
-  assert(htmlConteoUbicOtra.includes('id="c-ubic" placeholder="¿Dónde lo encontraste?" value="" required'), 'marcado, "Ubicación contada" debe quedar vacía, editable y obligatoria, obtuvo: '+htmlConteoUbicOtra);
+  assert(htmlConteoUbicOtra.includes('id="c-bodega" value="Nave Mina" disabled') && htmlConteoUbicOtra.includes('id="c-ubic" value="Interior Nave" disabled'), 'marcado, los campos de ubicación deben seguir fijos con el valor del maestro (no se escribe nada), obtuvo: '+htmlConteoUbicOtra);
 
   // bind() real: marcar el checkbox debe actualizar state.conteoOtraUbicacion (y de paso
   // conservar lo que ya se había tipeado en cantidad/observación, igual que al agregar fotos).
@@ -2541,6 +2540,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   otraUbicEl.dispatch('change', {target: otraUbicEl});
   assert(ctx.__appstate.conteoOtraUbicacion===true, 'marcar el checkbox en bind() real debe dejar conteoOtraUbicacion en true, obtuvo: '+ctx.__appstate.conteoOtraUbicacion);
   assert(elements['c-cant'].value==='7' && elements['c-obs'].value==='nota de prueba', 'al marcar el checkbox no debe perderse lo ya tipeado en cantidad/observación, obtuvo: '+JSON.stringify({cant:elements['c-cant'].value, obs:elements['c-obs'].value}));
+
+  // guardarConteo: el flag "ubicacionDistinta" debe viajar tal cual como conteos.ubicacion_distinta.
+  ctx.__appstate.conteoFotos = [];
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:'', ubicacionDistinta:true});
+  const postConteoOtraUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos'));
+  assert(!!postConteoOtraUbic && JSON.parse(postConteoOtraUbic.opts.body)[0].ubicacion_distinta===true, 'con el checkbox marcado, el conteo debe grabarse con ubicacion_distinta=true, obtuvo: '+JSON.stringify(postConteoOtraUbic));
+
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  ctx.__appstate.conteoFotos = [];
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:'', ubicacionDistinta:false});
+  const postConteoUbicNormal = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos'));
+  assert(!!postConteoUbicNormal && JSON.parse(postConteoUbicNormal.opts.body)[0].ubicacion_distinta===false, 'sin marcar (o sin mandar el flag), el conteo debe grabarse con ubicacion_distinta=false, obtuvo: '+JSON.stringify(postConteoUbicNormal));
+
   ctx.__appstate.skuSeleccionado = null;
   ctx.__appstate.conteoOtraUbicacion = false;
 
