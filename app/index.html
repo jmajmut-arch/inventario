@@ -2470,7 +2470,12 @@ function clp(n){ return (Number(n)||0).toLocaleString('es-CL', {style:'currency'
 /* =======================================================================
    GRÁFICOS — SVG plano, sin librerías externas
    ======================================================================= */
-function fmtDiaCorto(iso){ if(!iso) return ''; const d=new Date(iso); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}).replace('.',''); }
+// Reportado: en el gráfico "SKU a contar por día" (con un Período elegido), la fecha mostrada
+// no coincidía con la de la entrada de planificación (aparecía un día antes). Causa: new Date()
+// sin hora explícita interpreta una fecha "YYYY-MM-DD" como medianoche UTC, no medianoche local
+// — en Chile (UTC-3/-4) eso cae en el día calendario anterior. El resto del código (grupos,
+// abrevDiaSemana, etc.) ya fuerza T00:00:00 para evitar justo este corrimiento.
+function fmtDiaCorto(iso){ if(!iso) return ''; const d=new Date(iso+'T00:00:00'); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}).replace('.',''); }
 
 // Suma el avance diario (que viene por bodega) en un total por día calendario.
 function agregarPorDia(diario, dias=14){

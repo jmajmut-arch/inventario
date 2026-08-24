@@ -960,6 +960,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // resumenPorResponsable / abrevDiaSemana como unidades sueltas.
   assert(ctx.abrevDiaSemana('2026-08-10')==='Lun', 'abrevDiaSemana debe devolver "Lun" para un lunes, obtuvo: '+ctx.abrevDiaSemana('2026-08-10'));
+
+  // Reportado: la fecha del gráfico "SKU a contar por día" (con un Período elegido) no coincidía
+  // con la de la entrada de planificación — aparecía un día antes. fmtDiaCorto debe parsear la
+  // fecha en medianoche LOCAL (como ya hace abrevDiaSemana), no dejar que new Date() la lea como
+  // medianoche UTC: en un huso horario detrás de UTC (ej. Chile) eso corre el día al anterior.
+  // Esta aserción es válida en cualquier huso (medianoche local de un día siempre cae en ese
+  // mismo día); el corrimiento real a UTC se verificó aparte, a mano, con TZ=America/Santiago.
+  assert(ctx.fmtDiaCorto('2026-08-26').includes('26'), 'fmtDiaCorto debe mostrar el día 26 para "2026-08-26" (medianoche local, no UTC), obtuvo: '+ctx.fmtDiaCorto('2026-08-26'));
   const resumenSuelto = ctx.resumenPorResponsable(
     [{id:'a', responsable_nombre:'Ana'}, {id:'b', responsable_nombre:'Ana'}, {id:'c', responsable_nombre:null}],
     {a:2, b:1, c:10}
