@@ -353,6 +353,7 @@ let state = {
   reconteosCargandoMas: false,
   tema: localStorage.getItem('tema_app') || 'ambar',
   cargaPreview: null,
+  cargasHistorial: { cargado:false, cargando:false, filas:[] },
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   dashboardModo: 'ejecutivo',
   // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
@@ -842,7 +843,7 @@ async function solicitarRecuperacion(email){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[] };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:'',entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]} };
 }
 
 function handleLogout(){
@@ -1877,6 +1878,21 @@ async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, fil
       filas_totales, filas_ok, filas_error, detalle_errores: detalle_errores.slice(0,50)
     }], prefer:'return=minimal'});
   }catch(e){ /* no bloquea el flujo */ }
+  cargarHistorialCargas(); // refresca el historial en pantalla con la carga recién hecha
+}
+
+const TIPO_CARGA_LABEL = { skus:'Maestro de SKU', stock_sistema:'Stock del sistema', otro:'Otro' };
+
+async function cargarHistorialCargas(){
+  state.cargasHistorial.cargado = true;
+  state.cargasHistorial.cargando = true;
+  render();
+  try{
+    const filas = await rest('/cargas_masivas?select=id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,created_at,usuarios(nombre)&order=created_at.desc&limit=20');
+    state.cargasHistorial.filas = filas || [];
+  }catch(e){ toast(e.message,'err'); }
+  state.cargasHistorial.cargando = false;
+  render();
 }
 
 /* =======================================================================
@@ -3132,6 +3148,7 @@ function renderTablaSkus(){
    ======================================================================= */
 function renderCargaMasiva(){
   if(state.cargaPreview) return renderCargaPreview();
+  const h = state.cargasHistorial;
   return `
     <div class="section-head"><div><span class="eyebrow">Datos masivos</span><h2>Carga masiva</h2></div></div>
 
@@ -3144,6 +3161,25 @@ function renderCargaMasiva(){
         <div>Toca para elegir un archivo .xlsx o .csv</div>
       </div>
       <div id="file-skus-name" class="hint"></div>
+    </div>
+
+    <div class="section-head"><h2 style="font-size:15px">Historial de cargas</h2></div>
+    <div class="card">
+      ${h.cargando? `<div class="hint" style="padding:14px 8px">Cargando…</div>` : h.filas.length? `
+      <div>${h.filas.map(f=>`
+        <div class="plan-item" style="display:block;padding:10px 0">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <span style="font-weight:600">${esc(f.nombre_archivo)}</span>
+            <span class="hint">${esc(new Date(f.created_at).toLocaleString('es-CL'))}</span>
+          </div>
+          <div class="hint">${esc(TIPO_CARGA_LABEL[f.tipo]||f.tipo)} · Por: ${esc(f.usuarios? f.usuarios.nombre : 'Sistema')}</div>
+          <div style="margin-top:4px;font-size:13px">
+            ${f.filas_ok} de ${f.filas_totales} filas cargadas
+            ${f.filas_error? `<span style="color:var(--danger)"> · ${f.filas_error} con error</span>` : ''}
+          </div>
+        </div>
+      `).join('')}</div>
+      ` : `<div class="empty" style="padding:14px 8px">Todavía no se ha cargado nada.</div>`}
     </div>
   `;
 }
@@ -3595,6 +3631,12 @@ function renderPlanificacion(){
   }));
   const totalSemana = datosPorDia.reduce((s,d)=>s+d.cantidad, 0);
   const responsablesResumen = resumenPorResponsable(p.entradas, p.universos);
+  // El formulario "Agregar a la planificación" debe abrir en el día de hoy (lo más probable
+  // es que estés planificando para hoy), no en el lunes de la semana — pero si estás navegando
+  // una semana distinta a la actual, hoy cae fuera de [semanaInicio, finSemana] y hay que
+  // quedarse con el lunes de esa semana para no violar los min/max del campo.
+  const hoyISO = fechaISO(new Date());
+  const fechaPlanDefault = (hoyISO >= p.semanaInicio && hoyISO <= fechaISO(finSemana)) ? hoyISO : p.semanaInicio;
 
   return `
     <div class="section-head">
@@ -3622,7 +3664,7 @@ function renderPlanificacion(){
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
-        <input type="date" id="p-fecha" value="${p.semanaInicio}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
+        <input type="date" id="p-fecha" value="${fechaPlanDefault}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
         <label for="p-bodega">Ubicación general</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
@@ -4087,6 +4129,8 @@ function renderShell(){
     plan: renderPlanificacion,
   }[state.view]();
 
+  const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
+
   return `
     <div class="topbar">
       <div class="topbar-row">
@@ -4096,7 +4140,7 @@ function renderShell(){
         </div>
         <div class="user-chip">
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
-          <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}</span>
+          <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
           <button id="btn-logout">${ICONS.logout} Salir</button>
         </div>
       </div>
@@ -4546,6 +4590,7 @@ function bind(){
         document.getElementById('file-skus-name').textContent = `Leyendo ${file.name}...`;
         await prepararCargaMasiva(file);
       });
+      if(!state.cargasHistorial.cargado) cargarHistorialCargas();
     }
   }
 

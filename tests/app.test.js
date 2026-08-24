@@ -266,6 +266,13 @@ const fakeFetchImpl = async (url, opts) => {
     const filas = path.includes('tabla=eq.usuarios') ? todas.filter(f=>f.tabla==='usuarios') : todas;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/cargas_masivas')){
+    const filas = [
+      {id:'c1', nombre_archivo:'materiales_agosto.xlsx', tipo:'skus', filas_totales:120, filas_ok:118, filas_error:2, created_at:'2026-08-20T14:30:00Z', usuarios:{nombre:'Ana Torres'}},
+      {id:'c2', nombre_archivo:'carga_inicial.csv', tipo:'skus', filas_totales:50, filas_ok:50, filas_error:0, created_at:'2026-08-01T09:00:00Z', usuarios:null},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/leads_demo')){
     if(path.includes('offset=')){
       const offsetMatch = path.match(/offset=(\d+)/);
@@ -564,6 +571,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   });
   const postOperador = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/responsables_proceso'));
   assert(!!postOperador && JSON.parse(postOperador.opts.body)[0].nombre==='Carlos Rojas', 'el submit del formulario de operadores debe crear el operador con el nombre ingresado, obtuvo: '+JSON.stringify(postOperador));
+
+  // El campo "Fecha" del formulario de planificación debe abrir en el día de hoy (no en el
+  // lunes de la semana): a esta altura state.plan.semanaInicio todavía es el valor por defecto
+  // del estado inicial (el lunes de la semana actual), así que hoy cae dentro del rango.
+  const htmlPlanHoy = ctx.renderPlanificacion();
+  assert(htmlPlanHoy.includes(`id="p-fecha" value="${ctx.fechaISO(new Date())}"`), 'el campo de fecha debe abrir con el día de hoy cuando la semana mostrada lo incluye, obtuvo: '+htmlPlanHoy.match(/id="p-fecha"[^>]*/)[0]);
 
   // Simular el cambio de bodega -> debe poblar y habilitar el select de ubicación específica.
   // Reutilizamos bind() real: ejecutamos el bloque de bind correspondiente a state.view==='plan'
@@ -897,6 +910,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Semana sin conteos -> mensaje de vacío, sin tablas, y aun así llama a print() (sin pedir SKU a la base).
   ctx.__appstate.plan = {semanaInicio:'2026-08-10', entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[]};
+
+  // Si la semana mostrada NO incluye hoy (ej. navegando a una semana pasada), el campo "Fecha"
+  // debe quedarse en el lunes de esa semana en vez de forzar la fecha de hoy, que quedaría
+  // fuera del rango min/max del campo.
+  const htmlPlanSemanaPasada = ctx.renderPlanificacion();
+  assert(htmlPlanSemanaPasada.includes('id="p-fecha" value="2026-08-10"'), 'el campo de fecha debe quedarse en el lunes de la semana mostrada cuando hoy no cae dentro de ese rango, obtuvo: '+htmlPlanSemanaPasada.match(/id="p-fecha"[^>]*/)[0]);
   printEl.innerHTML = '';
   printCalled = 0;
   calls.length = 0;
@@ -1588,6 +1607,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.ultimosConteos = [];
   const shellHtml = ctx.renderShell();
   assert(shellHtml.includes('Minera Andes'), 'la barra superior debe mostrar el nombre de la empresa actual, obtuvo: '+shellHtml.slice(0,600));
+  // Junto al nombre en la barra superior también debe verse el rol: super-admin, admin normal
+  // u operador — antes solo se veía el nombre, sin decir con qué permisos está esa persona.
+  assert(shellHtml.includes('Vendedor') && shellHtml.includes('Super-admin'), 'la barra superior debe mostrar "Super-admin" junto al nombre para una cuenta con es_super_admin, obtuvo: '+shellHtml.slice(0,700));
+  ctx.__appstate.perfil = { id:4, nombre:'Beto Ríos', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const shellHtmlOperador = ctx.renderShell();
+  assert(shellHtmlOperador.includes('Beto Ríos') && shellHtmlOperador.includes('Operador'), 'la barra superior debe mostrar "Operador" junto al nombre para esa cuenta, obtuvo: '+shellHtmlOperador.slice(0,700));
+  ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
 
   // ===== Resumen de negocio del super-admin =====
   calls.length = 0;
@@ -1751,6 +1777,49 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // que crearSkuManual: hay que drenar esa cadena o su llamada a /ultimo_conteo_por_sku se
   // cuela en el conteo de llamadas del siguiente bloque (perfil no cargado).
   await new Promise(r=>setTimeout(r, 0));
+
+  // ===== Carga masiva: historial de cargas =====
+  // registrarCarga (llamado desde confirmarCargaMasiva) debe dejar un rastro consultable de
+  // cuándo se cargaron datos, con quién lo hizo y cuántas filas entraron bien/mal — antes no
+  // había ninguna forma de ver esto desde la app, solo quedaba guardado en la tabla sin UI.
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+  await ctx.cargarHistorialCargas();
+  assert(ctx.__appstate.cargasHistorial.cargado===true, 'cargarHistorialCargas debe marcar cargado:true al terminar');
+  assert(ctx.__appstate.cargasHistorial.filas.length===2 && ctx.__appstate.cargasHistorial.filas[0].nombre_archivo==='materiales_agosto.xlsx', 'cargarHistorialCargas debe cargar el historial de la empresa, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial.filas));
+
+  const htmlHistorial = ctx.renderCargaMasiva();
+  assert(htmlHistorial.includes('Historial de cargas'), 'Carga masiva debe mostrar la sección de historial, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('materiales_agosto.xlsx') && htmlHistorial.includes('118 de 120 filas cargadas') && htmlHistorial.includes('2 con error'), 'debe listar el archivo con cuántas filas entraron bien y con error, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('Por: Ana Torres'), 'debe mostrar quién hizo la carga, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('carga_inicial.csv') && htmlHistorial.includes('Por: Sistema'), 'una carga sin usuario asociado debe mostrarse como "Sistema", igual que en trazabilidad, obtuvo: '+htmlHistorial);
+
+  // El historial debe refrescarse solo tras una carga real (mismo bug que "Mi equipo": si no
+  // se refresca, la carga recién hecha no aparece hasta recargar la página a mano).
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'refresco.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo' }, data: [{ Codigo:'SKU-REFRESCO' }],
+  };
+  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[]};
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  await new Promise(r=>setTimeout(r, 0));
+  const getHistorialTrasCarga = calls.find(c=>c.url.includes('/rest/v1/cargas_masivas?select='));
+  assert(!!getHistorialTrasCarga, 'tras confirmar una carga, el historial debe recargarse solo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.cargaPreview = null;
+  await new Promise(r=>setTimeout(r, 0));
+
+  // bind() en 'carga' (fuera del preview) debe pedir el historial una sola vez, igual que
+  // "Mi equipo"/auditoría — usa el mismo patrón de `if(!cargado) cargar...()`.
+  // bind() corta temprano si no hay sesión (ver guard `if(!state.session) return;`); esta
+  // sección del archivo la dejó en null unas pruebas atrás (recuperar contraseña), así que
+  // hay que reponerla para llegar de verdad al bloque de 'carga'.
+  ctx.__appstate.session = { access_token:'x', refresh_token:'y', user:{id:'user-1', email:'a@b.com'} };
+  ctx.__appstate.view = 'carga';
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+  delete elements['file-skus'];
+  ctx.bind();
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.cargasHistorial.cargado===true, 'bind() en la vista de carga masiva debe disparar la carga del historial, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial));
 
   // ===== Perfil no cargado (sesión activa, pero sin fila en usuarios/empresa asignada) =====
   // Reproduce el caso real: la cuenta existe (hay sesión), pero state.perfil quedó null
