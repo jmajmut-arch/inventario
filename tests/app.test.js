@@ -2509,6 +2509,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.skuSeleccionado = null;
   ctx.__appstate.conteoOrigenPlan = false;
 
+  // "Lo encontré en otra ubicación": por defecto bodega/ubicación quedan bloqueadas con el
+  // valor del maestro (dato limpio para la causa probable "Ubicación distinta" y el % de
+  // exactitud de ubicación del Dashboard); marcar el checkbox las desbloquea y las vacía
+  // para forzar un registro explícito de dónde se encontró realmente (ver #131-bis).
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  ctx.__appstate.conteoOtraUbicacion = false;
+  const htmlConteoUbicNormal = ctx.renderConteo();
+  assert(htmlConteoUbicNormal.includes('id="c-bodega" placeholder="Bodega Central" value="Nave Mina" disabled'), 'sin marcar, "Ubicación general" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
+  assert(htmlConteoUbicNormal.includes('id="c-ubic" placeholder="Rack A-12" value="Interior Nave" disabled'), 'sin marcar, "Ubicación contada" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
+  assert(!htmlConteoUbicNormal.includes('id="c-otra-ubic" checked'), 'sin marcar, el checkbox no debe aparecer marcado, obtuvo: '+htmlConteoUbicNormal);
+
+  ctx.__appstate.conteoOtraUbicacion = true;
+  const htmlConteoUbicOtra = ctx.renderConteo();
+  assert(htmlConteoUbicOtra.includes('id="c-otra-ubic" checked'), 'marcado, el checkbox debe aparecer marcado, obtuvo: '+htmlConteoUbicOtra);
+  assert(htmlConteoUbicOtra.includes('id="c-bodega" placeholder="Bodega Central" value=""') && !htmlConteoUbicOtra.includes('id="c-bodega" placeholder="Bodega Central" value="" disabled'), 'marcado, "Ubicación general" debe quedar vacía y editable, obtuvo: '+htmlConteoUbicOtra);
+  assert(htmlConteoUbicOtra.includes('id="c-ubic" placeholder="¿Dónde lo encontraste?" value="" required'), 'marcado, "Ubicación contada" debe quedar vacía, editable y obligatoria, obtuvo: '+htmlConteoUbicOtra);
+
+  // bind() real: marcar el checkbox debe actualizar state.conteoOtraUbicacion (y de paso
+  // conservar lo que ya se había tipeado en cantidad/observación, igual que al agregar fotos).
+  ctx.__appstate.conteoOtraUbicacion = false;
+  ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, cargado:true, cargando:false};
+  ctx.__appstate.session = { access_token:'x', refresh_token:'y', user:{id:'user-1', email:'a@b.com'} };
+  ctx.bind();
+  const cantEl = elements['c-cant'];
+  const obsEl = elements['c-obs'];
+  if(cantEl) cantEl.value = '7';
+  if(obsEl) obsEl.value = 'nota de prueba';
+  const otraUbicEl = elements['c-otra-ubic'];
+  otraUbicEl.checked = true;
+  otraUbicEl.dispatch('change', {target: otraUbicEl});
+  assert(ctx.__appstate.conteoOtraUbicacion===true, 'marcar el checkbox en bind() real debe dejar conteoOtraUbicacion en true, obtuvo: '+ctx.__appstate.conteoOtraUbicacion);
+  assert(elements['c-cant'].value==='7' && elements['c-obs'].value==='nota de prueba', 'al marcar el checkbox no debe perderse lo ya tipeado en cantidad/observación, obtuvo: '+JSON.stringify({cant:elements['c-cant'].value, obs:elements['c-obs'].value}));
+  ctx.__appstate.skuSeleccionado = null;
+  ctx.__appstate.conteoOtraUbicacion = false;
+
   // Buscar: filtro "Solo fuera de plan" y badge de origen por resultado.
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:true, resultados:[{skus:{sku_code:'SKU-9', descripcion:'X'}, bodega:'Nave', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, conteo_fotos:[]}], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
   const pathBuscarFueraPlan = ctx.construirPathBusqueda(0);
