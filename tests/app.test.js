@@ -362,7 +362,7 @@ function makeEl(id){
     listeners:{}, hijos:[],
     addEventListener(ev,fn){ this.listeners[ev]=this.listeners[ev]||[]; this.listeners[ev].push(fn); },
     dispatch(ev, arg){ (this.listeners[ev]||[]).forEach(fn=>fn(arg||{target:this})); },
-    appendChild(child){ this.hijos.push(child); }, remove(){}, focus(){},
+    appendChild(child){ this.hijos.push(child); }, remove(){}, focus(){}, reset(){},
   };
   return elements[id];
 }
@@ -1374,9 +1374,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConfigAdmin.includes('Minera Andes'), 'debe mostrar el nombre de la empresa, obtuvo: '+htmlConfigAdmin);
   assert(!htmlConfigAdmin.includes('form-crear-empresa-sa'), 'un admin normal (no super-admin) no debe ver el panel de super-admin, obtuvo: '+htmlConfigAdmin);
 
-  // Un admin de empresa (no super-admin) sí debe poder invitar gente a SU propia empresa.
+  // Un admin de empresa (no super-admin) sí debe poder invitar gente a SU propia empresa,
+  // pero solo como inventariador: crear otros administradores es exclusivo del super-admin
+  // (un admin normal no debe tener forma de elegir "admin" en este formulario).
   assert(htmlConfigAdmin.includes('id="form-invitar-equipo"'), 'un admin de empresa debe ver el formulario para invitar a su equipo, obtuvo: '+htmlConfigAdmin);
-  assert(htmlConfigAdmin.includes('<option value="inventariador">Inventariador</option>') && !htmlConfigAdmin.includes('Supervisor'), 'el rol a elegir debe ser Inventariador/Administrador, sin Supervisor, obtuvo: '+htmlConfigAdmin);
+  assert(htmlConfigAdmin.includes('id="equipo-rol" value="inventariador"') && !htmlConfigAdmin.includes('Supervisor'), 'el rol de invitación de un admin normal debe quedar fijo en Inventariador (no elegible), obtuvo: '+htmlConfigAdmin);
+  const formInvitarEquipoHtml = htmlConfigAdmin.slice(htmlConfigAdmin.indexOf('id="form-invitar-equipo"'), htmlConfigAdmin.indexOf('</form>', htmlConfigAdmin.indexOf('id="form-invitar-equipo"')));
+  assert(!formInvitarEquipoHtml.includes('Administrador'), 'el formulario de invitar equipo no debe ofrecer el rol Administrador, obtuvo: '+formInvitarEquipoHtml);
 
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'inventariador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
   const htmlConfigInventariador = ctx.renderConfiguraciones();
@@ -1522,11 +1526,36 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.equipo.personas.length===2 && ctx.__appstate.equipo.personas[0].nombre==='Beto Ríos', 'cargarEquipo debe cargar el equipo de la propia empresa, obtuvo: '+JSON.stringify(ctx.__appstate.equipo.personas));
   const htmlMiEquipo = ctx.renderConfiguraciones();
   assert(htmlMiEquipo.includes('Beto Ríos') && htmlMiEquipo.includes('data-toggle-persona-equipo="eq1"'), 'Configuraciones debe listar el equipo propio con su botón de desactivar/reactivar, obtuvo: '+htmlMiEquipo);
+  // El rol ya no es editable desde "Mi equipo" (un admin normal no puede ascender a nadie a
+  // administrador): se muestra como etiqueta fija, no como <select>. eq1 es inventariador,
+  // eq2 (Marta Soto) es admin — ambos deben aparecer como texto, sin ningún control editable.
+  assert(!htmlMiEquipo.includes('mi-equipo-rol'), 'el rol del equipo no debe tener un control editable para un admin normal, obtuvo: '+htmlMiEquipo);
+  assert(htmlMiEquipo.includes('Inventariador') && htmlMiEquipo.includes('Administrador'), 'debe mostrar el rol de cada persona como etiqueta fija, obtuvo: '+htmlMiEquipo);
 
+  // actualizarPersonaEquipo sigue existiendo para nombre/activo, pero ya nada en la UI de un
+  // admin normal la invoca con {rol:...} — la protección real contra la escalada de privilegios
+  // vive en la base de datos (trigger prevenir_escalada_admin + Edge Function invite-user).
+
+  // bind() en 'config': tras invitar a alguien con el formulario real, la lista de "Mi equipo"
+  // debe refrescarse sola (regresión real reportada: la persona recién invitada no aparecía
+  // en el listado hasta recargar la página a mano, porque cargarEquipo() solo se llamaba una
+  // vez por `if(!state.equipo.cargado)` y la invitación nunca volvía a dispararla).
+  ctx.__appstate.view = 'config';
+  delete elements['form-invitar-equipo'];
+  ctx.bind();
+  const formInvitarEquipoEl = elements['form-invitar-equipo'];
+  assert(!!formInvitarEquipoEl, 'bind() debe haber consultado #form-invitar-equipo, obtuvo: '+formInvitarEquipoEl);
+  makeEl('equipo-nombre').value = 'Diego Soto';
+  makeEl('equipo-email').value = 'diego@equipo.cl';
   calls.length = 0;
-  await ctx.actualizarPersonaEquipo('eq1', {rol:'admin'});
-  const patchRolEquipo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/usuarios?id=eq.eq1'));
-  assert(!!patchRolEquipo && JSON.parse(patchRolEquipo.opts.body).rol==='admin', 'actualizarPersonaEquipo debe poder cambiar el rol, obtuvo: '+JSON.stringify(patchRolEquipo));
+  await new Promise(resolve => {
+    formInvitarEquipoEl.dispatch('submit', {target: formInvitarEquipoEl, preventDefault(){}});
+    setTimeout(resolve, 20);
+  });
+  const invokeTrasSubmit = calls.find(c=>c.url.includes('/functions/v1/invite-user'));
+  assert(!!invokeTrasSubmit, 'el submit del formulario debe invitar a la persona, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const refrescoEquipoTrasInvitar = calls.find(c=>c.url.includes('/usuarios?select=') && calls.indexOf(c) > calls.indexOf(invokeTrasSubmit));
+  assert(!!refrescoEquipoTrasInvitar, 'tras invitar a alguien, "Mi equipo" debe recargarse solo para mostrar a la persona nueva, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Restaurar el perfil de super-admin para los tests siguientes de este mismo bloque.
   ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
