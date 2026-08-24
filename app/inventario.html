@@ -2953,7 +2953,10 @@ function opcionesPeriodoDash(){
 // (buscador libre o escáner — ver #130). Igual que el resto del dashboard, es sobre el
 // último conteo de cada SKU dentro de su período (no cada conteo histórico): si un SKU se
 // recontó varias veces, solo cuenta su estado más reciente, si no "Fuera de plan" queda
-// inflado con intentos ya corregidos. El selector de período es puramente client-side
+// inflado con intentos ya corregidos. La bodega que se muestra es la del SKU (skus.bodega),
+// igual que en Exactitud/Avance/Valorización — no la que quedó registrada en el conteo (donde
+// físicamente estaba parado quien contó), que puede no coincidir y mostraba nombres de bodega
+// que no calzaban con el resto del dashboard. El selector de período es puramente client-side
 // sobre dash.adherenciaPorCiclo (ya trae todos los períodos agrupados por bodega): cambiar
 // de período solo recalcula esto, no dispara una nueva carga.
 function renderAdherenciaPlan(){
@@ -3705,9 +3708,10 @@ function renderPlanificacion(){
   const finSemana = sumarDias(inicio,6);
   const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
 
-  // En modo semana se muestran los 7 días de la semana elegida aunque estén vacíos (para
-  // que se note qué falta planificar); en modo período no hay una semana de referencia —
-  // se agrupa por cada fecha que realmente tenga algo planificado, sin importar la semana.
+  // En modo período se agrupa por cada fecha que realmente tenga algo planificado (no hay una
+  // semana de referencia). En modo semana antes se armaban los 7 días de la semana elegida
+  // aunque estuvieran vacíos; se dejó de hacer a pedido — abajo se filtran los días sin nada
+  // planificado antes de listarlos, en ambos modos.
   const grupos = p.cicloFiltro
     ? Array.from(new Set(p.entradas.map(e=>e.fecha))).sort().map(iso=>{
         const d = new Date(iso+'T00:00:00');
@@ -3841,10 +3845,10 @@ function renderPlanificacion(){
       </div>
     ` : ''}
 
-    ${grupos.map(d=>`
+    ${grupos.filter(d=>d.entradas.length).map(d=>`
       <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${p.cicloFiltro?'':' · '+d.corta}</h2></div>
       <div class="card">
-        ${d.entradas.length? d.entradas.map(e=> p.editando===e.id ? `
+        ${d.entradas.map(e=> p.editando===e.id ? `
           <div class="plan-item" style="flex-direction:column;align-items:stretch;gap:0">
             <div class="plan-item-ubic" style="margin-bottom:8px">${e.solo_sin_ubicacion? 'SKU sin ubicación' : esc([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica')}</div>
             <label for="pe-fecha-${e.id}">Fecha</label>
@@ -3893,7 +3897,7 @@ function renderPlanificacion(){
               <button class="icon-btn" data-borrar-plan="${e.id}" aria-label="Eliminar entrada completa" title="Eliminar toda esta entrada del plan (ubicación, responsable y nota)" style="color:var(--danger)">${ICONS.papelera}</button>
             </div>
           </div>
-        `).join('') : `<div class="empty" style="padding:14px 8px">Sin conteos planificados.</div>`}
+        `).join('')}
       </div>
     `).join('')}
   `;
@@ -4438,7 +4442,15 @@ function bind(){
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       if(btn.dataset.bloqueada){ toast('Esta sección es solo para administradores', 'err'); return; }
-      detenerEscaner(); setState({view: btn.dataset.tab});
+      detenerEscaner();
+      const patch = {view: btn.dataset.tab};
+      // "Plan del día" queda en state.contarPlan una vez cargado y no se vuelve a pedir solo
+      // por re-renderizar (ver el chequeo de "cargado" más abajo, necesario para evitar una
+      // recursión infinita) — pero puede haber cambiado desde la última carga (planificación
+      // editada desde otra pestaña, otro día, otra persona). Al volver a seleccionar la
+      // pestaña Contar se fuerza a pedirla de nuevo, para no mostrar un plan desactualizado.
+      if(btn.dataset.tab==='conteo') patch.contarPlan = {...state.contarPlan, cargado:false};
+      setState(patch);
     });
   });
 
