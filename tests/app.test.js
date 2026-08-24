@@ -2962,6 +2962,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const nuevosToasts = toastRoot.hijos.slice(toastsAntes);
   assert(nuevosToasts.some(t=>t.textContent==='Sesión cerrada'), 'handleLogout debe mostrar un toast "Sesión cerrada", obtuvo: '+JSON.stringify(nuevosToasts.map(t=>t.textContent)));
 
+  // Candado visual en la barra inferior: un operador no tiene acceso a Dashboard, Plan ni Carga,
+  // pero en vez de ocultar esos tabs (o dejarlos entrar libremente) deben verse igual, marcados
+  // con un candado, para que quede claro que la función existe pero es solo para administradores.
+  // handleLogout (arriba) reasigna `state` por completo, así que __appstate quedó apuntando al
+  // objeto viejo: hay que resincronizarlo antes de volver a usarlo.
+  ctx.__resyncAppState();
+  ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(ctx.vistaBloqueadaParaRol('dashboard')===true, 'un operador debe tener bloqueada la vista dashboard');
+  assert(ctx.vistaBloqueadaParaRol('plan')===true, 'un operador debe tener bloqueada la vista plan');
+  assert(ctx.vistaBloqueadaParaRol('carga')===true, 'un operador debe tener bloqueada la vista carga');
+  assert(ctx.vistaBloqueadaParaRol('conteo')===false, 'un operador NO debe tener bloqueada la vista conteo');
+  assert(ctx.vistaInicialParaPerfil()==='conteo', 'un operador debe arrancar en Contar, no en el Dashboard bloqueado, obtuvo: '+ctx.vistaInicialParaPerfil());
+
+  const htmlTabOperadorDashboard = ctx.tabBtn('dashboard', 'Dashboard');
+  assert(htmlTabOperadorDashboard.includes('tab-bloqueada') && htmlTabOperadorDashboard.includes('tab-candado') && htmlTabOperadorDashboard.includes('data-bloqueada="1"'), 'el tab Dashboard de un operador debe mostrar el candado, obtuvo: '+htmlTabOperadorDashboard);
+  const htmlTabOperadorConteo = ctx.tabBtn('conteo', 'Contar');
+  assert(!htmlTabOperadorConteo.includes('tab-bloqueada') && !htmlTabOperadorConteo.includes('tab-candado'), 'el tab Contar de un operador NO debe mostrar candado, obtuvo: '+htmlTabOperadorConteo);
+
+  ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(ctx.vistaBloqueadaParaRol('dashboard')===false, 'un admin NO debe tener bloqueada la vista dashboard');
+  assert(ctx.vistaBloqueadaParaRol('plan')===false, 'un admin NO debe tener bloqueada la vista plan');
+  assert(ctx.vistaBloqueadaParaRol('carga')===false, 'un admin NO debe tener bloqueada la vista carga');
+  assert(ctx.vistaInicialParaPerfil()==='dashboard', 'un admin debe arrancar en el Dashboard, obtuvo: '+ctx.vistaInicialParaPerfil());
+  const htmlTabAdminDashboard = ctx.tabBtn('dashboard', 'Dashboard');
+  assert(!htmlTabAdminDashboard.includes('tab-bloqueada') && !htmlTabAdminDashboard.includes('tab-candado'), 'el tab Dashboard de un admin NO debe mostrar candado, obtuvo: '+htmlTabAdminDashboard);
+
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);
     process.exit(1);

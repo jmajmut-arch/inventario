@@ -167,7 +167,11 @@ textarea{resize:vertical;min-height:60px;}
 .tabbar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--line);display:flex;z-index:20;padding-bottom:env(safe-area-inset-bottom);}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px 8px;background:none;border:none;color:var(--text-faint);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;}
 .tab.active{color:var(--amber);}
-.tab svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.tab-icon-wrap{position:relative;display:flex;}
+.tab-icon-wrap>svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.tab-bloqueada{opacity:0.55;}
+.tab-candado{position:absolute;top:-4px;right:-6px;display:flex;align-items:center;justify-content:center;width:13px;height:13px;background:var(--surface);border-radius:50%;}
+.tab-candado svg{width:11px;height:11px;stroke:var(--text-faint);fill:none;stroke-width:2.2;}
 
 /* ---------- login ---------- */
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
@@ -466,6 +470,20 @@ const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
 // pero el <select> necesita un valor real (no vacío, que ya significa "nada elegido") para
 // poder elegir ese grupo y seguir cascadeando a la ubicación específica normalmente.
 const BODEGA_VACIA = '__bodega_vacia__';
+// Pestañas de la barra inferior a las que un operador (rol !== admin, sin ser super-admin) no
+// tiene acceso — a pedido: se muestran igual (con un candado) en vez de ocultarlas o dejarlas
+// entrar, para que quede claro que la función existe pero es solo para administradores.
+const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga'];
+function vistaBloqueadaParaRol(view){
+  if(!VISTAS_SOLO_ADMIN.includes(view)) return false;
+  if(!state.perfil) return false;
+  return !(state.perfil.rol==='admin' || state.perfil.es_super_admin);
+}
+// A dónde entrar apenas se inicia sesión: Dashboard es la vista por defecto, pero un operador no
+// tiene acceso (ver VISTAS_SOLO_ADMIN) — no tiene sentido dejarlo ahí, arranca directo en Contar.
+function vistaInicialParaPerfil(){
+  return vistaBloqueadaParaRol('dashboard') ? 'conteo' : 'dashboard';
+}
 
 function setState(patch){ Object.assign(state, patch); render(); }
 
@@ -603,6 +621,7 @@ async function restaurarSesionGuardada(){
   await cargarPerfil();
   if(state.empresaBloqueada) return; // sesión sigue viva: se muestra la pantalla de cuenta bloqueada
   if(!state.perfil){ state.session = null; borrarSesionGuardada(); return; }
+  state.view = vistaInicialParaPerfil();
   cargarTodo();
 }
 
@@ -645,7 +664,7 @@ async function handleLogin(email, password){
     guardarSesion(data);
     await cargarPerfil();
     const otraSesionCerrada = await hayOtraSesionActiva();
-    setState({loading:false, view:'dashboard'});
+    setState({loading:false, view:vistaInicialParaPerfil()});
     toast(otraSesionCerrada
       ? 'Cerramos tu sesión anterior en otro dispositivo.'
       : `Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
@@ -818,7 +837,7 @@ async function establecerPassword(nuevaPassword){
     if(!res.ok) throw new Error(data.error_description || data.msg || data.error || 'No se pudo guardar la contraseña');
     guardarSesion(state.session);
     await cargarPerfil();
-    setState({loading:false, debeCrearPassword:false, view:'dashboard'});
+    setState({loading:false, debeCrearPassword:false, view:vistaInicialParaPerfil()});
     if(state.empresaBloqueada) return;
     toast(`Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
     cargarTodo();
@@ -2407,6 +2426,7 @@ const ICONS = {
   editar:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
   papelera:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
   escanear:'<svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3"/><path d="M20 8V5a1 1 0 00-1-1h-3"/><path d="M4 16v3a1 1 0 001 1h3"/><path d="M20 16v3a1 1 0 01-1 1h-3"/><path d="M3 12h18"/><path d="M8 9v6"/><path d="M12 9v6"/><path d="M16 9v6"/></svg>',
+  candado:'<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
 };
 
 /* =======================================================================
@@ -4226,7 +4246,14 @@ function renderShell(){
 }
 
 function tabBtn(view,label){
-  return `<button class="tab ${state.view===view?'active':''}" data-tab="${view}">${ICONS[view==='carga'?'upload':view]}${label}</button>`;
+  const bloqueada = vistaBloqueadaParaRol(view);
+  return `<button class="tab ${state.view===view?'active':''} ${bloqueada?'tab-bloqueada':''}" data-tab="${view}" ${bloqueada?`data-bloqueada="1" title="Solo para administradores"`:''}>
+    <span class="tab-icon-wrap">
+      ${ICONS[view==='carga'?'upload':view]}
+      ${bloqueada? `<span class="tab-candado" aria-hidden="true">${ICONS.candado}</span>` : ''}
+    </span>
+    ${label}
+  </button>`;
 }
 
 /* =======================================================================
@@ -4395,7 +4422,10 @@ function bind(){
   const btnVerOffline = document.getElementById('btn-ver-offline');
   if(btnVerOffline) btnVerOffline.addEventListener('click', ()=> setState({offlineModal:true}));
   document.querySelectorAll('.tab').forEach(btn=>{
-    btn.addEventListener('click', ()=>{ detenerEscaner(); setState({view: btn.dataset.tab}); });
+    btn.addEventListener('click', ()=>{
+      if(btn.dataset.bloqueada){ toast('Esta sección es solo para administradores', 'err'); return; }
+      detenerEscaner(); setState({view: btn.dataset.tab});
+    });
   });
 
   if(state.view==='config'){
