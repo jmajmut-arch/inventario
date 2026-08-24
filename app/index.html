@@ -3953,30 +3953,23 @@ function renderConfiguraciones(){
     ${esAdmin && !esSuperAdmin? renderPlanYFacturacion(empresa) : ''}
     ${esAdmin && !esSuperAdmin? `
     <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Invita a alguien de tu equipo a ${esc(empresa.nombre)}. Le llegará un correo para crear su contraseña.</div>
+      <div class="hint" style="margin-bottom:10px">Invita a alguien de tu equipo a ${esc(empresa.nombre)} como inventariador/a. Le llegará un correo para crear su contraseña. (Solo un super-admin puede crear otras cuentas de administrador.)</div>
       <form id="form-invitar-equipo">
         <label for="equipo-nombre">Nombre completo</label>
         <input type="text" id="equipo-nombre" placeholder="Ej. Ana Torres" required>
         <label for="equipo-email">Correo</label>
         <input type="email" id="equipo-email" placeholder="nombre@empresa.cl" required>
-        <label for="equipo-rol">Rol</label>
-        <select id="equipo-rol">
-          <option value="inventariador">Inventariador</option>
-          <option value="admin">Administrador</option>
-        </select>
+        <input type="hidden" id="equipo-rol" value="inventariador">
         <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${state.invitandoPersona?'disabled':''}>${state.invitandoPersona?'Enviando…':'Enviar invitación'}</button></div>
       </form>
     </div>
     <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Edita el nombre, el rol o desactiva el acceso de alguien de tu equipo.</div>
+      <div class="hint" style="margin-bottom:10px">Edita el nombre o desactiva el acceso de alguien de tu equipo. El rol de administrador solo lo asigna un super-admin.</div>
       ${state.equipo.cargando? `<div class="hint">Cargando…</div>` : state.equipo.personas.length? `
       <div>${state.equipo.personas.map(u=>`
         <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <input type="text" class="mi-equipo-nombre" data-persona-id="${esc(u.id)}" value="${esc(u.nombre)}" style="flex:1;min-width:120px;margin:0;${u.activo?'':'opacity:.5'}">
-          <select class="mi-equipo-rol" data-persona-id="${esc(u.id)}" style="flex:none;width:auto;margin:0">
-            <option value="inventariador" ${u.rol==='inventariador'?'selected':''}>Inventariador</option>
-            <option value="admin" ${u.rol==='admin'?'selected':''}>Administrador</option>
-          </select>
+          <span class="badge ${u.rol==='admin'?'badge-ok':'badge-neutral'}" style="flex:none">${u.rol==='admin'?'Administrador':'Inventariador'}</span>
           ${!u.activo? `<span class="badge badge-danger">Inactiva</span>` : ''}
           <div style="display:flex;gap:4px;flex:none">
             <button type="button" class="icon-btn" data-guardar-persona-equipo="${esc(u.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
@@ -4004,7 +3997,6 @@ function renderConfiguraciones(){
     </div>
     ` : ''}
     ` : ''}
-    ${(esAdmin || esSuperAdmin) && planIncluye('auditoria_habilitada')? renderAuditoria() : ''}
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
     ${TEMAS.map(t=>`
@@ -4049,6 +4041,7 @@ function renderConfiguraciones(){
         </div>
       `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Sin operadores agregados.</div>`}
     </div>
+    ${(esAdmin || esSuperAdmin) && planIncluye('auditoria_habilitada')? renderAuditoria() : ''}
   `;
 }
 
@@ -4318,7 +4311,7 @@ function bind(){
       const nombre = document.getElementById('equipo-nombre').value.trim();
       const email = document.getElementById('equipo-email').value.trim();
       const rol = document.getElementById('equipo-rol').value;
-      invitarPersona({email, nombre, empresaId: state.perfil.empresa_id, rol}).then(ok=>{ if(ok) e.target.reset(); });
+      invitarPersona({email, nombre, empresaId: state.perfil.empresa_id, rol}).then(ok=>{ if(ok){ e.target.reset(); cargarEquipo(); } });
     });
     if(state.perfil && state.perfil.rol==='admin' && !state.perfil.es_super_admin){
       if(!state.equipo.cargado) cargarEquipo();
@@ -4328,9 +4321,6 @@ function bind(){
           const input = document.querySelector(`.mi-equipo-nombre[data-persona-id="${id}"]`);
           actualizarPersonaEquipo(id, {nombre: input.value.trim()});
         });
-      });
-      document.querySelectorAll('.mi-equipo-rol').forEach(sel=>{
-        sel.addEventListener('change', ()=> actualizarPersonaEquipo(sel.dataset.personaId, {rol: sel.value}));
       });
       document.querySelectorAll('[data-toggle-persona-equipo]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
