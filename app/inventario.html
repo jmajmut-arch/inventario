@@ -335,11 +335,10 @@ let state = {
   // por inercia si alguien no editaba el campo precargado).
   conteoOtraUbicacion: false,
   conteoFotos: [],       // [{file, preview}]
-  // "Mi plan del día" en Contar: qué le toca hoy a la cuenta logueada (según su vínculo en
-  // responsables_proceso.usuario_id) y con qué bodega/ubicación/storage bin está trabajando
-  // ahora mismo. miResponsableId null = todavía no se resolvió; '' = no está vinculada a
-  // ningún operador (no hay plan personal que mostrar, solo el buscador libre de siempre).
-  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), miResponsableId: null, entradas: [], bodega:'', ubicacion:'', bin:'', skusPendientes: null },
+  // "Mi plan del día" en Contar: qué le toca hoy a la cuenta logueada (responsable_id en
+  // plan_semanal es directo el id de la cuenta) y con qué bodega/ubicación/storage bin está
+  // trabajando ahora mismo.
+  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', bin:'', skusPendientes: null },
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [], adherenciaPorCiclo: [] },
   ultimosConteos: [],
@@ -1109,9 +1108,11 @@ async function excluirSkuDePlan(planId, skuCode){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// "Responsable" en Planificación son directamente las cuentas del equipo (usuarios), no una
+// lista aparte: así queda un solo lugar para gestionar personas (Configuraciones → Equipo).
 async function cargarResponsables(){
   try{
-    const rows = await rest('/responsables_proceso?activo=eq.true&order=nombre.asc&select=id,nombre,usuario_id');
+    const rows = await rest('/usuarios?activo=eq.true&select=id,nombre&order=nombre.asc');
     setState({plan: {...state.plan, responsables: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1331,49 +1332,14 @@ function perfilCargado(){
   return true;
 }
 
-async function crearResponsable(nombre, usuarioId){
-  if(!nombre || !perfilCargado()) return;
-  try{
-    await rest('/responsables_proceso', {method:'POST', body:[{nombre, empresa_id: state.perfil.empresa_id, usuario_id: usuarioId||null}], prefer:'return=minimal'});
-    toast('Operador agregado');
-    cargarResponsables();
-  }catch(e){ toast(e.message,'err'); }
-}
-
-// Vincula (o desvincula) un operador con la cuenta de login real que corresponde a esa
-// persona — así "Contar" le puede mostrar su propio plan del día (ver renderConteo).
-async function actualizarResponsable(id, cambios){
-  try{
-    await rest(`/responsables_proceso?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
-    toast('Operador actualizado');
-    cargarResponsables();
-  }catch(e){ toast(e.message,'err'); }
-}
-
-async function quitarResponsable(id){
-  try{
-    await rest(`/responsables_proceso?id=eq.${id}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
-    toast('Operador eliminado');
-    cargarResponsables();
-  }catch(e){ toast(e.message,'err'); }
-}
-
 // "Mi plan del día" en Contar: qué le corresponde hoy (o el día elegido) a la cuenta
-// logueada, según su vínculo en responsables_proceso.usuario_id. miResponsableId se
-// resuelve una sola vez (no cambia de un día a otro) y queda cacheado en el estado.
+// logueada — responsable_id en plan_semanal ya es directamente el id de la cuenta.
 async function cargarPlanDeHoy(fecha){
   if(!state.perfil) return;
   setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null}});
   try{
-    let miResponsableId = state.contarPlan.miResponsableId;
-    if(miResponsableId===null){
-      const filas = await rest(`/responsables_proceso?usuario_id=eq.${state.perfil.id}&activo=eq.true&select=id`);
-      miResponsableId = (filas && filas[0] && filas[0].id) || '';
-    }
-    const entradas = miResponsableId
-      ? await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&responsable_id=eq.${miResponsableId}&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || []
-      : [];
-    setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, miResponsableId, entradas}});
+    const entradas = await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&responsable_id=eq.${state.perfil.id}&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || [];
+    setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas}});
   }catch(e){
     toast(e.message,'err');
     setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false}});
@@ -1400,13 +1366,13 @@ async function elegirCascadaContar(cambios){
   }catch(e){ toast(e.message,'err'); }
 }
 
-async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsableId, nota, soloSinUbicacion, cicloId}){
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, cicloId}){
   if(!fecha){ toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
   // "SKU sin ubicación" es una sola entrada (no tiene bodega/ubicación/bin que cascadear).
   const bins = soloSinUbicacion ? [null] : ((storageBins && storageBins.length) ? storageBins : [null]);
   try{
-    await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
+    const filas = await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
       fecha,
       // bodega puede llegar en '' a propósito (grupo "Sin bodega asignada": bodega IS NULL,
       // pero con ubicación específica) — no colapsarlo a null con `||`, eso lo confundiría
@@ -1420,7 +1386,13 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsa
       ciclo_id: cicloId||null,
       responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
       empresa_id: state.perfil.empresa_id,
-    })), prefer:'return=minimal'});
+    })), prefer:'return=representation'});
+    // Sin storage bin cargado, Storage bin ofrece elegir SKU puntuales en vez de bins (ver
+    // cargarBinsPara) — elegir algunos ahí significa "solo estos", así que el resto se manda
+    // como exclusión de la única entrada creada (misma tabla que usa excluirSkuDePlan).
+    if(skusExcluidos && skusExcluidos.length && filas && filas.length){
+      await rest('/plan_semanal_exclusiones', {method:'POST', body: filas.flatMap(f=>skusExcluidos.map(sku_code=>({plan_id:f.id, sku_code}))), prefer:'return=minimal'});
+    }
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
   }catch(e){ toast(e.message,'err'); }
@@ -3276,7 +3248,6 @@ function renderCargaPreview(){
 // checklist de SKU todavía pendientes (ya excluye los contados en este ciclo, ver #129).
 function renderPlanDelDia(){
   const cp = state.contarPlan;
-  if(cp.cargado && cp.miResponsableId==='') return ''; // cuenta sin vincular a ningún operador: nada personal que mostrar
   const normales = cp.entradas.filter(e=>!e.solo_sin_ubicacion);
   const haySueltos = cp.entradas.some(e=>e.solo_sin_ubicacion);
   const bodegas = Array.from(new Set(normales.map(e=>e.bodega).filter(Boolean))).sort();
@@ -3719,7 +3690,7 @@ function renderPlanificacion(){
           <option value="">Sin asignar</option>
           ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
         </select>
-        ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Agrega operadores desde Configuraciones para poder asignarlos aquí.</div>` : ''}
+        ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Invita a alguien de tu equipo desde Configuraciones para poder asignarlo aquí.</div>` : ''}
         <label for="p-nota">Nota</label>
         <input type="text" id="p-nota" placeholder="Opcional">
         <div style="margin-top:14px">
@@ -4014,7 +3985,6 @@ function renderPlanYFacturacion(empresa){
 }
 
 function renderConfiguraciones(){
-  const p = state.plan;
   const empresa = state.perfil && state.perfil.empresas;
   const esAdmin = state.perfil && state.perfil.rol === 'admin';
   const esSuperAdmin = state.perfil && state.perfil.es_super_admin;
@@ -4098,33 +4068,6 @@ function renderConfiguraciones(){
       </div>
     `).join('')}
 
-    <div class="section-head"><div><span class="eyebrow">Equipo</span><h2>Operadores</h2></div></div>
-    <div class="card">
-      <div class="hint" style="margin-bottom:10px">Personas asignables como responsables al planificar el conteo. No requieren cuenta ni login en la app.</div>
-      <form id="form-operador">
-        <label for="nuevo-operador">Nombre</label>
-        <input type="text" id="nuevo-operador" placeholder="Ej. Ana Torres" required>
-        <label for="operador-usuario">Cuenta de login (opcional)</label>
-        <select id="operador-usuario">
-          <option value="">Sin vincular</option>
-          ${state.equipo.personas.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
-        </select>
-        <div class="hint" style="margin:4px 0 0">Si esta persona también cuenta desde su celular, vincúlala a su cuenta para que "Contar" le muestre su plan del día.</div>
-        <div style="margin-top:10px">
-          <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar operador</button>
-        </div>
-      </form>
-      ${p.responsables.length? `<div style="margin-top:12px">${p.responsables.map(u=>`
-        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
-          <div class="plan-item-ubic" style="font-weight:500;flex:1">${esc(u.nombre)}</div>
-          <select class="operador-usuario-select" data-operador-id="${esc(u.id)}" style="flex:none;width:auto;margin:0">
-            <option value="">Sin vincular</option>
-            ${state.equipo.personas.map(p2=>`<option value="${esc(p2.id)}" ${p2.id===u.usuario_id?'selected':''}>${esc(p2.nombre)}</option>`).join('')}
-          </select>
-          <button class="icon-btn" data-eliminar-operador="${esc(u.id)}" aria-label="Eliminar" style="color:var(--danger)">${ICONS.x}</button>
-        </div>
-      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Sin operadores agregados.</div>`}
-    </div>
     ${(esAdmin || esSuperAdmin) && planIncluye('auditoria_habilitada')? renderAuditoria() : ''}
   `;
 }
@@ -4368,16 +4311,6 @@ function bind(){
       });
     });
     if(!state.equipo.cargado) cargarEquipo();
-    document.getElementById('form-operador').addEventListener('submit', e=>{
-      e.preventDefault();
-      crearResponsable(document.getElementById('nuevo-operador').value.trim(), document.getElementById('operador-usuario').value);
-    });
-    document.querySelectorAll('[data-eliminar-operador]').forEach(btn=>{
-      btn.addEventListener('click', ()=> quitarResponsable(btn.dataset.eliminarOperador));
-    });
-    document.querySelectorAll('.operador-usuario-select').forEach(sel=>{
-      sel.addEventListener('change', ()=> actualizarResponsable(sel.dataset.operadorId, {usuario_id: sel.value || null}));
-    });
     const formEmpresaNombre = document.getElementById('form-empresa-nombre');
     if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
       e.preventDefault();
@@ -4763,12 +4696,25 @@ function bind(){
       // todos (sin excepción), se manda vacío en vez de la lista exhaustiva: crearPlanEntrada ya
       // trata "sin selección" como "sin filtro de storage bin" (cubre también los que no tienen).
       const chkBinTodos = document.getElementById('p-bin-todos');
-      const storageBins = (chkBinTodos && chkBinTodos.checked) ? [] : [...document.getElementById('p-bin').selectedOptions].map(o=>o.value).filter(Boolean);
+      const selBinEl = document.getElementById('p-bin');
+      const seleccionBin = (chkBinTodos && chkBinTodos.checked) ? [] : [...selBinEl.selectedOptions].map(o=>o.value).filter(Boolean);
+      // Cuando no hay storage bin cargado, #p-bin lista SKU en vez de bins (ver cargarBinsPara):
+      // elegir alguno ahí significa "solo estos", el resto de los SKU de la ubicación se excluye.
+      let storageBins = [], skusExcluidos = [];
+      if(selBinEl.dataset.modo==='skus'){
+        if(seleccionBin.length){
+          const todosLosSkus = JSON.parse(selBinEl.dataset.skuCodes || '[]');
+          skusExcluidos = todosLosSkus.filter(sku=>!seleccionBin.includes(sku));
+        }
+      }else{
+        storageBins = seleccionBin;
+      }
       crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
         bodega: soloSinUbicacion ? '' : bodegaParaEnviar,
         ubicacion: document.getElementById('p-ubic').value.trim(),
         storageBins,
+        skusExcluidos,
         soloSinUbicacion,
         // Sin selector propio (se sacó por duplicar el filtro "Período" de arriba de la
         // página): siempre queda en automático, el trigger del servidor la asigna al ciclo
@@ -4783,9 +4729,13 @@ function bind(){
       const chkTodos = document.getElementById('p-bin-todos');
       selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
       selBin.disabled = true;
+      selBin.dataset.modo = 'bins';
       chkTodos.checked = false;
       chkTodos.disabled = true;
     }
+    // Por arriba de esta cantidad de SKU sin bin, no tiene sentido listarlos uno a uno en el
+    // <select> (se vuelve lento e inmanejable) — se deja solo el mensaje de "agregar igual".
+    const MAX_SKU_SIN_BIN_LISTABLES = 300;
     // Compartida entre el cambio de bodega (que deja "Todas" elegido por defecto en Ubicación
     // específica sin que la persona toque nada) y el cambio de ubicación específica en sí.
     async function cargarBinsPara(bodega, ubicacion){
@@ -4797,6 +4747,7 @@ function bind(){
       // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
       selBin.innerHTML = '<option value="">Cargando…</option>';
       selBin.disabled = true;
+      selBin.dataset.modo = 'bins';
       chkTodos.checked = false;
       chkTodos.disabled = true;
       const opciones = await opcionesBins(bodega, ubicacion);
@@ -4804,12 +4755,21 @@ function bind(){
         selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
         hintBin.textContent = 'Puedes elegir uno, varios o todos. Sin selección = todos.';
       }else{
-        // Estos SKU no tienen storage bin cargado (ej. carga masiva sin esa columna): no hay
-        // nada que listar acá, pero eso NO bloquea planificar — sin bin elegido, la entrada
-        // cubre toda la ubicación igual (ver crearPlanEntrada). Antes esto se veía como una
-        // caja vacía sin explicación y no quedaba claro que se podía seguir sin elegir nada ahí.
-        selBin.innerHTML = '';
-        hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';
+        // Estos SKU no tienen storage bin cargado (ej. carga masiva sin esa columna): en vez de
+        // dejar la caja vacía sin explicación, se listan los SKU de la ubicación para poder
+        // elegir puntualmente cuáles incluir (misma mecánica de "sin selección = todos", pero
+        // sobre SKU en vez de bins — ver el submit de #form-plan y crearPlanEntrada).
+        const bodegaReal = bodega===BODEGA_VACIA ? '' : bodega;
+        const skus = await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false});
+        if(skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES){
+          selBin.dataset.modo = 'skus';
+          selBin.dataset.skuCodes = JSON.stringify(skus.map(s=>s.sku_code));
+          selBin.innerHTML = skus.map(s=>`<option value="${esc(s.sku_code)}">${esc(s.sku_code)} — ${esc(s.descripcion||'')}</option>`).join('');
+          hintBin.textContent = 'No hay storage bin cargado para esta ubicación: puedes elegir SKU puntuales. Sin selección = todos los SKU de esta ubicación.';
+        }else{
+          selBin.innerHTML = '';
+          hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';
+        }
       }
       selBin.disabled = false;
       chkTodos.disabled = false;
