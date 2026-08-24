@@ -4219,7 +4219,8 @@ function renderShell(){
         <div class="user-chip">
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
-          <button id="btn-logout">${ICONS.logout} Salir</button>
+          <button id="btn-ir-buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')} Buscar</button>
+          <button id="btn-logout">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Salir</button>
         </div>
       </div>
     </div>
@@ -4235,12 +4236,11 @@ function renderShell(){
     <main>${content}</main>
     <nav class="tabbar">
       ${tabBtn('dashboard','Dashboard')}
+      ${tabBtn('carga','Carga')}
+      ${tabBtn('skus','SKUs')}
       ${tabBtn('plan','Plan')}
       ${tabBtn('conteo','Contar')}
       ${tabBtn('reconteo','Reconteo')}
-      ${tabBtn('buscar','Buscar')}
-      ${tabBtn('skus','SKUs')}
-      ${tabBtn('carga','Carga')}
     </nav>
   `;
 }
@@ -4417,6 +4417,7 @@ function bind(){
 
   document.getElementById('btn-logout').addEventListener('click', ()=>{ detenerEscaner(); handleLogout(); });
   document.getElementById('btn-config').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'config'}); });
+  document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
   const btnVerOffline = document.getElementById('btn-ver-offline');
