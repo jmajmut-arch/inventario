@@ -212,7 +212,7 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/usuarios?select=')){
     const filas = [
-      {id:'eq1', nombre:'Beto Ríos', rol:'inventariador', activo:true},
+      {id:'eq1', nombre:'Beto Ríos', rol:'operador', activo:true},
       {id:'eq2', nombre:'Marta Soto', rol:'admin', activo:false},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -258,7 +258,7 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/auditoria')){
     const todas = [
-      {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
+      {id:'a1', tabla:'usuarios', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{nombre:'Carlos', rol:'operador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}, creado_en:'2026-08-15T10:00:00Z'},
       {id:'a2', tabla:'conteos', accion:'INSERT', actor_nombre:'Beto', datos_antes:null, datos_despues:{cantidad_contada:5, estado:'pendiente_revision'}, creado_en:'2026-08-14T09:00:00Z'},
       {id:'a3', tabla:'empresas', accion:'DELETE', actor_nombre:null, datos_antes:{nombre:'Minera Vieja'}, datos_despues:null, creado_en:'2026-08-13T08:00:00Z'},
       {id:'a4', tabla:'skus', accion:'UPDATE', actor_nombre:'Ana Torres', datos_antes:{sku_code:'FIL-1001', costo_unitario:1000}, datos_despues:{sku_code:'FIL-1001', costo_unitario:1500}, creado_en:'2026-08-16T11:00:00Z'},
@@ -1375,23 +1375,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlConfigAdmin.includes('form-crear-empresa-sa'), 'un admin normal (no super-admin) no debe ver el panel de super-admin, obtuvo: '+htmlConfigAdmin);
 
   // Un admin de empresa (no super-admin) sí debe poder invitar gente a SU propia empresa,
-  // pero solo como inventariador: crear otros administradores es exclusivo del super-admin
+  // pero solo como operador: crear otros administradores es exclusivo del super-admin
   // (un admin normal no debe tener forma de elegir "admin" en este formulario).
   assert(htmlConfigAdmin.includes('id="form-invitar-equipo"'), 'un admin de empresa debe ver el formulario para invitar a su equipo, obtuvo: '+htmlConfigAdmin);
-  assert(htmlConfigAdmin.includes('id="equipo-rol" value="inventariador"') && !htmlConfigAdmin.includes('Supervisor'), 'el rol de invitación de un admin normal debe quedar fijo en Inventariador (no elegible), obtuvo: '+htmlConfigAdmin);
+  assert(htmlConfigAdmin.includes('id="equipo-rol" value="operador"') && !htmlConfigAdmin.includes('Supervisor'), 'el rol de invitación de un admin normal debe quedar fijo en Operador (no elegible), obtuvo: '+htmlConfigAdmin);
   const formInvitarEquipoHtml = htmlConfigAdmin.slice(htmlConfigAdmin.indexOf('id="form-invitar-equipo"'), htmlConfigAdmin.indexOf('</form>', htmlConfigAdmin.indexOf('id="form-invitar-equipo"')));
   assert(!formInvitarEquipoHtml.includes('Administrador'), 'el formulario de invitar equipo no debe ofrecer el rol Administrador, obtuvo: '+formInvitarEquipoHtml);
 
-  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'inventariador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
-  const htmlConfigInventariador = ctx.renderConfiguraciones();
-  assert(!htmlConfigInventariador.includes('id="form-empresa-nombre"'), 'un inventariador (no admin) no debe poder editar el nombre de la empresa, obtuvo: '+htmlConfigInventariador);
-  assert(!htmlConfigInventariador.includes('id="form-invitar-equipo"'), 'un inventariador (no admin) no debe poder invitar gente a la empresa, obtuvo: '+htmlConfigInventariador);
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
+  const htmlConfigOperador = ctx.renderConfiguraciones();
+  assert(!htmlConfigOperador.includes('id="form-empresa-nombre"'), 'un operador (no admin) no debe poder editar el nombre de la empresa, obtuvo: '+htmlConfigOperador);
+  assert(!htmlConfigOperador.includes('id="form-invitar-equipo"'), 'un operador (no admin) no debe poder invitar gente a la empresa, obtuvo: '+htmlConfigOperador);
 
   // invitarPersona desde un admin de empresa (no super-admin): debe llamar a invite-user igual, pero
   // sin disparar el resumen del super-admin (no le corresponde a un admin normal).
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
   calls.length = 0;
-  const okInvitacionEquipo = await ctx.invitarPersona({email:'nueva@equipo.cl', nombre:'Diego Soto', empresaId:'emp-1', rol:'inventariador'});
+  const okInvitacionEquipo = await ctx.invitarPersona({email:'nueva@equipo.cl', nombre:'Diego Soto', empresaId:'emp-1', rol:'operador'});
   const invokeEquipoCall = calls.find(c=>c.url.includes('/functions/v1/invite-user'));
   assert(!!invokeEquipoCall, 'invitarPersona debe llamar a invite-user también cuando lo usa un admin de empresa, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(okInvitacionEquipo===true, 'invitarPersona debe devolver true, obtuvo: '+okInvitacionEquipo);
@@ -1527,10 +1527,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlMiEquipo = ctx.renderConfiguraciones();
   assert(htmlMiEquipo.includes('Beto Ríos') && htmlMiEquipo.includes('data-toggle-persona-equipo="eq1"'), 'Configuraciones debe listar el equipo propio con su botón de desactivar/reactivar, obtuvo: '+htmlMiEquipo);
   // El rol ya no es editable desde "Mi equipo" (un admin normal no puede ascender a nadie a
-  // administrador): se muestra como etiqueta fija, no como <select>. eq1 es inventariador,
+  // administrador): se muestra como etiqueta fija, no como <select>. eq1 es operador,
   // eq2 (Marta Soto) es admin — ambos deben aparecer como texto, sin ningún control editable.
   assert(!htmlMiEquipo.includes('mi-equipo-rol'), 'el rol del equipo no debe tener un control editable para un admin normal, obtuvo: '+htmlMiEquipo);
-  assert(htmlMiEquipo.includes('Inventariador') && htmlMiEquipo.includes('Administrador'), 'debe mostrar el rol de cada persona como etiqueta fija, obtuvo: '+htmlMiEquipo);
+  assert(htmlMiEquipo.includes('Operador') && htmlMiEquipo.includes('Administrador'), 'debe mostrar el rol de cada persona como etiqueta fija, obtuvo: '+htmlMiEquipo);
 
   // actualizarPersonaEquipo sigue existiendo para nombre/activo, pero ya nada en la UI de un
   // admin normal la invoca con {rol:...} — la protección real contra la escalada de privilegios
@@ -1866,14 +1866,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.length===0, 'si se cancela la confirmación, eliminarSkusSinContar no debe llamar a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   confirmRespuesta = true;
 
-  // renderTablaSkus: los checkboxes de selección solo deben verse para admin, no para inventariador.
+  // renderTablaSkus: los checkboxes de selección solo deben verse para admin, no para operador.
   ctx.__appstate.skusPagina = { rows:[{id:'sku-x', sku_code:'SKU-X', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null}], page:0, total:1 };
   ctx.__appstate.skusSeleccionados = [];
   const htmlTablaAdmin = ctx.renderTablaSkus();
   assert(htmlTablaAdmin.includes('class="chk-sku"') && htmlTablaAdmin.includes('id="chk-skus-todos"'), 'un admin debe ver los checkboxes de selección, obtuvo: '+htmlTablaAdmin);
-  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'inventariador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
-  const htmlTablaInventariador = ctx.renderTablaSkus();
-  assert(!htmlTablaInventariador.includes('class="chk-sku"'), 'un inventariador no debe ver los checkboxes de selección de SKU, obtuvo: '+htmlTablaInventariador);
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlTablaOperador = ctx.renderTablaSkus();
+  assert(!htmlTablaOperador.includes('class="chk-sku"'), 'un operador no debe ver los checkboxes de selección de SKU, obtuvo: '+htmlTablaOperador);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
   // renderTablaSkus: pinta en rojo el SKU cuyo último conteo quedó con diferencia, en verde el
@@ -2182,16 +2182,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // auditados para esa tabla) cae al genérico "se creó/eliminó el registro".
   assert(ctx.resumenCambioAuditoria({accion:'INSERT'})==='Se creó el registro', 'INSERT sin tabla conocida debe mostrar "Se creó el registro"');
   assert(ctx.resumenCambioAuditoria({accion:'DELETE'})==='Se eliminó el registro', 'DELETE sin tabla conocida debe mostrar "Se eliminó el registro"');
-  const resumenUpdate = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}});
-  assert(resumenUpdate==='Rol: inventariador → admin', 'UPDATE debe listar solo los campos que cambiaron, obtuvo: '+resumenUpdate);
+  const resumenUpdate = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos', rol:'operador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}});
+  assert(resumenUpdate==='Rol: operador → admin', 'UPDATE debe listar solo los campos que cambiaron, obtuvo: '+resumenUpdate);
   const resumenSinCambios = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos'}, datos_despues:{nombre:'Carlos'}});
   assert(resumenSinCambios==='Sin cambios visibles', 'UPDATE sin diferencias en los campos auditados debe decirlo, obtuvo: '+resumenSinCambios);
 
   // El trigger guarda la fila completa (to_jsonb), así que un INSERT/DELETE con tabla conocida
   // debe mostrar el detalle de los campos auditados en vez del genérico "se creó/eliminó el
   // registro" — antes esa info se perdía por completo (queja real: "la trazabilidad no dice nada").
-  const resumenInsertPersona = ctx.resumenCambioAuditoria({accion:'INSERT', tabla:'usuarios', datos_despues:{nombre:'Diego Soto', rol:'inventariador', activo:true}});
-  assert(resumenInsertPersona==='Nombre: Diego Soto · Rol: inventariador · Activo: sí', 'INSERT de una persona debe detallar nombre, rol y activo, obtuvo: '+resumenInsertPersona);
+  const resumenInsertPersona = ctx.resumenCambioAuditoria({accion:'INSERT', tabla:'usuarios', datos_despues:{nombre:'Diego Soto', rol:'operador', activo:true}});
+  assert(resumenInsertPersona==='Nombre: Diego Soto · Rol: operador · Activo: sí', 'INSERT de una persona debe detallar nombre, rol y activo, obtuvo: '+resumenInsertPersona);
   const resumenDeletePersona = ctx.resumenCambioAuditoria({accion:'DELETE', tabla:'empresas', datos_antes:{nombre:'Minera Vieja', activo:true, flow_subscription_status:null}});
   assert(resumenDeletePersona==='Nombre: Minera Vieja · Activo: sí · Estado de suscripción: —', 'DELETE de una empresa debe detallar sus datos, obtuvo: '+resumenDeletePersona);
 
@@ -2216,10 +2216,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!auditoriaCallTodas && auditoriaCallTodas.url.includes('order=creado_en.desc'), 'cargarAuditoria debe pedir /auditoria ordenado por fecha descendente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.auditoria.filas.length===4, 'debe cargar las filas devueltas por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
 
-  // renderConfiguraciones: la sección de auditoría solo debe verse para admin/super-admin, no para inventariador.
+  // renderConfiguraciones: la sección de auditoría solo debe verse para admin/super-admin, no para operador.
   const htmlConfigAdminAuditoria = ctx.renderConfiguraciones();
   assert(htmlConfigAdminAuditoria.includes('id="auditoria-filtro-tabla"') && htmlConfigAdminAuditoria.includes('Auditoría de cambios'), 'un admin debe ver la sección de auditoría, obtuvo: '+htmlConfigAdminAuditoria);
-  assert(htmlConfigAdminAuditoria.includes('Ana Torres') && htmlConfigAdminAuditoria.includes('Rol: inventariador → admin'), 'debe listar la actividad con actor y el resumen del cambio, obtuvo: '+htmlConfigAdminAuditoria);
+  assert(htmlConfigAdminAuditoria.includes('Ana Torres') && htmlConfigAdminAuditoria.includes('Rol: operador → admin'), 'debe listar la actividad con actor y el resumen del cambio, obtuvo: '+htmlConfigAdminAuditoria);
   assert(htmlConfigAdminAuditoria.includes('Por: Sistema'), 'un actor nulo (alta automática) debe mostrarse como "Sistema", obtuvo: '+htmlConfigAdminAuditoria);
   // Persona · Carlos: el identificador ahora dice a quién le cambiaron el rol, no solo "Persona".
   assert(htmlConfigAdminAuditoria.includes('Persona · Carlos · Modificado'), 'la fila de "Persona" debe identificar a quién con su nombre, obtuvo: '+htmlConfigAdminAuditoria);
@@ -2237,9 +2237,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.auditoria.filas.length===1 && ctx.__appstate.auditoria.filas[0].tabla==='usuarios', 'debe quedar solo la fila de la tabla filtrada, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
   assert(ctx.__appstate.auditoria.filtroTabla==='usuarios', 'debe recordar el filtro elegido');
 
-  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'inventariador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
-  const htmlConfigInventariadorAuditoria = ctx.renderConfiguraciones();
-  assert(!htmlConfigInventariadorAuditoria.includes('id="auditoria-filtro-tabla"'), 'un inventariador (no admin) no debe ver la sección de auditoría, obtuvo: '+htmlConfigInventariadorAuditoria);
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlConfigOperadorAuditoria = ctx.renderConfiguraciones();
+  assert(!htmlConfigOperadorAuditoria.includes('id="auditoria-filtro-tabla"'), 'un operador (no admin) no debe ver la sección de auditoría, obtuvo: '+htmlConfigOperadorAuditoria);
 
   // cargarMasAuditoria: pide la página siguiente con offset=<filas ya cargadas> y las agrega
   // al final (en vez de reemplazar), respetando el filtro de tabla activo.
@@ -2460,7 +2460,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // El reset de sesión también dejó state.perfil en null; crearResponsable/actualizarResponsable
   // (como toda escritura real de la app) exigen perfilCargado(), así que hay que restablecerlo
   // antes de ejercitar cualquier función de este bloque.
-  ctx.__appstate.perfil = { id:'usuario-vinculado', nombre:'Joel', rol:'inventariador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  ctx.__appstate.perfil = { id:'usuario-vinculado', nombre:'Joel', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
   // crearResponsable/actualizarResponsable deben poder mandar el vínculo con la cuenta de login.
   calls.length = 0;
@@ -2479,7 +2479,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Configuraciones: el selector de "Cuenta de login" en el form y por cada operador ya existente.
   ctx.__appstate.plan.responsables = [{id:'u1', nombre:'Ana Torres', usuario_id:null}, {id:'u2', nombre:'Joel Majmut', usuario_id:'usuario-vinculado'}];
-  ctx.__appstate.equipo.personas = [{id:'usuario-vinculado', nombre:'Joel Majmut', rol:'inventariador', activo:true}, {id:'otro-usuario', nombre:'Ana Torres', rol:'admin', activo:true}];
+  ctx.__appstate.equipo.personas = [{id:'usuario-vinculado', nombre:'Joel Majmut', rol:'operador', activo:true}, {id:'otro-usuario', nombre:'Ana Torres', rol:'admin', activo:true}];
   const htmlOperadores = ctx.renderConfiguraciones();
   assert(htmlOperadores.includes('id="operador-usuario"') && htmlOperadores.includes('Joel Majmut'), 'el form de "Agregar operador" debe ofrecer un selector de cuenta de login, obtuvo: '+htmlOperadores);
   assert(/data-operador-id="u2"[^]*?<option value="usuario-vinculado" selected/.test(htmlOperadores), 'el operador ya vinculado debe mostrar su cuenta seleccionada en el select de esa fila, obtuvo: '+htmlOperadores);
