@@ -4846,6 +4846,14 @@ function bind(){
       const selBin = document.getElementById('p-bin');
       [...selBin.options].forEach(o=>{ o.selected = e.target.checked; });
     });
+    // Bug reportado: si la persona marcaba "Seleccionar todos" y después elegía puntualmente uno
+    // o varios storage bin a mano en la lista, el checkbox seguía marcado (nada lo desmarcaba) y
+    // el submit mandaba "sin filtro" (todos) ignorando por completo la selección manual. Cualquier
+    // cambio hecho a mano en la lista debe desmarcar "Seleccionar todos" para que el submit respete
+    // la selección real.
+    document.getElementById('p-bin').addEventListener('change', ()=>{
+      document.getElementById('p-bin-todos').checked = false;
+    });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> confirmarYBorrarPlanEntrada(btn.dataset.borrarPlan));
     });

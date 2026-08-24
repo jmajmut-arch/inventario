@@ -663,6 +663,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   binEl.selectedOptions = [];
   await new Promise(resolve => setTimeout(resolve, 20));
 
+  // Regresión real reportada: si la persona marcaba "Seleccionar todos" y después elegía a mano un
+  // bin puntual en la lista, el checkbox seguía marcado (nada lo desmarcaba) y el submit mandaba
+  // "sin filtro" (todos) ignorando la selección manual. Elegir a mano en la lista debe desmarcar
+  // "Seleccionar todos" solo, y el submit debe respetar esa selección puntual.
+  chkTodosEl.checked = true;
+  binEl.selectedOptions = [{value:'A-01'}, {value:'A-02'}];
+  await new Promise(resolve => {
+    binEl.dispatch('change', {target: binEl});
+    setTimeout(resolve, 20);
+  });
+  assert(chkTodosEl.checked===false, 'elegir un bin a mano en la lista debe desmarcar "Seleccionar todos" automáticamente, obtuvo: '+chkTodosEl.checked);
+  binEl.selectedOptions = [{value:'A-01'}];
+  makeEl('p-fecha').value = '2026-08-12';
+  calls.length = 0;
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 20);
+  });
+  const postManual = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  const filasManual = JSON.parse(postManual.opts.body);
+  assert(filasManual.length===1 && filasManual[0].storage_bin==='A-01', 'tras desmarcarse "Seleccionar todos" solo, el submit debe respetar el bin elegido a mano (A-01), no tratarlo como "todos", obtuvo: '+JSON.stringify(filasManual));
+  chkTodosEl.checked = false;
+  binEl.selectedOptions = [];
+  await new Promise(resolve => setTimeout(resolve, 20));
+
   // crearPlanEntrada con varios storage bin y un responsable -> una fila por bin, todas con el mismo responsable_id.
   calls.length = 0;
   await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01','A-02'], responsableId:'u1', nota:''});
