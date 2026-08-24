@@ -3477,6 +3477,7 @@ function renderBuscar(){
       </form>
     </div>
 
+    ${b.yaBuscado? `
     <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
@@ -3505,6 +3506,7 @@ function renderBuscar(){
         <button type="button" class="btn btn-secondary" id="btn-cargar-mas-busqueda" style="width:auto;padding:8px 16px" ${b.buscandoMas?'disabled':''}>${b.buscandoMas?'Cargando…':'Cargar más'}</button>
       </div>` : ''}
     </div>
+    ` : `<div class="card"><div class="empty"><div class="glyph">🔍</div>Elige tus filtros y presiona "Buscar" para ver el historial.</div></div>`}
   `;
 }
 
@@ -4668,11 +4670,6 @@ function bind(){
   }
 
   if(state.view==='buscar'){
-    if(!state.busqueda.yaBuscado && !state.busqueda.buscando){
-      setState({busqueda:{...state.busqueda, buscando:true, yaBuscado:true}});
-      buscarConteos();
-      return;
-    }
     document.getElementById('form-buscar').addEventListener('submit', e=>{
       e.preventDefault();
       const selCiclo = document.getElementById('b-ciclo');

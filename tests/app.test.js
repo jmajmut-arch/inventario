@@ -2797,6 +2797,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Buscar ahora busca en todo el maestro de SKU (skus_busqueda), no solo en el historial de
   // conteos: un SKU nunca contado debe aparecer con "No contado", sin fecha/estado/fotos.
   ctx.__appstate.busqueda = { texto:'filtro', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 };
+  // Buscar no debe traer datos apenas se entra a la sección: solo al presionar "Buscar" (yaBuscado
+  // pasa a true recién en el submit del formulario, dentro de bind()).
+  const htmlBuscarSinBuscar = ctx.renderBuscar();
+  assert(!htmlBuscarSinBuscar.includes('resultado'), 'antes de buscar no debe mostrarse un conteo de "0 resultados" ni la tabla, obtuvo: '+htmlBuscarSinBuscar);
+  assert(htmlBuscarSinBuscar.includes('presiona &quot;Buscar&quot;') || htmlBuscarSinBuscar.includes('presiona "Buscar"'), 'antes de buscar debe invitar a usar el formulario, obtuvo: '+htmlBuscarSinBuscar);
   const pathBuscarTexto = ctx.construirPathBusqueda(0);
   assert(pathBuscarTexto.includes('or=(sku_code.ilike.*filtro*,descripcion.ilike.*filtro*)'), 'el texto debe buscarse en el servidor (sku_code o descripción), no solo filtrarse en el cliente, obtuvo: '+pathBuscarTexto);
 
@@ -2814,6 +2819,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     {sku_code:'SKU-NC', descripcion:'Nunca contado', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, foto_urls:[]},
     {sku_code:'SKU-C', descripcion:'Ya contado', bodega:'Nave', conteo_id:'c-1', cantidad_contada:7, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', foto_urls:['foto.jpg']},
   ];
+  ctx.__appstate.busqueda.yaBuscado = true;
   const htmlBuscarMixto = ctx.renderBuscar();
   const filaNoContada = htmlBuscarMixto.slice(htmlBuscarMixto.indexOf('SKU-NC'), htmlBuscarMixto.indexOf('SKU-C'));
   const filaContada = htmlBuscarMixto.slice(htmlBuscarMixto.indexOf('SKU-C'));
