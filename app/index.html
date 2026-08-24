@@ -1362,7 +1362,11 @@ async function cargarPlanDeHoy(fecha){
 function entradaActivaContar(cp){
   if(cp.bodega === BODEGA_SIN_UBICACION) return cp.entradas.find(e=>e.solo_sin_ubicacion) || null;
   if(!cp.bodega) return null;
-  return cp.entradas.find(e=> !e.solo_sin_ubicacion && e.bodega===cp.bodega && (e.ubicacion||'')===cp.ubicacion && (e.storage_bin||'')===cp.bin) || null;
+  // BODEGA_VACIA (grupo "Sin bodega asignada" del <select>) representa las entradas con
+  // bodega==='' (bodega IS NULL, pero con ubicación específica) — hay que traducir el sentinel
+  // de vuelta antes de comparar contra el valor real guardado en la entrada.
+  const bodegaCoincide = e => cp.bodega===BODEGA_VACIA ? e.bodega==='' : e.bodega===cp.bodega;
+  return cp.entradas.find(e=> !e.solo_sin_ubicacion && bodegaCoincide(e) && (e.ubicacion||'')===cp.ubicacion && (e.storage_bin||'')===cp.bin) || null;
 }
 
 async function elegirCascadaContar(cambios){
@@ -3284,8 +3288,14 @@ function renderPlanDelDia(){
   const cp = state.contarPlan;
   const normales = cp.entradas.filter(e=>!e.solo_sin_ubicacion);
   const haySueltos = cp.entradas.some(e=>e.solo_sin_ubicacion);
-  const bodegas = Array.from(new Set(normales.map(e=>e.bodega).filter(Boolean))).sort();
-  const porBodega = normales.filter(e=> e.bodega===cp.bodega);
+  // Bug real reportado: bodega==='' es el grupo "Sin bodega asignada" (bodega IS NULL, pero con
+  // ubicación específica) — .filter(Boolean) lo descartaba de la lista de opciones (cadena vacía
+  // es falsy), así que esas entradas quedaban en cp.entradas pero eran inalcanzables desde el
+  // <select>: el operador nunca podía llegar a ver sus SKU pendientes. Necesita su propio option
+  // con el sentinel BODEGA_VACIA, mismo patrón que ya usa Planificación.
+  const hayBodegaVacia = normales.some(e=>e.bodega==='');
+  const bodegas = Array.from(new Set(normales.map(e=>e.bodega).filter(b=>b))).sort();
+  const porBodega = normales.filter(e=> (cp.bodega===BODEGA_VACIA ? e.bodega==='' : e.bodega===cp.bodega));
   const ubicaciones = Array.from(new Set(porBodega.map(e=> e.ubicacion || ''))).filter(Boolean).sort();
   const porUbicacion = porBodega.filter(e=> (e.ubicacion||'')===cp.ubicacion);
   const bins = Array.from(new Set(porUbicacion.map(e=> e.storage_bin || ''))).filter(Boolean).sort();
@@ -3303,6 +3313,7 @@ function renderPlanDelDia(){
             <select id="contar-bodega">
               <option value="">Elige…</option>
               ${haySueltos? `<option value="${BODEGA_SIN_UBICACION}" ${cp.bodega===BODEGA_SIN_UBICACION?'selected':''}>SKU sin ubicación</option>` : ''}
+              ${hayBodegaVacia? `<option value="${BODEGA_VACIA}" ${cp.bodega===BODEGA_VACIA?'selected':''}>Sin bodega asignada</option>` : ''}
               ${bodegas.map(b=>`<option value="${esc(b)}" ${cp.bodega===b?'selected':''}>${esc(b)}</option>`).join('')}
             </select>
           </div>

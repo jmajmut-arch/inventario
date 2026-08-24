@@ -36,14 +36,17 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
   }
   if(path.startsWith('/rest/v1/plan_semanal_detalle')){
-    // "Mi plan del día" (Contar): tres entradas para resp-yo el 2026-08-24 — dos ubicaciones
-    // normales (misma bodega/ubicación, distinto bin, para probar la cascada) y una "SKU sin
-    // ubicación" (solo_sin_ubicacion), que no cascadea por bodega/ubicación/bin.
+    // "Mi plan del día" (Contar): cuatro entradas para resp-yo el 2026-08-24 — dos ubicaciones
+    // normales (misma bodega/ubicación, distinto bin, para probar la cascada), una "SKU sin
+    // ubicación" (solo_sin_ubicacion, que no cascadea por bodega/ubicación/bin) y una con
+    // bodega:'' ("Sin bodega asignada": bodega IS NULL, pero con ubicación específica — bug real
+    // reportado: esta entrada quedaba inalcanzable en el <select>, ver renderPlanDelDia).
     if(path.includes('responsable_id=eq.resp-yo')){
       const filas = path.includes('fecha=eq.2026-08-24') ? [
         {id:'mp1', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
         {id:'mp2', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
         {id:'mp3', fecha:'2026-08-24', bodega:null, ubicacion:null, storage_bin:null, solo_sin_ubicacion:true, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
+        {id:'mp4', fecha:'2026-08-24', bodega:'', ubicacion:'Piso', storage_bin:null, solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
       ] : [];
       return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
     }
@@ -2741,7 +2744,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null };
   calls.length = 0;
   await ctx.cargarPlanDeHoy('2026-08-24');
-  assert(ctx.__appstate.contarPlan.entradas.length===3, 'cargarPlanDeHoy debe traer mis 3 entradas del día, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.entradas));
+  assert(ctx.__appstate.contarPlan.entradas.length===4, 'cargarPlanDeHoy debe traer mis 4 entradas del día, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.entradas));
   const callMiPlan = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
   assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('responsable_id=eq.resp-yo'), 'debe filtrar plan_semanal_detalle por fecha y por mi propio id de cuenta, obtuvo: '+JSON.stringify(callMiPlan));
 
@@ -2753,6 +2756,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.entradaActivaContar({...cpBase, bodega:'__sin_ubicacion__', ubicacion:'', bin:''}).id==='mp3', 'debe resolver la entrada "SKU sin ubicación" con el valor especial de bodega');
   assert(ctx.entradaActivaContar({...cpBase, bodega:'Nave Mina', ubicacion:'', bin:''})===null, 'sin ubicación/bin elegidos todavía, no debe resolver ninguna entrada (hay más de una que calza con solo la bodega)');
   assert(ctx.entradaActivaContar({...cpBase, bodega:'', ubicacion:'', bin:''})===null, 'sin nada elegido, no debe resolver ninguna entrada');
+  // Bug real reportado: una entrada con bodega:'' ("Sin bodega asignada") quedaba inalcanzable
+  // porque .filter(Boolean) la sacaba de la lista de opciones del <select> — el operador nunca
+  // podía seleccionarla y por lo tanto nunca veía sus SKU planificados. Debe resolverse con el
+  // sentinel BODEGA_VACIA, igual que ya funciona en Planificación.
+  assert(ctx.entradaActivaContar({...cpBase, bodega:'__bodega_vacia__', ubicacion:'Piso', bin:''}).id==='mp4', 'debe resolver la entrada "Sin bodega asignada" (mp4) usando el sentinel BODEGA_VACIA, obtuvo: '+JSON.stringify(ctx.entradaActivaContar({...cpBase, bodega:'__bodega_vacia__', ubicacion:'Piso', bin:''})));
+  const htmlPlanDelDiaConVacia = ctx.renderPlanDelDia();
+  assert(htmlPlanDelDiaConVacia.includes(`<option value="${'__bodega_vacia__'}"`) && htmlPlanDelDiaConVacia.includes('Sin bodega asignada'), 'el selector de bodega/patio debe ofrecer "Sin bodega asignada" porque hay una entrada con bodega vacía hoy, obtuvo: '+htmlPlanDelDiaConVacia);
 
   // elegirCascadaContar: al narrow a una sola entrada, trae sus SKU pendientes de verdad
   // (vía skusDeUbicacion, que ya excluye los contados en este ciclo — ver #129).
