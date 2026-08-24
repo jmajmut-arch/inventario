@@ -2800,7 +2800,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Buscar no debe traer datos apenas se entra a la sección: solo al presionar "Buscar" (yaBuscado
   // pasa a true recién en el submit del formulario, dentro de bind()).
   const htmlBuscarSinBuscar = ctx.renderBuscar();
-  assert(!htmlBuscarSinBuscar.includes('resultado'), 'antes de buscar no debe mostrarse un conteo de "0 resultados" ni la tabla, obtuvo: '+htmlBuscarSinBuscar);
+  assert(!htmlBuscarSinBuscar.includes('0 resultado') && !htmlBuscarSinBuscar.includes('table-wrap'), 'antes de buscar no debe mostrarse un conteo de "0 resultados" ni la tabla, obtuvo: '+htmlBuscarSinBuscar);
   assert(htmlBuscarSinBuscar.includes('presiona &quot;Buscar&quot;') || htmlBuscarSinBuscar.includes('presiona "Buscar"'), 'antes de buscar debe invitar a usar el formulario, obtuvo: '+htmlBuscarSinBuscar);
   const pathBuscarTexto = ctx.construirPathBusqueda(0);
   assert(pathBuscarTexto.includes('or=(sku_code.ilike.*filtro*,descripcion.ilike.*filtro*)'), 'el texto debe buscarse en el servidor (sku_code o descripción), no solo filtrarse en el cliente, obtuvo: '+pathBuscarTexto);
