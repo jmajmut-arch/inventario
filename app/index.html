@@ -1393,6 +1393,26 @@ function entradasActivasContar(cp){
   return cp.entradas.filter(e=> !e.solo_sin_ubicacion && bodegaCoincide(e) && (e.ubicacion||'')===cp.ubicacion);
 }
 
+// SKU que se planificaron con un storage bin específico, pero que una carga masiva posterior
+// les cambió el bin: si el nuevo bin ya no queda cubierto por ninguna entrada activa de esta
+// bodega+ubicación, desaparecerían silenciosamente del plan del día. Se resuelven acá cruzando
+// la foto guardada al planificar (plan_semanal_skus) contra el bin actual real de cada SKU, y
+// se devuelven marcados con `binOriginal` para poder avisar en vez de perderlos.
+async function skusMovidosDeEntradas(entradasConBin, binesActivos){
+  if(!entradasConBin.length) return [];
+  const snapshots = await Promise.all(entradasConBin.map(e=>
+    rest(`/plan_semanal_skus?plan_id=eq.${e.id}&select=sku_code,storage_bin_original`)
+  ));
+  const original = new Map();
+  snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s.storage_bin_original); });
+  if(!original.size) return [];
+  const codigos = [...original.keys()];
+  const actuales = await rest(`/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
+  return actuales
+    .filter(s => s.storage_bin !== original.get(s.sku_code) && !binesActivos.has(s.storage_bin))
+    .map(s => ({...s, binOriginal: original.get(s.sku_code)}));
+}
+
 async function elegirCascadaContar(cambios){
   const cp = {...state.contarPlan, ...cambios, skusPendientes:null};
   setState({contarPlan: cp});
@@ -1408,6 +1428,15 @@ async function elegirCascadaContar(cambios){
     const vistos = new Set();
     const skus = [];
     listas.flat().forEach(s=>{ if(!vistos.has(s.sku_code)){ vistos.add(s.sku_code); skus.push(s); } });
+
+    const entradasConBin = activas.filter(e=>!e.solo_sin_ubicacion && e.storage_bin);
+    if(entradasConBin.length){
+      const binesActivos = new Set(activas.map(e=>e.storage_bin).filter(Boolean));
+      const excluidos = new Set(activas.flatMap(e=>e.skus_excluidos||[]));
+      const movidos = await skusMovidosDeEntradas(entradasConBin, binesActivos);
+      movidos.forEach(s=>{ if(!vistos.has(s.sku_code) && !excluidos.has(s.sku_code)){ vistos.add(s.sku_code); skus.push(s); } });
+    }
+
     skus.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'') || a.sku_code.localeCompare(b.sku_code));
     setState({contarPlan:{...state.contarPlan, skusPendientes: skus}});
   }catch(e){ toast(e.message,'err'); }
@@ -1439,6 +1468,21 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     // como exclusión de la única entrada creada (misma tabla que usa excluirSkuDePlan).
     if(skusExcluidos && skusExcluidos.length && filas && filas.length){
       await rest('/plan_semanal_exclusiones', {method:'POST', body: filas.flatMap(f=>skusExcluidos.map(sku_code=>({plan_id:f.id, sku_code}))), prefer:'return=minimal'});
+    }
+    // Foto del universo de SKU capturado al planificar, por entrada con bin específico: permite
+    // detectar más adelante (ver skusMovidosDeEntradas) si una carga masiva posterior movió
+    // alguno a otro bin, para no perderlo silenciosamente del plan del día.
+    if(!soloSinUbicacion && filas && filas.length){
+      const conBin = filas.filter(f=>f.storage_bin);
+      if(conBin.length){
+        const snapshots = await Promise.all(conBin.map(f=>
+          skusDeUbicacion({bodega:f.bodega, ubicacion:f.ubicacion, storage_bin:f.storage_bin, excluidos:[], soloSinUbicacion:false})
+        ));
+        const filasSnapshot = conBin.flatMap((f,i)=>snapshots[i].map(s=>({plan_id:f.id, sku_code:s.sku_code, storage_bin_original:f.storage_bin})));
+        if(filasSnapshot.length){
+          await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal'});
+        }
+      }
     }
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
@@ -2435,6 +2479,7 @@ const ICONS = {
   papelera:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
   escanear:'<svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3"/><path d="M20 8V5a1 1 0 00-1-1h-3"/><path d="M4 16v3a1 1 0 001 1h3"/><path d="M20 16v3a1 1 0 01-1 1h-3"/><path d="M3 12h18"/><path d="M8 9v6"/><path d="M12 9v6"/><path d="M16 9v6"/></svg>',
   candado:'<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
+  alerta:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
 };
 
 /* =======================================================================
@@ -3401,6 +3446,12 @@ function renderPlanDelDia(){
                 <li>
                   <button type="button" data-pick-plan="${esc(s.sku_code)}" style="width:100%;text-align:left;background:none;border:none;padding:8px 0;cursor:pointer;color:inherit">
                     <span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}
+                    ${s.binOriginal? `
+                      <div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:5px">
+                        ${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')}
+                        Cambió de bin: se planificó en ${esc(s.binOriginal)}, ahora está en ${esc(s.storage_bin||'sin bin')}
+                      </div>
+                    ` : ''}
                   </button>
                 </li>
               `).join('')}
