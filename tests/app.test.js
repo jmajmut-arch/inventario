@@ -2239,12 +2239,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlPlanSinFiltro.includes('id="plan-filtro-ciclo"') && htmlPlanSinFiltro.includes('T1 2027') && htmlPlanSinFiltro.includes('T4 2026'), 'el selector de período debe listar los ciclos existentes, obtuvo: '+htmlPlanSinFiltro);
   assert(htmlPlanSinFiltro.includes('id="plan-semana-prev"'), 'sin período elegido, debe seguir mostrando la navegación por semana, obtuvo: '+htmlPlanSinFiltro);
   assert(htmlPlanSinFiltro.includes('Período: T1 2027') && htmlPlanSinFiltro.includes('Período: Sin período asignado'), 'cada entrada debe mostrar a qué período quedó asociada (o que no tiene), obtuvo: '+htmlPlanSinFiltro);
-  // Sin período elegido (modo semana), se muestran los 7 días de la semana aunque estén vacíos
-  // (a propósito, para que se note qué falta planificar): con solo 2 entradas (Lun y Mar) cubiertas
-  // de los 7 días de la semana que arranca el 2026-08-10 (Lun), deben quedar 5 tarjetas vacías con
-  // el aviso "Sin conteos planificados.".
-  const vaciasSinFiltro = (htmlPlanSinFiltro.match(/Sin conteos planificados\./g) || []).length;
-  assert(vaciasSinFiltro===5, 'en modo semana, los días sin nada planificado deben seguir mostrando una tarjeta vacía ("Sin conteos planificados."), para que se note qué falta — obtuvo '+vaciasSinFiltro+' tarjetas vacías (de 5 esperadas)');
+  // Sin período elegido (modo semana), a pedido, los días sin nada planificado ya no muestran
+  // una tarjeta vacía: con solo 2 entradas (Lun y Mar) de los 7 días de la semana que arranca el
+  // 2026-08-10 (Lun), solo deben listarse esos 2 días, sin ninguna tarjeta vacía de relleno.
+  assert(!htmlPlanSinFiltro.includes('Sin conteos planificados'), 'en modo semana, los días sin nada planificado no deben mostrar ninguna tarjeta vacía, obtuvo: '+htmlPlanSinFiltro);
+  assert(htmlPlanSinFiltro.includes('lunes') && htmlPlanSinFiltro.includes('martes'), 'deben listarse los días que sí tienen algo planificado (lunes y martes), obtuvo: '+htmlPlanSinFiltro);
 
   ctx.__appstate.plan.cicloFiltro = 'ciclo-1';
   const htmlPlanConFiltro = ctx.renderPlanificacion();
