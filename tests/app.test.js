@@ -681,6 +681,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filasVacio = JSON.parse(postVacio.opts.body);
   assert(filasVacio.length===1 && filasVacio[0].storage_bin===null, 'Sin selección debe crear una sola fila con storage_bin null, obtuvo: '+JSON.stringify(filasVacio));
   assert(filasVacio[0].responsable_id===null, 'Sin responsable elegido, responsable_id debe ser null, obtuvo: '+JSON.stringify(filasVacio));
+  // Reportado: al agregar una entrada, los "pendiente/total" de Ubicación general y "SKU sin
+  // ubicación" se quedaban con el valor de cuando cargó la página — crearPlanEntrada debe
+  // refrescarlos (no solo la lista de entradas ya planificadas).
+  assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'crearPlanEntrada debe refrescar Ubicación general después de agregar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('bodega=is.null') && c.url.includes('ubicacion=is.null')), 'crearPlanEntrada debe refrescar el conteo de "SKU sin ubicación" después de agregar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // ===== "Sin bodega asignada" (BODEGA_VACIA): SKU con ubicación específica pero sin bodega,
   // ej. recién cargados por Excel sin esa columna. Antes quedaban invisibles en "Ubicación
@@ -950,6 +955,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(JSON.parse(postExclusion.opts.body)[0].plan_id==='e1' && JSON.parse(postExclusion.opts.body)[0].sku_code==='SKU-001', 'el POST debe llevar el plan_id y sku_code correctos, obtuvo: '+postExclusion.opts.body);
   const refrescoTrasExcluir = calls.some(c=>c.url.includes('/plan_semanal_detalle'));
   assert(refrescoTrasExcluir, 'excluirSkuDePlan debe refrescar el plan (cargarPlanSemanal) después de excluir, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Excluir un SKU también cambia cuántos quedan "pendiente" en Ubicación general / SKU sin ubicación.
+  assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'excluirSkuDePlan debe refrescar Ubicación general después de excluir, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // El borrado de la entrada completa debe pedir confirmación (más destructivo que quitar un solo SKU).
   // Si el usuario cancela el confirm(), no debe llegar ningún DELETE a /plan_semanal.
@@ -966,6 +973,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.confirmarYBorrarPlanEntrada('e1');
   const deleteCall = calls.find(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?id=eq.e1'));
   assert(!!deleteCall, 'si el usuario confirma, debe borrarse la entrada completa, obtuvo: '+JSON.stringify(calls));
+  // Borrar una entrada libera SKU que vuelven a estar "pendiente" en Ubicación general / SKU sin ubicación.
+  assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'borrarPlanEntrada debe refrescar Ubicación general después de borrar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // borrarPlanEntradas (borrado múltiple): también debe refrescar Ubicación general / SKU sin ubicación.
+  calls.length = 0;
+  await ctx.borrarPlanEntradas(['e1','e2']);
+  const deleteMultiCall = calls.find(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?id=in.(e1,e2)'));
+  assert(!!deleteMultiCall, 'borrarPlanEntradas debe hacer DELETE con id=in.(...) para todas las entradas seleccionadas, obtuvo: '+JSON.stringify(calls));
+  assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'borrarPlanEntradas debe refrescar Ubicación general después de borrar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Al entrar en modo edición para e1, debe mostrar el formulario inline con los valores actuales.
   ctx.__appstate.plan.editando = 'e1';

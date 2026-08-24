@@ -1112,6 +1112,7 @@ async function excluirSkuDePlan(planId, skuCode){
     await rest('/plan_semanal_exclusiones', {method:'POST', body:[{plan_id:planId, sku_code:skuCode}], prefer:'return=minimal'});
     toast('SKU quitado de la planificación');
     cargarPlanSemanal();
+    refrescarOpcionesUbicacion();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1404,6 +1405,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     }
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
+    refrescarOpcionesUbicacion();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1424,6 +1426,7 @@ async function borrarPlanEntrada(id){
     await rest(`/plan_semanal?id=eq.${id}`, {method:'DELETE'});
     toast('Eliminado de la planificación');
     cargarPlanSemanal();
+    refrescarOpcionesUbicacion();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1453,6 +1456,7 @@ async function borrarPlanEntradas(ids){
     await rest(`/plan_semanal?id=in.(${ids.join(',')})`, {method:'DELETE'});
     toast(`${ids.length} entrada${ids.length>1?'s eliminadas':' eliminada'} de la planificación`);
     cargarPlanSemanal();
+    refrescarOpcionesUbicacion();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -1469,6 +1473,13 @@ async function cargarOpcionesGenerales(){
     const rows = await rest('/ubicaciones_generales?order=bodega.asc');
     setState({plan: {...state.plan, generales: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Crear/quitar una entrada del plan (o excluir un SKU puntual) cambia cuántos SKU quedan
+// "pendiente" en Ubicación general y en "SKU sin ubicación" — sin este refresco, esos números
+// se quedaban con el valor de cuando se cargó la página hasta el próximo F5.
+async function refrescarOpcionesUbicacion(){
+  await Promise.all([cargarOpcionesGenerales(), cargarConteoSinUbicacion()]);
 }
 
 // SKU cargados sin ubicación general ni específica (ej. desde "Cargar SKU" a mano, sin
