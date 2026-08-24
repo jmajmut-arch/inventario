@@ -3631,6 +3631,12 @@ function renderPlanificacion(){
   // quedarse con el lunes de esa semana para no violar los min/max del campo.
   const hoyISO = fechaISO(new Date());
   const fechaPlanDefault = (hoyISO >= p.semanaInicio && hoyISO <= fechaISO(finSemana)) ? hoyISO : p.semanaInicio;
+  // El máximo seleccionable debe llegar al menos 7 días después de hoy, no solo hasta el fin
+  // de la semana mostrada — si hoy cae cerca del fin de semana (ej. sábado), antes casi no
+  // dejaba planificar hacia adelante. Si la semana mostrada ya llega más lejos (navegando a
+  // futuro), se respeta ese límite mayor.
+  const hoyMasSieteISO = fechaISO(sumarDias(new Date(hoyISO+'T00:00:00'), 7));
+  const maxFechaPlan = fechaISO(finSemana) > hoyMasSieteISO ? fechaISO(finSemana) : hoyMasSieteISO;
 
   return `
     <div class="section-head">
@@ -3658,7 +3664,7 @@ function renderPlanificacion(){
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
-        <input type="date" id="p-fecha" value="${fechaPlanDefault}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
+        <input type="date" id="p-fecha" value="${fechaPlanDefault}" min="${p.semanaInicio}" max="${maxFechaPlan}" required>
         <label for="p-bodega">Ubicación general</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>

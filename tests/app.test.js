@@ -576,6 +576,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // del estado inicial (el lunes de la semana actual), así que hoy cae dentro del rango.
   const htmlPlanHoy = ctx.renderPlanificacion();
   assert(htmlPlanHoy.includes(`id="p-fecha" value="${ctx.fechaISO(new Date())}"`), 'el campo de fecha debe abrir con el día de hoy cuando la semana mostrada lo incluye, obtuvo: '+htmlPlanHoy.match(/id="p-fecha"[^>]*/)[0]);
+  // El máximo seleccionable debe llegar al menos 7 días después de hoy, no solo hasta el fin
+  // de la semana mostrada (reportado: si hoy cae cerca del fin de semana, casi no dejaba
+  // planificar hacia adelante).
+  const maxEsperado = ctx.fechaISO(ctx.sumarDias(new Date(), 7));
+  assert(htmlPlanHoy.includes(`max="${maxEsperado}"`), 'el campo de fecha debe permitir elegir al menos 7 días hacia adelante desde hoy, obtuvo: '+htmlPlanHoy.match(/id="p-fecha"[^>]*/)[0]);
 
   // Simular el cambio de bodega -> debe poblar y habilitar el select de ubicación específica.
   // Reutilizamos bind() real: ejecutamos el bloque de bind correspondiente a state.view==='plan'
