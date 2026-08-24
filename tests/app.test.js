@@ -2220,10 +2220,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   calls.length = 0;
   await ctx.marcarCicloActual('ciclo-2');
-  const patchesCiclo = calls.filter(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo'));
-  assert(patchesCiclo.length===2, 'marcarCicloActual debe hacer dos PATCH: desmarcar el actual anterior y marcar el nuevo, obtuvo: '+JSON.stringify(patchesCiclo.map(c=>c.url)));
-  assert(patchesCiclo[0].url.includes('es_actual=eq.true') && JSON.parse(patchesCiclo[0].opts.body).es_actual===false, 'el primer PATCH debe desmarcar el ciclo actual anterior, obtuvo: '+JSON.stringify(patchesCiclo[0]));
-  assert(patchesCiclo[1].url.includes('id=eq.ciclo-2') && JSON.parse(patchesCiclo[1].opts.body).es_actual===true, 'el segundo PATCH debe marcar el ciclo elegido como actual, obtuvo: '+JSON.stringify(patchesCiclo[1]));
+  // marcarCicloActual usa la RPC atómica marcar_ciclo_actual (desmarcar el anterior + marcar el
+  // nuevo en una sola transacción de función) en vez de dos PATCH separados — evita la ventana de
+  // carrera donde dos ciclos podían quedar marcados "actuales" a la vez (respaldado además por un
+  // índice único parcial en la base).
+  const rpcCiclo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rpc/marcar_ciclo_actual'));
+  assert(!!rpcCiclo, 'marcarCicloActual debe llamar a la RPC marcar_ciclo_actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.parse(rpcCiclo.opts.body).ciclo_id==='ciclo-2', 'debe mandar el id del ciclo elegido como ciclo_id, obtuvo: '+JSON.stringify(rpcCiclo));
+  assert(!calls.some(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo')), 'ya no debe hacer PATCH directos a /ciclos_conteo desde el frontend, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // ===== Planificación vinculada a ciclos de conteo (períodos) =====
 
