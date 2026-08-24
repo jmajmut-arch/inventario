@@ -4786,6 +4786,23 @@ function bind(){
       chkTodos.checked = false;
       chkTodos.disabled = true;
     }
+    // Compartida entre el cambio de bodega (que deja "Todas" elegido por defecto en Ubicación
+    // específica sin que la persona toque nada) y el cambio de ubicación específica en sí.
+    async function cargarBinsPara(bodega, ubicacion){
+      if(!bodega){ resetPBin(); return; }
+      const selBin = document.getElementById('p-bin');
+      const chkTodos = document.getElementById('p-bin-todos');
+      // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
+      // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
+      selBin.innerHTML = '<option value="">Cargando…</option>';
+      selBin.disabled = true;
+      chkTodos.checked = false;
+      chkTodos.disabled = true;
+      const opciones = await opcionesBins(bodega, ubicacion);
+      selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
+      selBin.disabled = false;
+      chkTodos.disabled = false;
+    }
     document.getElementById('p-bodega').addEventListener('change', async e=>{
       const bodega = e.target.value;
       const selUbic = document.getElementById('p-ubic');
@@ -4805,26 +4822,15 @@ function bind(){
       const opciones = await opcionesEspecificas(bodega);
       selUbic.innerHTML = '<option value="">Todas</option>' + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)}</option>`).join('');
       selUbic.disabled = false;
+      // "Todas" queda seleccionado por defecto (primera opción) sin que la persona tenga que
+      // abrir el selector — pero fijar .innerHTML no dispara 'change', así que sin este llamado
+      // Storage bin se quedaba pegado en "Elige ubicación específica primero" hasta que alguien
+      // volviera a tocar Ubicación específica a mano (aunque fuera para elegir la misma "Todas").
+      await cargarBinsPara(bodega, '');
     });
     document.getElementById('p-ubic').addEventListener('change', async e=>{
       const bodega = document.getElementById('p-bodega').value;
-      const ubicacion = e.target.value;
-      const selBin = document.getElementById('p-bin');
-      const chkTodos = document.getElementById('p-bin-todos');
-      if(!bodega){
-        resetPBin();
-        return;
-      }
-      // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
-      // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
-      selBin.innerHTML = '<option value="">Cargando…</option>';
-      selBin.disabled = true;
-      chkTodos.checked = false;
-      chkTodos.disabled = true;
-      const opciones = await opcionesBins(bodega, ubicacion);
-      selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
-      selBin.disabled = false;
-      chkTodos.disabled = false;
+      await cargarBinsPara(bodega, e.target.value);
     });
     document.getElementById('p-bin-todos').addEventListener('change', e=>{
       const selBin = document.getElementById('p-bin');
