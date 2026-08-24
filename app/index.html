@@ -3694,7 +3694,7 @@ function renderPlanificacion(){
           ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
           ${p.generales.map(o=> o.bodega===null
             ? `<option value="${BODEGA_VACIA}">Sin bodega asignada (${o.cantidad_skus})</option>`
-            : `<option value="${esc(o.bodega)}">${esc(o.bodega)}</option>`
+            : `<option value="${esc(o.bodega)}">${esc(o.bodega)} (${o.cantidad_skus})</option>`
           ).join('')}
         </select>
         <div class="row2">
@@ -3711,7 +3711,7 @@ function renderPlanificacion(){
               <input type="checkbox" id="p-bin-todos" disabled>
               Seleccionar todos
             </label>
-            <div class="hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
+            <div class="hint" id="p-bin-hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
           </div>
         </div>
         <label for="p-responsable">Responsable</label>
@@ -4792,6 +4792,7 @@ function bind(){
       if(!bodega){ resetPBin(); return; }
       const selBin = document.getElementById('p-bin');
       const chkTodos = document.getElementById('p-bin-todos');
+      const hintBin = document.getElementById('p-bin-hint');
       // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
       // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
       selBin.innerHTML = '<option value="">Cargando…</option>';
@@ -4799,7 +4800,17 @@ function bind(){
       chkTodos.checked = false;
       chkTodos.disabled = true;
       const opciones = await opcionesBins(bodega, ubicacion);
-      selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
+      if(opciones.length){
+        selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
+        hintBin.textContent = 'Puedes elegir uno, varios o todos. Sin selección = todos.';
+      }else{
+        // Estos SKU no tienen storage bin cargado (ej. carga masiva sin esa columna): no hay
+        // nada que listar acá, pero eso NO bloquea planificar — sin bin elegido, la entrada
+        // cubre toda la ubicación igual (ver crearPlanEntrada). Antes esto se veía como una
+        // caja vacía sin explicación y no quedaba claro que se podía seguir sin elegir nada ahí.
+        selBin.innerHTML = '';
+        hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';
+      }
       selBin.disabled = false;
       chkTodos.disabled = false;
     }
@@ -4820,7 +4831,8 @@ function bind(){
       selUbic.innerHTML = '<option value="">Cargando…</option>';
       selUbic.disabled = true;
       const opciones = await opcionesEspecificas(bodega);
-      selUbic.innerHTML = '<option value="">Todas</option>' + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)}</option>`).join('');
+      const totalBodega = (state.plan.generales.find(g => bodega===BODEGA_VACIA ? g.bodega===null : g.bodega===bodega) || {}).cantidad_skus;
+      selUbic.innerHTML = `<option value="">Todas${totalBodega!=null? ` (${totalBodega})` : ''}</option>` + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)} (${o.cantidad_skus})</option>`).join('');
       selUbic.disabled = false;
       // "Todas" queda seleccionado por defecto (primera opción) sin que la persona tenga que
       // abrir el selector — pero fijar .innerHTML no dispara 'change', así que sin este llamado
