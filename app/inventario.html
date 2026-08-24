@@ -456,6 +456,11 @@ const TAM_PAGINA_LISTA = 30;
 // Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
 // que no tienen ni bodega ni ubicación específica (no aparecen en ubicaciones_generales).
 const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
+// Distinto del anterior: un SKU puede tener ubicación específica (o storage bin) cargada
+// pero sin bodega/ubicación general — ubicaciones_generales sí los agrupa (como bodega=null),
+// pero el <select> necesita un valor real (no vacío, que ya significa "nada elegido") para
+// poder elegir ese grupo y seguir cascadeando a la ubicación específica normalmente.
+const BODEGA_VACIA = '__bodega_vacia__';
 
 function setState(patch){ Object.assign(state, patch); render(); }
 
@@ -1003,6 +1008,16 @@ function filtroSoloSinUbicacion(soloSinUbicacion){
   return soloSinUbicacion ? '&bodega=is.null&ubicacion=is.null' : '';
 }
 
+// bodega==='' es el caso "Sin bodega asignada" (BODEGA_VACIA ya resuelto a '' antes de
+// llegar acá): filtra bodega IS NULL en la base. Distinto de bodega==null/undefined, que
+// significa "sin filtro, cualquier bodega" — el campo se dejó opcionalmente en blanco al
+// planificar (comodín ya existente, no confundir con el caso anterior).
+function filtroBodega(bodega){
+  if(bodega==='') return '&bodega=is.null';
+  if(bodega) return `&bodega=eq.${encodeURIComponent(bodega)}`;
+  return '';
+}
+
 // Usa skus_planificables (no skus): un SKU ya contado en el ciclo actual (con diferencia o
 // sin ella) no debe seguir ofreciéndose para planificar — planificarlo de nuevo solo confunde.
 async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion}){
@@ -1010,7 +1025,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
-    if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
+    filtro += filtroBodega(bodega);
     if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
     if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
   }
@@ -1035,7 +1050,7 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloS
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
-    if(bodega) filtro += `&bodega=eq.${encodeURIComponent(bodega)}`;
+    filtro += filtroBodega(bodega);
     if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
     if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
   }
@@ -1393,7 +1408,10 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, responsa
   try{
     await rest('/plan_semanal', {method:'POST', body: bins.map(bin=>({
       fecha,
-      bodega: soloSinUbicacion ? null : (bodega||null),
+      // bodega puede llegar en '' a propósito (grupo "Sin bodega asignada": bodega IS NULL,
+      // pero con ubicación específica) — no colapsarlo a null con `||`, eso lo confundiría
+      // con el comodín "sin restricción de bodega" (bodega==null/undefined desde el llamador).
+      bodega: soloSinUbicacion ? null : (bodega==null ? null : bodega),
       ubicacion: soloSinUbicacion ? null : (ubicacion||null),
       storage_bin: soloSinUbicacion ? null : (bin||null),
       solo_sin_ubicacion: !!soloSinUbicacion,
@@ -1497,10 +1515,16 @@ async function cargarOpcionesCategoriasUnidades(){
   }catch(e){ /* la sugerencia es un plus, no bloquea el formulario si falla */ }
 }
 
+// BODEGA_VACIA (el grupo "Sin bodega asignada" del <select>) necesita bodega=is.null en vez
+// de un eq. literal contra ese texto — igual que filtroBodega() para el universo planificable.
+function filtroBodegaOpciones(bodega){
+  return bodega===BODEGA_VACIA ? 'bodega=is.null' : `bodega=eq.${encodeURIComponent(bodega)}`;
+}
+
 async function opcionesEspecificas(bodega){
   if(!bodega) return [];
   try{
-    return await rest(`/ubicaciones_especificas?bodega=eq.${encodeURIComponent(bodega)}&order=ubicacion.asc`) || [];
+    return await rest(`/ubicaciones_especificas?${filtroBodegaOpciones(bodega)}&order=ubicacion.asc`) || [];
   }catch(e){ return []; }
 }
 
@@ -1508,12 +1532,12 @@ async function opcionesBins(bodega, ubicacion){
   if(!bodega) return [];
   try{
     if(ubicacion){
-      return await rest(`/ubicaciones_bins?bodega=eq.${encodeURIComponent(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
+      return await rest(`/ubicaciones_bins?${filtroBodegaOpciones(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
     }
     // "Todas" las ubicaciones específicas: el mismo storage_bin puede repetirse en más de
     // una (la vista viene agrupada por bodega+ubicacion+storage_bin), así que se suman antes
     // de listarlo — si no, un mismo bin aparecería duplicado varias veces en el <select>.
-    const filas = await rest(`/ubicaciones_bins?bodega=eq.${encodeURIComponent(bodega)}&order=storage_bin.asc`) || [];
+    const filas = await rest(`/ubicaciones_bins?${filtroBodegaOpciones(bodega)}&order=storage_bin.asc`) || [];
     const porBin = new Map();
     for(const f of filas){
       const acc = porBin.get(f.storage_bin) || {storage_bin:f.storage_bin, cantidad_skus:0};
@@ -3599,7 +3623,6 @@ function renderPlanificacion(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
   const finSemana = sumarDias(inicio,6);
-  const cicloActual = (state.ciclos||[]).find(c=>c.es_actual);
   const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
 
   // En modo semana se muestran los 7 días de la semana elegida aunque estén vacíos (para
@@ -3669,7 +3692,10 @@ function renderPlanificacion(){
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
           ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
-          ${p.generales.map(o=>`<option value="${esc(o.bodega)}">${esc(o.bodega)}</option>`).join('')}
+          ${p.generales.map(o=> o.bodega===null
+            ? `<option value="${BODEGA_VACIA}">Sin bodega asignada (${o.cantidad_skus})</option>`
+            : `<option value="${esc(o.bodega)}">${esc(o.bodega)}</option>`
+          ).join('')}
         </select>
         <div class="row2">
           <div><label for="p-ubic">Ubicación específica</label>
@@ -3688,13 +3714,6 @@ function renderPlanificacion(){
             <div class="hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
           </div>
         </div>
-        ${state.ciclos.length? `
-        <label for="p-ciclo">Período</label>
-        <select id="p-ciclo">
-          <option value="">${cicloActual? `Automático (${esc(cicloActual.nombre)}, el actual)` : 'Automático (sin ciclo marcado como actual)'}</option>
-          ${state.ciclos.map(c=>`<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join('')}
-        </select>
-        ` : ''}
         <label for="p-responsable">Responsable</label>
         <select id="p-responsable">
           <option value="">Sin asignar</option>
@@ -4734,20 +4753,27 @@ function bind(){
       e.preventDefault();
       const bodegaSeleccionada = document.getElementById('p-bodega').value.trim();
       const soloSinUbicacion = bodegaSeleccionada === BODEGA_SIN_UBICACION;
+      // Tres estados posibles del selector, y cada uno viaja distinto a crearPlanEntrada:
+      // "" (nada elegido) -> null = comodín, sin restricción de bodega (comportamiento de
+      // siempre); BODEGA_VACIA -> '' = restringido a SKU con bodega vacía (bodega IS NULL,
+      // pero con ubicación específica cargada); cualquier otro valor -> esa bodega tal cual.
+      const bodegaParaEnviar = bodegaSeleccionada===''? null : bodegaSeleccionada===BODEGA_VACIA? '' : bodegaSeleccionada;
       // "Seleccionar todos" marca cada storage bin visible, pero esa lista (igual que las de
       // ubicación) no incluye los SKU sin storage bin asignado. Para que "todos" sea realmente
       // todos (sin excepción), se manda vacío en vez de la lista exhaustiva: crearPlanEntrada ya
       // trata "sin selección" como "sin filtro de storage bin" (cubre también los que no tienen).
       const chkBinTodos = document.getElementById('p-bin-todos');
       const storageBins = (chkBinTodos && chkBinTodos.checked) ? [] : [...document.getElementById('p-bin').selectedOptions].map(o=>o.value).filter(Boolean);
-      const selCiclo = document.getElementById('p-ciclo');
       crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
-        bodega: soloSinUbicacion ? '' : bodegaSeleccionada,
+        bodega: soloSinUbicacion ? '' : bodegaParaEnviar,
         ubicacion: document.getElementById('p-ubic').value.trim(),
         storageBins,
         soloSinUbicacion,
-        cicloId: selCiclo ? selCiclo.value : '',
+        // Sin selector propio (se sacó por duplicar el filtro "Período" de arriba de la
+        // página): siempre queda en automático, el trigger del servidor la asigna al ciclo
+        // marcado como actual.
+        cicloId: '',
         responsableId: document.getElementById('p-responsable').value,
         nota: document.getElementById('p-nota').value.trim(),
       });
