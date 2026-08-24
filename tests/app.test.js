@@ -308,9 +308,9 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/usuarios?activo=eq.true&select=')){
-    // cargarResponsables (Planificación → Responsable): las cuentas activas del equipo,
-    // ya no una lista aparte de "operadores" sin cuenta ni login.
+  if(path.startsWith('/rest/v1/usuarios?activo=eq.true&rol=eq.operador&select=')){
+    // cargarResponsables (Planificación → Responsable): las cuentas activas con rol operador,
+    // ya no una lista aparte de "operadores" sin cuenta ni login, ni tampoco los admin.
     return {
       status: 200,
       ok: true,
@@ -343,7 +343,11 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/eliminar_skus_sin_contar')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'4' };
   }
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true') && path.includes('bodega=is.null') && path.includes('ubicacion=is.null')){
+  // skus_disponibles_planificar es skus_planificables + excluir lo ya cubierto por otra entrada
+  // de plan_semanal vigente (ver cargarConteoSinUbicacion / cargarBinsPara con
+  // excluirYaPlanificados:true) — en estos fixtures no hay overlap real, así que basta con
+  // responder lo mismo para ambas vistas.
+  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=is.null') && !path.includes('ubicacion=eq.')){
     const filas = [{sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}];
     return {
       status: 200, ok: true,
@@ -351,7 +355,7 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida') && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
+  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=sku_code,descripcion,storage_bin,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
     // "Piso" (bodega=is.null) no tiene ningún storage_bin cargado -> cargarBinsPara cae al
     // listado de SKU puntuales (ver "sin bin, elegir SKU" más abajo en este archivo).
     const filas = [
@@ -541,10 +545,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const binsCall = calls.find(c=>c.url.includes('/ubicaciones_bins') && c.url.includes('bodega=eq.Nave') && c.url.includes('ubicacion=eq.Interior'));
   assert(!!binsCall, 'Debe llamarse a ubicaciones_bins con filtros bodega y ubicacion');
 
-  // cargarResponsables debe poblar state.plan.responsables.
+  // cargarResponsables debe poblar state.plan.responsables solo con operadores (no admin).
+  calls.length = 0;
   await ctx.cargarResponsables();
   const responsablesAsignables = ctx.__appstate.plan.responsables;
   assert(Array.isArray(responsablesAsignables) && responsablesAsignables.length===2 && responsablesAsignables[0].nombre==='Ana Torres', 'cargarResponsables debe cargar los responsables activos, obtuvo: '+JSON.stringify(responsablesAsignables));
+  assert(calls.some(c=>c.url.includes('/usuarios') && c.url.includes('rol=eq.operador')), 'cargarResponsables debe filtrar por rol=eq.operador (no ofrecer admins como responsable), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // A partir de aquí, las acciones requieren sesión + perfil (con empresa_id) cargados, como en la app real.
   ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
@@ -710,6 +716,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(elements['p-bin'].dataset.modo==='skus', 'sin storage bin cargado, #p-bin debe pasar a modo "skus", obtuvo: '+elements['p-bin'].dataset.modo);
   assert(elements['p-bin'].innerHTML.includes('SKU-P1') && elements['p-bin'].innerHTML.includes('SKU-P2'), 'debe listar los SKU de la ubicación como opciones, obtuvo: '+elements['p-bin'].innerHTML);
   assert(elements['p-bin-hint'].textContent.includes('No hay storage bin cargado') && elements['p-bin-hint'].textContent.includes('elegir SKU puntuales'), 'debe explicar que se pueden elegir SKU puntuales, obtuvo: '+elements['p-bin-hint'].textContent);
+  assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar')), 'la lista de SKU para elegir (sin bin) debe salir de skus_disponibles_planificar, no de skus_planificables, para no ofrecer SKU ya cubiertos por otra entrada del plan, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Al enviar sin tocar la lista de SKU (sin selección = todos), la bodega debe guardarse como
   // '' (bodega IS NULL explícito), NO como null — null ya significa otra cosa: el comodín "sin
@@ -745,9 +752,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // ===== SKU sin ubicación (bodega/ubicación en null): deben poder incluirse en el plan =====
 
-  // cargarConteoSinUbicacion: pide el total de SKU activos sin bodega ni ubicación.
+  // cargarConteoSinUbicacion: pide el total de SKU activos sin bodega ni ubicación, sobre
+  // skus_disponibles_planificar (no skus_planificables) para no ofrecer SKU que ya estén
+  // cubiertos por otra entrada de plan_semanal vigente.
+  calls.length = 0;
   await ctx.cargarConteoSinUbicacion();
   assert(ctx.__appstate.plan.sinUbicacionCount===1, 'cargarConteoSinUbicacion debe guardar el total de SKU sueltos, obtuvo: '+ctx.__appstate.plan.sinUbicacionCount);
+  assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar')), 'cargarConteoSinUbicacion debe consultar skus_disponibles_planificar, no solo skus_planificables, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // El selector "Ubicación general" debe ofrecer la opción especial cuando hay SKU sueltos.
   const htmlConSueltos = ctx.renderPlanificacion();

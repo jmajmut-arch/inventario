@@ -1019,8 +1019,12 @@ function filtroBodega(bodega){
 
 // Usa skus_planificables (no skus): un SKU ya contado en el ciclo actual (con diferencia o
 // sin ella) no debe seguir ofreciéndose para planificar — planificarlo de nuevo solo confunde.
-async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion}){
-  let filtro = '/skus_planificables?activo=eq.true';
+// excluirYaPlanificados además saca los que ya están cubiertos por OTRA entrada de plan_semanal
+// vigente (skus_disponibles_planificar) — solo para armar una entrada NUEVA. No usar esto para
+// calcular el universo/detalle de una entrada YA CREADA: se anularía a sí misma (todo lo que
+// cubre "ya está planificado" por ella).
+async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, excluirYaPlanificados}){
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1044,8 +1048,8 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
-async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion}){
-  let filtro = '/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc';
+async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, excluirYaPlanificados}){
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1112,7 +1116,9 @@ async function excluirSkuDePlan(planId, skuCode){
 // lista aparte: así queda un solo lugar para gestionar personas (Configuraciones → Equipo).
 async function cargarResponsables(){
   try{
-    const rows = await rest('/usuarios?activo=eq.true&select=id,nombre&order=nombre.asc');
+    // Solo operadores: quien planifica es admin, pero el responsable de contar en terreno
+    // (a quien "Contar" le muestra su plan del día) es siempre un operador, no un admin.
+    const rows = await rest('/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre&order=nombre.asc');
     setState({plan: {...state.plan, responsables: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1467,7 +1473,7 @@ async function cargarOpcionesGenerales(){
 // así que se cuentan aparte para poder ofrecerlos como opción en Planificación.
 async function cargarConteoSinUbicacion(){
   try{
-    const total = await contarUniversoUbicacion({soloSinUbicacion:true});
+    const total = await contarUniversoUbicacion({soloSinUbicacion:true, excluirYaPlanificados:true});
     setState({plan: {...state.plan, sinUbicacionCount: total}});
   }catch(e){ /* no bloquea la planificación normal si esto falla */ }
 }
@@ -4766,7 +4772,7 @@ function bind(){
         // elegir puntualmente cuáles incluir (misma mecánica de "sin selección = todos", pero
         // sobre SKU en vez de bins — ver el submit de #form-plan y crearPlanEntrada).
         const bodegaReal = bodega===BODEGA_VACIA ? '' : bodega;
-        const skus = await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false});
+        const skus = await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true});
         if(skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES){
           selBin.dataset.modo = 'skus';
           selBin.dataset.skuCodes = JSON.stringify(skus.map(s=>s.sku_code));
