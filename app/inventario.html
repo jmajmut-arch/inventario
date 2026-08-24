@@ -379,8 +379,8 @@ const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:
 const ACCION_AUDITORIA_LABEL = { INSERT:'Creado', UPDATE:'Modificado', DELETE:'Eliminado' };
 const CAMPOS_AUDITADOS = {
   usuarios: [['nombre','Nombre'], ['rol','Rol'], ['activo','Activo']],
-  empresas: [['nombre','Nombre'], ['activo','Activo']],
-  conteos: [['cantidad_contada','Cantidad'], ['estado','Estado'], ['observacion','Observación']],
+  empresas: [['nombre','Nombre'], ['activo','Activo'], ['flow_subscription_status','Estado de suscripción']],
+  conteos: [['cantidad_contada','Cantidad'], ['ubicacion_contada','Ubicación contada'], ['bodega','Ubicación general'], ['ubicacion_distinta','Ubicación distinta'], ['estado','Estado'], ['observacion','Observación']],
   skus: [['descripcion','Descripción'], ['stock_sistema','Stock sistema'], ['costo_unitario','Costo unitario'], ['bodega','Ubicación general'], ['ubicacion','Ubicación específica'], ['activo','Activo']],
 };
 
@@ -391,10 +391,21 @@ function formatearValorAuditoria(v){
   return String(v);
 }
 
+// El trigger de auditoría guarda la fila completa (to_jsonb) en datos_antes/datos_despues, así
+// que además de "qué cambió" en un UPDATE, también podemos mostrar el detalle de una creación
+// o eliminación en vez de un genérico "se creó/eliminó el registro" que no dice nada útil.
 function resumenCambioAuditoria(fila){
-  if(fila.accion==='INSERT') return 'Se creó el registro';
-  if(fila.accion==='DELETE') return 'Se eliminó el registro';
   const campos = CAMPOS_AUDITADOS[fila.tabla] || [];
+  if(fila.accion==='INSERT'){
+    const despues = fila.datos_despues || {};
+    const detalle = campos.map(([campo,label]) => `${label}: ${formatearValorAuditoria(despues[campo])}`);
+    return detalle.length ? detalle.join(' · ') : 'Se creó el registro';
+  }
+  if(fila.accion==='DELETE'){
+    const antes = fila.datos_antes || {};
+    const detalle = campos.map(([campo,label]) => `${label}: ${formatearValorAuditoria(antes[campo])}`);
+    return detalle.length ? detalle.join(' · ') : 'Se eliminó el registro';
+  }
   const antes = fila.datos_antes || {};
   const despues = fila.datos_despues || {};
   const cambios = campos
@@ -403,13 +414,25 @@ function resumenCambioAuditoria(fila){
   return cambios.length ? cambios.join(' · ') : 'Sin cambios visibles';
 }
 
-// Para SKU, mostrar el código además de tabla+acción: a diferencia de personas/empresas/conteos
-// (donde el registro no cambia de identidad visible), en el maestro de SKU el código es lo
-// primero que la persona necesita saber para ubicar qué material cambió.
+// Identifica de qué registro se trata además de tabla+acción: sin esto, "Persona · Modificado"
+// o "Empresa · Eliminado" no dicen a quién le pasó — hay que saber el nombre para que la fila
+// sirva de algo al revisar la trazabilidad (ej. quién quedó con rol admin, qué empresa se borró).
 function identificadorAuditoria(fila){
-  if(fila.tabla!=='skus') return '';
-  const codigo = (fila.datos_despues && fila.datos_despues.sku_code) || (fila.datos_antes && fila.datos_antes.sku_code);
-  return codigo? ` · ${codigo}` : '';
+  const antes = fila.datos_antes || {};
+  const despues = fila.datos_despues || {};
+  if(fila.tabla==='skus'){
+    const codigo = despues.sku_code || antes.sku_code;
+    return codigo? ` · ${codigo}` : '';
+  }
+  if(fila.tabla==='usuarios' || fila.tabla==='empresas'){
+    const nombre = despues.nombre || antes.nombre;
+    return nombre? ` · ${nombre}` : '';
+  }
+  if(fila.tabla==='conteos'){
+    const partes = [despues.bodega || antes.bodega, despues.ubicacion_contada || antes.ubicacion_contada].filter(Boolean);
+    return partes.length? ` · ${partes.join(' / ')}` : '';
+  }
+  return '';
 }
 
 const TEMAS = [

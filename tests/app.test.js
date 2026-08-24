@@ -2178,21 +2178,35 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // ===== Auditoría de cambios (quién creó/modificó/eliminó personas, empresas y conteos) =====
 
-  // resumenCambioAuditoria: mensaje legible según la acción.
-  assert(ctx.resumenCambioAuditoria({accion:'INSERT'})==='Se creó el registro', 'INSERT debe mostrar "Se creó el registro"');
-  assert(ctx.resumenCambioAuditoria({accion:'DELETE'})==='Se eliminó el registro', 'DELETE debe mostrar "Se eliminó el registro"');
+  // resumenCambioAuditoria: mensaje legible según la acción. Sin tabla conocida (o sin campos
+  // auditados para esa tabla) cae al genérico "se creó/eliminó el registro".
+  assert(ctx.resumenCambioAuditoria({accion:'INSERT'})==='Se creó el registro', 'INSERT sin tabla conocida debe mostrar "Se creó el registro"');
+  assert(ctx.resumenCambioAuditoria({accion:'DELETE'})==='Se eliminó el registro', 'DELETE sin tabla conocida debe mostrar "Se eliminó el registro"');
   const resumenUpdate = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos', rol:'inventariador', activo:true}, datos_despues:{nombre:'Carlos', rol:'admin', activo:true}});
   assert(resumenUpdate==='Rol: inventariador → admin', 'UPDATE debe listar solo los campos que cambiaron, obtuvo: '+resumenUpdate);
   const resumenSinCambios = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'usuarios', datos_antes:{nombre:'Carlos'}, datos_despues:{nombre:'Carlos'}});
   assert(resumenSinCambios==='Sin cambios visibles', 'UPDATE sin diferencias en los campos auditados debe decirlo, obtuvo: '+resumenSinCambios);
 
+  // El trigger guarda la fila completa (to_jsonb), así que un INSERT/DELETE con tabla conocida
+  // debe mostrar el detalle de los campos auditados en vez del genérico "se creó/eliminó el
+  // registro" — antes esa info se perdía por completo (queja real: "la trazabilidad no dice nada").
+  const resumenInsertPersona = ctx.resumenCambioAuditoria({accion:'INSERT', tabla:'usuarios', datos_despues:{nombre:'Diego Soto', rol:'inventariador', activo:true}});
+  assert(resumenInsertPersona==='Nombre: Diego Soto · Rol: inventariador · Activo: sí', 'INSERT de una persona debe detallar nombre, rol y activo, obtuvo: '+resumenInsertPersona);
+  const resumenDeletePersona = ctx.resumenCambioAuditoria({accion:'DELETE', tabla:'empresas', datos_antes:{nombre:'Minera Vieja', activo:true, flow_subscription_status:null}});
+  assert(resumenDeletePersona==='Nombre: Minera Vieja · Activo: sí · Estado de suscripción: —', 'DELETE de una empresa debe detallar sus datos, obtuvo: '+resumenDeletePersona);
+
   // Auditoría del maestro de SKU: mismo patrón (trigger genérico + CAMPOS_AUDITADOS), pero
-  // además se muestra el sku_code como identificador (a diferencia de personas/empresas/conteos,
-  // acá hace falta saber qué material cambió).
+  // además se muestra el sku_code como identificador.
   const resumenSku = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'skus', datos_antes:{sku_code:'FIL-1001', costo_unitario:1000}, datos_despues:{sku_code:'FIL-1001', costo_unitario:1500}});
   assert(resumenSku==='Costo unitario: 1000 → 1500', 'UPDATE de SKU debe listar los campos auditados que cambiaron, obtuvo: '+resumenSku);
+
+  // identificadorAuditoria: además del código de SKU, ahora también identifica quién/cuál
+  // registro cambió en personas, empresas y conteos — sin esto "Persona · Modificado" no decía
+  // a quién le pasó.
   assert(ctx.identificadorAuditoria({tabla:'skus', datos_despues:{sku_code:'FIL-1001'}})===' · FIL-1001', 'identificadorAuditoria debe mostrar el código del SKU, obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'skus', datos_despues:{sku_code:'FIL-1001'}})));
-  assert(ctx.identificadorAuditoria({tabla:'usuarios', datos_despues:{nombre:'Carlos'}})==='', 'identificadorAuditoria no debe agregar nada para tablas que no sean skus, obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'usuarios', datos_despues:{nombre:'Carlos'}})));
+  assert(ctx.identificadorAuditoria({tabla:'usuarios', datos_despues:{nombre:'Carlos'}})===' · Carlos', 'identificadorAuditoria debe mostrar el nombre de la persona, obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'usuarios', datos_despues:{nombre:'Carlos'}})));
+  assert(ctx.identificadorAuditoria({tabla:'empresas', datos_antes:{nombre:'Minera Vieja'}})===' · Minera Vieja', 'identificadorAuditoria debe mostrar el nombre de la empresa (incluso en un DELETE, leyendo datos_antes), obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'empresas', datos_antes:{nombre:'Minera Vieja'}})));
+  assert(ctx.identificadorAuditoria({tabla:'conteos', datos_despues:{bodega:'Bodega Central', ubicacion_contada:'Pasillo 3'}})===' · Bodega Central / Pasillo 3', 'identificadorAuditoria debe mostrar bodega/ubicación del conteo, obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'conteos', datos_despues:{bodega:'Bodega Central', ubicacion_contada:'Pasillo 3'}})));
 
   // cargarAuditoria: pide /auditoria ordenado por fecha, con filtro opcional de tabla.
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
@@ -2207,6 +2221,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConfigAdminAuditoria.includes('id="auditoria-filtro-tabla"') && htmlConfigAdminAuditoria.includes('Auditoría de cambios'), 'un admin debe ver la sección de auditoría, obtuvo: '+htmlConfigAdminAuditoria);
   assert(htmlConfigAdminAuditoria.includes('Ana Torres') && htmlConfigAdminAuditoria.includes('Rol: inventariador → admin'), 'debe listar la actividad con actor y el resumen del cambio, obtuvo: '+htmlConfigAdminAuditoria);
   assert(htmlConfigAdminAuditoria.includes('Por: Sistema'), 'un actor nulo (alta automática) debe mostrarse como "Sistema", obtuvo: '+htmlConfigAdminAuditoria);
+  // Persona · Carlos: el identificador ahora dice a quién le cambiaron el rol, no solo "Persona".
+  assert(htmlConfigAdminAuditoria.includes('Persona · Carlos · Modificado'), 'la fila de "Persona" debe identificar a quién con su nombre, obtuvo: '+htmlConfigAdminAuditoria);
+  // Empresa eliminada (a3, sin actor): debe decir el nombre de la empresa que se borró, no solo "Empresa · Eliminado".
+  assert(htmlConfigAdminAuditoria.includes('Empresa · Minera Vieja · Eliminado') && htmlConfigAdminAuditoria.includes('Nombre: Minera Vieja'), 'la fila de una empresa eliminada debe decir cuál era, obtuvo: '+htmlConfigAdminAuditoria);
+  // Conteo creado (a2): el INSERT ya no debe decir el genérico "Se creó el registro" sin detalle.
+  assert(htmlConfigAdminAuditoria.includes('Cantidad: 5') && !htmlConfigAdminAuditoria.includes('Se creó el registro'), 'un conteo creado debe mostrar el detalle de sus campos en vez del genérico "se creó el registro", obtuvo: '+htmlConfigAdminAuditoria);
   assert(htmlConfigAdminAuditoria.includes('<option value="skus"') && htmlConfigAdminAuditoria.includes('>SKU<'), 'el filtro de tabla debe incluir la opción SKU, obtuvo: '+htmlConfigAdminAuditoria);
   assert(htmlConfigAdminAuditoria.includes('SKU · FIL-1001 · Modificado') && htmlConfigAdminAuditoria.includes('Costo unitario: 1000 → 1500'), 'debe listar el cambio de SKU con su código y el costo unitario antes/después, obtuvo: '+htmlConfigAdminAuditoria);
 
