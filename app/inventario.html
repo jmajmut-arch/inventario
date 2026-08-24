@@ -2470,7 +2470,12 @@ function clp(n){ return (Number(n)||0).toLocaleString('es-CL', {style:'currency'
 /* =======================================================================
    GRÁFICOS — SVG plano, sin librerías externas
    ======================================================================= */
-function fmtDiaCorto(iso){ if(!iso) return ''; const d=new Date(iso); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}).replace('.',''); }
+// Reportado: en el gráfico "SKU a contar por día" (con un Período elegido), la fecha mostrada
+// no coincidía con la de la entrada de planificación (aparecía un día antes). Causa: new Date()
+// sin hora explícita interpreta una fecha "YYYY-MM-DD" como medianoche UTC, no medianoche local
+// — en Chile (UTC-3/-4) eso cae en el día calendario anterior. El resto del código (grupos,
+// abrevDiaSemana, etc.) ya fuerza T00:00:00 para evitar justo este corrimiento.
+function fmtDiaCorto(iso){ if(!iso) return ''; const d=new Date(iso+'T00:00:00'); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short'}).replace('.',''); }
 
 // Suma el avance diario (que viene por bodega) en un total por día calendario.
 function agregarPorDia(diario, dias=14){
@@ -3050,7 +3055,18 @@ function estadoBadge(estado, diferencia){
   return `<span class="badge badge-ok">${esc(estado||'ok')}</span>`;
 }
 
-function fmtFecha(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'}); }
+// Reportado: en Planificación, el rango de la semana mostrado ("23 ago – 29 ago") no coincidía
+// con los días reales (Lun 24 – Dom 30) ni con lo que dice cada tarjeta. fmtFecha recibe tanto
+// fechas puras "YYYY-MM-DD" (ej. plan_semanal.fecha, sin hora) como timestamps completos (ej.
+// el último conteo, con su propia hora/zona). Sin hora explícita, new Date() interpreta una fecha
+// pura como medianoche UTC, no medianoche local — en Chile (UTC-3/-4) eso corre el día al
+// anterior. Se fuerza T00:00:00 solo para las fechas puras; los timestamps completos, que ya
+// traen su hora/zona, se dejan tal cual.
+function fmtFecha(iso){
+  if(!iso) return '—';
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(iso+'T00:00:00') : new Date(iso);
+  return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'});
+}
 function fmtFechaHora(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
 
 // Un conteo/SKU se considera "capturado sin conexión" cuando la fecha que reportó el

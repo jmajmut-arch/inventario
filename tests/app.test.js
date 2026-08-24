@@ -960,6 +960,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // resumenPorResponsable / abrevDiaSemana como unidades sueltas.
   assert(ctx.abrevDiaSemana('2026-08-10')==='Lun', 'abrevDiaSemana debe devolver "Lun" para un lunes, obtuvo: '+ctx.abrevDiaSemana('2026-08-10'));
+
+  // Reportado: la fecha del gráfico "SKU a contar por día" (con un Período elegido) no coincidía
+  // con la de la entrada de planificación — aparecía un día antes. fmtDiaCorto debe parsear la
+  // fecha en medianoche LOCAL (como ya hace abrevDiaSemana), no dejar que new Date() la lea como
+  // medianoche UTC: en un huso horario detrás de UTC (ej. Chile) eso corre el día al anterior.
+  // Esta aserción es válida en cualquier huso (medianoche local de un día siempre cae en ese
+  // mismo día); el corrimiento real a UTC se verificó aparte, a mano, con TZ=America/Santiago.
+  assert(ctx.fmtDiaCorto('2026-08-26').includes('26'), 'fmtDiaCorto debe mostrar el día 26 para "2026-08-26" (medianoche local, no UTC), obtuvo: '+ctx.fmtDiaCorto('2026-08-26'));
+
+  // Reportado: en Planificación, el rango "Lun 24 – Dom 30" se mostraba como "23 ago – 29 ago"
+  // (mismo bug de zona horaria, pero en fmtFecha). fmtFecha recibe tanto fechas puras "YYYY-MM-DD"
+  // (deben leerse en medianoche local, como fmtDiaCorto) como timestamps completos con su propia
+  // hora/zona (esos NO deben tocarse — no tiene sentido forzarles T00:00:00). Esta aserción es
+  // válida en cualquier huso horario; el corrimiento real a UTC se verificó a mano con
+  // TZ=America/Santiago (24 ago y 30 ago correctos) y con un navegador real.
+  assert(ctx.fmtFecha('2026-08-24').includes('24'), 'fmtFecha debe mostrar el día 24 para la fecha pura "2026-08-24" (medianoche local, no UTC), obtuvo: '+ctx.fmtFecha('2026-08-24'));
+  assert(ctx.fmtFecha('2026-08-30').includes('30'), 'fmtFecha debe mostrar el día 30 para la fecha pura "2026-08-30" (medianoche local, no UTC), obtuvo: '+ctx.fmtFecha('2026-08-30'));
+  assert(ctx.fmtFecha('2026-08-20T23:30:00+00:00').includes('20'), 'fmtFecha no debe alterar un timestamp completo (ya trae su propia hora/zona), obtuvo: '+ctx.fmtFecha('2026-08-20T23:30:00+00:00'));
   const resumenSuelto = ctx.resumenPorResponsable(
     [{id:'a', responsable_nombre:'Ana'}, {id:'b', responsable_nombre:'Ana'}, {id:'c', responsable_nombre:null}],
     {a:2, b:1, c:10}
@@ -2196,11 +2214,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlPlanSinFiltro.includes('id="plan-filtro-ciclo"') && htmlPlanSinFiltro.includes('T1 2027') && htmlPlanSinFiltro.includes('T4 2026'), 'el selector de período debe listar los ciclos existentes, obtuvo: '+htmlPlanSinFiltro);
   assert(htmlPlanSinFiltro.includes('id="plan-semana-prev"'), 'sin período elegido, debe seguir mostrando la navegación por semana, obtuvo: '+htmlPlanSinFiltro);
   assert(htmlPlanSinFiltro.includes('Período: T1 2027') && htmlPlanSinFiltro.includes('Período: Sin período asignado'), 'cada entrada debe mostrar a qué período quedó asociada (o que no tiene), obtuvo: '+htmlPlanSinFiltro);
+  // Sin período elegido (modo semana), se muestran los 7 días de la semana aunque estén vacíos
+  // (a propósito, para que se note qué falta planificar): con solo 2 entradas (Lun y Mar) cubiertas
+  // de los 7 días de la semana que arranca el 2026-08-10 (Lun), deben quedar 5 tarjetas vacías con
+  // el aviso "Sin conteos planificados.".
+  const vaciasSinFiltro = (htmlPlanSinFiltro.match(/Sin conteos planificados\./g) || []).length;
+  assert(vaciasSinFiltro===5, 'en modo semana, los días sin nada planificado deben seguir mostrando una tarjeta vacía ("Sin conteos planificados."), para que se note qué falta — obtuvo '+vaciasSinFiltro+' tarjetas vacías (de 5 esperadas)');
 
   ctx.__appstate.plan.cicloFiltro = 'ciclo-1';
   const htmlPlanConFiltro = ctx.renderPlanificacion();
   assert(!htmlPlanConFiltro.includes('id="plan-semana-prev"'), 'con un período elegido, la navegación por semana debe ocultarse (no aplica), obtuvo: '+htmlPlanConFiltro);
   assert(htmlPlanConFiltro.includes('Mostrando toda la planificación de <strong>T1 2027</strong>'), 'debe indicar claramente qué período se está mostrando, obtuvo: '+htmlPlanConFiltro);
+  // Con un período elegido (modo período), a diferencia del modo semana, NO hay un rango de días
+  // de referencia: solo debe agruparse por las fechas que ya tienen algo planificado, sin ninguna
+  // tarjeta vacía de relleno (lo pedido: "que aparezcan las tarjetas a medida que se planifican,
+  // no las vacías").
+  assert(!htmlPlanConFiltro.includes('Sin conteos planificados.'), 'en modo período no debe mostrarse ninguna tarjeta vacía de relleno, solo las fechas con algo planificado, obtuvo: '+htmlPlanConFiltro);
   ctx.__appstate.plan.cicloFiltro = '';
 
   // renderBuscar: el filtro de ciclo solo debe verse si hay ciclos creados, y debe incluir
