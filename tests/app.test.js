@@ -604,6 +604,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ubicEl.disabled === false, 'p-ubic debe habilitarse tras elegir bodega');
   assert(ubicEl.innerHTML.includes('Interior Nave') && ubicEl.innerHTML.includes('Rack'), 'p-ubic debe listar las ubicaciones específicas de Nave Mina, obtuvo: '+ubicEl.innerHTML);
 
+  // Regresión real reportada: "Ubicación específica" queda en "Todas" por defecto al elegir
+  // la bodega (primera opción del <select> recién poblado), sin que la persona tenga que
+  // tocarlo — pero fijar .innerHTML no dispara 'change', así que Storage bin se quedaba
+  // pegado en "Elige ubicación específica primero" (deshabilitado) hasta que alguien volviera
+  // a abrir Ubicación específica a mano. Debe quedar cargado solo, sin ese paso extra.
+  const binElAuto = elements['p-bin'];
+  assert(binElAuto.disabled === false, 'Storage bin debe habilitarse solo al elegir la bodega, sin tener que tocar Ubicación específica a mano, obtuvo disabled='+binElAuto.disabled);
+  assert(binElAuto.innerHTML.includes('A-01 — 7 SKU') && binElAuto.innerHTML.includes('A-02 — 3 SKU'), 'Storage bin debe quedar cargado con los bins de toda la bodega (equivalente a "Todas"), obtuvo: '+binElAuto.innerHTML);
+
   ubicEl.value = 'Interior Nave';
   await new Promise(resolve => {
     ubicEl.dispatch('change', {target: ubicEl});
@@ -686,6 +695,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ubicEl.innerHTML.includes('Piso'), 'p-ubic debe listar las ubicaciones específicas de los SKU sin bodega, obtuvo: '+ubicEl.innerHTML);
   const especificasVaciaCall = calls.find(c=>c.url.includes('/ubicaciones_especificas'));
   assert(!!especificasVaciaCall && especificasVaciaCall.url.includes('bodega=is.null'), 'debe pedir ubicaciones_especificas con bodega=is.null (no un eq. literal contra el texto del sentinel), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Bug real reportado: con "Sin bodega asignada" elegido, Ubicación específica quedaba en
+  // "Todas" por defecto pero Storage bin se quedaba pegado deshabilitado ("Elige ubicación
+  // específica primero") hasta tocar Ubicación específica a mano. Debe quedar habilitado solo.
+  assert(elements['p-bin'].disabled === false, 'Storage bin debe habilitarse solo, sin tocar Ubicación específica a mano, obtuvo disabled='+elements['p-bin'].disabled);
+  assert(calls.some(c=>c.url.includes('/ubicaciones_bins') && c.url.includes('bodega=is.null')), 'debe pedir ubicaciones_bins con bodega=is.null en cuanto se elige "Sin bodega asignada", sin esperar a que se toque Ubicación específica, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   ubicEl.value = 'Piso';
   await new Promise(resolve => {
