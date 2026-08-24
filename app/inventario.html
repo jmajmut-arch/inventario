@@ -343,7 +343,7 @@ let state = {
   // ver sus SKU).
   contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null },
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [], adherenciaPorCiclo: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], adherenciaPorCiclo: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -1559,20 +1559,25 @@ async function opcionesBins(bodega, ubicacion){
 
 async function cargarDashboard(){
   try{
-    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferencias, valorizacion, adherenciaPorCiclo] = await Promise.all([
+    // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario,
+    // ver reconteo_pendiente.valor_diferencia_linea), no por magnitud en unidades — top 10
+    // excedentes (mayor valor a favor) y top 10 pérdidas (mayor valor en contra), por separado.
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, adherenciaPorCiclo] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
       rest(`/avance_mensual?order=mes.desc&limit=6`),
       rest(`/rpc/ranking_responsable`, {method:'POST', body:{dias: VENTANA_PROYECCION_DIAS}}),
       rest(`/exactitud_por_bodega?order=bodega.asc`),
-      rest(`/reconteo_pendiente?select=*&order=diferencia_abs.desc&limit=5`),
+      rest(`/reconteo_pendiente?select=*&valor_diferencia_linea=gt.0&order=valor_diferencia_linea.desc&limit=10`),
+      rest(`/reconteo_pendiente?select=*&valor_diferencia_linea=lt.0&order=valor_diferencia_linea.asc&limit=10`),
       rest(`/valorizacion_diferencias?order=bodega.asc`),
       rest(`/adherencia_por_ciclo?order=bodega.asc`),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
-      ranking: ranking||[], exactitudBodega: exactitudBodega||[], topDiferencias: topDiferencias||[],
+      ranking: ranking||[], exactitudBodega: exactitudBodega||[],
+      topDiferenciasPositivas: topDiferenciasPositivas||[], topDiferenciasNegativas: topDiferenciasNegativas||[],
       valorizacion: valorizacion||[], adherenciaPorCiclo: adherenciaPorCiclo||[],
     }});
   }catch(e){ toast(e.message,'err'); }
@@ -2584,6 +2589,23 @@ function renderExactitudBarList(filas){
   </div>`).join('');
 }
 
+// Top materiales con diferencia, por costo total de la línea (diferencia x costo_unitario) —
+// se usa tanto para el top 10 de excedentes (valores positivos) como el de pérdidas (negativos).
+function tablaTopDiferencias(rows){
+  if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th class="num">Valor</th><th>Causa probable</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
+      <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
+      <td class="num">${r.ultima_cantidad_contada}</td>
+      <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
+      <td class="num" style="${Number(r.valor_diferencia_linea)<0?'color:var(--danger)':'color:var(--ok)'}">${clp(r.valor_diferencia_linea)}</td>
+      <td>${causaProbableBadge(r.causa_probable)}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
 // SKU que faltan por contar en cada ubicación general, de mayor a menor — dónde falta trabajar.
 function resumenPendientesPorBodega(t){
   return t
@@ -2771,7 +2793,8 @@ function renderInformeEjecutivo(){
       sub: `${r.sin_diferencia||0}/${r.skus_contados||0}`,
     }))
     .sort((a,b)=> a.pct-b.pct); // peor exactitud primero: dónde conviene intervenir
-  const topDiferencias = state.dash.topDiferencias||[];
+  const topDiferenciasPositivas = state.dash.topDiferenciasPositivas||[];
+  const topDiferenciasNegativas = state.dash.topDiferenciasNegativas||[];
 
   // Valorización: mismo patrón que exactitud_por_bodega, agregado por bodega en la vista
   // valorizacion_diferencias y sumado acá — solo cuenta los SKU con costo_unitario cargado,
@@ -2841,18 +2864,14 @@ function renderInformeEjecutivo(){
       <div class="card">${renderExactitudBarList(rankingExactitud)}</div>
     ` : ''}
 
-    ${topDiferencias.length? `
-      <div class="section-head"><div><span class="eyebrow">Mayor magnitud</span><h2 style="font-size:17px">Top materiales con diferencia</h2></div></div>
-      <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th></tr></thead>
-        <tbody>${topDiferencias.map(r=>`<tr>
-          <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
-          <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
-          <td class="num">${r.ultima_cantidad_contada}</td>
-          <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
-          <td>${causaProbableBadge(r.causa_probable)}</td>
-        </tr>`).join('')}</tbody>
-      </table></div></div>
+    ${topDiferenciasPositivas.length? `
+      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor a favor</span><h2 style="font-size:17px">Excedentes con más impacto</h2></div></div>
+      <div class="card">${tablaTopDiferencias(topDiferenciasPositivas)}</div>
+    ` : ''}
+
+    ${topDiferenciasNegativas.length? `
+      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor en contra</span><h2 style="font-size:17px">Pérdidas con más impacto</h2></div></div>
+      <div class="card">${tablaTopDiferencias(topDiferenciasNegativas)}</div>
     ` : ''}
 
     <div class="section-head"><div><span class="eyebrow">Al ritmo actual</span><h2 style="font-size:17px">Proyección de término</h2></div></div>
