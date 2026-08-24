@@ -1164,6 +1164,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dashboardModo = 'ejecutivo';
   ctx.__appstate.ultimosConteos = [];
   const htmlDash = ctx.renderDashboard();
+  // Aclaración de UX pedida por el usuario: "Conteos recientes" (y "Materiales contados" más
+  // abajo) siempre se acotan al ciclo actual, sin relación con el selector de período de
+  // Adherencia al plan — el rótulo "(ciclo actual)" deja eso explícito en vez de que parezca
+  // un bug cuando alguien elige "Todos los períodos" y este número no cambia.
+  assert(htmlDash.includes('Conteos recientes (ciclo actual)'), 'la tarjeta de conteos recientes (vista Ejecutivo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDash);
+  ctx.__appstate.dashboardModo = 'operativo';
+  const htmlDashOperativo = ctx.renderDashboard();
+  assert(htmlDashOperativo.includes('Materiales contados (ciclo actual)'), 'la lista de materiales contados (vista Operativo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDashOperativo);
+  ctx.__appstate.dashboardModo = 'ejecutivo';
   assert(htmlDash.includes('SKU pendientes por ubicación general'), 'debe existir la sección de pendientes por ubicación general, obtuvo: '+htmlDash);
   assert(htmlDash.includes('Nave Mina') && htmlDash.includes('20 SKU'), 'debe mostrar Nave Mina con 20 SKU pendientes, obtuvo: '+htmlDash);
   const idxPendientes = htmlDash.indexOf('SKU pendientes por ubicación general');

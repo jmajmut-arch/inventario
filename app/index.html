@@ -2894,9 +2894,9 @@ function renderInformeEjecutivo(){
         <div class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</div>
       </div>
       <div class="tag-card">
-        <div class="kpi-label">Conteos recientes</div>
+        <div class="kpi-label">Conteos recientes (ciclo actual)</div>
         <div class="kpi-value">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</div>
-        <div class="kpi-sub">últimos del período actual</div>
+        <div class="kpi-sub">no cambia con el selector de período de Adherencia — para ver otros ciclos, usa Buscar</div>
       </div>
     </div>
 
@@ -3124,7 +3124,7 @@ function renderDashboard(){
     <div class="section-head"><h2 style="font-size:17px">Mensual</h2></div>
     <div class="card">${periodTable(state.dash.mensual,'Mes','mes')}</div>
 
-    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados (ciclo actual)</h2></div></div>
     <div class="card">
       ${state.ultimosConteos.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
