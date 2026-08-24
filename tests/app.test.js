@@ -68,6 +68,7 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify([
         {bodega:'Nave Mina', cantidad_skus: 23708},
         {bodega:'Nave Planta', cantidad_skus: 4235},
+        {bodega:null, cantidad_skus: 8},
       ]),
     };
   }
@@ -84,14 +85,18 @@ const fakeFetchImpl = async (url, opts) => {
     ]) };
   }
   if(path.startsWith('/rest/v1/ubicaciones_especificas')){
+    // bodega=is.null: SKU con ubicación específica pero sin bodega asignada (BODEGA_VACIA).
+    const filas = path.includes('bodega=is.null') ? [
+      {bodega:null, ubicacion:'Piso', cantidad_skus: 8},
+    ] : [
+      {bodega:'Nave Mina', ubicacion:'Interior Nave', cantidad_skus: 100},
+      {bodega:'Nave Mina', ubicacion:'Rack', cantidad_skus: 50},
+    ];
     return {
       status: 200,
       ok: true,
       headers: { get: () => null },
-      text: async () => JSON.stringify([
-        {bodega:'Nave Mina', ubicacion:'Interior Nave', cantidad_skus: 100},
-        {bodega:'Nave Mina', ubicacion:'Rack', cantidad_skus: 50},
-      ]),
+      text: async () => JSON.stringify(filas),
     };
   }
   if(path.startsWith('/rest/v1/ubicaciones_bins')){
@@ -474,8 +479,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // state.plan.generales debe poblarse.
   await ctx.cargarOpcionesGenerales();
   const generales = ctx.__appstate.plan.generales;
-  assert(Array.isArray(generales) && generales.length===2, 'cargarOpcionesGenerales debe cargar 2 filas, obtuvo: '+JSON.stringify(generales));
+  assert(Array.isArray(generales) && generales.length===3, 'cargarOpcionesGenerales debe cargar 3 filas (incluida la de bodega=null), obtuvo: '+JSON.stringify(generales));
   assert(generales[0].bodega==='Nave Mina', 'primer valor debe ser Nave Mina');
+  // SKU con ubicación específica pero SIN bodega (ej. recién cargados por Excel sin esa
+  // columna): antes ubicaciones_generales los excluía por completo (bodega IS NOT NULL) y
+  // quedaban invisibles en el selector "Ubicación general" — ni ahí ni en "SKU sin ubicación"
+  // (que exige bodega Y ubicación null). Ahora aparecen agrupados con bodega=null.
+  assert(generales.some(g=>g.bodega===null && g.cantidad_skus===8), 'debe incluir el grupo de SKU sin bodega asignada, obtuvo: '+JSON.stringify(generales));
 
   // cargarOpcionesCategoriasUnidades: sugerencias (datalist) de categoría/unidad de medida
   // para "Cargar SKU", basadas en lo que la empresa ya usó.
@@ -545,6 +555,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlOut.includes('<select id="p-ubic" disabled>'), 'p-ubic debe iniciar como <select disabled>');
   assert(htmlOut.includes('<select id="p-bin" multiple size="6" disabled>'), 'p-bin debe iniciar como <select multiple disabled>');
   assert(htmlOut.includes('<option value="Nave Mina">Nave Mina</option>'), 'debe listar Nave Mina como opción de bodega');
+  assert(htmlOut.includes('<option value="__bodega_vacia__">Sin bodega asignada (8)</option>'), 'debe ofrecer el grupo "Sin bodega asignada" para los SKU con ubicación pero sin bodega, obtuvo: '+htmlOut);
   assert(!htmlOut.includes('datalist'), 'no debe quedar ningún <datalist> residual');
   assert(!htmlOut.includes('placeholder="Ej. Nave Mina"'), 'el placeholder de texto libre no debe seguir ahí');
   assert(htmlOut.includes('<input type="checkbox" id="p-bin-todos" disabled>'), 'debe existir el checkbox "Seleccionar todos", inicialmente deshabilitado');
@@ -661,6 +672,42 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filasVacio = JSON.parse(postVacio.opts.body);
   assert(filasVacio.length===1 && filasVacio[0].storage_bin===null, 'Sin selección debe crear una sola fila con storage_bin null, obtuvo: '+JSON.stringify(filasVacio));
   assert(filasVacio[0].responsable_id===null, 'Sin responsable elegido, responsable_id debe ser null, obtuvo: '+JSON.stringify(filasVacio));
+
+  // ===== "Sin bodega asignada" (BODEGA_VACIA): SKU con ubicación específica pero sin bodega,
+  // ej. recién cargados por Excel sin esa columna. Antes quedaban invisibles en "Ubicación
+  // general" (ni ahí ni en "SKU sin ubicación", que exige bodega Y ubicación null) =====
+  bodegaEl.value = '__bodega_vacia__'; // debe coincidir con BODEGA_VACIA en app/index.html
+  calls.length = 0;
+  await new Promise(resolve => {
+    bodegaEl.dispatch('change', {target: bodegaEl});
+    setTimeout(resolve, 50);
+  });
+  assert(ubicEl.disabled === false, 'p-ubic debe habilitarse tras elegir "Sin bodega asignada", obtuvo disabled='+ubicEl.disabled);
+  assert(ubicEl.innerHTML.includes('Piso'), 'p-ubic debe listar las ubicaciones específicas de los SKU sin bodega, obtuvo: '+ubicEl.innerHTML);
+  const especificasVaciaCall = calls.find(c=>c.url.includes('/ubicaciones_especificas'));
+  assert(!!especificasVaciaCall && especificasVaciaCall.url.includes('bodega=is.null'), 'debe pedir ubicaciones_especificas con bodega=is.null (no un eq. literal contra el texto del sentinel), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  ubicEl.value = 'Piso';
+  await new Promise(resolve => {
+    ubicEl.dispatch('change', {target: ubicEl});
+    setTimeout(resolve, 50);
+  });
+  const binesCallVacia = calls.find(c=>c.url.includes('/ubicaciones_bins'));
+  assert(!!binesCallVacia && binesCallVacia.url.includes('bodega=is.null'), 'debe pedir ubicaciones_bins con bodega=is.null también, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Al enviar, la bodega debe guardarse como '' (bodega IS NULL explícito), NO como null —
+  // null ya significa otra cosa: el comodín "sin restricción de bodega" del campo dejado en
+  // blanco, que es un caso totalmente distinto y ya existente.
+  makeEl('p-fecha').value = '2026-08-12';
+  calls.length = 0;
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 20);
+  });
+  const postSinBodega = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  const filaSinBodega = JSON.parse(postSinBodega.opts.body)[0];
+  assert(filaSinBodega.bodega==='', '"Sin bodega asignada" debe guardarse como bodega:"" (distinto del comodín null), obtuvo: '+JSON.stringify(filaSinBodega));
+  assert(filaSinBodega.ubicacion==='Piso', 'debe conservar la ubicación específica elegida, obtuvo: '+JSON.stringify(filaSinBodega));
 
   // ===== SKU sin ubicación (bodega/ubicación en null): deben poder incluirse en el plan =====
 
@@ -1983,6 +2030,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(patchesCiclo[1].url.includes('id=eq.ciclo-2') && JSON.parse(patchesCiclo[1].opts.body).es_actual===true, 'el segundo PATCH debe marcar el ciclo elegido como actual, obtuvo: '+JSON.stringify(patchesCiclo[1]));
 
   // ===== Planificación vinculada a ciclos de conteo (períodos) =====
+
+  // Con ciclos ya cargados, el selector "Período" de arriba de la página (para navegar por
+  // semana o por período) y el que tenía el formulario "Agregar a la planificación" (para
+  // elegir a qué período asignar la entrada nueva) se veían duplicados en pantalla, con el
+  // mismo nombre y la misma lista de ciclos — se sacó el del formulario (queda automático,
+  // asignado siempre al ciclo marcado como actual), y solo debe quedar el de arriba.
+  const htmlPlanConCiclos = ctx.renderPlanificacion();
+  assert(htmlPlanConCiclos.includes('id="plan-filtro-ciclo"'), 'debe seguir existiendo el selector de período para navegar arriba de la página, obtuvo: '+htmlPlanConCiclos);
+  assert(!htmlPlanConCiclos.includes('id="p-ciclo"'), 'el formulario de "Agregar a la planificación" ya no debe tener su propio selector de Período duplicado, obtuvo: '+htmlPlanConCiclos);
 
   // crearPlanEntrada: con cicloId, debe mandar ciclo_id en el POST; sin cicloId, null (el
   // trigger del lado del servidor lo completa solo con el ciclo marcado como actual).
