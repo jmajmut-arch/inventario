@@ -1172,10 +1172,11 @@ async function crearCiclo(nombre){
 async function marcarCicloActual(id){
   if(!perfilCargado()) return;
   try{
-    // Primero se desmarca cualquier ciclo actual de la empresa y después se marca el nuevo:
-    // son dos transacciones separadas, así nunca queda un momento con dos ciclos "actuales" a la vez.
-    await rest(`/ciclos_conteo?empresa_id=eq.${state.perfil.empresa_id}&es_actual=eq.true`, {method:'PATCH', body:{es_actual:false}, prefer:'return=minimal'});
-    await rest(`/ciclos_conteo?id=eq.${id}`, {method:'PATCH', body:{es_actual:true}, prefer:'return=minimal'});
+    // Desmarcar el ciclo actual previo y marcar el nuevo ocurre en una sola transacción de RPC
+    // (marcar_ciclo_actual), no en dos PATCH separados: así nunca queda una ventana donde dos
+    // ciclos puedan quedar marcados "actuales" a la vez (respaldado además por un índice único
+    // parcial en la base).
+    await rest('/rpc/marcar_ciclo_actual', {method:'POST', body:{ciclo_id:id}});
     toast('Ciclo actual actualizado');
     cargarCiclos();
   }catch(e){ toast(e.message,'err'); }
