@@ -2819,6 +2819,8 @@ function renderInformeEjecutivo(){
   // Valorización: mismo patrón que exactitud_por_bodega, agregado por bodega en la vista
   // valorizacion_diferencias y sumado acá — solo cuenta los SKU con costo_unitario cargado,
   // así que "Valor contado" no es el valor de todo el inventario, sino de lo que se pudo costear.
+  // "Valor contado" = costo_unitario × stock_sistema (el valor del inventario según el sistema),
+  // no cantidad_contada: no debe variar según lo que se lleva contado, sino reflejar el stock.
   const valorizBodega = state.dash.valorizacion||[];
   const valorContado = valorizBodega.reduce((s,r)=>s+(Number(r.valor_contado)||0),0);
   const valorPerdidas = valorizBodega.reduce((s,r)=>s+(Number(r.valor_perdidas)||0),0);
@@ -2859,7 +2861,7 @@ function renderInformeEjecutivo(){
         <div class="tag-card">
           <div class="kpi-label">Valor contado</div>
           <div class="kpi-value" style="font-size:20px">${clp(valorContado)}</div>
-          <div class="kpi-sub">último conteo de cada SKU</div>
+          <div class="kpi-sub">stock según sistema</div>
         </div>
         <div class="tag-card">
           <div class="kpi-label">Pérdidas</div>
