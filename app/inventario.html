@@ -3595,6 +3595,12 @@ function renderPlanificacion(){
   }));
   const totalSemana = datosPorDia.reduce((s,d)=>s+d.cantidad, 0);
   const responsablesResumen = resumenPorResponsable(p.entradas, p.universos);
+  // El formulario "Agregar a la planificación" debe abrir en el día de hoy (lo más probable
+  // es que estés planificando para hoy), no en el lunes de la semana — pero si estás navegando
+  // una semana distinta a la actual, hoy cae fuera de [semanaInicio, finSemana] y hay que
+  // quedarse con el lunes de esa semana para no violar los min/max del campo.
+  const hoyISO = fechaISO(new Date());
+  const fechaPlanDefault = (hoyISO >= p.semanaInicio && hoyISO <= fechaISO(finSemana)) ? hoyISO : p.semanaInicio;
 
   return `
     <div class="section-head">
@@ -3622,7 +3628,7 @@ function renderPlanificacion(){
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
-        <input type="date" id="p-fecha" value="${p.semanaInicio}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
+        <input type="date" id="p-fecha" value="${fechaPlanDefault}" min="${p.semanaInicio}" max="${fechaISO(finSemana)}" required>
         <label for="p-bodega">Ubicación general</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
@@ -4087,6 +4093,8 @@ function renderShell(){
     plan: renderPlanificacion,
   }[state.view]();
 
+  const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
+
   return `
     <div class="topbar">
       <div class="topbar-row">
@@ -4096,7 +4104,7 @@ function renderShell(){
         </div>
         <div class="user-chip">
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
-          <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}</span>
+          <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
           <button id="btn-logout">${ICONS.logout} Salir</button>
         </div>
       </div>

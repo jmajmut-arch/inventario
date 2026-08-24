@@ -565,6 +565,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postOperador = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/responsables_proceso'));
   assert(!!postOperador && JSON.parse(postOperador.opts.body)[0].nombre==='Carlos Rojas', 'el submit del formulario de operadores debe crear el operador con el nombre ingresado, obtuvo: '+JSON.stringify(postOperador));
 
+  // El campo "Fecha" del formulario de planificación debe abrir en el día de hoy (no en el
+  // lunes de la semana): a esta altura state.plan.semanaInicio todavía es el valor por defecto
+  // del estado inicial (el lunes de la semana actual), así que hoy cae dentro del rango.
+  const htmlPlanHoy = ctx.renderPlanificacion();
+  assert(htmlPlanHoy.includes(`id="p-fecha" value="${ctx.fechaISO(new Date())}"`), 'el campo de fecha debe abrir con el día de hoy cuando la semana mostrada lo incluye, obtuvo: '+htmlPlanHoy.match(/id="p-fecha"[^>]*/)[0]);
+
   // Simular el cambio de bodega -> debe poblar y habilitar el select de ubicación específica.
   // Reutilizamos bind() real: ejecutamos el bloque de bind correspondiente a state.view==='plan'
   // llamando directamente a los listeners registrados por bind() sobre los elementos mockeados.
@@ -897,6 +903,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Semana sin conteos -> mensaje de vacío, sin tablas, y aun así llama a print() (sin pedir SKU a la base).
   ctx.__appstate.plan = {semanaInicio:'2026-08-10', entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[]};
+
+  // Si la semana mostrada NO incluye hoy (ej. navegando a una semana pasada), el campo "Fecha"
+  // debe quedarse en el lunes de esa semana en vez de forzar la fecha de hoy, que quedaría
+  // fuera del rango min/max del campo.
+  const htmlPlanSemanaPasada = ctx.renderPlanificacion();
+  assert(htmlPlanSemanaPasada.includes('id="p-fecha" value="2026-08-10"'), 'el campo de fecha debe quedarse en el lunes de la semana mostrada cuando hoy no cae dentro de ese rango, obtuvo: '+htmlPlanSemanaPasada.match(/id="p-fecha"[^>]*/)[0]);
   printEl.innerHTML = '';
   printCalled = 0;
   calls.length = 0;
@@ -1588,6 +1600,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.ultimosConteos = [];
   const shellHtml = ctx.renderShell();
   assert(shellHtml.includes('Minera Andes'), 'la barra superior debe mostrar el nombre de la empresa actual, obtuvo: '+shellHtml.slice(0,600));
+  // Junto al nombre en la barra superior también debe verse el rol: super-admin, admin normal
+  // u operador — antes solo se veía el nombre, sin decir con qué permisos está esa persona.
+  assert(shellHtml.includes('Vendedor') && shellHtml.includes('Super-admin'), 'la barra superior debe mostrar "Super-admin" junto al nombre para una cuenta con es_super_admin, obtuvo: '+shellHtml.slice(0,700));
+  ctx.__appstate.perfil = { id:4, nombre:'Beto Ríos', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const shellHtmlOperador = ctx.renderShell();
+  assert(shellHtmlOperador.includes('Beto Ríos') && shellHtmlOperador.includes('Operador'), 'la barra superior debe mostrar "Operador" junto al nombre para esa cuenta, obtuvo: '+shellHtmlOperador.slice(0,700));
+  ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
 
   // ===== Resumen de negocio del super-admin =====
   calls.length = 0;
