@@ -3571,12 +3571,13 @@ function renderBuscar(){
     <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
         <tbody>${resultados.map(r=>{
           const urls = r.foto_urls||[];
           const contado = !!r.conteo_id;
           return `<tr>
-            <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
+            <td class="mono">${esc(r.sku_code)}</td>
+            <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
             <td class="num">${contado? r.cantidad_contada : '—'}</td>
             <td>${contado? estadoBadge(r.estado, r.diferencia) : `<span class="badge badge-neutral">No contado</span>`}</td>
