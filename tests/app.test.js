@@ -60,6 +60,12 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/plan_semanal_exclusiones')){
     return { status: 201, ok: true, headers: { get: () => null }, text: async () => '' };
   }
+  if(path.startsWith('/rest/v1/plan_semanal') && !path.startsWith('/rest/v1/plan_semanal_detalle') && opts && opts.method==='POST'){
+    // crearPlanEntrada pide return=representation para conocer el id de la fila recién creada
+    // (necesario para mandar las exclusiones de SKU cuando aplica — ver "sin bin, elegir SKU").
+    const filas = JSON.parse(opts.body).map((f,i)=>({...f, id:`plan-nuevo-${i+1}`}));
+    return { status: 201, ok: true, headers: { get: () => null }, text: async () => JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/ubicaciones_generales')){
     return {
       status: 200,
@@ -302,20 +308,16 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/responsables_proceso')){
-    // "¿A qué responsable está vinculada esta cuenta de login?" (cargarPlanDeHoy): resp-yo
-    // para la cuenta de prueba 'usuario-vinculado', ninguno para cualquier otra.
-    if(path.includes('usuario_id=eq.')){
-      const filas = path.includes('usuario_id=eq.usuario-vinculado') ? [{id:'resp-yo'}] : [];
-      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
-    }
+  if(path.startsWith('/rest/v1/usuarios?activo=eq.true&select=')){
+    // cargarResponsables (Planificación → Responsable): las cuentas activas del equipo,
+    // ya no una lista aparte de "operadores" sin cuenta ni login.
     return {
       status: 200,
       ok: true,
       headers: { get: () => null },
       text: async () => JSON.stringify([
-        {id:'u1', nombre:'Ana Torres', usuario_id:null},
-        {id:'u2', nombre:'Joel Majmut', usuario_id:'usuario-vinculado'},
+        {id:'u1', nombre:'Ana Torres'},
+        {id:'u2', nombre:'Joel Majmut'},
       ]),
     };
   }
@@ -343,6 +345,19 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true') && path.includes('bodega=is.null') && path.includes('ubicacion=is.null')){
     const filas = [{sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}];
+    return {
+      status: 200, ok: true,
+      headers: { get: (h) => h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null },
+      text: async () => JSON.stringify(filas),
+    };
+  }
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida') && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
+    // "Piso" (bodega=is.null) no tiene ningún storage_bin cargado -> cargarBinsPara cae al
+    // listado de SKU puntuales (ver "sin bin, elegir SKU" más abajo en este archivo).
+    const filas = [
+      {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', storage_bin:null, unidad_medida:'UN'},
+      {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', storage_bin:null, unidad_medida:'UN'},
+    ];
     return {
       status: 200, ok: true,
       headers: { get: (h) => h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null },
@@ -535,20 +550,6 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
   ctx.__appstate.perfil = { id:1, nombre:'Test', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Empresa Test', codigo_invitacion:'ABC12345'} };
 
-  // crearResponsable / quitarResponsable deben pegarle a responsables_proceso.
-  calls.length = 0;
-  await ctx.crearResponsable('Nuevo Responsable');
-  const postResponsable = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/responsables_proceso'));
-  assert(!!postResponsable, 'crearResponsable debe hacer POST a /responsables_proceso');
-  assert(JSON.parse(postResponsable.opts.body)[0].nombre==='Nuevo Responsable', 'el POST debe llevar el nombre ingresado');
-  assert(JSON.parse(postResponsable.opts.body)[0].empresa_id==='emp-1', 'el POST debe llevar el empresa_id del perfil actual');
-
-  calls.length = 0;
-  await ctx.quitarResponsable('u1');
-  const patchResponsable = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/responsables_proceso?id=eq.u1'));
-  assert(!!patchResponsable, 'quitarResponsable debe hacer PATCH a /responsables_proceso?id=eq.<id>');
-  assert(JSON.parse(patchResponsable.opts.body).activo===false, 'quitarResponsable debe desactivar (activo:false), no borrar');
-
   // Verificar que renderPlanificacion genera los <select> encadenados, el de Responsable y la lista de responsables.
   const htmlOut = ctx.renderPlanificacion();
   assert(htmlOut.includes('<select id="p-bodega">'), 'p-bodega debe ser un <select>');
@@ -560,34 +561,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlOut.includes('placeholder="Ej. Nave Mina"'), 'el placeholder de texto libre no debe seguir ahí');
   assert(htmlOut.includes('<input type="checkbox" id="p-bin-todos" disabled>'), 'debe existir el checkbox "Seleccionar todos", inicialmente deshabilitado');
   assert(htmlOut.includes('<select id="p-responsable">') && htmlOut.includes('<option value="">Sin asignar</option>'), 'debe existir el select de Responsable con opción "Sin asignar"');
-  assert(htmlOut.includes('<option value="u1">Ana Torres</option>') && htmlOut.includes('<option value="u2">Joel Majmut</option>'), 'el select de Responsable debe listar los responsables activos, obtuvo: '+htmlOut);
-  assert(!htmlOut.includes('form-responsable') && !htmlOut.includes('form-operador'), 'la gestión de operadores ya no debe estar en Planificación (se movió a Configuraciones), obtuvo: '+htmlOut);
+  // Responsable ahora lista directo las cuentas del equipo (usuarios), no una lista aparte de
+  // "operadores" sin cuenta ni login.
+  assert(htmlOut.includes('<option value="u1">Ana Torres</option>') && htmlOut.includes('<option value="u2">Joel Majmut</option>'), 'el select de Responsable debe listar las cuentas activas del equipo, obtuvo: '+htmlOut);
+  assert(!htmlOut.includes('form-responsable') && !htmlOut.includes('form-operador'), 'la gestión de operadores ya no debe existir (Responsable usa las cuentas de Configuraciones → Equipo), obtuvo: '+htmlOut);
 
-  // La gestión de operadores ahora vive en Configuraciones: formulario para agregar + lista con botón eliminar.
+  // La sección "Operadores" (nombres sueltos sin cuenta) ya no debe existir en Configuraciones:
+  // Responsable se cruza directo con las cuentas reales del equipo.
   const htmlConfig = ctx.renderConfiguraciones();
-  assert(htmlConfig.includes('id="form-operador"') && htmlConfig.includes('id="nuevo-operador"'), 'Configuraciones debe tener el formulario para agregar operadores, obtuvo: '+htmlConfig);
-  assert(htmlConfig.includes('data-eliminar-operador="u1"') && htmlConfig.includes('data-eliminar-operador="u2"'), 'Configuraciones debe listar cada operador con un botón para eliminarlo, obtuvo: '+htmlConfig);
-  assert(htmlConfig.includes('Ana Torres') && htmlConfig.includes('Joel Majmut'), 'Configuraciones debe mostrar los nombres de los operadores existentes');
-
-  // bind() en la vista 'config' debe conectar el formulario y los botones de eliminar a las funciones reales.
-  ctx.__appstate.view = 'config';
-  ctx.bind();
-  calls.length = 0;
-  const nuevoOperadorEl = makeEl('nuevo-operador');
-  nuevoOperadorEl.value = 'Carlos Rojas';
-  const formOperadorEl = elements['form-operador'];
-  await new Promise(resolve => {
-    formOperadorEl.dispatch('submit', {target: formOperadorEl, preventDefault(){}});
-    setTimeout(resolve, 20);
-  });
-  const postOperador = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/responsables_proceso'));
-  assert(!!postOperador && JSON.parse(postOperador.opts.body)[0].nombre==='Carlos Rojas', 'el submit del formulario de operadores debe crear el operador con el nombre ingresado, obtuvo: '+JSON.stringify(postOperador));
+  assert(!htmlConfig.includes('id="form-operador"') && !htmlConfig.includes('id="nuevo-operador"') && !htmlConfig.includes('data-eliminar-operador'), 'Configuraciones no debe tener el formulario de operadores sueltos, obtuvo: '+htmlConfig);
 
   // El campo "Fecha" del formulario de planificación debe abrir en el día de hoy (no en el
   // lunes de la semana): a esta altura state.plan.semanaInicio todavía es el valor por defecto
   // del estado inicial (el lunes de la semana actual), así que hoy cae dentro del rango.
   const htmlPlanHoy = ctx.renderPlanificacion();
   assert(htmlPlanHoy.includes(`id="p-fecha" value="${ctx.fechaISO(new Date())}"`), 'el campo de fecha debe abrir con el día de hoy cuando la semana mostrada lo incluye, obtuvo: '+htmlPlanHoy.match(/id="p-fecha"[^>]*/)[0]);
+  // El máximo seleccionable debe llegar al menos 7 días después de hoy, no solo hasta el fin
+  // de la semana mostrada (reportado: si hoy cae cerca del fin de semana, casi no dejaba
+  // planificar hacia adelante).
+  const maxEsperado = ctx.fechaISO(ctx.sumarDias(new Date(), 7));
+  assert(htmlPlanHoy.includes(`max="${maxEsperado}"`), 'el campo de fecha debe permitir elegir al menos 7 días hacia adelante desde hoy, obtuvo: '+htmlPlanHoy.match(/id="p-fecha"[^>]*/)[0]);
 
   // Simular el cambio de bodega -> debe poblar y habilitar el select de ubicación específica.
   // Reutilizamos bind() real: ejecutamos el bloque de bind correspondiente a state.view==='plan'
@@ -712,14 +705,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!binesCallVacia && binesCallVacia.url.includes('bodega=is.null'), 'debe pedir ubicaciones_bins con bodega=is.null también, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   // El fixture de ubicaciones_bins no tiene ningún storage_bin para "Piso" (solo para las
   // ubicaciones de Nave Mina) -> lista vacía real, igual que los 8 SKU reales sin bin cargado.
-  // Reportado por el usuario: la caja quedaba vacía sin explicación y no quedaba claro que se
-  // podía seguir sin elegir nada ahí. Debe mostrar un mensaje que invite a continuar igual.
-  assert(elements['p-bin'].innerHTML==='', 'Storage bin debe quedar vacío cuando no hay bins cargados para la ubicación, obtuvo: '+elements['p-bin'].innerHTML);
-  assert(elements['p-bin-hint'].textContent.includes('No hay storage bin cargado') && elements['p-bin-hint'].textContent.includes('Puedes agregar igual'), 'debe explicar que se puede agregar igual sin bin, obtuvo: '+elements['p-bin-hint'].textContent);
+  // Reportado por el usuario: la caja quedaba vacía sin explicación y no dejaba avanzar. Ahora,
+  // en vez de solo un mensaje, se listan los SKU de la ubicación para poder elegir puntualmente.
+  assert(elements['p-bin'].dataset.modo==='skus', 'sin storage bin cargado, #p-bin debe pasar a modo "skus", obtuvo: '+elements['p-bin'].dataset.modo);
+  assert(elements['p-bin'].innerHTML.includes('SKU-P1') && elements['p-bin'].innerHTML.includes('SKU-P2'), 'debe listar los SKU de la ubicación como opciones, obtuvo: '+elements['p-bin'].innerHTML);
+  assert(elements['p-bin-hint'].textContent.includes('No hay storage bin cargado') && elements['p-bin-hint'].textContent.includes('elegir SKU puntuales'), 'debe explicar que se pueden elegir SKU puntuales, obtuvo: '+elements['p-bin-hint'].textContent);
 
-  // Al enviar, la bodega debe guardarse como '' (bodega IS NULL explícito), NO como null —
-  // null ya significa otra cosa: el comodín "sin restricción de bodega" del campo dejado en
-  // blanco, que es un caso totalmente distinto y ya existente.
+  // Al enviar sin tocar la lista de SKU (sin selección = todos), la bodega debe guardarse como
+  // '' (bodega IS NULL explícito), NO como null — null ya significa otra cosa: el comodín "sin
+  // restricción de bodega" del campo dejado en blanco, un caso totalmente distinto y ya existente.
+  // Tampoco debe mandar ninguna exclusión (sin selección = todos los SKU incluidos).
   makeEl('p-fecha').value = '2026-08-12';
   calls.length = 0;
   await new Promise(resolve => {
@@ -730,6 +725,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filaSinBodega = JSON.parse(postSinBodega.opts.body)[0];
   assert(filaSinBodega.bodega==='', '"Sin bodega asignada" debe guardarse como bodega:"" (distinto del comodín null), obtuvo: '+JSON.stringify(filaSinBodega));
   assert(filaSinBodega.ubicacion==='Piso', 'debe conservar la ubicación específica elegida, obtuvo: '+JSON.stringify(filaSinBodega));
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones')), 'sin deseleccionar ningún SKU, no debe mandar ninguna exclusión, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Eligiendo solo SKU-P1 (deja SKU-P2 sin marcar), el resto de los SKU de la ubicación debe
+  // excluirse de la entrada creada — misma tabla que usa "quitar SKU" sobre una entrada ya
+  // creada (plan_semanal_exclusiones), pero aplicada de una sola vez al crear.
+  elements['p-bin'].selectedOptions = [{value:'SKU-P1'}];
+  calls.length = 0;
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 20);
+  });
+  const postConExclusion = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(!!postConExclusion, 'debe seguir creando la entrada del plan aunque se hayan deseleccionado SKU, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const postExclusionSku = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
+  assert(!!postExclusionSku, 'eligiendo solo algunos SKU, debe mandar el resto como exclusión de la entrada creada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const filasExclusion = JSON.parse(postExclusionSku.opts.body);
+  assert(filasExclusion.length===1 && filasExclusion[0].sku_code==='SKU-P2' && filasExclusion[0].plan_id==='plan-nuevo-1', 'debe excluir SKU-P2 (el no elegido) de la entrada recién creada, obtuvo: '+JSON.stringify(filasExclusion));
 
   // ===== SKU sin ubicación (bodega/ubicación en null): deben poder incluirse en el plan =====
 
@@ -1905,13 +1917,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.conteoFotos = [];
     await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
     await ctx.crearSkuManual({sku_code:'SKU-000', descripcion:'x', activo:true});
-    await ctx.crearResponsable('Alguien');
     await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:[], responsableId:'', nota:''});
     await ctx.confirmarCargaMasiva();
 
     assert(calls.length===0, 'con el perfil sin cargar, ninguna de estas acciones debe llegar a llamar a la red, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     const nuevosToastsPerfil = toastRootPerfil.hijos.slice(toastsAntesPerfil);
-    assert(nuevosToastsPerfil.length>=5 && nuevosToastsPerfil.every(t=>/no se pudo cargar tu perfil/i.test(t.textContent)), 'cada acción debe avisar con un mensaje claro en vez de crashear, obtuvo: '+JSON.stringify(nuevosToastsPerfil.map(t=>t.textContent)));
+    assert(nuevosToastsPerfil.length>=4 && nuevosToastsPerfil.every(t=>/no se pudo cargar tu perfil/i.test(t.textContent)), 'cada acción debe avisar con un mensaje claro en vez de crashear, obtuvo: '+JSON.stringify(nuevosToastsPerfil.map(t=>t.textContent)));
 
     ctx.__appstate.perfil = perfilOriginal;
   }
@@ -2597,49 +2608,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const nuevosToastsSesionInvalida = toastRootSesionInvalida.hijos.slice(toastsAntesSesionInvalida);
   assert(nuevosToastsSesionInvalida.some(t=>t.textContent.includes('otro dispositivo')), 'debe mostrar un toast explicando que la sesión terminó en otro dispositivo, obtuvo: '+JSON.stringify(nuevosToastsSesionInvalida.map(t=>t.textContent)));
 
-  // ===== Contar: plan del día (vinculado a responsables_proceso.usuario_id) =====
+  // ===== Contar: plan del día (responsable_id en plan_semanal es directo el id de la cuenta) =====
 
   // El test anterior forzó un 401 y manejarSesionInvalida() reemplaza `state` por un objeto
   // nuevo (estadoTrasCerrarSesion()) — hay que resincronizar __appstate con esa referencia o
   // las asignaciones ctx.__appstate.X de aquí en adelante quedarían en el objeto viejo, sin
   // efecto sobre el `state` real que usan las funciones de la app (ver lección de sesión previa).
   ctx.__resyncAppState();
-  // El reset de sesión también dejó state.perfil en null; crearResponsable/actualizarResponsable
-  // (como toda escritura real de la app) exigen perfilCargado(), así que hay que restablecerlo
-  // antes de ejercitar cualquier función de este bloque.
-  ctx.__appstate.perfil = { id:'usuario-vinculado', nombre:'Joel', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  // "resp-yo" es el id de cuenta que usa el fixture de /plan_semanal_detalle para "mi plan del
+  // día" (ver más arriba en este archivo) — antes había que resolverlo vía responsables_proceso,
+  // ahora responsable_id ya es directamente el id de la cuenta logueada.
+  ctx.__appstate.perfil = { id:'resp-yo', nombre:'Joel', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
-  // crearResponsable/actualizarResponsable deben poder mandar el vínculo con la cuenta de login.
-  calls.length = 0;
-  await ctx.crearResponsable('Carlos Ríos', 'usuario-vinculado');
-  const postOperadorVinculado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/responsables_proceso'));
-  assert(!!postOperadorVinculado && JSON.parse(postOperadorVinculado.opts.body)[0].usuario_id==='usuario-vinculado', 'crearResponsable debe mandar el usuario_id elegido, obtuvo: '+JSON.stringify(postOperadorVinculado));
-  calls.length = 0;
-  await ctx.crearResponsable('Sin vincular', '');
-  const postOperadorSinVincular = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/responsables_proceso'));
-  assert(!!postOperadorSinVincular && JSON.parse(postOperadorSinVincular.opts.body)[0].usuario_id===null, 'crearResponsable sin cuenta elegida debe mandar usuario_id null, obtuvo: '+JSON.stringify(postOperadorSinVincular));
-
-  calls.length = 0;
-  await ctx.actualizarResponsable('u1', {usuario_id:'usuario-vinculado'});
-  const patchVinculo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/responsables_proceso?id=eq.u1'));
-  assert(!!patchVinculo && JSON.parse(patchVinculo.opts.body).usuario_id==='usuario-vinculado', 'actualizarResponsable debe hacer PATCH con el nuevo usuario_id, obtuvo: '+JSON.stringify(patchVinculo));
-
-  // Configuraciones: el selector de "Cuenta de login" en el form y por cada operador ya existente.
-  ctx.__appstate.plan.responsables = [{id:'u1', nombre:'Ana Torres', usuario_id:null}, {id:'u2', nombre:'Joel Majmut', usuario_id:'usuario-vinculado'}];
-  ctx.__appstate.equipo.personas = [{id:'usuario-vinculado', nombre:'Joel Majmut', rol:'operador', activo:true}, {id:'otro-usuario', nombre:'Ana Torres', rol:'admin', activo:true}];
-  const htmlOperadores = ctx.renderConfiguraciones();
-  assert(htmlOperadores.includes('id="operador-usuario"') && htmlOperadores.includes('Joel Majmut'), 'el form de "Agregar operador" debe ofrecer un selector de cuenta de login, obtuvo: '+htmlOperadores);
-  assert(/data-operador-id="u2"[^]*?<option value="usuario-vinculado" selected/.test(htmlOperadores), 'el operador ya vinculado debe mostrar su cuenta seleccionada en el select de esa fila, obtuvo: '+htmlOperadores);
-
-  // cargarPlanDeHoy: resuelve mi responsable_id (vía usuario_id) y trae mis entradas de ese día.
-  // (state.perfil ya quedó fijado como 'usuario-vinculado' más arriba, tras el resync.)
-  ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', miResponsableId:null, entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null };
+  // cargarPlanDeHoy: trae mis entradas de ese día filtrando plan_semanal_detalle directo por
+  // mi propio id de cuenta (state.perfil.id), sin ninguna resolución intermedia.
+  ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null };
   calls.length = 0;
   await ctx.cargarPlanDeHoy('2026-08-24');
-  assert(ctx.__appstate.contarPlan.miResponsableId==='resp-yo', 'cargarPlanDeHoy debe resolver mi responsable_id vía usuario_id, obtuvo: '+ctx.__appstate.contarPlan.miResponsableId);
   assert(ctx.__appstate.contarPlan.entradas.length===3, 'cargarPlanDeHoy debe traer mis 3 entradas del día, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.entradas));
   const callMiPlan = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
-  assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('responsable_id=eq.resp-yo'), 'debe filtrar plan_semanal_detalle por fecha y por mi responsable_id, obtuvo: '+JSON.stringify(callMiPlan));
+  assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('responsable_id=eq.resp-yo'), 'debe filtrar plan_semanal_detalle por fecha y por mi propio id de cuenta, obtuvo: '+JSON.stringify(callMiPlan));
 
   // entradaActivaContar: resuelve una sola entrada exacta según bodega/ubicación/bin, o la
   // de "SKU sin ubicación" (que no cascadea), o ninguna si la selección no calza con nada.
@@ -2665,12 +2653,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConteoConPlan.includes('data-pick-plan="SKU-001"') && htmlConteoConPlan.includes('Perno M8'), 'debe listar el SKU pendiente resuelto para tocar y contar, obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir disponible, ahora bajo su propio título, obtuvo: '+htmlConteoConPlan);
 
-  // Cuenta sin vincular a ningún operador: no debe mostrarse ningún bloque de "Mi plan" (solo
-  // el buscador libre de siempre) — ni un error ni un bloque vacío confuso.
-  ctx.__appstate.contarPlan = { cargado:true, cargando:false, fecha:'2026-08-24', miResponsableId:'', entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null };
-  const htmlConteoSinVincular = ctx.renderConteo();
-  assert(!htmlConteoSinVincular.includes('Plan del día'), 'sin vínculo a un operador, no debe ofrecerse el bloque de plan del día, obtuvo: '+htmlConteoSinVincular);
-  assert(htmlConteoSinVincular.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir funcionando igual sin vínculo, obtuvo: '+htmlConteoSinVincular);
+  // Sin nada planificado para mí ese día: el bloque "Plan del día" muestra su estado vacío
+  // (no un error ni una sección en blanco), y el buscador libre sigue disponible igual.
+  ctx.__appstate.contarPlan = { cargado:true, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null };
+  const htmlConteoSinPlan = ctx.renderConteo();
+  assert(htmlConteoSinPlan.includes('Plan del día') && htmlConteoSinPlan.includes('Sin nada planificado para ti este día'), 'sin entradas para hoy, debe mostrarse el estado vacío del plan del día, obtuvo: '+htmlConteoSinPlan);
+  assert(htmlConteoSinPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir funcionando igual sin plan, obtuvo: '+htmlConteoSinPlan);
 
   // bind() real: tocar un SKU del checklist del plan debe seleccionarlo y marcar
   // conteoOrigenPlan=true (para que guardarConteo lo grabe como NO "fuera de plan").
