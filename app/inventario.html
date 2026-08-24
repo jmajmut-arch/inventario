@@ -938,16 +938,21 @@ async function cargarSkusPagina(page=0){
   try{
     const { data, total } = await fetchSkusPagina(page);
     const rows = data||[];
-    // Estado del último conteo de cada SKU de esta página (para pintar en rojo/verde según
-    // si cuadró o no) — consulta aparte porque ultimo_conteo_por_sku es una vista sin FK
-    // declarada hacia skus, así que PostgREST no la puede traer embebida automáticamente.
+    // Estado del último conteo de cada SKU de esta página (para el ícono verde/amarillo/rojo
+    // según si cuadró, quedó con sobrante o con faltante) — consulta aparte porque
+    // ultimo_conteo_por_sku es una vista sin FK declarada hacia skus, así que PostgREST no la
+    // puede traer embebida automáticamente.
     if(rows.length){
       try{
         const ids = rows.map(r=>r.id).join(',');
-        const estados = await rest(`/ultimo_conteo_por_sku?sku_id=in.(${ids})&select=sku_id,estado`);
-        const porSku = new Map((estados||[]).map(e=>[e.sku_id, e.estado]));
-        rows.forEach(r=>{ r.ultimoEstado = porSku.get(r.id) || null; });
-      }catch(e){ /* si falla, la tabla igual se ve, solo sin el color */ }
+        const estados = await rest(`/ultimo_conteo_por_sku?sku_id=in.(${ids})&select=sku_id,estado,diferencia`);
+        const porSku = new Map((estados||[]).map(e=>[e.sku_id, e]));
+        rows.forEach(r=>{
+          const e = porSku.get(r.id);
+          r.ultimoEstado = e ? e.estado : null;
+          r.ultimaDiferencia = e ? e.diferencia : null;
+        });
+      }catch(e){ /* si falla, la tabla igual se ve, solo sin el ícono */ }
     }
     setState({skusPagina: { rows, page, total: total||0 }, skusSeleccionados: []});
   }catch(e){ toast(e.message,'err'); }
@@ -3242,6 +3247,19 @@ function renderSkus(){
   `;
 }
 
+// Ícono de color para el último conteo de un SKU: verde = cuadrado (sin diferencia), amarillo =
+// diferencia positiva (sobrante), rojo = diferencia negativa (faltante). null cuando aún no tiene
+// ningún conteo (no se pinta nada).
+function iconoUltimoConteo(estado, diferencia){
+  if(!estado) return '';
+  const dif = Number(diferencia)||0;
+  const color = estado==='aprobado' ? 'var(--ok)' : (dif>0 ? 'var(--warn)' : 'var(--danger)');
+  const titulo = estado==='aprobado' ? 'Último conteo cuadrado (sin diferencia)'
+    : dif>0 ? `Último conteo con diferencia positiva (+${dif})`
+    : `Último conteo con diferencia negativa (${dif})`;
+  return `<span title="${esc(titulo)}" aria-label="${esc(titulo)}" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex:none"></span>`;
+}
+
 function renderTablaSkus(){
   const sp = state.skusPagina;
   const esAdmin = state.perfil && (state.perfil.rol === 'admin' || state.perfil.es_super_admin);
@@ -3265,14 +3283,13 @@ function renderTablaSkus(){
           <button type="button" class="btn btn-secondary" id="btn-eliminar-skus-sin-contar" style="width:auto;padding:7px 14px;font-size:12.5px;color:var(--danger)">Eliminar todo (sin contar)</button>
         </div>
       </div>
-      <div class="hint" style="margin-bottom:10px">En rojo: último conteo con diferencia. En verde: último conteo cuadrado.</div>` : ''}
+      <div class="hint" style="margin-bottom:10px">🟢 Último conteo cuadrado · 🟡 Diferencia positiva (sobrante) · 🔴 Diferencia negativa (faltante)</div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?'<th></th>':''}<th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
+        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
         <tbody>${sp.rows.map(s=>{
-          const colorFila = s.ultimoEstado==='con_diferencia'? 'background:color-mix(in srgb, var(--danger) 12%, var(--surface))'
-            : s.ultimoEstado==='aprobado'? 'background:color-mix(in srgb, var(--ok) 12%, var(--surface))' : '';
-          return `<tr style="${colorFila}">
+          return `<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
+          <td>${iconoUltimoConteo(s.ultimoEstado, s.ultimaDiferencia)}</td>
           <td class="mono">${esc(s.sku_code)}</td>
           <td>${esc(s.descripcion||'—')}</td>
           <td>${esc(s.bodega||'—')}</td>

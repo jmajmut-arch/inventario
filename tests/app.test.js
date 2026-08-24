@@ -2188,20 +2188,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlTablaOperador.includes('class="chk-sku"'), 'un operador no debe ver los checkboxes de selección de SKU, obtuvo: '+htmlTablaOperador);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
-  // renderTablaSkus: pinta en rojo el SKU cuyo último conteo quedó con diferencia, en verde el
-  // que cuadró (aprobado), y sin color el que todavía no se ha contado.
+  // renderTablaSkus: en vez de pintar el fondo de toda la fila, muestra un ícono de color junto
+  // al SKU según su último conteo — rojo (diferencia negativa/faltante), amarillo (diferencia
+  // positiva/sobrante), verde (cuadrado/aprobado), y nada si todavía no se ha contado.
   ctx.__appstate.skusPagina = { rows:[
-    {id:'sku-dif', sku_code:'SKU-DIF', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:'con_diferencia'},
-    {id:'sku-ok', sku_code:'SKU-OK', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:'aprobado'},
-    {id:'sku-sc', sku_code:'SKU-SC', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:null},
-  ], page:0, total:3 };
+    {id:'sku-neg', sku_code:'SKU-NEG', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:'con_diferencia', ultimaDiferencia:-3},
+    {id:'sku-pos', sku_code:'SKU-POS', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:'con_diferencia', ultimaDiferencia:5},
+    {id:'sku-ok', sku_code:'SKU-OK', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:'aprobado', ultimaDiferencia:0},
+    {id:'sku-sc', sku_code:'SKU-SC', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, ultimoEstado:null, ultimaDiferencia:null},
+  ], page:0, total:4 };
   const htmlColorFilas = ctx.renderTablaSkus();
-  const filaDif = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-DIF')-200, htmlColorFilas.indexOf('SKU-DIF'));
-  const filaOk = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-OK')-200, htmlColorFilas.indexOf('SKU-OK'));
-  const filaSc = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-SC')-200, htmlColorFilas.indexOf('SKU-SC'));
-  assert(filaDif.includes('color-mix') && filaDif.includes('--danger'), 'el SKU con último conteo con diferencia debe pintarse en rojo, obtuvo: '+filaDif);
-  assert(filaOk.includes('color-mix') && filaOk.includes('--ok'), 'el SKU con último conteo aprobado (cuadrado) debe pintarse en verde, obtuvo: '+filaOk);
-  assert(!filaSc.includes('color-mix'), 'el SKU que aún no se ha contado no debe llevar color de fila, obtuvo: '+filaSc);
+  const filaNeg = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-NEG')-300, htmlColorFilas.indexOf('SKU-NEG'));
+  const filaPos = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-POS')-300, htmlColorFilas.indexOf('SKU-POS'));
+  const filaOk = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-OK')-300, htmlColorFilas.indexOf('SKU-OK'));
+  const filaSc = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-SC')-300, htmlColorFilas.indexOf('SKU-SC'));
+  assert(!htmlColorFilas.includes('color-mix'), 'ya no debe pintarse el fondo de la fila, solo el ícono, obtuvo: '+htmlColorFilas);
+  assert(filaNeg.includes('var(--danger)') && filaNeg.includes('border-radius:50%'), 'diferencia negativa (faltante) debe mostrar el ícono rojo, obtuvo: '+filaNeg);
+  assert(filaPos.includes('var(--warn)') && filaPos.includes('border-radius:50%'), 'diferencia positiva (sobrante) debe mostrar el ícono amarillo, obtuvo: '+filaPos);
+  assert(filaOk.includes('var(--ok)') && filaOk.includes('border-radius:50%'), 'el SKU cuadrado (aprobado) debe mostrar el ícono verde, obtuvo: '+filaOk);
+  assert(!filaSc.includes('border-radius:50%'), 'el SKU que aún no se ha contado no debe mostrar ningún ícono, obtuvo: '+filaSc);
   assert(htmlColorFilas.includes('btn-eliminar-skus-sin-contar'), 'la tabla de SKU debe incluir el botón para eliminar todo lo no contado, obtuvo: '+htmlColorFilas);
 
   // ===== Ciclos de conteo: crear, listar y marcar el actual =====
