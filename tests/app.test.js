@@ -2815,6 +2815,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(pathBuscarSinCiclo.includes('ciclo_id=is.null') && pathBuscarSinCiclo.includes('conteo_id=not.is.null'), '"Sin ciclo asignado" debe exigir que sí haya un conteo (si no, mostraría todos los SKU nunca contados como si fueran de ese grupo), obtuvo: '+pathBuscarSinCiclo);
   ctx.__appstate.busqueda.ciclo = '';
 
+  // Regresión real reportada: tras el cambio anterior, enviar el formulario "Buscar" traía los
+  // resultados (buscarConteos sí llegaba a pedirlos) pero la pantalla seguía mostrando el mensaje
+  // de "aún no has buscado", porque nada dejaba yaBuscado en true fuera del auto-fetch que se quitó.
+  // Se prueba con el bind() y el <form> reales, no llamando a buscarConteos() directo.
+  ctx.__appstate.busqueda.yaBuscado = false;
+  ctx.__appstate.busqueda.resultados = [];
+  ctx.__appstate.view = 'buscar';
+  ctx.bind();
+  const formBuscarEl = elements['form-buscar'];
+  calls.length = 0;
+  await new Promise(resolve => {
+    formBuscarEl.dispatch('submit', {target: formBuscarEl, preventDefault(){}});
+    setTimeout(resolve, 30);
+  });
+  assert(calls.some(c=>c.url.includes('/skus_busqueda?select=')), 'enviar el formulario debe disparar la búsqueda real, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.yaBuscado===true, 'tras enviar el formulario, yaBuscado debe quedar en true, obtuvo: '+ctx.__appstate.busqueda.yaBuscado);
+  assert(ctx.__appstate.busqueda.resultados.length>0, 'tras enviar el formulario deben quedar resultados cargados en el estado, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  const htmlTrasBuscarReal = ctx.renderBuscar();
+  assert(htmlTrasBuscarReal.includes('resultado') && htmlTrasBuscarReal.includes('table-wrap'), 'tras enviar el formulario, la tabla de resultados debe mostrarse (no el mensaje de "aún no has buscado"), obtuvo: '+htmlTrasBuscarReal);
+
   ctx.__appstate.busqueda.resultados = [
     {sku_code:'SKU-NC', descripcion:'Nunca contado', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, foto_urls:[]},
     {sku_code:'SKU-C', descripcion:'Ya contado', bodega:'Nave', conteo_id:'c-1', cantidad_contada:7, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', foto_urls:['foto.jpg']},
