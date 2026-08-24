@@ -336,9 +336,12 @@ let state = {
   conteoOtraUbicacion: false,
   conteoFotos: [],       // [{file, preview}]
   // "Mi plan del día" en Contar: qué le toca hoy a la cuenta logueada (responsable_id en
-  // plan_semanal es directo el id de la cuenta) y con qué bodega/ubicación/storage bin está
-  // trabajando ahora mismo.
-  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', bin:'', skusPendientes: null },
+  // plan_semanal es directo el id de la cuenta) y con qué bodega/ubicación está trabajando ahora
+  // mismo. Sin filtro de storage bin: la persona solo elige bodega y ubicación, y ve juntos los
+  // SKU pendientes de todos los bin de esa ubicación (antes exigía elegir el bin exacto, un paso
+  // de más que no aportaba — y si una ubicación no tenía bin cargado, no había forma de llegar a
+  // ver sus SKU).
+  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null },
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferencias: [], valorizacion: [], adherenciaPorCiclo: [] },
   ultimosConteos: [],
@@ -1346,7 +1349,7 @@ function perfilCargado(){
 // logueada — responsable_id en plan_semanal ya es directamente el id de la cuenta.
 async function cargarPlanDeHoy(fecha){
   if(!state.perfil) return;
-  setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null}});
+  setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', skusPendientes:null}});
   try{
     const entradas = await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&responsable_id=eq.${state.perfil.id}&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || [];
     setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas}});
@@ -1356,22 +1359,36 @@ async function cargarPlanDeHoy(fecha){
   }
 }
 
-// De las entradas de hoy, cuál corresponde exactamente a la bodega/ubicación/bin elegidos
-// en los <select> en cascada (o la entrada "SKU sin ubicación", un caso aparte que no
-// cascadea). null mientras la selección todavía no narrow a una sola entrada.
-function entradaActivaContar(cp){
-  if(cp.bodega === BODEGA_SIN_UBICACION) return cp.entradas.find(e=>e.solo_sin_ubicacion) || null;
-  if(!cp.bodega) return null;
-  return cp.entradas.find(e=> !e.solo_sin_ubicacion && e.bodega===cp.bodega && (e.ubicacion||'')===cp.ubicacion && (e.storage_bin||'')===cp.bin) || null;
+// De las entradas de hoy, cuáles corresponden a la bodega/ubicación elegidas en los <select> en
+// cascada (o la entrada "SKU sin ubicación", un caso aparte que no cascadea). Sin filtro de
+// storage bin: puede haber más de una entrada para la misma bodega+ubicación (una por bin) — se
+// devuelven todas para juntar sus SKU pendientes, en vez de obligar a elegir el bin exacto.
+function entradasActivasContar(cp){
+  if(cp.bodega === BODEGA_SIN_UBICACION) return cp.entradas.filter(e=>e.solo_sin_ubicacion);
+  if(!cp.bodega) return [];
+  // BODEGA_VACIA (grupo "Sin bodega asignada" del <select>) representa las entradas con
+  // bodega==='' (bodega IS NULL, pero con ubicación específica) — hay que traducir el sentinel
+  // de vuelta antes de comparar contra el valor real guardado en la entrada.
+  const bodegaCoincide = e => cp.bodega===BODEGA_VACIA ? e.bodega==='' : e.bodega===cp.bodega;
+  return cp.entradas.filter(e=> !e.solo_sin_ubicacion && bodegaCoincide(e) && (e.ubicacion||'')===cp.ubicacion);
 }
 
 async function elegirCascadaContar(cambios){
   const cp = {...state.contarPlan, ...cambios, skusPendientes:null};
   setState({contarPlan: cp});
-  const activa = entradaActivaContar(cp);
-  if(!activa) return;
+  const activas = entradasActivasContar(cp);
+  if(!activas.length) return;
   try{
-    const skus = await skusDeUbicacion({bodega:activa.bodega, ubicacion:activa.ubicacion, storage_bin:activa.storage_bin, excluidos:activa.skus_excluidos, soloSinUbicacion:activa.solo_sin_ubicacion});
+    // Cada entrada puede tener su propio storage_bin y su propia lista de exclusiones (una fila
+    // por bin) — se piden por separado, respetando cada una, y se juntan sin duplicar SKU (puede
+    // repetirse si dos entradas de distinto bin comparten alguno).
+    const listas = await Promise.all(activas.map(e=>
+      skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin, excluidos:e.skus_excluidos, soloSinUbicacion:e.solo_sin_ubicacion})
+    ));
+    const vistos = new Set();
+    const skus = [];
+    listas.flat().forEach(s=>{ if(!vistos.has(s.sku_code)){ vistos.add(s.sku_code); skus.push(s); } });
+    skus.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'') || a.sku_code.localeCompare(b.sku_code));
     setState({contarPlan:{...state.contarPlan, skusPendientes: skus}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -3276,20 +3293,26 @@ function renderCargaPreview(){
   `;
 }
 
-// "Mi plan del día": bodega/patio y storage bin en cascada, limitados a lo que le toca hoy
-// a la cuenta logueada — no al universo completo de la empresa (eso es "Agregar a la
-// planificación", en otra pantalla). Al llegar a una sola entrada resuelta, se ve el
-// checklist de SKU todavía pendientes (ya excluye los contados en este ciclo, ver #129).
+// "Mi plan del día": bodega/patio y ubicación en cascada, limitados a lo que le toca hoy a la
+// cuenta logueada — no al universo completo de la empresa (eso es "Agregar a la planificación",
+// en otra pantalla). Sin filtro de storage bin (se sacó a pedido: era un paso de más y, si una
+// ubicación tenía varias entradas por bin distinto, obligaba a elegir una por una en vez de ver
+// todo junto) — al elegir bodega+ubicación se junta el checklist de SKU pendientes de todos los
+// bin de esa ubicación (ya excluye los contados en este ciclo, ver #129).
 function renderPlanDelDia(){
   const cp = state.contarPlan;
   const normales = cp.entradas.filter(e=>!e.solo_sin_ubicacion);
   const haySueltos = cp.entradas.some(e=>e.solo_sin_ubicacion);
-  const bodegas = Array.from(new Set(normales.map(e=>e.bodega).filter(Boolean))).sort();
-  const porBodega = normales.filter(e=> e.bodega===cp.bodega);
+  // Bug real reportado: bodega==='' es el grupo "Sin bodega asignada" (bodega IS NULL, pero con
+  // ubicación específica) — .filter(Boolean) lo descartaba de la lista de opciones (cadena vacía
+  // es falsy), así que esas entradas quedaban en cp.entradas pero eran inalcanzables desde el
+  // <select>: el operador nunca podía llegar a ver sus SKU pendientes. Necesita su propio option
+  // con el sentinel BODEGA_VACIA, mismo patrón que ya usa Planificación.
+  const hayBodegaVacia = normales.some(e=>e.bodega==='');
+  const bodegas = Array.from(new Set(normales.map(e=>e.bodega).filter(b=>b))).sort();
+  const porBodega = normales.filter(e=> (cp.bodega===BODEGA_VACIA ? e.bodega==='' : e.bodega===cp.bodega));
   const ubicaciones = Array.from(new Set(porBodega.map(e=> e.ubicacion || ''))).filter(Boolean).sort();
-  const porUbicacion = porBodega.filter(e=> (e.ubicacion||'')===cp.ubicacion);
-  const bins = Array.from(new Set(porUbicacion.map(e=> e.storage_bin || ''))).filter(Boolean).sort();
-  const activa = entradaActivaContar(cp);
+  const activas = entradasActivasContar(cp);
   const bodegaElegida = !!cp.bodega;
   return `
     <div class="section-head"><div><span class="eyebrow">Mi plan</span><h2>Plan del día</h2></div></div>
@@ -3303,6 +3326,7 @@ function renderPlanDelDia(){
             <select id="contar-bodega">
               <option value="">Elige…</option>
               ${haySueltos? `<option value="${BODEGA_SIN_UBICACION}" ${cp.bodega===BODEGA_SIN_UBICACION?'selected':''}>SKU sin ubicación</option>` : ''}
+              ${hayBodegaVacia? `<option value="${BODEGA_VACIA}" ${cp.bodega===BODEGA_VACIA?'selected':''}>Sin bodega asignada</option>` : ''}
               ${bodegas.map(b=>`<option value="${esc(b)}" ${cp.bodega===b?'selected':''}>${esc(b)}</option>`).join('')}
             </select>
           </div>
@@ -3313,12 +3337,7 @@ function renderPlanDelDia(){
             </select>
           </div>
         </div>
-        <label for="contar-bin">Storage bin</label>
-        <select id="contar-bin" ${bodegaElegida && cp.bodega!==BODEGA_SIN_UBICACION? '' : 'disabled'}>
-          <option value="">Todos</option>
-          ${bins.map(b=>`<option value="${esc(b)}" ${cp.bin===b?'selected':''}>${esc(b)}</option>`).join('')}
-        </select>
-        ${activa? `
+        ${activas.length? `
           ${cp.skusPendientes===null? `<div class="hint" style="margin-top:10px">Cargando SKU pendientes…</div>` :
             cp.skusPendientes.length? `
             <div class="hint" style="margin-top:10px">${cp.skusPendientes.length} SKU pendientes</div>
@@ -3332,7 +3351,7 @@ function renderPlanDelDia(){
               `).join('')}
             </ul>
             ` : `<div class="empty" style="padding:14px 8px;margin-top:10px">Ya contaste todo lo pendiente aquí.</div>`}
-        ` : bodegaElegida? `<div class="hint" style="margin-top:10px">Elige ubicación/storage bin para ver los SKU pendientes.</div>` : ''}
+        ` : bodegaElegida? `<div class="hint" style="margin-top:10px">Elige ubicación para ver los SKU pendientes.</div>` : ''}
       `}
     </div>
   `;
@@ -4626,11 +4645,9 @@ function bind(){
       const fechaEl = document.getElementById('contar-fecha');
       if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value) cargarPlanDeHoy(e.target.value); });
       const cBodega = document.getElementById('contar-bodega');
-      if(cBodega) cBodega.addEventListener('change', e=> elegirCascadaContar({bodega:e.target.value, ubicacion:'', bin:''}));
+      if(cBodega) cBodega.addEventListener('change', e=> elegirCascadaContar({bodega:e.target.value, ubicacion:''}));
       const cUbic = document.getElementById('contar-ubic');
-      if(cUbic) cUbic.addEventListener('change', e=> elegirCascadaContar({ubicacion:e.target.value, bin:''}));
-      const cBin = document.getElementById('contar-bin');
-      if(cBin) cBin.addEventListener('change', e=> elegirCascadaContar({bin:e.target.value}));
+      if(cUbic) cUbic.addEventListener('change', e=> elegirCascadaContar({ubicacion:e.target.value}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           const sku = state.skus.find(s=>s.sku_code===btn.dataset.pickPlan);

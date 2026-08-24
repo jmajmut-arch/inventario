@@ -36,14 +36,17 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
   }
   if(path.startsWith('/rest/v1/plan_semanal_detalle')){
-    // "Mi plan del día" (Contar): tres entradas para resp-yo el 2026-08-24 — dos ubicaciones
-    // normales (misma bodega/ubicación, distinto bin, para probar la cascada) y una "SKU sin
-    // ubicación" (solo_sin_ubicacion), que no cascadea por bodega/ubicación/bin.
+    // "Mi plan del día" (Contar): cuatro entradas para resp-yo el 2026-08-24 — dos ubicaciones
+    // normales (misma bodega/ubicación, distinto bin, para probar la cascada), una "SKU sin
+    // ubicación" (solo_sin_ubicacion, que no cascadea por bodega/ubicación/bin) y una con
+    // bodega:'' ("Sin bodega asignada": bodega IS NULL, pero con ubicación específica — bug real
+    // reportado: esta entrada quedaba inalcanzable en el <select>, ver renderPlanDelDia).
     if(path.includes('responsable_id=eq.resp-yo')){
       const filas = path.includes('fecha=eq.2026-08-24') ? [
         {id:'mp1', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
         {id:'mp2', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
         {id:'mp3', fecha:'2026-08-24', bodega:null, ubicacion:null, storage_bin:null, solo_sin_ubicacion:true, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
+        {id:'mp4', fecha:'2026-08-24', bodega:'', ubicacion:'Piso', storage_bin:null, solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
       ] : [];
       return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
     }
@@ -2738,26 +2741,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // cargarPlanDeHoy: trae mis entradas de ese día filtrando plan_semanal_detalle directo por
   // mi propio id de cuenta (state.perfil.id), sin ninguna resolución intermedia.
-  ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null };
+  ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null };
   calls.length = 0;
   await ctx.cargarPlanDeHoy('2026-08-24');
-  assert(ctx.__appstate.contarPlan.entradas.length===3, 'cargarPlanDeHoy debe traer mis 3 entradas del día, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.entradas));
+  assert(ctx.__appstate.contarPlan.entradas.length===4, 'cargarPlanDeHoy debe traer mis 4 entradas del día, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.entradas));
   const callMiPlan = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
   assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('responsable_id=eq.resp-yo'), 'debe filtrar plan_semanal_detalle por fecha y por mi propio id de cuenta, obtuvo: '+JSON.stringify(callMiPlan));
 
-  // entradaActivaContar: resuelve una sola entrada exacta según bodega/ubicación/bin, o la
-  // de "SKU sin ubicación" (que no cascadea), o ninguna si la selección no calza con nada.
+  // entradasActivasContar: resuelve las entradas que calzan con bodega+ubicación (sin filtro de
+  // storage bin — se sacó a pedido: la persona solo elige bodega y ubicación, y se juntan los SKU
+  // de todos los bin de esa ubicación en vez de obligar a elegir uno por uno), o la de "SKU sin
+  // ubicación" (que no cascadea), o ninguna si la selección no calza con nada.
   const cpBase = ctx.__appstate.contarPlan;
-  assert(ctx.entradaActivaContar({...cpBase, bodega:'Nave Mina', ubicacion:'Interior Nave', bin:'A-01'}).id==='mp1', 'debe resolver la entrada mp1 con bodega+ubicación+bin exactos');
-  assert(ctx.entradaActivaContar({...cpBase, bodega:'Nave Mina', ubicacion:'Interior Nave', bin:'A-02'}).id==='mp2', 'debe resolver la entrada mp2 con otro bin, obtuvo distinto');
-  assert(ctx.entradaActivaContar({...cpBase, bodega:'__sin_ubicacion__', ubicacion:'', bin:''}).id==='mp3', 'debe resolver la entrada "SKU sin ubicación" con el valor especial de bodega');
-  assert(ctx.entradaActivaContar({...cpBase, bodega:'Nave Mina', ubicacion:'', bin:''})===null, 'sin ubicación/bin elegidos todavía, no debe resolver ninguna entrada (hay más de una que calza con solo la bodega)');
-  assert(ctx.entradaActivaContar({...cpBase, bodega:'', ubicacion:'', bin:''})===null, 'sin nada elegido, no debe resolver ninguna entrada');
+  const activasMinaInterior = ctx.entradasActivasContar({...cpBase, bodega:'Nave Mina', ubicacion:'Interior Nave'});
+  assert(activasMinaInterior.length===2 && activasMinaInterior.some(e=>e.id==='mp1') && activasMinaInterior.some(e=>e.id==='mp2'), 'con bodega+ubicación exactos (sin bin) debe resolver las dos entradas de esa ubicación (mp1 y mp2, un bin cada una), obtuvo: '+JSON.stringify(activasMinaInterior));
+  assert(ctx.entradasActivasContar({...cpBase, bodega:'__sin_ubicacion__', ubicacion:''})[0].id==='mp3', 'debe resolver la entrada "SKU sin ubicación" con el valor especial de bodega');
+  assert(ctx.entradasActivasContar({...cpBase, bodega:'Nave Mina', ubicacion:''}).length===0, 'sin ubicación elegida todavía, no debe resolver ninguna entrada (ninguna de mp1/mp2 tiene ubicación vacía)');
+  assert(ctx.entradasActivasContar({...cpBase, bodega:'', ubicacion:''}).length===0, 'sin nada elegido, no debe resolver ninguna entrada');
+  // Bug real reportado: una entrada con bodega:'' ("Sin bodega asignada") quedaba inalcanzable
+  // porque .filter(Boolean) la sacaba de la lista de opciones del <select> — el operador nunca
+  // podía seleccionarla y por lo tanto nunca veía sus SKU planificados. Debe resolverse con el
+  // sentinel BODEGA_VACIA, igual que ya funciona en Planificación.
+  assert(ctx.entradasActivasContar({...cpBase, bodega:'__bodega_vacia__', ubicacion:'Piso'})[0].id==='mp4', 'debe resolver la entrada "Sin bodega asignada" (mp4) usando el sentinel BODEGA_VACIA, obtuvo: '+JSON.stringify(ctx.entradasActivasContar({...cpBase, bodega:'__bodega_vacia__', ubicacion:'Piso'})));
+  const htmlPlanDelDiaConVacia = ctx.renderPlanDelDia();
+  assert(htmlPlanDelDiaConVacia.includes(`<option value="${'__bodega_vacia__'}"`) && htmlPlanDelDiaConVacia.includes('Sin bodega asignada'), 'el selector de bodega/patio debe ofrecer "Sin bodega asignada" porque hay una entrada con bodega vacía hoy, obtuvo: '+htmlPlanDelDiaConVacia);
+  assert(!htmlPlanDelDiaConVacia.includes('id="contar-bin"'), 'ya no debe existir el selector de storage bin en Plan del día (se sacó a pedido, solo bodega y ubicación), obtuvo: '+htmlPlanDelDiaConVacia);
 
-  // elegirCascadaContar: al narrow a una sola entrada, trae sus SKU pendientes de verdad
-  // (vía skusDeUbicacion, que ya excluye los contados en este ciclo — ver #129).
-  await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave', bin:'A-01'});
-  assert(Array.isArray(ctx.__appstate.contarPlan.skusPendientes) && ctx.__appstate.contarPlan.skusPendientes[0].sku_code==='SKU-001', 'elegirCascadaContar debe cargar los SKU pendientes de la entrada resuelta, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.skusPendientes));
+  // elegirCascadaContar: al elegir bodega+ubicación, trae los SKU pendientes de TODAS las
+  // entradas que calzan (mp1 en A-01 y mp2 en A-02), juntos en una sola lista — sin pedirle a la
+  // persona que además elija el bin exacto.
+  await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
+  const skusJuntos = ctx.__appstate.contarPlan.skusPendientes;
+  assert(Array.isArray(skusJuntos) && skusJuntos.length===2 && skusJuntos.some(s=>s.sku_code==='SKU-001') && skusJuntos.some(s=>s.sku_code==='SKU-002'), 'elegirCascadaContar debe juntar los SKU pendientes de todos los bin de la ubicación (SKU-001 de A-01 y SKU-002 de A-02), obtuvo: '+JSON.stringify(skusJuntos));
 
   // renderConteo/renderPlanDelDia: fecha, cascada de bodega (incluye "SKU sin ubicación" porque
   // hay una entrada suelta hoy) y el checklist de SKU pendientes ya resuelto arriba.
@@ -2766,19 +2781,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlConteoConPlan = ctx.renderConteo();
   assert(htmlConteoConPlan.includes('id="contar-fecha" value="2026-08-24"'), 'debe mostrar el selector de día con la fecha actual del plan, obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('<option value="__sin_ubicacion__"') && htmlConteoConPlan.includes('SKU sin ubicación'), 'el selector de bodega/patio debe ofrecer "SKU sin ubicación" porque hay una entrada suelta hoy, obtuvo: '+htmlConteoConPlan);
-  assert(htmlConteoConPlan.includes('data-pick-plan="SKU-001"') && htmlConteoConPlan.includes('Perno M8'), 'debe listar el SKU pendiente resuelto para tocar y contar, obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('data-pick-plan="SKU-001"') && htmlConteoConPlan.includes('data-pick-plan="SKU-002"'), 'debe listar ambos SKU pendientes resueltos para tocar y contar, obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir disponible, ahora bajo su propio título, obtuvo: '+htmlConteoConPlan);
 
   // Sin nada planificado para mí ese día: el bloque "Plan del día" muestra su estado vacío
   // (no un error ni una sección en blanco), y el buscador libre sigue disponible igual.
-  ctx.__appstate.contarPlan = { cargado:true, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', bin:'', skusPendientes:null };
+  ctx.__appstate.contarPlan = { cargado:true, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null };
   const htmlConteoSinPlan = ctx.renderConteo();
   assert(htmlConteoSinPlan.includes('Plan del día') && htmlConteoSinPlan.includes('Sin nada planificado para ti este día'), 'sin entradas para hoy, debe mostrarse el estado vacío del plan del día, obtuvo: '+htmlConteoSinPlan);
   assert(htmlConteoSinPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir funcionando igual sin plan, obtuvo: '+htmlConteoSinPlan);
 
   // bind() real: tocar un SKU del checklist del plan debe seleccionarlo y marcar
   // conteoOrigenPlan=true (para que guardarConteo lo grabe como NO "fuera de plan").
-  ctx.__appstate.contarPlan = {...cpBase, bodega:'Nave Mina', ubicacion:'Interior Nave', bin:'A-01', skusPendientes:[{sku_code:'SKU-001', descripcion:'Perno M8', storage_bin:'A-01', unidad_medida:'UN'}]};
+  ctx.__appstate.contarPlan = {...cpBase, bodega:'Nave Mina', ubicacion:'Interior Nave', skusPendientes:[{sku_code:'SKU-001', descripcion:'Perno M8', storage_bin:'A-01', unidad_medida:'UN'}]};
   ctx.__appstate.skus = [{id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'}];
   ctx.bind();
   const btnPickPlan = elements['[data-pick-plan="SKU-001"]'] || null;
