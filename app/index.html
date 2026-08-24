@@ -3438,7 +3438,7 @@ function renderBuscar(){
   const b = state.busqueda;
   const resultados = b.resultados;
   return `
-    <div class="section-head"><div><span class="eyebrow">Historial</span><h2>Buscar</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card">
       <form id="form-buscar">
         <label for="b-texto">Código o descripción del SKU</label>
@@ -3506,7 +3506,7 @@ function renderBuscar(){
         <button type="button" class="btn btn-secondary" id="btn-cargar-mas-busqueda" style="width:auto;padding:8px 16px" ${b.buscandoMas?'disabled':''}>${b.buscandoMas?'Cargando…':'Cargar más'}</button>
       </div>` : ''}
     </div>
-    ` : `<div class="card"><div class="empty"><div class="glyph">🔍</div>Elige tus filtros y presiona "Buscar" para ver el historial.</div></div>`}
+    ` : `<div class="card"><div class="empty"><div class="glyph">🔍</div>Elige tus filtros y presiona "Buscar" para ver los resultados.</div></div>`}
   `;
 }
 
@@ -4682,6 +4682,7 @@ function bind(){
         soloConFotos: document.getElementById('b-solo-fotos').checked,
         soloFueraDePlan: document.getElementById('b-solo-fuera-plan').checked,
         buscando: true,
+        yaBuscado: true,
       }});
       buscarConteos();
     });
