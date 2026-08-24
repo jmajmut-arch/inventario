@@ -4442,7 +4442,15 @@ function bind(){
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       if(btn.dataset.bloqueada){ toast('Esta sección es solo para administradores', 'err'); return; }
-      detenerEscaner(); setState({view: btn.dataset.tab});
+      detenerEscaner();
+      const patch = {view: btn.dataset.tab};
+      // "Plan del día" queda en state.contarPlan una vez cargado y no se vuelve a pedir solo
+      // por re-renderizar (ver el chequeo de "cargado" más abajo, necesario para evitar una
+      // recursión infinita) — pero puede haber cambiado desde la última carga (planificación
+      // editada desde otra pestaña, otro día, otra persona). Al volver a seleccionar la
+      // pestaña Contar se fuerza a pedirla de nuevo, para no mostrar un plan desactualizado.
+      if(btn.dataset.tab==='conteo') patch.contarPlan = {...state.contarPlan, cargado:false};
+      setState(patch);
     });
   });
 

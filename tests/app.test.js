@@ -2777,6 +2777,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // día" (ver más arriba en este archivo) — antes había que resolverlo vía responsables_proceso,
   // ahora responsable_id ya es directamente el id de la cuenta logueada.
   ctx.__appstate.perfil = { id:'resp-yo', nombre:'Joel', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  ctx.__appstate.session = { access_token:'x', refresh_token:'y', user:{id:'resp-yo', email:'joel@test.com'} };
 
   // cargarPlanDeHoy: trae mis entradas de ese día filtrando plan_semanal_detalle directo por
   // mi propio id de cuenta (state.perfil.id), sin ninguna resolución intermedia.
@@ -2786,6 +2787,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.contarPlan.entradas.length===4, 'cargarPlanDeHoy debe traer mis 4 entradas del día, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.entradas));
   const callMiPlan = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
   assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('responsable_id=eq.resp-yo'), 'debe filtrar plan_semanal_detalle por fecha y por mi propio id de cuenta, obtuvo: '+JSON.stringify(callMiPlan));
+
+  // Bug real reportado: al volver a la pestaña Contar, "Plan del día" se quedaba con lo que se
+  // había cargado la primera vez (contarPlan.cargado ya en true), sin pedirlo de nuevo aunque la
+  // planificación hubiera cambiado mientras tanto (editada desde Planificación, u otro día). El
+  // bind() de la pestaña solo vuelve a pedirlo si cargado===false — eso es justo lo que hace el
+  // handler de clic de .tab al seleccionar "Contar" ahora (ver bind()): resetea cargado a false.
+  ctx.setState({view:'conteo', skuSeleccionado:null});
+  calls.length = 0;
+  ctx.bind();
+  assert(!calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'con contarPlan.cargado=true, solo re-renderizar (bind) no debe volver a pedir el plan, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  calls.length = 0;
+  ctx.setState({view:'conteo', contarPlan:{...ctx.__appstate.contarPlan, cargado:false}});
+  await new Promise(resolve=>setTimeout(resolve, 20));
+  assert(calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'al resetear contarPlan.cargado (lo que hace seleccionar la pestaña Contar), debe volver a pedir el plan del día, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // entradasActivasContar: resuelve las entradas que calzan con bodega+ubicación (sin filtro de
   // storage bin — se sacó a pedido: la persona solo elige bodega y ubicación, y se juntan los SKU
