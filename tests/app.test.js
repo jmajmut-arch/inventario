@@ -266,6 +266,13 @@ const fakeFetchImpl = async (url, opts) => {
     const filas = path.includes('tabla=eq.usuarios') ? todas.filter(f=>f.tabla==='usuarios') : todas;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/cargas_masivas')){
+    const filas = [
+      {id:'c1', nombre_archivo:'materiales_agosto.xlsx', tipo:'skus', filas_totales:120, filas_ok:118, filas_error:2, created_at:'2026-08-20T14:30:00Z', usuarios:{nombre:'Ana Torres'}},
+      {id:'c2', nombre_archivo:'carga_inicial.csv', tipo:'skus', filas_totales:50, filas_ok:50, filas_error:0, created_at:'2026-08-01T09:00:00Z', usuarios:null},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/leads_demo')){
     if(path.includes('offset=')){
       const offsetMatch = path.match(/offset=(\d+)/);
@@ -1770,6 +1777,49 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // que crearSkuManual: hay que drenar esa cadena o su llamada a /ultimo_conteo_por_sku se
   // cuela en el conteo de llamadas del siguiente bloque (perfil no cargado).
   await new Promise(r=>setTimeout(r, 0));
+
+  // ===== Carga masiva: historial de cargas =====
+  // registrarCarga (llamado desde confirmarCargaMasiva) debe dejar un rastro consultable de
+  // cuándo se cargaron datos, con quién lo hizo y cuántas filas entraron bien/mal — antes no
+  // había ninguna forma de ver esto desde la app, solo quedaba guardado en la tabla sin UI.
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+  await ctx.cargarHistorialCargas();
+  assert(ctx.__appstate.cargasHistorial.cargado===true, 'cargarHistorialCargas debe marcar cargado:true al terminar');
+  assert(ctx.__appstate.cargasHistorial.filas.length===2 && ctx.__appstate.cargasHistorial.filas[0].nombre_archivo==='materiales_agosto.xlsx', 'cargarHistorialCargas debe cargar el historial de la empresa, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial.filas));
+
+  const htmlHistorial = ctx.renderCargaMasiva();
+  assert(htmlHistorial.includes('Historial de cargas'), 'Carga masiva debe mostrar la sección de historial, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('materiales_agosto.xlsx') && htmlHistorial.includes('118 de 120 filas cargadas') && htmlHistorial.includes('2 con error'), 'debe listar el archivo con cuántas filas entraron bien y con error, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('Por: Ana Torres'), 'debe mostrar quién hizo la carga, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('carga_inicial.csv') && htmlHistorial.includes('Por: Sistema'), 'una carga sin usuario asociado debe mostrarse como "Sistema", igual que en trazabilidad, obtuvo: '+htmlHistorial);
+
+  // El historial debe refrescarse solo tras una carga real (mismo bug que "Mi equipo": si no
+  // se refresca, la carga recién hecha no aparece hasta recargar la página a mano).
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'refresco.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo' }, data: [{ Codigo:'SKU-REFRESCO' }],
+  };
+  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[]};
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  await new Promise(r=>setTimeout(r, 0));
+  const getHistorialTrasCarga = calls.find(c=>c.url.includes('/rest/v1/cargas_masivas?select='));
+  assert(!!getHistorialTrasCarga, 'tras confirmar una carga, el historial debe recargarse solo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.cargaPreview = null;
+  await new Promise(r=>setTimeout(r, 0));
+
+  // bind() en 'carga' (fuera del preview) debe pedir el historial una sola vez, igual que
+  // "Mi equipo"/auditoría — usa el mismo patrón de `if(!cargado) cargar...()`.
+  // bind() corta temprano si no hay sesión (ver guard `if(!state.session) return;`); esta
+  // sección del archivo la dejó en null unas pruebas atrás (recuperar contraseña), así que
+  // hay que reponerla para llegar de verdad al bloque de 'carga'.
+  ctx.__appstate.session = { access_token:'x', refresh_token:'y', user:{id:'user-1', email:'a@b.com'} };
+  ctx.__appstate.view = 'carga';
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+  delete elements['file-skus'];
+  ctx.bind();
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.cargasHistorial.cargado===true, 'bind() en la vista de carga masiva debe disparar la carga del historial, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial));
 
   // ===== Perfil no cargado (sesión activa, pero sin fila en usuarios/empresa asignada) =====
   // Reproduce el caso real: la cuenta existe (hay sesión), pero state.perfil quedó null
