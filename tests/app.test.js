@@ -2204,11 +2204,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlPlanSinFiltro.includes('id="plan-filtro-ciclo"') && htmlPlanSinFiltro.includes('T1 2027') && htmlPlanSinFiltro.includes('T4 2026'), 'el selector de período debe listar los ciclos existentes, obtuvo: '+htmlPlanSinFiltro);
   assert(htmlPlanSinFiltro.includes('id="plan-semana-prev"'), 'sin período elegido, debe seguir mostrando la navegación por semana, obtuvo: '+htmlPlanSinFiltro);
   assert(htmlPlanSinFiltro.includes('Período: T1 2027') && htmlPlanSinFiltro.includes('Período: Sin período asignado'), 'cada entrada debe mostrar a qué período quedó asociada (o que no tiene), obtuvo: '+htmlPlanSinFiltro);
+  // Sin período elegido (modo semana), se muestran los 7 días de la semana aunque estén vacíos
+  // (a propósito, para que se note qué falta planificar): con solo 2 entradas (Lun y Mar) cubiertas
+  // de los 7 días de la semana que arranca el 2026-08-10 (Lun), deben quedar 5 tarjetas vacías con
+  // el aviso "Sin conteos planificados.".
+  const vaciasSinFiltro = (htmlPlanSinFiltro.match(/Sin conteos planificados\./g) || []).length;
+  assert(vaciasSinFiltro===5, 'en modo semana, los días sin nada planificado deben seguir mostrando una tarjeta vacía ("Sin conteos planificados."), para que se note qué falta — obtuvo '+vaciasSinFiltro+' tarjetas vacías (de 5 esperadas)');
 
   ctx.__appstate.plan.cicloFiltro = 'ciclo-1';
   const htmlPlanConFiltro = ctx.renderPlanificacion();
   assert(!htmlPlanConFiltro.includes('id="plan-semana-prev"'), 'con un período elegido, la navegación por semana debe ocultarse (no aplica), obtuvo: '+htmlPlanConFiltro);
   assert(htmlPlanConFiltro.includes('Mostrando toda la planificación de <strong>T1 2027</strong>'), 'debe indicar claramente qué período se está mostrando, obtuvo: '+htmlPlanConFiltro);
+  // Con un período elegido (modo período), a diferencia del modo semana, NO hay un rango de días
+  // de referencia: solo debe agruparse por las fechas que ya tienen algo planificado, sin ninguna
+  // tarjeta vacía de relleno (lo pedido: "que aparezcan las tarjetas a medida que se planifican,
+  // no las vacías").
+  assert(!htmlPlanConFiltro.includes('Sin conteos planificados.'), 'en modo período no debe mostrarse ninguna tarjeta vacía de relleno, solo las fechas con algo planificado, obtuvo: '+htmlPlanConFiltro);
   ctx.__appstate.plan.cicloFiltro = '';
 
   // renderBuscar: el filtro de ciclo solo debe verse si hay ciclos creados, y debe incluir
