@@ -9,7 +9,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>InventIA</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1e242c">
+<meta name="theme-color" content="#ffffff">
 <link rel="icon" href="../icons/icon-192.png">
 <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -359,7 +359,7 @@ let state = {
   reconteos: [],
   reconteosHayMas: false,
   reconteosCargandoMas: false,
-  tema: localStorage.getItem('tema_app') || 'ambar',
+  tema: localStorage.getItem('tema_app') || 'claro',
   cargaPreview: null,
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
@@ -448,10 +448,10 @@ function identificadorAuditoria(fila){
 }
 
 const TEMAS = [
-  { id:'ambar', nombre:'Ámbar Industrial', desc:'Oscuro con acento ámbar (predeterminado)', colores:['#161a20','#1e242c','#f0a030'] },
+  { id:'ambar', nombre:'Ámbar Industrial', desc:'Oscuro con acento ámbar', colores:['#161a20','#1e242c','#f0a030'] },
   { id:'acero', nombre:'Acero Nocturno', desc:'Oscuro con acento azul acero', colores:['#10151c','#19212b','#4d9fe0'] },
   { id:'verde', nombre:'Verde Mina', desc:'Oscuro con acento verde', colores:['#121a15','#19241c','#43c07c'] },
-  { id:'claro', nombre:'Claro Bodega', desc:'Fondo claro, para uso diurno', colores:['#f4f5f3','#ffffff','#c9720f'] },
+  { id:'claro', nombre:'Claro Bodega', desc:'Fondo claro, para uso diurno (predeterminado)', colores:['#f4f5f3','#ffffff','#c9720f'] },
   { id:'alto_contraste', nombre:'Alto Contraste', desc:'Negro y amarillo, máxima visibilidad en terreno', colores:['#000000','#0c0c0c','#ffd400'] },
 ];
 
