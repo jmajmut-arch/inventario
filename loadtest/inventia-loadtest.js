@@ -33,6 +33,7 @@ const ANON_KEY = __ENV.SUPABASE_ANON_KEY;
 const SERVICE_ROLE_KEY = __ENV.SUPABASE_SERVICE_ROLE_KEY;
 const EMPRESA_IDS = (__ENV.EMPRESA_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const RUN_ID = `${Date.now()}`;
+const MAX_VUS = Number(__ENV.MAX_VUS || 300);
 
 if (!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE_KEY || EMPRESA_IDS.length === 0) {
   throw new Error('Faltan variables de entorno: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, EMPRESA_IDS');
@@ -50,11 +51,11 @@ export const options = {
       executor: 'ramping-vus',
       startVUs: 0,
       stages: [
-        { duration: '1m', target: 50 },   // arranque suave
-        { duration: '2m', target: 150 },  // ritmo de un equipo grande
-        { duration: '2m', target: 300 },  // estrés — bien por encima de las 60 conexiones de la BD
-        { duration: '3m', target: 300 },  // sostenido, para ver si se degrada con el tiempo
-        { duration: '1m', target: 0 },    // enfriamiento
+        { duration: '1m', target: Math.min(50, MAX_VUS) },   // arranque suave
+        { duration: '2m', target: Math.min(150, MAX_VUS) },  // ritmo de un equipo grande
+        { duration: '2m', target: MAX_VUS },                 // rampa hasta el techo a probar
+        { duration: '3m', target: MAX_VUS },                 // sostenido, para ver si se degrada con el tiempo
+        { duration: '1m', target: 0 },                        // enfriamiento
       ],
       gracefulRampDown: '30s',
     },
