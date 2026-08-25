@@ -1,0 +1,46 @@
+name: Prueba de carga (k6)
+
+# Se dispara a mano desde la pestaña "Actions" del repo (botón "Run workflow"), sin necesitar
+# terminal — funciona igual desde un celular o iPad. Corre loadtest/inventia-loadtest.js contra
+# Supabase en producción, contra las 5 empresas de prueba aisladas (__LOADTEST_1__..5__, ya
+# creadas, 300 SKU cada una — no hace falta recrearlas cada vez).
+#
+# Requiere el secreto de repo SUPABASE_SERVICE_ROLE_KEY (Settings > Secrets and variables >
+# Actions > New repository secret). La anon key y las empresas de prueba no son secretas, van
+# directo acá abajo.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: "https://ncvwgsbcvklhbyvurxzz.supabase.co"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE"
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      EMPRESA_IDS: "a17b1c6a-6eea-4dd0-b5c2-0b1a7dc10aec,02f44561-fe33-43c7-83b5-519df6147a0d,cff8adb7-b0b4-4842-92ad-b77e84e1759e,924719d0-3a08-4385-a37c-7f4c50737ac4,4a2390b4-e01c-4aad-a735-672eb1b461d2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar k6
+        run: |
+          curl -sS -L https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v0.54.0-linux-amd64/k6 /usr/local/bin/k6
+          k6 version
+
+      - name: Correr la prueba de carga
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Falta el secreto SUPABASE_SERVICE_ROLE_KEY (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          k6 run loadtest/inventia-loadtest.js --summary-export=resultado-loadtest.json
+
+      - name: Subir el resumen como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultado-loadtest
+          path: resultado-loadtest.json
+          retention-days: 30
