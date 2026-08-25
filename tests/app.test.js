@@ -1200,6 +1200,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodosPag2), 'en la última página, el botón Siguiente debe estar deshabilitado, obtuvo: '+htmlDashPeriodosPag2);
   ctx.__appstate.dashDiarioPagina = 0;
 
+  // Bug real reportado: con el navegador en una zona horaria detrás de UTC (Chile, que es
+  // donde vive la empresa que usa esta app), "Mensual" mostraba "Julio" para datos de agosto.
+  // Causa: dia/semana/mes vienen truncados por el servidor a las 00:00 UTC (confirmado:
+  // Postgres corre con timezone=UTC) — leerlos con new Date(iso).getMonth()/getDate() (que usan
+  // la hora LOCAL del navegador) los corre un día para atrás en cualquier huso detrás de UTC, y
+  // si cae justo el día 1 de un mes, el mes entero se ve mal. Se simula la zona horaria de Chile
+  // reasignando process.env.TZ (Node re-evalúa la zona en cada new Date(), incluso a mitad de
+  // ejecución) para probar que el fix (fechaCalendarioUTC, leer componentes UTC) es correcto sin
+  // depender de en qué huso horario corra el propio test.
+  const tzOriginal = process.env.TZ;
+  process.env.TZ = 'America/Santiago';
+  const htmlDashPeriodosChile = ctx.renderDashboard();
+  process.env.TZ = tzOriginal;
+  assert(htmlDashPeriodosChile.includes('Agosto 2026') && !htmlDashPeriodosChile.includes('Julio 2026'), 'con el navegador en horario de Chile (UTC-4), Mensual debe seguir mostrando Agosto 2026, no correrse a Julio, obtuvo: '+htmlDashPeriodosChile);
+  assert(htmlDashPeriodosChile.includes('Semana 34 (2026)'), 'con horario de Chile, Semanal debe seguir mostrando la semana 34 (17 ago), no correrse a la semana anterior, obtuvo: '+htmlDashPeriodosChile);
+  assert(htmlDashPeriodosChile.includes('24 ago'), 'con horario de Chile, Diario debe seguir mostrando el 24 de agosto, no el 23, obtuvo: '+htmlDashPeriodosChile);
+
   ctx.__appstate.dashboardModo = 'ejecutivo';
   assert(htmlDash.includes('SKU pendientes por ubicación general'), 'debe existir la sección de pendientes por ubicación general, obtuvo: '+htmlDash);
   assert(htmlDash.includes('Nave Mina') && htmlDash.includes('20 SKU'), 'debe mostrar Nave Mina con 20 SKU pendientes, obtuvo: '+htmlDash);
