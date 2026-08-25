@@ -182,6 +182,7 @@ textarea{resize:vertical;min-height:60px;}
 .login-sub{text-align:center;font-size:12.5px;color:var(--text-faint);margin-bottom:22px;}
 .login-toggle{display:flex;font-size:12.5px;color:var(--text-dim);justify-content:center;margin-top:16px;gap:5px;}
 .login-toggle button{background:none;border:none;color:var(--amber);font-weight:600;padding:0;}
+.login-toggle a{color:var(--amber);font-weight:600;text-decoration:none;}
 
 .spinner{width:16px;height:16px;border:2px solid rgba(0,0,0,.25);border-top-color:#1a1204;border-radius:50%;animation:spin .7s linear infinite;}
 .spinner.light{border:2px solid var(--line);border-top-color:var(--amber);}
@@ -2694,6 +2695,7 @@ function renderLogin(){
       </form>
       <div class="login-toggle"><button type="button" id="btn-olvide-pass">¿Olvidaste tu contraseña?</button></div>
       <div class="hint" style="text-align:center;margin-top:10px">¿No tienes cuenta? Pide que el administrador te invite.</div>
+      <div class="login-toggle"><a href="../index.html">‹ Volver al sitio</a></div>
     </div>
   </div>`;
 }
