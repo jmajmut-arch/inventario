@@ -4645,8 +4645,8 @@ function renderShell(){
         <div class="user-chip">
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
-          <button id="btn-ir-buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')} Buscar</button>
-          <button id="btn-logout">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Salir</button>
+          <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
+          <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
         </div>
       </div>
     </div>
@@ -4673,12 +4673,11 @@ function renderShell(){
 
 function tabBtn(view,label){
   const bloqueada = vistaBloqueadaParaRol(view);
-  return `<button class="tab ${state.view===view?'active':''} ${bloqueada?'tab-bloqueada':''}" data-tab="${view}" ${bloqueada?`data-bloqueada="1" title="Solo para administradores"`:''}>
+  return `<button class="tab ${state.view===view?'active':''} ${bloqueada?'tab-bloqueada':''}" data-tab="${view}" aria-label="${esc(label)}" ${bloqueada?`data-bloqueada="1" title="Solo para administradores"`:''}>
     <span class="tab-icon-wrap">
       ${ICONS[view==='carga'?'upload':view]}
       ${bloqueada? `<span class="tab-candado" aria-hidden="true">${ICONS.candado}</span>` : ''}
     </span>
-    ${label}
   </button>`;
 }
 
