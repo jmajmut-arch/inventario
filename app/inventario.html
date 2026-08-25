@@ -1119,7 +1119,9 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloS
 
 async function cargarPlanSemanal(){
   const inicio = state.plan.semanaInicio || fechaISO(inicioSemana(new Date()));
-  const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 6));
+  // La "semana" mostrada va de lunes al lunes siguiente inclusive (8 días, no 7): a pedido, para
+  // no cortar la vista justo el domingo y poder ver de una el arranque de la semana próxima.
+  const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 7));
   // Con un período (ciclo) elegido en el filtro, se muestra toda su planificación sin
   // importar la semana; sin período elegido, se sigue mostrando semana por semana como antes.
   const cicloFiltro = state.plan.cicloFiltro;
@@ -2477,12 +2479,20 @@ async function iniciarEscaner(){
 // Detiene la cámara y limpia el estado del modal de forma síncrona (para poder llamarla
 // desde cualquier handler — cerrar, cambiar de pestaña, cerrar sesión — sin esperar el
 // stop() async de la librería, que igual libera la cámara en segundo plano).
+// El try/catch envuelve la LLAMADA misma a stop(), no solo la promesa que devuelve: si alguien
+// cierra el modal mientras la cámara todavía está iniciando (start() aún no resolvió), algunas
+// versiones de html5-qrcode lanzan "Cannot stop, scanner is not running or paused" de forma
+// síncrona, antes de llegar a devolver una promesa — un .catch() encadenado no lo alcanza a
+// atrapar (visto en Sentry, JAVASCRIPT-5).
 function detenerEscaner(){
   const instancia = escanerInstancia;
   escanerInstancia = null;
   state.escanerModal = null;
   if(instancia){
-    instancia.stop().then(()=> instancia.clear()).catch(()=>{ /* ya estaba detenida */ });
+    try{
+      const promesa = instancia.stop();
+      if(promesa && promesa.then) promesa.then(()=> instancia.clear()).catch(()=>{ /* ya estaba detenida */ });
+    }catch(e){ /* ya estaba detenida (lanzamiento síncrono) */ }
   }
 }
 
@@ -3834,7 +3844,8 @@ function tablaSkusEntradaPlan(skus){
 async function imprimirPlan(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
-  const finSemana = sumarDias(inicio,6);
+  // Misma semana de 8 días (lunes a lunes) que renderPlanificacion/cargarPlanSemanal.
+  const finSemana = sumarDias(inicio,7);
   // Igual que en renderPlanificacion: con un período elegido se exporta TODO lo planificado
   // para ese período (todas las semanas), no solo la semana que se esté mirando.
   const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
@@ -3844,7 +3855,7 @@ async function imprimirPlan(){
     : `Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}`;
   const porDia = (p.cicloFiltro
     ? Array.from(new Set(p.entradas.map(e=>e.fecha))).sort()
-    : Array.from({length:7},(_,i)=> fechaISO(sumarDias(inicio,i)))
+    : Array.from({length:8},(_,i)=> fechaISO(sumarDias(inicio,i)))
   ).map(iso=>({
     label: new Date(iso+'T00:00:00').toLocaleDateString('es-CL',{weekday:'long', day:'2-digit', month:'short'}),
     entradas: p.entradas.filter(e=>e.fecha===iso),
@@ -3908,11 +3919,13 @@ function imprimirInformeCiclo(){
 function renderPlanificacion(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
-  const finSemana = sumarDias(inicio,6);
+  // La "semana" mostrada va de lunes al lunes siguiente inclusive (8 días, no 7): a pedido, para
+  // no cortar la vista justo el domingo y poder ver de una el arranque de la semana próxima.
+  const finSemana = sumarDias(inicio,7);
   const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
 
   // En modo período se agrupa por cada fecha que realmente tenga algo planificado (no hay una
-  // semana de referencia). En modo semana antes se armaban los 7 días de la semana elegida
+  // semana de referencia). En modo semana antes se armaban los 8 días de la semana elegida
   // aunque estuvieran vacíos; se dejó de hacer a pedido — abajo se filtran los días sin nada
   // planificado antes de listarlos, en ambos modos.
   const grupos = p.cicloFiltro
@@ -3925,7 +3938,7 @@ function renderPlanificacion(){
           entradas: p.entradas.filter(e=>e.fecha===iso),
         };
       })
-    : Array.from({length:7},(_,i)=> sumarDias(inicio,i)).map(d=>{
+    : Array.from({length:8},(_,i)=> sumarDias(inicio,i)).map(d=>{
         const iso = fechaISO(d);
         return {
           iso,
