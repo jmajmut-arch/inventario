@@ -727,6 +727,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   binEl.selectedOptions = [];
   await new Promise(resolve => setTimeout(resolve, 20));
 
+  // Bug real reportado: al presionar "Agregar", Ubicación específica y Storage bin (con sus
+  // conteos pendiente/total) se quedaban con los números de antes de agregar hasta que la
+  // persona los volvía a tocar a mano. El submit real (recién ejercitado arriba) debe volver a
+  // pedir esas dos listas para la MISMA bodega/ubicación, sin resetear la selección en curso.
+  assert(calls.some(c=>c.url.includes('/ubicaciones_especificas') && c.url.includes('bodega=eq.Nave')), 'tras agregar, debe refrescar Ubicación específica pidiendo ubicaciones_especificas de nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/ubicaciones_bins') && c.url.includes('bodega=eq.Nave') && c.url.includes('ubicacion=eq.Interior')), 'tras agregar, debe refrescar Storage bin pidiendo ubicaciones_bins de nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(bodegaEl.value === 'Nave Mina' && ubicEl.value === 'Interior Nave', 'tras agregar, la bodega/ubicación elegidas no deben resetearse a "Todas", obtuvo bodega='+bodegaEl.value+' ubicacion='+ubicEl.value);
+  assert(binEl.disabled === false && binEl.innerHTML.includes('A-01 — 5 SKU'), 'tras agregar, Storage bin debe quedar recargado y habilitado, obtuvo disabled='+binEl.disabled+' innerHTML='+binEl.innerHTML);
+
   // Regresión real reportada: si la persona marcaba "Seleccionar todos" y después elegía a mano un
   // bin puntual en la lista, el checkbox seguía marcado (nada lo desmarcaba) y el submit mandaba
   // "sin filtro" (todos) ignorando la selección manual. Elegir a mano en la lista debe desmarcar

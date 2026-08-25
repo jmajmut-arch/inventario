@@ -5056,7 +5056,7 @@ function bind(){
       setState({plan:{...state.plan, semanaInicio:nueva}});
       cargarPlanSemanal();
     });
-    document.getElementById('form-plan').addEventListener('submit', e=>{
+    document.getElementById('form-plan').addEventListener('submit', async e=>{
       e.preventDefault();
       const bodegaSeleccionada = document.getElementById('p-bodega').value.trim();
       const soloSinUbicacion = bodegaSeleccionada === BODEGA_SIN_UBICACION;
@@ -5083,7 +5083,7 @@ function bind(){
       }else{
         storageBins = seleccionBin;
       }
-      crearPlanEntrada({
+      await crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
         bodega: soloSinUbicacion ? '' : bodegaParaEnviar,
         ubicacion: document.getElementById('p-ubic').value.trim(),
@@ -5097,6 +5097,7 @@ function bind(){
         responsableId: document.getElementById('p-responsable').value,
         nota: document.getElementById('p-nota').value.trim(),
       });
+      await refrescarCascadaTrasAgregar();
     });
     function resetPBin(){
       const selBin = document.getElementById('p-bin');
@@ -5179,6 +5180,19 @@ function bind(){
       selBin.disabled = false;
       chkTodos.disabled = false;
     }
+    // Recarga las opciones de Ubicación específica (con su conteo pendiente/total) para la
+    // bodega dada. Devuelve el valor que quedó elegido, para poder encadenar cargarBinsPara con
+    // ese mismo valor — compartida entre el cambio de bodega (que siempre vuelve a "Todas") y el
+    // refresco tras agregar una entrada (que intenta conservar la ubicación ya elegida).
+    async function cargarOpcionesEspecificasEnSelect(bodega, valorPreferido){
+      const selUbic = document.getElementById('p-ubic');
+      const opciones = await opcionesEspecificas(bodega);
+      const bodegaObj = state.plan.generales.find(g => bodega===BODEGA_VACIA ? g.bodega===null : g.bodega===bodega);
+      selUbic.innerHTML = `<option value="">Todas${bodegaObj? ` (${bodegaObj.cantidad_pendiente}/${bodegaObj.cantidad_skus})` : ''}</option>` + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`).join('');
+      selUbic.disabled = false;
+      selUbic.value = (valorPreferido && opciones.some(o=>o.ubicacion===valorPreferido)) ? valorPreferido : '';
+      return selUbic.value;
+    }
     document.getElementById('p-bodega').addEventListener('change', async e=>{
       const bodega = e.target.value;
       const selUbic = document.getElementById('p-ubic');
@@ -5195,20 +5209,32 @@ function bind(){
       }
       selUbic.innerHTML = '<option value="">Cargando…</option>';
       selUbic.disabled = true;
-      const opciones = await opcionesEspecificas(bodega);
-      const bodegaObj = state.plan.generales.find(g => bodega===BODEGA_VACIA ? g.bodega===null : g.bodega===bodega);
-      selUbic.innerHTML = `<option value="">Todas${bodegaObj? ` (${bodegaObj.cantidad_pendiente}/${bodegaObj.cantidad_skus})` : ''}</option>` + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`).join('');
-      selUbic.disabled = false;
       // "Todas" queda seleccionado por defecto (primera opción) sin que la persona tenga que
       // abrir el selector — pero fijar .innerHTML no dispara 'change', así que sin este llamado
       // Storage bin se quedaba pegado en "Elige ubicación específica primero" hasta que alguien
       // volviera a tocar Ubicación específica a mano (aunque fuera para elegir la misma "Todas").
+      await cargarOpcionesEspecificasEnSelect(bodega, '');
       await cargarBinsPara(bodega, '');
     });
     document.getElementById('p-ubic').addEventListener('change', async e=>{
       const bodega = document.getElementById('p-bodega').value;
       await cargarBinsPara(bodega, e.target.value);
     });
+    // Bug real reportado: al presionar "Agregar", los SKU recién planificados dejan de contar
+    // como pendientes, pero Ubicación específica y Storage bin (que no salen de state, sino de
+    // estas cargas aparte) se quedaban con los números de antes de agregar hasta que la persona
+    // volvía a tocarlos a mano. Se refrescan acá mismo, conservando la bodega/ubicación elegidas
+    // (sin resetear a "Todas") para poder seguir agregando entradas seguidas sin perder el lugar.
+    async function refrescarCascadaTrasAgregar(){
+      const bodegaEl = document.getElementById('p-bodega');
+      const selUbic = document.getElementById('p-ubic');
+      if(!bodegaEl || !selUbic) return;
+      const bodega = bodegaEl.value;
+      if(!bodega || bodega === BODEGA_SIN_UBICACION) return; // sin cascada que refrescar
+      const ubicPrevia = selUbic.value;
+      const ubicElegida = await cargarOpcionesEspecificasEnSelect(bodega, ubicPrevia);
+      await cargarBinsPara(bodega, ubicElegida);
+    }
     document.getElementById('p-bin-todos').addEventListener('change', e=>{
       const selBin = document.getElementById('p-bin');
       [...selBin.options].forEach(o=>{ o.selected = e.target.checked; });
