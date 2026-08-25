@@ -2477,12 +2477,20 @@ async function iniciarEscaner(){
 // Detiene la cámara y limpia el estado del modal de forma síncrona (para poder llamarla
 // desde cualquier handler — cerrar, cambiar de pestaña, cerrar sesión — sin esperar el
 // stop() async de la librería, que igual libera la cámara en segundo plano).
+// El try/catch envuelve la LLAMADA misma a stop(), no solo la promesa que devuelve: si alguien
+// cierra el modal mientras la cámara todavía está iniciando (start() aún no resolvió), algunas
+// versiones de html5-qrcode lanzan "Cannot stop, scanner is not running or paused" de forma
+// síncrona, antes de llegar a devolver una promesa — un .catch() encadenado no lo alcanza a
+// atrapar (visto en Sentry, JAVASCRIPT-5).
 function detenerEscaner(){
   const instancia = escanerInstancia;
   escanerInstancia = null;
   state.escanerModal = null;
   if(instancia){
-    instancia.stop().then(()=> instancia.clear()).catch(()=>{ /* ya estaba detenida */ });
+    try{
+      const promesa = instancia.stop();
+      if(promesa && promesa.then) promesa.then(()=> instancia.clear()).catch(()=>{ /* ya estaba detenida */ });
+    }catch(e){ /* ya estaba detenida (lanzamiento síncrono) */ }
   }
 }
 

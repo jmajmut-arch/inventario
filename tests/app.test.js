@@ -2882,6 +2882,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-c', 'tras asociar, ese SKU debe quedar seleccionado para continuar con el conteo, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
   assert(ctx.__appstate.escanerModal===null, 'tras asociar con éxito, el modal debe cerrarse');
 
+  // Bug real reportado por Sentry (JAVASCRIPT-5): "Cannot stop, scanner is not running or
+  // paused." — html5-qrcode puede lanzar ese error de forma SÍNCRONA (antes de devolver
+  // ninguna promesa) si alguien cierra el modal del escáner mientras la cámara todavía está
+  // iniciando. El .catch() que ya existía solo atrapaba una promesa rechazada, no un
+  // lanzamiento síncrono al invocar stop() — se cuela como excepción no atrapada. Se simula
+  // acá inyectando un Html5Qrcode falso cuyo stop() tira sincrónico, como la librería real en
+  // ese estado.
+  ctx.Html5Qrcode = class {
+    constructor(){}
+    start(){ return Promise.resolve(); }
+    stop(){ throw new Error('Cannot stop, scanner is not running or paused.'); }
+    clear(){}
+  };
+  ctx.Html5QrcodeSupportedFormats = { QR_CODE:0, EAN_13:1, EAN_8:2, CODE_128:3, CODE_39:4, CODE_93:5, UPC_A:6, UPC_E:7, ITF:8 };
+  ctx.__appstate.escanerModal = { codigo:null, error:null };
+  await ctx.iniciarEscaner();
+  let detenerEscanerTiro = false;
+  try{ ctx.detenerEscaner(); }catch(e){ detenerEscanerTiro = true; }
+  assert(!detenerEscanerTiro, 'detenerEscaner no debe relanzar aunque stop() del escáner tire de forma síncrona, obtuvo excepción sin atrapar');
+  assert(ctx.__appstate.escanerModal===null, 'detenerEscaner debe limpiar escanerModal igual aunque stop() haya tirado, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
+  delete ctx.Html5Qrcode;
+  delete ctx.Html5QrcodeSupportedFormats;
+
   // rest(): si el refresh_token YA NO SIRVE (ej. "Single session per user" de Supabase Auth
   // invalidó la sesión porque la cuenta inició sesión en otro dispositivo), debe cerrar la
   // sesión localmente con un mensaje claro en vez de dejar la pantalla a medio cargar con
