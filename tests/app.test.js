@@ -687,6 +687,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // "todos" (un bin puede tener más de un SKU). Se aclara con un resumen propio (bin / SKU).
   assert(elements['p-bin-resumen'].textContent === '(2 bin / 8 SKU)', 'el resumen debe aclarar cuántos storage bin hay y cuántos SKU suman entre todos (5+3=8), obtuvo: '+elements['p-bin-resumen'].textContent);
 
+  // A pedido: si la persona desmarca a mano y deja elegido solo un storage bin puntual, el
+  // resumen debe recalcularse en vivo para reflejar SOLO lo seleccionado (no seguir mostrando
+  // el total de la lista completa).
+  binEl.selectedOptions = [{value:'A-01'}];
+  await new Promise(resolve => {
+    binEl.dispatch('change', {target: binEl});
+    setTimeout(resolve, 20);
+  });
+  assert(elements['p-bin-resumen'].textContent === '(1 de 2 bin / 5 SKU)', 'el resumen debe reflejar solo el bin puntual elegido (A-01, 5 SKU), obtuvo: '+elements['p-bin-resumen'].textContent);
+  // Volver a marcar "Seleccionar todos" debe recalcular el resumen de nuevo al total.
+  // (El mock de <select> no simula options/selectedOptions reales: se simula acá el efecto real
+  // del listener de "Seleccionar todos" -marcar cada option visible- para poder probarlo.)
+  chkTodosEl.checked = true;
+  binEl.selectedOptions = [{value:'A-01'}, {value:'A-02'}];
+  await new Promise(resolve => {
+    chkTodosEl.dispatch('change', {target: chkTodosEl});
+    setTimeout(resolve, 20);
+  });
+  assert(elements['p-bin-resumen'].textContent === '(2 bin / 8 SKU)', 'al re-marcar "Seleccionar todos", el resumen debe volver a mostrar el total, obtuvo: '+elements['p-bin-resumen'].textContent);
+
   // Volver a "Todas" en Ubicación específica (value vacío) NO debe vaciar/deshabilitar el
   // storage bin — debe seguir mostrando los bin de toda la bodega (con las cantidades sumadas
   // si un mismo bin se repite en más de una ubicación, como A-01 acá).
@@ -774,6 +794,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   bodegaEl.value = 'Nave Mina';
   assert(ubicEl.innerHTML.includes('Interior Nave'), 'antes del render de fondo, Ubicación específica debe seguir con sus opciones cargadas');
   assert(binEl.disabled === false, 'antes del render de fondo, Storage bin debe seguir habilitado');
+  const resumenAntesRenderFondo = elements['p-bin-resumen'].textContent;
   ctx.setState({plan: {...ctx.__appstate.plan, universos: {...ctx.__appstate.plan.universos, e1: 40}}});
   const bodegaTrasRenderFondo = elements['p-bodega'];
   const ubicTrasRenderFondo = elements['p-ubic'];
@@ -783,6 +804,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ubicTrasRenderFondo.value === 'Interior Nave' && ubicTrasRenderFondo.disabled === false, 'un render de fondo no relacionado no debe borrar ni deshabilitar Ubicación específica, obtuvo value='+ubicTrasRenderFondo.value+' disabled='+ubicTrasRenderFondo.disabled);
   assert(binTrasRenderFondo.disabled === false && binTrasRenderFondo.innerHTML.includes('A-01'), 'un render de fondo no relacionado no debe deshabilitar Storage bin ni borrar la lista de bins ya cargada, obtuvo disabled='+binTrasRenderFondo.disabled+' innerHTML='+binTrasRenderFondo.innerHTML);
   assert(chkTodosTrasRenderFondo.disabled === false, 'un render de fondo no relacionado no debe volver a deshabilitar "Seleccionar todos", obtuvo: '+chkTodosTrasRenderFondo.disabled);
+  assert(elements['p-bin-resumen'].textContent === resumenAntesRenderFondo, 'un render de fondo no relacionado no debe perder el resumen "(X bin / Y SKU)" ya calculado, obtuvo: '+elements['p-bin-resumen'].textContent+' (antes: '+resumenAntesRenderFondo+')');
 
   // crearPlanEntrada con varios storage bin y un responsable -> una fila por bin, todas con el mismo responsable_id.
   calls.length = 0;
@@ -850,6 +872,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(elements['p-bin'].innerHTML.includes('SKU-P1') && elements['p-bin'].innerHTML.includes('SKU-P2'), 'debe listar los SKU de la ubicación como opciones, obtuvo: '+elements['p-bin'].innerHTML);
   assert(elements['p-bin-hint'].textContent.includes('No hay storage bin cargado') && elements['p-bin-hint'].textContent.includes('elegir SKU puntuales'), 'debe explicar que se pueden elegir SKU puntuales, obtuvo: '+elements['p-bin-hint'].textContent);
   assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar')), 'la lista de SKU para elegir (sin bin) debe salir de skus_disponibles_planificar, no de skus_planificables, para no ofrecer SKU ya cubiertos por otra entrada del plan, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // El resumen también debe funcionar en modo "SKU puntuales" (sin storage bin cargado): al
+  // cargar, con todo marcado, muestra el total; eligiendo solo uno a mano, se recalcula en vivo.
+  assert(elements['p-bin-resumen'].textContent === '(2 SKU)', 'en modo SKU puntuales, el resumen debe mostrar el total de SKU disponibles (SKU-P1 y SKU-P2), obtuvo: '+elements['p-bin-resumen'].textContent);
+  elements['p-bin'].selectedOptions = [{value:'SKU-P1'}];
+  await new Promise(resolve => {
+    elements['p-bin'].dispatch('change', {target: elements['p-bin']});
+    setTimeout(resolve, 20);
+  });
+  assert(elements['p-bin-resumen'].textContent === '(1 de 2 SKU seleccionados)', 'en modo SKU puntuales, el resumen debe reflejar solo el SKU puntual elegido, obtuvo: '+elements['p-bin-resumen'].textContent);
+  elements['p-bin'].selectedOptions = [{value:'SKU-P1'}, {value:'SKU-P2'}];
+  elements['p-bin-todos'].checked = true;
 
   // Al enviar sin tocar la lista de SKU (sin selección = todos), la bodega debe guardarse como
   // '' (bodega IS NULL explícito), NO como null — null ya significa otra cosa: el comodín "sin
