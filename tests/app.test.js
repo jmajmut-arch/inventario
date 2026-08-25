@@ -974,6 +974,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlSinDetalle.includes('id="chk-seleccionar-todo-plan"') && htmlSinDetalle.includes('Seleccionar todo'), 'debe existir el checkbox "Seleccionar todo" aunque no haya nada seleccionado todavía, obtuvo: '+htmlSinDetalle);
   assert(!/id="chk-seleccionar-todo-plan"[^>]*checked/.test(htmlSinDetalle), 'el checkbox "Seleccionar todo" no debe venir marcado si no hay nada seleccionado, obtuvo: '+htmlSinDetalle);
 
+  // Pedido real: la "semana" mostrada en Planificación debe llegar hasta el lunes siguiente
+  // inclusive (8 días), no cortar el domingo — para ver de una el arranque de la semana próxima.
+  // 2026-08-10 es lunes; el lunes siguiente es 2026-08-17 (domingo sería 2026-08-16).
+  {
+    const planOriginal = ctx.__appstate.plan;
+    ctx.__appstate.plan = {
+      semanaInicio: '2026-08-10',
+      entradas: [
+        {id:'e1', fecha:'2026-08-10', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', responsable_id:null, responsable_nombre:null, nota:''},
+        {id:'e8', fecha:'2026-08-17', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', responsable_id:null, responsable_nombre:null, nota:''},
+      ],
+      universos: {e1: 5, e8: 9},
+      generales: [],
+      responsables: [],
+      editando: null,
+      detalle: {},
+      seleccionados: [],
+    };
+    const htmlSemanaOchoDias = ctx.renderPlanificacion();
+    assert(htmlSemanaOchoDias.includes(`${ctx.fmtFecha('2026-08-10')} – ${ctx.fmtFecha('2026-08-17')}`), 'el encabezado de la semana debe llegar hasta el lunes siguiente (17 ago), no hasta el domingo (16 ago), obtuvo: '+htmlSemanaOchoDias.match(/<span class="hint"[^>]*>[^<]*<\/span>/));
+    assert(htmlSemanaOchoDias.includes('data-editar-plan="e8"'), 'la entrada del lunes siguiente (17 ago, día 8) debe listarse igual que el resto de la semana, obtuvo: '+htmlSemanaOchoDias);
+    ctx.__appstate.plan = planOriginal;
+  }
+
   // alternarSeleccionTodoPlan: selecciona todas las entradas de la semana de una vez, y las deselecciona si ya estaban todas.
   assert(ctx.__appstate.plan.seleccionados.length===0, 'sanity check: no debe haber selección previa');
   ctx.alternarSeleccionTodoPlan();
