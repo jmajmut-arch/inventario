@@ -4513,12 +4513,20 @@ function renderPlanYFacturacion(empresa){
 }
 
 // Cupo de operadores del plan (max_usuarios cuenta solo rol='operador' activos, ver el
-// trigger chequear_limite_usuarios) — referencia chica junto al formulario de invitación.
-function hintCupoOperadores(empresa){
+// trigger chequear_limite_usuarios). null = sin límite (plan Empresa) o equipo aún sin cargar,
+// distinto de 0 = límite alcanzado — lo usan tanto el hint como el botón de invitar.
+function cupoOperadoresRestantes(empresa){
   const max = empresa.planes && empresa.planes.max_usuarios;
-  if(max==null || !state.equipo.cargado) return '';
+  if(max==null || !state.equipo.cargado) return null;
   const activos = state.equipo.personas.filter(p=>p.activo && p.rol!=='admin').length;
-  const restantes = Math.max(0, max - activos);
+  return Math.max(0, max - activos);
+}
+
+// Referencia chica junto al formulario de invitación.
+function hintCupoOperadores(empresa){
+  const restantes = cupoOperadoresRestantes(empresa);
+  if(restantes===null) return '';
+  const max = empresa.planes.max_usuarios;
   const texto = restantes>0
     ? `Puedes crear ${restantes} operador${restantes===1?'':'es'} más (tu plan permite hasta ${max}).`
     : `Alcanzaste el límite de operadores de tu plan (${max}). Actualiza el plan para agregar más.`;
@@ -4555,7 +4563,7 @@ function renderConfiguraciones(){
         <label for="equipo-email">Correo</label>
         <input type="email" id="equipo-email" placeholder="nombre@empresa.cl" required>
         <input type="hidden" id="equipo-rol" value="operador">
-        <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${state.invitandoPersona?'disabled':''}>${state.invitandoPersona?'Enviando…':'Enviar invitación'}</button></div>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${state.invitandoPersona || cupoOperadoresRestantes(empresa)===0?'disabled':''}>${state.invitandoPersona?'Enviando…':'Enviar invitación'}</button></div>
       </form>
       ${hintCupoOperadores(empresa)}
     </div>
