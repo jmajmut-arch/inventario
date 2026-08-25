@@ -362,6 +362,8 @@ let state = {
   cargaPreview: null,
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
+  // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
+  exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
   dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 10 filas por página
   // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
@@ -1744,6 +1746,84 @@ async function buscarMasConteos(){
   }catch(e){ toast(e.message,'err'); }
   state.busqueda.buscandoMas = false;
   render();
+}
+
+// Exporta a Excel los conteos de una fecha o rango de fechas (vista conteos_exportables: un
+// renglón por conteo, no deduplicado por SKU, con el detalle del maestro y el resultado) — para
+// poder cargarlos a un ERP. Pagina de a 1000 filas vía Range (mismo patrón que skusDeUbicacion)
+// para no chocar con el límite de fila de PostgREST si el rango trae muchos conteos.
+async function exportarConteosExcel(){
+  const {desde, hasta} = state.exportConteos;
+  if(!desde){ toast('Elige al menos la fecha "Desde"','err'); return; }
+  const hastaReal = hasta || desde;
+  if(hastaReal < desde){ toast('"Hasta" no puede ser anterior a "Desde"','err'); return; }
+  setState({exportConteos: {...state.exportConteos, exportando:true}});
+  try{
+    // Se construye el instante real (no un string con "Z" a la fuerza) a partir de la
+    // medianoche LOCAL de cada fecha elegida, para que el rango coincida con el día calendario
+    // que la persona ve en su pantalla, sin importar en qué huso horario esté.
+    const desdeInstante = new Date(desde+'T00:00:00').toISOString();
+    const siguienteDia = fechaISO(sumarDias(new Date(hastaReal+'T00:00:00'), 1));
+    const hastaInstante = new Date(siguienteDia+'T00:00:00').toISOString();
+    const filtro = `/conteos_exportables?select=*&fecha_conteo=gte.${desdeInstante}&fecha_conteo=lt.${hastaInstante}&order=fecha_conteo.asc`;
+    const TAM_PAGINA = 1000;
+    let inicio = 0, total = Infinity, filas = [];
+    while(inicio < total){
+      const res = await fetch(`${SUPABASE_URL}/rest/v1${filtro}`, {
+        headers:{
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+          'Range-Unit': 'items',
+          'Range': `${inicio}-${inicio+TAM_PAGINA-1}`,
+          'Prefer': 'count=exact',
+        }
+      });
+      const texto = await res.text();
+      const data = texto ? JSON.parse(texto) : [];
+      if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
+      filas = filas.concat(data);
+      const range = res.headers.get('content-range');
+      total = range && range.includes('/') ? Number(range.split('/')[1]) : filas.length;
+      inicio += TAM_PAGINA;
+    }
+    if(!filas.length){
+      toast('No hay conteos en ese rango de fechas','err');
+      setState({exportConteos: {...state.exportConteos, exportando:false}});
+      return;
+    }
+    const filasExcel = filas.map(f=>({
+      'SKU': f.sku_code,
+      'Descripción': f.descripcion,
+      'Categoría': f.categoria,
+      'Unidad de medida': f.unidad_medida,
+      'Código de barras': f.codigo_barras,
+      'Bodega (maestro)': f.bodega_maestro,
+      'Ubicación (maestro)': f.ubicacion_maestro,
+      'Storage bin': f.storage_bin,
+      'Bodega contada': f.bodega_contada,
+      'Ubicación contada': f.ubicacion_contada,
+      'Ubicación distinta': f.ubicacion_distinta ? 'Sí' : 'No',
+      'Stock sistema': f.stock_sistema,
+      'Cantidad contada': f.cantidad_contada,
+      'Diferencia': f.diferencia,
+      'Costo unitario': f.costo_unitario,
+      'Valor diferencia': f.valor_diferencia,
+      'Estado': f.estado,
+      'Fuera de plan': f.fuera_de_plan ? 'Sí' : 'No',
+      'Observación': f.observacion,
+      'Responsable': f.responsable,
+      'Ciclo': f.ciclo_nombre,
+      'Fecha de conteo': fmtFechaHora(f.fecha_conteo),
+      'Capturado sin conexión': fueCapturadoOffline(f.capturado_en, f.fecha_conteo) ? fmtFechaHora(f.capturado_en) : '',
+    }));
+    const hoja = XLSX.utils.json_to_sheet(filasExcel);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Conteos');
+    const nombreArchivo = desde===hastaReal ? `conteos_${desde}.xlsx` : `conteos_${desde}_a_${hastaReal}.xlsx`;
+    XLSX.writeFile(libro, nombreArchivo);
+    toast(`${filas.length} conteo${filas.length===1?'':'s'} exportado${filas.length===1?'':'s'}`);
+  }catch(e){ toast(e.message,'err'); }
+  setState({exportConteos: {...state.exportConteos, exportando:false}});
 }
 
 // Materiales cuyo último conteo no cuadra con el stock de sistema (ver vista reconteo_pendiente).
@@ -3876,6 +3956,20 @@ function renderBuscar(){
       </form>
     </div>
 
+    <div class="section-head"><div><span class="eyebrow">Para cargar a un ERP</span><h2 style="font-size:15px">Exportar conteos a Excel</h2></div></div>
+    <div class="card" style="margin-bottom:14px">
+      <form id="form-exportar-conteos">
+        <div class="row2">
+          <div><label for="ex-desde">Desde</label><input type="date" id="ex-desde" value="${esc(state.exportConteos.desde)}" required></div>
+          <div><label for="ex-hasta">Hasta</label><input type="date" id="ex-hasta" value="${esc(state.exportConteos.hasta)}"></div>
+        </div>
+        <div class="hint">Un archivo .xlsx con un renglón por conteo realizado en ese rango, con el detalle del material (SKU, descripción, categoría, bodega, ubicación, storage bin, stock de sistema) y el resultado del conteo (cantidad, diferencia, estado, responsable, fecha).</div>
+        <div style="margin-top:12px">
+          <button type="submit" class="btn btn-secondary" ${state.exportConteos.exportando?'disabled':''}>${state.exportConteos.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>
+        </div>
+      </form>
+    </div>
+
     ${b.yaBuscado? `
     <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
     <div class="card">
@@ -5128,6 +5222,15 @@ function bind(){
     });
     const btnCargarMasBusqueda = document.getElementById('btn-cargar-mas-busqueda');
     if(btnCargarMasBusqueda) btnCargarMasBusqueda.addEventListener('click', buscarMasConteos);
+    document.getElementById('form-exportar-conteos').addEventListener('submit', e=>{
+      e.preventDefault();
+      setState({exportConteos:{
+        ...state.exportConteos,
+        desde: document.getElementById('ex-desde').value,
+        hasta: document.getElementById('ex-hasta').value,
+      }});
+      exportarConteosExcel();
+    });
   }
 
   if(state.view==='plan'){

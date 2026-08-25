@@ -22,6 +22,7 @@ let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: n
 let tengoOtraSesionActivaRespuesta = false;
 let cicloActualRpcRespuesta = null;
 let autoservicioRespuesta = { error: null };
+let conteosExportablesFixture = [];
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
@@ -266,6 +267,10 @@ const fakeFetchImpl = async (url, opts) => {
       {bodega:'Nave Planta', skus_contados:10, sin_diferencia:4, con_diferencia:6, ubicacion_correcta:9},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/conteos_exportables')){
+    const filas = conteosExportablesFixture;
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${Math.max(filas.length-1,0)}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/exactitud_mensual')){
     // Dos meses de historia: Nave Mina mejora 30 puntos (60%->90%), Nave Planta baja 10 (80%->70%).
@@ -530,9 +535,21 @@ function crearIndexedDBFalso(){
 let printCalled = 0;
 let confirmRespuesta = true;
 const confirmLlamadas = [];
+// El mock de XLSX no genera un .xlsx real: json_to_sheet devuelve las filas tal cual, para poder
+// verificar directamente qué se le pasó (nombres de columna, valores) antes de "escribirlas".
+const xlsxEscrituras = [];
+const XLSXMock = {
+  utils: {
+    json_to_sheet: (filas) => filas,
+    book_new: () => ({ hojas: {} }),
+    book_append_sheet: (libro, hoja, nombre) => { libro.hojas[nombre] = hoja; },
+  },
+  writeFile: (libro, nombreArchivo) => { xlsxEscrituras.push({ libro, nombreArchivo }); },
+};
 const sandbox = {
   console,
   document: documentMock,
+  XLSX: XLSXMock,
   window: { print: () => { printCalled++; }, addEventListener: () => {}, removeEventListener: () => {} },
   confirm: (msg) => { confirmLlamadas.push(msg); return confirmRespuesta; },
   localStorage: (()=>{ const m = new Map(); return {
@@ -3309,6 +3326,59 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // no solo como subtítulo chico debajo del código.
   assert(htmlBuscarMixto.includes('<th>Descripción</th>'), 'la tabla de resultados debe tener una columna "Descripción", obtuvo: '+htmlBuscarMixto);
   assert(filaNoContada.includes('Nunca contado') && filaContada.includes('Ya contado'), 'cada fila debe mostrar la descripción del SKU en su propia celda, obtuvo: '+htmlBuscarMixto);
+
+  // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
+  // por fecha_conteo, paginada, mapeada a columnas en español y escrita con XLSX (mockeado
+  // arriba: json_to_sheet devuelve las filas tal cual, así se puede inspeccionar qué se exportó). =====
+  ctx.__appstate.exportConteos = { desde: '2026-08-20', hasta: '2026-08-20', exportando:false };
+  const htmlExportarForm = ctx.renderBuscar();
+  assert(htmlExportarForm.includes('id="form-exportar-conteos"') && htmlExportarForm.includes('id="ex-desde"') && htmlExportarForm.includes('id="ex-hasta"'), 'debe existir el formulario de exportar con sus campos de fecha, obtuvo: '+htmlExportarForm);
+  assert(htmlExportarForm.includes('value="2026-08-20"'), 'los campos de fecha deben reflejar el estado actual, obtuvo: '+htmlExportarForm);
+  conteosExportablesFixture = [
+    { conteo_id:'ce-1', sku_code:'SKU-EXP1', descripcion:'Perno M8', categoria:'Repuestos', unidad_medida:'UN', codigo_barras:'7801234567890', bodega_maestro:'Nave Mina', ubicacion_maestro:'Interior Nave', storage_bin:'A-01', stock_sistema:10, costo_unitario:500, bodega_contada:'Nave Mina', ubicacion_contada:'Interior Nave', ubicacion_distinta:false, cantidad_contada:8, diferencia:-2, valor_diferencia:-1000, estado:'con_diferencia', fuera_de_plan:false, observacion:'Faltante', fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', responsable:'Ana Torres', ciclo_nombre:'T1 2027' },
+  ];
+  xlsxEscrituras.length = 0;
+  calls.length = 0;
+  await ctx.exportarConteosExcel();
+  const exportCall = calls.find(c=>c.url.includes('/conteos_exportables'));
+  assert(!!exportCall, 'exportarConteosExcel debe pedir /conteos_exportables, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(exportCall.url.includes('fecha_conteo=gte.') && exportCall.url.includes('fecha_conteo=lt.'), 'debe filtrar por rango de fecha_conteo, obtuvo: '+exportCall.url);
+  assert(xlsxEscrituras.length===1, 'debe generar un archivo Excel, obtuvo: '+xlsxEscrituras.length);
+  assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-20.xlsx', 'con la misma fecha en "Desde" y "Hasta", el archivo debe nombrarse con un solo día, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
+  const filaExportada = xlsxEscrituras[0].libro.hojas['Conteos'][0];
+  assert(filaExportada['SKU']==='SKU-EXP1' && filaExportada['Descripción']==='Perno M8' && filaExportada['Categoría']==='Repuestos', 'debe incluir los campos básicos del maestro, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['Cantidad contada']===8 && filaExportada['Diferencia']===-2 && filaExportada['Valor diferencia']===-1000, 'debe incluir el resultado del conteo y su valorización, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['Responsable']==='Ana Torres' && filaExportada['Ciclo']==='T1 2027', 'debe incluir el responsable y el ciclo, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['Ubicación distinta']==='No' && filaExportada['Fuera de plan']==='No', 'los booleanos deben mostrarse como Sí/No, legibles para el ERP, obtuvo: '+JSON.stringify(filaExportada));
+
+  // Rango de fechas (dos días): el nombre del archivo debe reflejar ambos extremos.
+  ctx.__appstate.exportConteos = { desde: '2026-08-01', hasta: '2026-08-31', exportando:false };
+  xlsxEscrituras.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-01_a_2026-08-31.xlsx', 'con un rango de fechas, el archivo debe nombrarse con ambos extremos, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
+
+  // Sin fecha "Desde": no debe llegar a pedir nada ni intentar exportar.
+  ctx.__appstate.exportConteos = { desde: '', hasta: '', exportando:false };
+  calls.length = 0;
+  xlsxEscrituras.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(!calls.some(c=>c.url.includes('/conteos_exportables')), 'sin fecha "Desde" no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(xlsxEscrituras.length===0, 'sin fecha "Desde" no debe generar ningún archivo');
+
+  // "Hasta" anterior a "Desde": tampoco debe exportar.
+  ctx.__appstate.exportConteos = { desde: '2026-08-20', hasta: '2026-08-10', exportando:false };
+  calls.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(!calls.some(c=>c.url.includes('/conteos_exportables')), '"Hasta" anterior a "Desde" no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Sin conteos en el rango: debe avisar y dejar "exportando" en false (no debe quedar el botón
+  // pegado en estado de carga para siempre).
+  conteosExportablesFixture = [];
+  ctx.__appstate.exportConteos = { desde: '2026-01-01', hasta: '2026-01-01', exportando:false };
+  xlsxEscrituras.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(xlsxEscrituras.length===0, 'sin conteos en el rango, no debe generarse ningún archivo');
+  assert(ctx.__appstate.exportConteos.exportando===false, 'sin conteos en el rango, "exportando" debe quedar en false (no debe trabarse el botón), obtuvo: '+ctx.__appstate.exportConteos.exportando);
 
   // handleLogout debe avisar con un toast temporal, igual que el resto de las acciones (login, guardar, borrar, etc.),
   // y borrar la sesión persistida en localStorage para que el próximo que abra el navegador no la herede.
