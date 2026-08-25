@@ -228,55 +228,13 @@
   .footer-credit a:hover{color:var(--amber);border-color:var(--amber);}
   .footer-credit a svg{width:13px;height:13px;}
 
-  /* ---- calculadora de ROI ---- */
-  .roi-panel{background:var(--surface);border-radius:22px;box-shadow:0 18px 40px -26px rgba(36,26,16,.28);overflow:hidden;}
-  .roi-grid{display:grid;grid-template-columns:1fr 1fr;}
-  @media (max-width:760px){ .roi-grid{grid-template-columns:1fr;} }
-  .roi-col{padding:34px 32px;}
-  .roi-col + .roi-col{border-left:1px solid var(--line);}
-  @media (max-width:760px){ .roi-col + .roi-col{border-left:none;border-top:1px solid var(--line);} }
-  .roi-col.roi-result{background:var(--surface-2);}
-  .roi-col-label{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--amber-dim);margin-bottom:20px;}
-  .roi-field{margin-bottom:20px;}
-  .roi-field label{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;}
-  .roi-field label .roi-hint{font-weight:400;color:var(--text-faint);font-size:11.5px;}
-  .roi-field-input{position:relative;}
-  .roi-field-input input[type="number"]{width:100%;padding:11px 64px 11px 14px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--text);font-family:'Inter';font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;transition:border-color .15s ease,box-shadow .15s ease;}
-  .roi-field-input input[type="number"]:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 3px rgba(189,91,44,.14);}
-  .roi-field-input .roi-suffix{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-faint);pointer-events:none;font-family:'IBM Plex Mono',monospace;}
-  .roi-implied{margin-top:8px;font-size:11.5px;color:var(--text-faint);}
-  .roi-assumptions{margin-top:26px;padding-top:22px;border-top:1px dashed var(--line);}
-  .roi-assumptions-label{font-size:11.5px;color:var(--text-faint);margin-bottom:14px;line-height:1.5;}
-  .roi-assumptions-row{display:flex;gap:14px;}
-  .roi-assumptions .roi-field{flex:1;margin-bottom:0;}
-  .roi-assumptions input[type="number"]{font-size:13px;padding:9px 38px 9px 12px;font-weight:600;}
-  .roi-assumptions .roi-field-input .roi-suffix{right:12px;}
-  .roi-assumptions .roi-field label{font-size:11.5px;font-weight:500;color:var(--text-dim);}
-  .roi-result-block{margin-bottom:26px;}
-  .roi-result-block:last-of-type{margin-bottom:0;}
-  .roi-result-label{font-size:12.5px;color:var(--text-dim);margin-bottom:4px;}
-  .roi-result-value{font-family:'Barlow Condensed';font-weight:800;font-size:clamp(1.9rem,4vw,2.4rem);line-height:1;color:var(--text);font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:8px;}
-  .roi-result-value .roi-unit{font-size:14px;font-weight:600;color:var(--text-faint);font-family:'Inter';}
-  .roi-result-value.roi-good{color:var(--good);}
-  .roi-result-divider{height:1px;background:var(--line);margin:24px 0;}
-  .roi-payoff{background:var(--good-bg);border-radius:14px;padding:16px 18px;display:flex;align-items:center;gap:12px;}
-  .roi-payoff-icon{width:34px;height:34px;border-radius:50%;background:var(--good);flex-shrink:0;display:flex;align-items:center;justify-content:center;}
-  .roi-payoff-icon svg{width:16px;height:16px;stroke:var(--surface);stroke-width:3;fill:none;}
-  .roi-payoff-text{font-size:13px;line-height:1.5;color:var(--text);}
-  .roi-payoff-text b{color:var(--good);font-family:'Barlow Condensed';font-size:15px;font-weight:800;}
-  .roi-payoff.warn{background:rgba(189,91,44,.1);}
-  .roi-payoff.warn .roi-payoff-icon{background:var(--amber);}
-  .roi-payoff.warn .roi-payoff-text b{color:var(--amber-dim);}
-  .roi-resultado-heading{font-family:'Barlow Condensed';font-weight:800;font-size:19px;color:var(--text);margin-bottom:16px;}
-  .roi-result-value.roi-context{font-family:'Inter';font-weight:700;font-size:20px;color:var(--text-dim);}
-  #roi-bloque-ritmo{margin-bottom:22px;padding-bottom:22px;border-bottom:1px dashed var(--line);}
-  .roi-fineprint{margin-top:20px;font-size:11px;line-height:1.6;color:var(--text-faint);}
-  .roi-scenarios{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
-  .roi-scenario-btn{flex:1;min-width:118px;text-align:left;padding:10px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);cursor:pointer;transition:border-color .15s ease,background .15s ease;font-family:inherit;}
-  .roi-scenario-btn:hover{border-color:var(--amber-dim);}
-  .roi-scenario-btn.active{border-color:var(--amber);background:rgba(189,91,44,.08);}
-  .roi-scenario-name{display:block;font-size:13px;font-weight:700;color:var(--text);}
-  .roi-scenario-detail{display:block;font-size:11px;color:var(--text-faint);margin-top:2px;font-family:'IBM Plex Mono',monospace;}
+  /* ---- checklist: ¿tu inventario está bajo control? ---- */
+  .checklist-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
+  @media (max-width:720px){ .checklist-grid{grid-template-columns:1fr;} }
+  .checklist-item{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:30px 32px;}
+  .checklist-q{font-size:15.5px;color:var(--text-dim);margin-bottom:12px;}
+  .checklist-a{font-size:19px;font-weight:700;color:var(--text);display:flex;align-items:baseline;gap:10px;line-height:1.4;}
+  .checklist-a .arrow{color:var(--amber);flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -478,132 +436,31 @@
     </div>
   </section>
 
-  <section id="roi">
+  <section id="control">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">¿Cuánto podrías ahorrar digitalizando tu inventario?</div>
-        <div class="section-sub">Ingresa los datos de tu operación y elige un escenario de mejora. El resultado es una estimación, no una promesa: el ahorro real depende de tu operación.</div>
+        <div class="section-title">¿Tu inventario está realmente bajo control?</div>
       </div>
 
-      <div class="roi-panel reveal">
-        <div class="roi-grid">
+      <div class="checklist-grid">
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Sabes cuánto has avanzado?</div>
+          <div class="checklist-a"><span class="arrow">→</span> Avance en tiempo real.</div>
+        </div>
 
-          <div class="roi-col">
-            <div class="roi-col-label">Tu operación hoy</div>
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Sabes dónde están las diferencias?</div>
+          <div class="checklist-a"><span class="arrow">→</span> Diferencias identificadas automáticamente.</div>
+        </div>
 
-            <div class="roi-field">
-              <label for="roi-skus">Materiales (SKU) a contar</label>
-              <div class="roi-field-input">
-                <input type="number" id="roi-skus" value="8000" min="0" step="100">
-                <span class="roi-suffix">SKU</span>
-              </div>
-            </div>
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Sabes quién realizó cada conteo?</div>
+          <div class="checklist-a"><span class="arrow">→</span> Trazabilidad por usuario.</div>
+        </div>
 
-            <div class="roi-field">
-              <label for="roi-personas">Personas en el equipo de conteo</label>
-              <div class="roi-field-input">
-                <input type="number" id="roi-personas" value="4" min="1" step="1">
-                <span class="roi-suffix">pers.</span>
-              </div>
-            </div>
-
-            <div class="roi-field">
-              <label for="roi-dias">Días que toma un inventario completo</label>
-              <div class="roi-field-input">
-                <input type="number" id="roi-dias" value="5" min="0.5" step="0.5">
-                <span class="roi-suffix">días</span>
-              </div>
-            </div>
-
-            <div class="roi-field">
-              <label for="roi-consolidacion">Horas de consolidación manual, en total<span class="roi-hint">Excel, cruces, revisión — no por día, el total del ciclo completo</span></label>
-              <div class="roi-field-input">
-                <input type="number" id="roi-consolidacion" value="16" min="0" step="1">
-                <span class="roi-suffix">horas</span>
-              </div>
-            </div>
-
-            <div class="roi-field">
-              <label for="roi-costo">Costo cargado por hora, por persona</label>
-              <div class="roi-field-input">
-                <input type="number" id="roi-costo" value="6000" min="0" step="500">
-                <span class="roi-suffix">CLP</span>
-              </div>
-            </div>
-
-            <div class="roi-field">
-              <label for="roi-frecuencia">Inventarios completos al año</label>
-              <div class="roi-field-input">
-                <input type="number" id="roi-frecuencia" value="2" min="1" step="1">
-                <span class="roi-suffix">al año</span>
-              </div>
-            </div>
-
-            <div class="roi-assumptions">
-              <div class="roi-field" style="margin-bottom:0">
-                <label for="roi-scenarios">Escenario de mejora con InventIA<span class="roi-hint">Hipótesis comerciales, sin validar aún con pilotos reales</span></label>
-                <div class="roi-scenarios" id="roi-scenarios">
-                  <button type="button" class="roi-scenario-btn" data-conteo="10" data-consolidacion="50">
-                    <span class="roi-scenario-name">Conservador</span>
-                    <span class="roi-scenario-detail">10% conteo · 50% consolidación</span>
-                  </button>
-                  <button type="button" class="roi-scenario-btn active" data-conteo="20" data-consolidacion="70">
-                    <span class="roi-scenario-name">Probable</span>
-                    <span class="roi-scenario-detail">20% conteo · 70% consolidación</span>
-                  </button>
-                  <button type="button" class="roi-scenario-btn" data-conteo="30" data-consolidacion="90">
-                    <span class="roi-scenario-name">Alto</span>
-                    <span class="roi-scenario-detail">30% conteo · 90% consolidación</span>
-                  </button>
-                </div>
-                <input type="hidden" id="roi-mejora-conteo" value="20">
-                <input type="hidden" id="roi-mejora-consolidacion" value="70">
-              </div>
-            </div>
-          </div>
-
-          <div class="roi-col roi-result">
-            <div class="roi-col-label">Con InventIA</div>
-
-            <div class="roi-result-block" id="roi-bloque-ritmo">
-              <div class="roi-result-label">Ritmo de conteo implícito, hoy</div>
-              <div class="roi-result-value roi-context" id="roi-out-ritmo">—<span class="roi-unit">SKU/persona/día</span></div>
-            </div>
-
-            <div class="roi-resultado-heading">Tu resultado</div>
-
-            <div class="roi-result-block">
-              <div class="roi-result-label">Horas potencialmente ahorradas por inventario</div>
-              <div class="roi-result-value roi-good" id="roi-out-horas">—<span class="roi-unit">horas</span></div>
-            </div>
-
-            <div class="roi-result-block">
-              <div class="roi-result-label">Valor equivalente por inventario</div>
-              <div class="roi-result-value" id="roi-out-costo-evento">—</div>
-            </div>
-
-            <div class="roi-result-divider"></div>
-
-            <div class="roi-result-block">
-              <div class="roi-result-label">Valor equivalente anual</div>
-              <div class="roi-result-value roi-good" id="roi-out-costo-anual">—</div>
-            </div>
-
-            <div class="roi-result-block">
-              <div class="roi-result-label">Días menos para cerrar el proceso</div>
-              <div class="roi-result-value" id="roi-out-dias">—<span class="roi-unit">días</span></div>
-            </div>
-
-            <div class="roi-payoff" id="roi-payoff-box">
-              <div class="roi-payoff-icon" id="roi-payoff-icon"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
-              <div class="roi-payoff-text" id="roi-out-payoff">—</div>
-            </div>
-
-            <div class="roi-fineprint">
-              Estimación con fines ilustrativos, basada en el escenario de mejora elegido a la izquierda — hipótesis comercial, no validada aún con pilotos. El valor equivalente es el valor de las horas liberadas, no necesariamente presupuesto que se elimina: el mismo equipo hace el trabajo en menos tiempo. Comparado contra el plan Profesional (~$273.000 CLP/mes referencial).
-            </div>
-          </div>
-
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Puedes respaldar el resultado?</div>
+          <div class="checklist-a"><span class="arrow">→</span> Evidencia fotográfica y registro histórico.</div>
         </div>
       </div>
     </div>
@@ -1001,105 +858,6 @@
       vistaSlides.forEach(function(s){ vistaIo.observe(s); });
     }
   }
-</script>
-
-<script>
-  (function(){
-    var roiSkus = document.getElementById('roi-skus');
-    if(!roiSkus) return;
-
-    var $ = function(id){ return document.getElementById(id); };
-    var fmtCLP = function(n){ return '$' + Math.round(n).toLocaleString('es-CL'); };
-    var fmtHoras = function(n){ return Math.round(n).toLocaleString('es-CL'); };
-    var fmtDias = function(n){ return n.toLocaleString('es-CL', {minimumFractionDigits:1, maximumFractionDigits:1}); };
-    var PRECIO_PLAN_MENSUAL_CLP = 273000;
-
-    function roiCalcular(){
-      var skus = parseFloat($('roi-skus').value) || 0;
-      var dias = parseFloat($('roi-dias').value) || 0;
-      var personas = parseFloat($('roi-personas').value) || 0;
-      var consolidacion = parseFloat($('roi-consolidacion').value) || 0;
-      var costoHora = parseFloat($('roi-costo').value) || 0;
-      var frecuencia = parseFloat($('roi-frecuencia').value) || 0;
-      var mejoraConteo = (parseFloat($('roi-mejora-conteo').value) || 0) / 100;
-      var mejoraConsolidacion = (parseFloat($('roi-mejora-consolidacion').value) || 0) / 100;
-      // Ritmo implícito de conteo: puramente informativo, no juzga si es realista ni
-      // condiciona el resto del cálculo — "días" sigue siendo lo que la persona ingresó.
-      // Es para que se note si el SKU declarado no calza con los días/personas declarados.
-      if(skus > 0 && dias > 0 && personas > 0){
-        var skuPorPersonaDia = skus / (dias * personas);
-        $('roi-out-ritmo').innerHTML = '≈ ' + Math.round(skuPorPersonaDia).toLocaleString('es-CL') + '<span class="roi-unit">SKU/persona/día</span>';
-        $('roi-bloque-ritmo').style.display = '';
-      }else{
-        $('roi-bloque-ritmo').style.display = 'none';
-      }
-
-      var horasConteoHoy = dias * 8 * personas;
-      var horasTotalesHoy = horasConteoHoy + consolidacion;
-
-      var horasConteoAhorradas = horasConteoHoy * mejoraConteo;
-      var horasConsolidacionAhorradas = consolidacion * mejoraConsolidacion;
-      var horasAhorradasPorEvento = horasConteoAhorradas + horasConsolidacionAhorradas;
-
-      var costoEvitadoPorEvento = horasAhorradasPorEvento * costoHora;
-      var costoEvitadoAnual = costoEvitadoPorEvento * frecuencia;
-
-      $('roi-out-horas').innerHTML = fmtHoras(horasAhorradasPorEvento) + '<span class="roi-unit">de ' + fmtHoras(horasTotalesHoy) + ' horas</span>';
-      $('roi-out-costo-evento').textContent = fmtCLP(costoEvitadoPorEvento);
-      $('roi-out-costo-anual').textContent = fmtCLP(costoEvitadoAnual);
-
-      // Días de cierre: días de conteo (dado directo) + días equivalentes de consolidación
-      // (horas de consolidación / 8) — mismo criterio de jornada de 8h que usa horasConteoHoy.
-      // Cada tramo se reduce por su propio % de mejora, igual que las horas.
-      var diasConsolidacionHoy = consolidacion / 8;
-      var diasCierreHoy = dias + diasConsolidacionHoy;
-      var diasCierreInventIA = dias * (1 - mejoraConteo) + diasConsolidacionHoy * (1 - mejoraConsolidacion);
-      var diasMenos = Math.max(0, diasCierreHoy - diasCierreInventIA);
-      $('roi-out-dias').innerHTML = fmtDias(diasMenos) + '<span class="roi-unit">de ' + fmtDias(diasCierreHoy) + ' días</span>';
-
-      // ROI potencial: definición estándar (ganancia neta / costo), no el ahorro bruto sobre
-      // el costo — así un escenario donde el ahorro en horas no alcanza a cubrir el plan
-      // queda como un % negativo, que es la lectura correcta, no algo que haya que esconder.
-      var costoPlanAnual = PRECIO_PLAN_MENSUAL_CLP * 12;
-      var costoPlanTexto = 'Costo InventIA Profesional: <b>' + fmtCLP(costoPlanAnual) + '/año</b>. ';
-      if(costoEvitadoAnual <= 0){
-        $('roi-out-payoff').innerHTML = 'Ajusta los datos de la izquierda para ver el resultado.';
-        $('roi-payoff-box').classList.remove('warn');
-      }else{
-        var roiPct = ((costoEvitadoAnual - costoPlanAnual) / costoPlanAnual) * 100;
-        var mesesPayback = 12 * costoPlanAnual / costoEvitadoAnual;
-        var paybackTexto = mesesPayback <= 24
-          ? Math.round(mesesPayback) + ' meses'
-          : (mesesPayback / 12).toFixed(1).replace('.', ',') + ' años';
-        var mensaje = costoPlanTexto
-          + 'ROI potencial: <b>' + (roiPct >= 0 ? '+' : '') + Math.round(roiPct) + '%</b> (solo en horas). '
-          + 'Payback: <b>' + paybackTexto + '</b> (solo en horas).';
-        if(roiPct < 0){
-          mensaje += ' El mayor impacto suele venir de las diferencias de inventario que hoy no se detectan, no solo de las horas.';
-          $('roi-payoff-box').classList.add('warn');
-          $('roi-payoff-icon').innerHTML = '<svg viewBox="0 0 24 24"><line x1="12" y1="6" x2="12" y2="13" stroke-linecap="round"/><line x1="12" y1="17" x2="12" y2="17.01" stroke-linecap="round"/></svg>';
-        }else{
-          $('roi-payoff-box').classList.remove('warn');
-          $('roi-payoff-icon').innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
-        }
-        $('roi-out-payoff').innerHTML = mensaje;
-      }
-    }
-
-    document.querySelectorAll('#roi input[type="number"]').forEach(function(el){
-      el.addEventListener('input', roiCalcular);
-    });
-    document.querySelectorAll('.roi-scenario-btn').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        document.querySelectorAll('.roi-scenario-btn').forEach(function(b){ b.classList.remove('active'); });
-        btn.classList.add('active');
-        $('roi-mejora-conteo').value = btn.dataset.conteo;
-        $('roi-mejora-consolidacion').value = btn.dataset.consolidacion;
-        roiCalcular();
-      });
-    });
-    roiCalcular();
-  })();
 </script>
 
 <script>
