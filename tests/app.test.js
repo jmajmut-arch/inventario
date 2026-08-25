@@ -742,6 +742,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   binEl.selectedOptions = [];
   await new Promise(resolve => setTimeout(resolve, 20));
 
+  // Bug real reportado ("ya lo habíamos corregido, volvió a pasar"): la selección de Ubicación
+  // general/específica/Storage bin en "Agregar a la planificación" desaparecía sola mientras la
+  // persona la llenaba. Causa real: cargarPlanSemanal() recalcula en segundo plano el universo y
+  // el detalle de CADA entrada ya planificada, y cada resultado dispara un render() completo —
+  // sin relación alguna con el formulario que la persona está llenando en ese momento. Storage
+  // bin es lo que más se notaba porque ni siquiera viene del estado (se carga aparte), así que un
+  // render() de fondo no solo borraba la selección: dejaba el selector entero como si nunca se
+  // hubiera elegido ubicación. Se simula acá ese render de fondo (mismo setState que dispara
+  // cargarPlanSemanal para el universo de una entrada) mientras el formulario ya tiene bodega,
+  // ubicación y storage bin cargados, y se verifica que sobreviva.
+  bodegaEl.value = 'Nave Mina';
+  assert(ubicEl.innerHTML.includes('Interior Nave'), 'antes del render de fondo, Ubicación específica debe seguir con sus opciones cargadas');
+  assert(binEl.disabled === false, 'antes del render de fondo, Storage bin debe seguir habilitado');
+  ctx.setState({plan: {...ctx.__appstate.plan, universos: {...ctx.__appstate.plan.universos, e1: 40}}});
+  const bodegaTrasRenderFondo = elements['p-bodega'];
+  const ubicTrasRenderFondo = elements['p-ubic'];
+  const binTrasRenderFondo = elements['p-bin'];
+  const chkTodosTrasRenderFondo = elements['p-bin-todos'];
+  assert(bodegaTrasRenderFondo.value === 'Nave Mina', 'un render de fondo no relacionado no debe borrar la Ubicación general ya elegida, obtuvo: '+bodegaTrasRenderFondo.value);
+  assert(ubicTrasRenderFondo.value === 'Interior Nave' && ubicTrasRenderFondo.disabled === false, 'un render de fondo no relacionado no debe borrar ni deshabilitar Ubicación específica, obtuvo value='+ubicTrasRenderFondo.value+' disabled='+ubicTrasRenderFondo.disabled);
+  assert(binTrasRenderFondo.disabled === false && binTrasRenderFondo.innerHTML.includes('A-01'), 'un render de fondo no relacionado no debe deshabilitar Storage bin ni borrar la lista de bins ya cargada, obtuvo disabled='+binTrasRenderFondo.disabled+' innerHTML='+binTrasRenderFondo.innerHTML);
+  assert(chkTodosTrasRenderFondo.disabled === false, 'un render de fondo no relacionado no debe volver a deshabilitar "Seleccionar todos", obtuvo: '+chkTodosTrasRenderFondo.disabled);
+
   // crearPlanEntrada con varios storage bin y un responsable -> una fila por bin, todas con el mismo responsable_id.
   calls.length = 0;
   await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01','A-02'], responsableId:'u1', nota:''});
