@@ -3102,11 +3102,15 @@ function renderAdherenciaPlan(){
 function renderDashboard(){
   const periodTable = (rows, keyLabel, keyField, formatKey=fmtFecha) => {
     if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
+    // Si ninguna fila tiene bodega (la empresa no usa "ubicación general"), la columna solo
+    // mostraría "—" en cada línea — se saca entera y el resumen queda en una sola línea limpia
+    // por período, en vez de una columna vacía sin aportar nada.
+    const hayBodega = rows.some(r=>r.bodega);
     return `<div class="table-wrap"><table>
-      <thead><tr><th>${keyLabel}</th><th>Ubic. general</th><th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
+      <thead><tr><th>${keyLabel}</th>${hayBodega?'<th>Ubic. general</th>':''}<th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td class="mono">${formatKey(r[keyField])}</td>
-        <td>${esc(r.bodega||'—')}</td>
+        ${hayBodega?`<td>${esc(r.bodega||'—')}</td>`:''}
         <td class="num">${r.skus_contados||0}</td>
         <td class="num">${r.con_diferencia? `<span class="badge badge-warn">${r.con_diferencia}</span>` : '0'}</td>
         <td class="num">${r.total_unidades_contadas!==null? Number(r.total_unidades_contadas).toLocaleString('es-CL') : '—'}</td>

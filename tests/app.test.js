@@ -1217,6 +1217,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashPeriodosChile.includes('Semana 34 (2026)'), 'con horario de Chile, Semanal debe seguir mostrando la semana 34 (17 ago), no correrse a la semana anterior, obtuvo: '+htmlDashPeriodosChile);
   assert(htmlDashPeriodosChile.includes('24 ago'), 'con horario de Chile, Diario debe seguir mostrando el 24 de agosto, no el 23, obtuvo: '+htmlDashPeriodosChile);
 
+  // Pedido del usuario: en Semanal y Mensual, si la empresa no usa "ubicación general" (todas
+  // las filas del período vienen con bodega null), la columna "Ubic. general" solo mostraría "—"
+  // en cada línea — se saca entera y el resumen queda en una sola línea limpia por período.
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    semanal: [{semana:'2026-08-17T00:00:00+00:00', bodega:null, skus_contados:40, con_diferencia:2, total_unidades_contadas:300}],
+    mensual: [{mes:'2026-08-01T00:00:00+00:00', bodega:null, skus_contados:120, con_diferencia:9, total_unidades_contadas:900}],
+  };
+  const htmlDashSinBodega = ctx.renderDashboard();
+  // Diario (más arriba en la misma página) sigue con filas de "Nave Mina" del bloque anterior —
+  // se acota la comparación a partir de "Semanal" para no confundir su columna con la de Diario.
+  const htmlDashSinBodegaDesdeSemanal = htmlDashSinBodega.slice(htmlDashSinBodega.indexOf('<h2 style="font-size:17px">Semanal</h2>'));
+  assert(!htmlDashSinBodegaDesdeSemanal.includes('<th>Ubic. general</th>'), 'sin ninguna bodega en los datos del período, la columna "Ubic. general" no debe mostrarse en Semanal ni Mensual, obtuvo: '+htmlDashSinBodegaDesdeSemanal);
+  assert(htmlDashSinBodega.includes('Semana 34 (2026)') && htmlDashSinBodega.includes('Agosto 2026'), 'los números resumen deben seguir mostrándose igual, solo sin la columna de bodega, obtuvo: '+htmlDashSinBodega);
+  // Con al menos una fila que sí tiene bodega, la columna debe seguir mostrándose (para no
+  // esconder a qué bodega corresponde cada línea cuando sí hay datos reales de bodega).
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    semanal: [
+      {semana:'2026-08-17T00:00:00+00:00', bodega:'Nave Mina', skus_contados:20, con_diferencia:1, total_unidades_contadas:150},
+      {semana:'2026-08-17T00:00:00+00:00', bodega:null, skus_contados:20, con_diferencia:1, total_unidades_contadas:150},
+    ],
+  };
+  const htmlDashBodegaMixta = ctx.renderDashboard();
+  assert(htmlDashBodegaMixta.includes('<th>Ubic. general</th>'), 'con al menos una fila con bodega real, la columna "Ubic. general" debe seguir mostrándose, obtuvo: '+htmlDashBodegaMixta);
+
   ctx.__appstate.dashboardModo = 'ejecutivo';
   assert(htmlDash.includes('SKU pendientes por ubicación general'), 'debe existir la sección de pendientes por ubicación general, obtuvo: '+htmlDash);
   assert(htmlDash.includes('Nave Mina') && htmlDash.includes('20 SKU'), 'debe mostrar Nave Mina con 20 SKU pendientes, obtuvo: '+htmlDash);
