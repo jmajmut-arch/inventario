@@ -4012,7 +4012,7 @@ function renderPlanificacion(){
               <option value="">Elige ubicación general primero</option>
             </select>
           </div>
-          <div><label for="p-bin">Storage bin</label>
+          <div><label for="p-bin">Storage bin <span id="p-bin-resumen" style="font-weight:400;color:var(--text-faint)"></span></label>
             <select id="p-bin" multiple size="6" disabled>
               <option value="">Elige ubicación específica primero</option>
             </select>
@@ -5101,11 +5101,13 @@ function bind(){
     function resetPBin(){
       const selBin = document.getElementById('p-bin');
       const chkTodos = document.getElementById('p-bin-todos');
+      const resumenBin = document.getElementById('p-bin-resumen');
       selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
       selBin.disabled = true;
       selBin.dataset.modo = 'bins';
       chkTodos.checked = false;
       chkTodos.disabled = true;
+      resumenBin.textContent = '';
     }
     // Por arriba de esta cantidad de SKU sin bin, no tiene sentido listarlos uno a uno en el
     // <select> (se vuelve lento e inmanejable) — se deja solo el mensaje de "agregar igual".
@@ -5117,6 +5119,7 @@ function bind(){
       const selBin = document.getElementById('p-bin');
       const chkTodos = document.getElementById('p-bin-todos');
       const hintBin = document.getElementById('p-bin-hint');
+      const resumenBin = document.getElementById('p-bin-resumen');
       // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
       // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
       selBin.innerHTML = '<option value="">Cargando…</option>';
@@ -5124,10 +5127,16 @@ function bind(){
       selBin.dataset.modo = 'bins';
       chkTodos.checked = false;
       chkTodos.disabled = true;
+      resumenBin.textContent = '';
       const opciones = await opcionesBins(bodega, ubicacion);
       if(opciones.length){
         selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
         hintBin.textContent = 'Puedes elegir uno, varios o todos. Sin selección = todos.';
+        // Aclara que "12 elementos" (resumen nativo del navegador para el <select multiple>) son
+        // storage bin, no SKU — bug real reportado: se entendía como 12 SKU y no cuadraba con el
+        // total real, que suma los SKU de todos esos bins juntos (normalmente más que uno por bin).
+        const totalSkuBins = opciones.reduce((s,o)=> s+(Number(o.cantidad_skus)||0), 0);
+        resumenBin.textContent = `(${opciones.length} bin / ${totalSkuBins} SKU)`;
       }else{
         // Estos SKU no tienen storage bin cargado (ej. carga masiva sin esa columna): en vez de
         // dejar la caja vacía sin explicación, se listan los SKU de la ubicación para poder
