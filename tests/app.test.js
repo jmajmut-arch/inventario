@@ -267,6 +267,16 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/exactitud_mensual')){
+    // Dos meses de historia: Nave Mina mejora 30 puntos (60%->90%), Nave Planta baja 10 (80%->70%).
+    const filas = [
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:6, con_diferencia:4, ubicacion_correcta:10},
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:8, con_diferencia:2, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:7, con_diferencia:3, ubicacion_correcta:10},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/valorizacion_diferencias')){
     const filas = [
       {bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000},
@@ -1396,6 +1406,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const exactitudCall = calls.find(c=>c.url.includes('/exactitud_por_bodega'));
   assert(!!exactitudCall, 'cargarDashboard debe pedir /exactitud_por_bodega, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.exactitudBodega.length===2 && ctx.__appstate.dash.exactitudBodega[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la exactitud por bodega en state.dash.exactitudBodega, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudBodega));
+  // exactitud_mensual: a diferencia de exactitud_por_bodega, agrupa por mes calendario (no por
+  // ciclo) para poder comparar meses aunque la empresa nunca haya usado ciclos.
+  const exactitudMensualCall = calls.find(c=>c.url.includes('/exactitud_mensual'));
+  assert(!!exactitudMensualCall, 'cargarDashboard debe pedir /exactitud_mensual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.exactitudMensual.length===4, 'cargarDashboard debe dejar la exactitud mensual en state.dash.exactitudMensual, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudMensual));
   const topPositivasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=gt.0'));
   const topNegativasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=lt.0'));
   assert(!!topPositivasCall && topPositivasCall.url.includes('order=valor_diferencia_linea.desc') && topPositivasCall.url.includes('limit=10'), 'cargarDashboard debe pedir el top 10 de excedentes ordenado por valor (costo total de la línea), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
@@ -1516,6 +1531,46 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlDashSinExactitud = ctx.renderDashboard();
   assert(!htmlDashSinExactitud.includes('Ranking por ubicación general') && !htmlDashSinExactitud.includes('Excedentes con más impacto') && !htmlDashSinExactitud.includes('Pérdidas con más impacto'), 'sin datos de exactitud todavía, no deben mostrarse esas secciones, obtuvo: '+htmlDashSinExactitud);
   assert(!htmlDashSinExactitud.includes('Valorización de diferencias'), 'sin datos de valorización, no debe mostrarse esa sección, obtuvo: '+htmlDashSinExactitud);
+
+  // ===== Tendencia de exactitud (exactitud_mensual): compara un mes calendario contra otro sin
+  // depender de que la empresa use ciclos (a pedido explícito: "comparación entre inventarios
+  // por mes, ciclo, año" — se implementó la variante por mes porque en la práctica casi ninguna
+  // empresa cierra ciclos y ese histórico queda vacío). =====
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    exactitudMensual: [
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:6, con_diferencia:4, ubicacion_correcta:10},
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:8, con_diferencia:2, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:7, con_diferencia:3, ubicacion_correcta:10},
+    ],
+  };
+  const htmlTendencia = ctx.renderDashboard();
+  assert(htmlTendencia.includes('Tendencia de exactitud'), 'debe existir la sección de tendencia de exactitud, obtuvo: '+htmlTendencia);
+  // Jun: (6+8)/20=70.0%; Ago: (9+7)/20=80.0% -> exactitud global de cada mes, sumando bodegas.
+  assert(htmlTendencia.includes('70.0') && htmlTendencia.includes('80.0'), 'el gráfico debe mostrar la exactitud global de cada mes, obtuvo: '+htmlTendencia);
+  assert(htmlTendencia.includes('Jun 26') && htmlTendencia.includes('Ago 26'), 'el gráfico debe etiquetar cada barra con su mes, obtuvo: '+htmlTendencia);
+  // Nave Mina pasó de 60% (jun) a 90% (ago): +30 puntos, la que más mejoró.
+  assert(htmlTendencia.includes('<strong>Nave Mina</strong> mejoró 30.0 puntos'), 'debe destacar la bodega que más mejoró con su delta, obtuvo: '+htmlTendencia);
+  assert(htmlTendencia.includes('60.0% → 90.0%'), 'debe mostrar el detalle inicio->fin de la bodega destacada, obtuvo: '+htmlTendencia);
+  // Nave Planta pasó de 80% (jun) a 70% (ago): -10 puntos, la que bajó.
+  assert(htmlTendencia.includes('<strong>Nave Planta</strong> bajó 10.0 puntos'), 'debe destacar la bodega que más bajó, obtuvo: '+htmlTendencia);
+
+  // Con un solo mes de historia todavía no hay "tendencia" que mostrar (no alcanza a comparar).
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    exactitudMensual: [
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+    ],
+  };
+  const htmlUnMes = ctx.renderDashboard();
+  assert(htmlUnMes.includes('solo hay conteos de Ago 26'), 'con un solo mes de historia debe explicar que la tendencia aparece con más de un mes, obtuvo: '+htmlUnMes);
+  assert(!htmlUnMes.includes('mejoró') && !htmlUnMes.includes('bajó'), 'con un solo mes no debe intentar calcular ninguna comparación, obtuvo: '+htmlUnMes);
+
+  // Sin ningún conteo todavía.
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudMensual: [] };
+  const htmlSinMeses = ctx.renderDashboard();
+  assert(htmlSinMeses.includes('Vas a ver la tendencia acá'), 'sin conteos todavía, debe mostrar el mensaje de que la tendencia aparecerá más adelante, obtuvo: '+htmlSinMeses);
 
   // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
   // avance_total/avance_diario usan count()/count(distinct), que PostgREST devuelve como

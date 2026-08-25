@@ -347,7 +347,7 @@ let state = {
   // ver sus SKU).
   contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null },
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], adherenciaPorCiclo: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], adherenciaPorCiclo: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -1642,13 +1642,14 @@ async function cargarDashboard(){
     // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario,
     // ver reconteo_pendiente.valor_diferencia_linea), no por magnitud en unidades — top 10
     // excedentes (mayor valor a favor) y top 10 pérdidas (mayor valor en contra), por separado.
-    const [total, diario, semanal, mensual, ranking, exactitudBodega, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, adherenciaPorCiclo] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, exactitudMensual, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, adherenciaPorCiclo] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
       rest(`/avance_mensual?order=mes.desc&limit=6`),
       rest(`/rpc/ranking_responsable`, {method:'POST', body:{dias: VENTANA_PROYECCION_DIAS}}),
       rest(`/exactitud_por_bodega?order=bodega.asc`),
+      rest(`/exactitud_mensual?order=mes.asc`),
       rest(`/reconteo_pendiente?select=*&valor_diferencia_linea=gt.0&order=valor_diferencia_linea.desc&limit=10`),
       rest(`/reconteo_pendiente?select=*&valor_diferencia_linea=lt.0&order=valor_diferencia_linea.asc&limit=10`),
       rest(`/valorizacion_diferencias?order=bodega.asc`),
@@ -1656,7 +1657,7 @@ async function cargarDashboard(){
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
-      ranking: ranking||[], exactitudBodega: exactitudBodega||[],
+      ranking: ranking||[], exactitudBodega: exactitudBodega||[], exactitudMensual: exactitudMensual||[],
       topDiferenciasPositivas: topDiferenciasPositivas||[], topDiferenciasNegativas: topDiferenciasNegativas||[],
       valorizacion: valorizacion||[], adherenciaPorCiclo: adherenciaPorCiclo||[],
     }, dashDiarioPagina: 0});
@@ -2975,6 +2976,55 @@ function renderInformeEjecutivo(){
   const topDiferenciasPositivas = state.dash.topDiferenciasPositivas||[];
   const topDiferenciasNegativas = state.dash.topDiferenciasNegativas||[];
 
+  // Tendencia de exactitud: exactitud_mensual agrupa por mes calendario (fecha_conteo), NO por
+  // ciclo — a diferencia de exactitud_por_bodega (que solo mira el ciclo actual), esta vista
+  // ignora el ciclo a propósito, para poder comparar un mes contra otro aunque la empresa nunca
+  // haya abierto/cerrado un ciclo (hoy casi ninguna lo hace).
+  const exactMensualFilas = state.dash.exactitudMensual||[];
+  const mesesMap = new Map();
+  exactMensualFilas.forEach(r=>{
+    const cur = mesesMap.get(r.mes) || {mes:r.mes, contados:0, sinDif:0};
+    cur.contados += Number(r.skus_contados)||0;
+    cur.sinDif += Number(r.sin_diferencia)||0;
+    mesesMap.set(r.mes, cur);
+  });
+  const tendenciaMensual = Array.from(mesesMap.values())
+    .sort((a,b)=> a.mes.localeCompare(b.mes))
+    .map(m=>({dia:m.mes, exactitud: m.contados? (m.sinDif/m.contados*100) : 0}));
+
+  // Comparación por bodega entre el primer y el último mes con datos: es lo que le da sentido de
+  // "gestión de calidad" a la tendencia ("la bodega X mejoró N puntos"), no solo un gráfico.
+  const mesesDisponibles = Array.from(new Set(exactMensualFilas.map(r=>r.mes))).sort();
+  const primerMes = mesesDisponibles[0];
+  const ultimoMes = mesesDisponibles[mesesDisponibles.length-1];
+  let comparacionBodegas = [];
+  if(primerMes && ultimoMes && primerMes!==ultimoMes){
+    const exactitudPorBodegaEnMes = (mes)=>{
+      const m = new Map();
+      exactMensualFilas.filter(r=>r.mes===mes).forEach(r=>{
+        const contados = Number(r.skus_contados)||0;
+        const sinDif = Number(r.sin_diferencia)||0;
+        m.set(r.bodega||'Sin ubicación general', contados? (sinDif/contados*100) : null);
+      });
+      return m;
+    };
+    const inicioPorBodega = exactitudPorBodegaEnMes(primerMes);
+    const finPorBodega = exactitudPorBodegaEnMes(ultimoMes);
+    const bodegas = new Set([...inicioPorBodega.keys(), ...finPorBodega.keys()]);
+    comparacionBodegas = Array.from(bodegas)
+      .map(nombre=>{
+        const inicio = inicioPorBodega.get(nombre);
+        const fin = finPorBodega.get(nombre);
+        return {nombre, inicio, fin, delta: (inicio!=null && fin!=null) ? (fin-inicio) : null};
+      })
+      // Solo bodegas con datos en AMBOS extremos: si una recién empezó a contarse, no hay
+      // "mejora" que calcular todavía, solo un punto de partida.
+      .filter(b=>b.delta!==null)
+      .sort((a,b)=> b.delta-a.delta);
+  }
+  const mejorBodega = comparacionBodegas[0];
+  const peorBodega = comparacionBodegas.length>1 ? comparacionBodegas[comparacionBodegas.length-1] : null;
+
   // Valorización: mismo patrón que exactitud_por_bodega, agregado por bodega en la vista
   // valorizacion_diferencias y sumado acá — solo cuenta los SKU con costo_unitario cargado,
   // así que "Valor contado" no es el valor de todo el inventario, sino de lo que se pudo costear.
@@ -3012,6 +3062,31 @@ function renderInformeEjecutivo(){
         <div class="kpi-value">${pct(exactitudUbicacion)}%</div>
         <div class="kpi-sub">${exactUbicOk.toLocaleString('es-CL')} de ${exactContados.toLocaleString('es-CL')} contados donde dice el maestro</div>
       </div>
+    </div>
+
+    <div class="section-head"><div><span class="eyebrow">De unidades, por mes calendario del conteo</span><h2 style="font-size:17px">Tendencia de exactitud</h2></div></div>
+    <div class="tag-card" style="margin-bottom:14px">
+      ${mesesDisponibles.length===0? `
+        <div class="empty"><div class="glyph">◧</div>Vas a ver la tendencia acá apenas tengas conteos registrados.</div>
+      ` : mesesDisponibles.length===1? `
+        <div class="empty"><div class="glyph">◧</div>Por ahora solo hay conteos de ${esc(fmtMesTruncado(primerMes))}. La tendencia aparece cuando haya conteos de más de un mes.</div>
+      ` : `
+        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--accent)', fmtMesTruncado, true)}
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+          ${mejorBodega? `<p style="font-size:13px;margin:0 0 4px">📈 <strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</p>` : ''}
+          ${peorBodega && peorBodega.delta<0? `<p style="font-size:13px;margin:0;color:var(--text-dim)">📉 <strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</p>` : ''}
+        </div>
+        ${comparacionBodegas.length>1? `
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+            ${comparacionBodegas.map(b=>`
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                <span style="font-size:12.5px;color:var(--text-dim)">${esc(b.nombre)}</span>
+                <span class="mono" style="font-size:12.5px;color:${b.delta>=0?'var(--ok)':'var(--danger)'}">${pct(b.inicio)}% → ${pct(b.fin)}% (${b.delta>=0?'+':''}${pct(b.delta)} pts)</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      `}
     </div>
 
     ${valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0? `
@@ -3324,6 +3399,13 @@ function fechaCalendarioUTC(iso){
 function fmtDiaTruncado(iso){
   if(!iso) return '—';
   return fechaCalendarioUTC(iso).toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'});
+}
+// Igual que fmtDiaTruncado (misma corrección de zona horaria sobre un valor date_trunc'd), pero
+// sin el día — para etiquetar meses en la tendencia de exactitud ("ene 26" en vez de "01 ene 26").
+function fmtMesTruncado(iso){
+  if(!iso) return '—';
+  const s = fechaCalendarioUTC(iso).toLocaleDateString('es-CL',{month:'short',year:'2-digit'}).replace('.','');
+  return s.charAt(0).toUpperCase()+s.slice(1);
 }
 // Número de semana ISO 8601 (lunes a domingo, semana 1 = la que contiene el primer jueves del
 // año) — coincide con el criterio que ya usa date_trunc('week', ...) en avance_semanal.
