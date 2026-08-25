@@ -3128,7 +3128,7 @@ function renderDashboard(){
   const vistaOperativa = `
     <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
     <div class="card">
-      ${periodTable(diarioRows,'Día','dia')}
+      ${periodTable(diarioRows,'Día','dia',fmtDiaTruncado)}
       ${state.dash.diario.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
         <button class="btn btn-secondary" id="dash-diario-prev" style="width:auto;flex:none;padding:8px 14px" ${diarioPaginaActual<=0?'disabled':''}>Anterior</button>
         <span class="hint" style="margin:0">pág. ${diarioPaginaActual+1}/${diarioTotalPaginas}</span>
@@ -3208,6 +3208,23 @@ function fmtFecha(iso){
   const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(iso+'T00:00:00') : new Date(iso);
   return d.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'});
 }
+// dia/semana/mes en avance_diario/semanal/mensual vienen truncados EN EL SERVIDOR con
+// date_trunc(...), siempre a las 00:00 UTC (confirmado: el timezone de la sesión de Postgres es
+// UTC) — son un límite de calendario ("el lunes de esa semana", "el día 1 de ese mes"), no un
+// instante real como fecha_conteo. Bug real reportado: leerlos con new Date(iso) y funciones
+// locales (getMonth/getDate) los reinterpreta según la zona horaria del navegador — en cualquier
+// huso detrás de UTC (Chile incluido), la medianoche UTC cae en el día anterior en hora local, y
+// si es el día 1 de un mes, el mes completo se corre hacia atrás (se veía "Julio" con datos de
+// agosto). Se reconstruye como fecha local a partir de los componentes UTC, para mostrar el
+// mismo calendario que calculó la base de datos, sin importar la zona horaria de quien mira.
+function fechaCalendarioUTC(iso){
+  const d = new Date(iso);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+function fmtDiaTruncado(iso){
+  if(!iso) return '—';
+  return fechaCalendarioUTC(iso).toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'});
+}
 // Número de semana ISO 8601 (lunes a domingo, semana 1 = la que contiene el primer jueves del
 // año) — coincide con el criterio que ya usa date_trunc('week', ...) en avance_semanal.
 function numeroSemanaISO(fecha){
@@ -3217,18 +3234,15 @@ function numeroSemanaISO(fecha){
   const inicioAnio = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - inicioAnio) / 86400000) + 1) / 7);
 }
-// avance_semanal.semana / avance_mensual.mes son date_trunc('week'|'month', fecha_conteo): el
-// lunes de esa semana o el día 1 de ese mes. Mostrar esa fecha cruda (ej. "18 ago") no dice nada
-// del período real de un vistazo — mejor el número de semana y el nombre del mes directamente.
 function fmtSemana(iso){
   if(!iso) return '—';
-  const d = new Date(iso);
+  const d = fechaCalendarioUTC(iso);
   return `Semana ${numeroSemanaISO(d)} (${d.getFullYear()})`;
 }
 const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 function fmtMes(iso){
   if(!iso) return '—';
-  const d = new Date(iso);
+  const d = fechaCalendarioUTC(iso);
   return `${MESES_ES[d.getMonth()]} ${d.getFullYear()}`;
 }
 function fmtFechaHora(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
