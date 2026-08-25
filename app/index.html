@@ -5131,7 +5131,14 @@ function bind(){
       const opciones = await opcionesBins(bodega, ubicacion);
       if(opciones.length){
         selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
-        hintBin.textContent = 'Puedes elegir uno, varios o todos. Sin selección = todos.';
+        // A pedido: la lista carga con TODOS los storage bin ya marcados (visualmente explícito),
+        // en vez de dejarla sin nada seleccionado confiando en la regla "sin selección = todos"
+        // (que ya causó confusión — ver el resumen "(X bin / Y SKU)" más abajo). Se marca también
+        // "Seleccionar todos" para que el submit siga mandando el comodín sin filtro (ver el
+        // comentario del submit de #form-plan), no la lista exhaustiva de bins de este momento.
+        if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = true; });
+        chkTodos.checked = true;
+        hintBin.textContent = 'Vienen todos los storage bin marcados. Puedes dejarlos así o desmarcar los que no quieras incluir.';
         // Aclara que "12 elementos" (resumen nativo del navegador para el <select multiple>) son
         // storage bin, no SKU — bug real reportado: se entendía como 12 SKU y no cuadraba con el
         // total real, que suma los SKU de todos esos bins juntos (normalmente más que uno por bin).
@@ -5160,7 +5167,10 @@ function bind(){
           selBin.dataset.modo = 'skus';
           selBin.dataset.skuCodes = JSON.stringify(skusUniversoCompleto.map(s=>s.sku_code));
           selBin.innerHTML = skus.map(s=>`<option value="${esc(s.sku_code)}">${esc(s.sku_code)} — ${esc(s.descripcion||'')}</option>`).join('');
-          hintBin.textContent = 'No hay storage bin cargado para esta ubicación: puedes elegir SKU puntuales. Sin selección = todos los SKU de esta ubicación.';
+          // Misma lógica que la lista de storage bin: carga con todos los SKU ya marcados.
+          if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = true; });
+          chkTodos.checked = true;
+          hintBin.textContent = 'No hay storage bin cargado para esta ubicación: puedes elegir SKU puntuales. Vienen todos marcados; desmarca los que no quieras incluir.';
         }else{
           selBin.innerHTML = '';
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';
