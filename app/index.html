@@ -2274,6 +2274,7 @@ function capturarFormularioPlan(){
   const bodegaEl = document.getElementById('p-bodega');
   const ubicEl = document.getElementById('p-ubic');
   const binTodosEl = document.getElementById('p-bin-todos');
+  const resumenBinEl = document.getElementById('p-bin-resumen');
   const fechaEl = document.getElementById('p-fecha');
   const respEl = document.getElementById('p-responsable');
   const notaEl = document.getElementById('p-nota');
@@ -2286,9 +2287,16 @@ function capturarFormularioPlan(){
     binDisabled: binEl.disabled,
     binModo: binEl.dataset.modo,
     binSkuCodes: binEl.dataset.skuCodes,
+    // binOpciones/binTotalSkuModoSkus: la foto (bin -> cantidad_skus, o el total plano en modo
+    // SKU puntuales) que actualizarResumenBin() usa para recalcular el resumen "(X bin/SKU)"
+    // según lo que esté seleccionado en cada momento — sin esto, un render de fondo perdía el
+    // dato y el resumen quedaba en blanco hasta volver a tocar la ubicación.
+    binOpciones: binEl.dataset.opciones,
+    binTotalSkuModoSkus: binEl.dataset.totalSkuModoSkus,
     binSeleccionados: [...binEl.selectedOptions].map(o=>o.value),
     binTodosChecked: binTodosEl && binTodosEl.checked,
     binTodosDisabled: binTodosEl && binTodosEl.disabled,
+    resumenBinText: resumenBinEl && resumenBinEl.textContent,
     fecha: fechaEl && fechaEl.value,
     responsable: respEl && respEl.value,
     nota: notaEl && notaEl.value,
@@ -2301,6 +2309,7 @@ function restaurarFormularioPlan(snap){
   const bodegaEl2 = document.getElementById('p-bodega');
   const ubicEl2 = document.getElementById('p-ubic');
   const binTodosEl2 = document.getElementById('p-bin-todos');
+  const resumenBinEl2 = document.getElementById('p-bin-resumen');
   const fechaEl2 = document.getElementById('p-fecha');
   const respEl2 = document.getElementById('p-responsable');
   const notaEl2 = document.getElementById('p-nota');
@@ -2314,11 +2323,14 @@ function restaurarFormularioPlan(snap){
   binEl2.disabled = snap.binDisabled;
   if(snap.binModo!==undefined) binEl2.dataset.modo = snap.binModo;
   if(snap.binSkuCodes!==undefined) binEl2.dataset.skuCodes = snap.binSkuCodes;
+  if(snap.binOpciones!==undefined) binEl2.dataset.opciones = snap.binOpciones;
+  if(snap.binTotalSkuModoSkus!==undefined) binEl2.dataset.totalSkuModoSkus = snap.binTotalSkuModoSkus;
   if(binEl2.options) [...binEl2.options].forEach(o=>{ o.selected = snap.binSeleccionados.includes(o.value); });
   if(binTodosEl2){
     binTodosEl2.checked = !!snap.binTodosChecked;
     binTodosEl2.disabled = snap.binTodosDisabled;
   }
+  if(resumenBinEl2 && snap.resumenBinText!==undefined) resumenBinEl2.textContent = snap.resumenBinText;
   if(fechaEl2 && snap.fecha!==undefined) fechaEl2.value = snap.fecha;
   if(respEl2 && snap.responsable!==undefined) respEl2.value = snap.responsable;
   if(notaEl2 && snap.nota!==undefined) notaEl2.value = snap.nota;
@@ -5106,9 +5118,39 @@ function bind(){
       selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
       selBin.disabled = true;
       selBin.dataset.modo = 'bins';
+      delete selBin.dataset.opciones;
+      delete selBin.dataset.totalSkuModoSkus;
       chkTodos.checked = false;
       chkTodos.disabled = true;
       resumenBin.textContent = '';
+    }
+    // Recalcula el resumen "(X bin / Y SKU)" (o su equivalente en modo SKU puntuales) según lo
+    // que esté REALMENTE seleccionado en #p-bin en este momento, no solo el total cargado — a
+    // pedido: antes el resumen se calculaba una sola vez al cargar la lista y no se movía aunque
+    // la persona desmarcara bins puntuales a mano. Sin selección (o con todo marcado) se sigue
+    // mostrando el total, que es lo que de verdad va a cubrir la entrada (ver "sin selección =
+    // todos" en el submit de #form-plan).
+    function actualizarResumenBin(){
+      const selBin = document.getElementById('p-bin');
+      const resumenBin = document.getElementById('p-bin-resumen');
+      if(!selBin || !resumenBin) return;
+      const seleccionados = [...(selBin.selectedOptions||[])].map(o=>o.value).filter(Boolean);
+      if(selBin.dataset.modo==='skus'){
+        const total = Number(selBin.dataset.totalSkuModoSkus||0);
+        if(!total){ resumenBin.textContent = ''; return; }
+        const esTodos = seleccionados.length===0 || seleccionados.length>=total;
+        resumenBin.textContent = esTodos ? `(${total} SKU)` : `(${seleccionados.length} de ${total} SKU seleccionados)`;
+        return;
+      }
+      let opciones = [];
+      try{ opciones = JSON.parse(selBin.dataset.opciones || '[]'); }catch(e){ opciones = []; }
+      if(!opciones.length){ resumenBin.textContent = ''; return; }
+      const esTodos = seleccionados.length===0 || seleccionados.length>=opciones.length;
+      const base = esTodos ? opciones : opciones.filter(o=>seleccionados.includes(o.storage_bin));
+      const totalSkus = base.reduce((s,o)=> s+(Number(o.cantidad_skus)||0), 0);
+      resumenBin.textContent = esTodos
+        ? `(${opciones.length} bin / ${totalSkus} SKU)`
+        : `(${seleccionados.length} de ${opciones.length} bin / ${totalSkus} SKU)`;
     }
     // Por arriba de esta cantidad de SKU sin bin, no tiene sentido listarlos uno a uno en el
     // <select> (se vuelve lento e inmanejable) — se deja solo el mensaje de "agregar igual".
@@ -5132,19 +5174,23 @@ function bind(){
       const opciones = await opcionesBins(bodega, ubicacion);
       if(opciones.length){
         selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
+        // Foto bin -> cantidad_skus que actualizarResumenBin() usa para recalcular el resumen
+        // cada vez que cambie la selección (no solo al cargar), sin tener que volver a pedirla.
+        selBin.dataset.opciones = JSON.stringify(opciones.map(o=>({storage_bin:o.storage_bin, cantidad_skus:Number(o.cantidad_skus)||0})));
+        delete selBin.dataset.totalSkuModoSkus;
         // A pedido: la lista carga con TODOS los storage bin ya marcados (visualmente explícito),
         // en vez de dejarla sin nada seleccionado confiando en la regla "sin selección = todos"
-        // (que ya causó confusión — ver el resumen "(X bin / Y SKU)" más abajo). Se marca también
-        // "Seleccionar todos" para que el submit siga mandando el comodín sin filtro (ver el
-        // comentario del submit de #form-plan), no la lista exhaustiva de bins de este momento.
+        // (que ya causó confusión — ver actualizarResumenBin). Se marca también "Seleccionar
+        // todos" para que el submit siga mandando el comodín sin filtro (ver el comentario del
+        // submit de #form-plan), no la lista exhaustiva de bins de este momento.
         if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = true; });
         chkTodos.checked = true;
         hintBin.textContent = 'Vienen todos los storage bin marcados. Puedes dejarlos así o desmarcar los que no quieras incluir.';
         // Aclara que "12 elementos" (resumen nativo del navegador para el <select multiple>) son
         // storage bin, no SKU — bug real reportado: se entendía como 12 SKU y no cuadraba con el
         // total real, que suma los SKU de todos esos bins juntos (normalmente más que uno por bin).
-        const totalSkuBins = opciones.reduce((s,o)=> s+(Number(o.cantidad_skus)||0), 0);
-        resumenBin.textContent = `(${opciones.length} bin / ${totalSkuBins} SKU)`;
+        // Se recalcula en vivo con cada cambio de selección (ver el listener 'change' de #p-bin).
+        actualizarResumenBin();
       }else{
         // Estos SKU no tienen storage bin cargado (ej. carga masiva sin esa columna): en vez de
         // dejar la caja vacía sin explicación, se listan los SKU de la ubicación para poder
@@ -5167,13 +5213,19 @@ function bind(){
         if(skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES){
           selBin.dataset.modo = 'skus';
           selBin.dataset.skuCodes = JSON.stringify(skusUniversoCompleto.map(s=>s.sku_code));
+          selBin.dataset.totalSkuModoSkus = String(skus.length);
+          delete selBin.dataset.opciones;
           selBin.innerHTML = skus.map(s=>`<option value="${esc(s.sku_code)}">${esc(s.sku_code)} — ${esc(s.descripcion||'')}</option>`).join('');
           // Misma lógica que la lista de storage bin: carga con todos los SKU ya marcados.
           if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = true; });
           chkTodos.checked = true;
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación: puedes elegir SKU puntuales. Vienen todos marcados; desmarca los que no quieras incluir.';
+          actualizarResumenBin();
         }else{
           selBin.innerHTML = '';
+          delete selBin.dataset.opciones;
+          delete selBin.dataset.totalSkuModoSkus;
+          resumenBin.textContent = '';
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';
         }
       }
@@ -5237,7 +5289,8 @@ function bind(){
     }
     document.getElementById('p-bin-todos').addEventListener('change', e=>{
       const selBin = document.getElementById('p-bin');
-      [...selBin.options].forEach(o=>{ o.selected = e.target.checked; });
+      if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = e.target.checked; });
+      actualizarResumenBin();
     });
     // Bug reportado: si la persona marcaba "Seleccionar todos" y después elegía puntualmente uno
     // o varios storage bin a mano en la lista, el checkbox seguía marcado (nada lo desmarcaba) y
@@ -5246,6 +5299,9 @@ function bind(){
     // la selección real.
     document.getElementById('p-bin').addEventListener('change', ()=>{
       document.getElementById('p-bin-todos').checked = false;
+      // A pedido: el resumen "(X bin / Y SKU)" debe reflejar en vivo lo que la persona vaya
+      // marcando/desmarcando a mano, no solo el total de cuando se cargó la lista.
+      actualizarResumenBin();
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> confirmarYBorrarPlanEntrada(btn.dataset.borrarPlan));
