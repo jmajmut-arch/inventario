@@ -22,6 +22,7 @@ let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: n
 let tengoOtraSesionActivaRespuesta = false;
 let cicloActualRpcRespuesta = null;
 let autoservicioRespuesta = { error: null };
+let conteosExportablesFixture = [];
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
@@ -264,6 +265,20 @@ const fakeFetchImpl = async (url, opts) => {
     const filas = [
       {bodega:'Nave Mina', skus_contados:20, sin_diferencia:16, con_diferencia:4, ubicacion_correcta:18},
       {bodega:'Nave Planta', skus_contados:10, sin_diferencia:4, con_diferencia:6, ubicacion_correcta:9},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/conteos_exportables')){
+    const filas = conteosExportablesFixture;
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${Math.max(filas.length-1,0)}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/exactitud_mensual')){
+    // Dos meses de historia: Nave Mina mejora 30 puntos (60%->90%), Nave Planta baja 10 (80%->70%).
+    const filas = [
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:6, con_diferencia:4, ubicacion_correcta:10},
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:8, con_diferencia:2, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:7, con_diferencia:3, ubicacion_correcta:10},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -520,9 +535,21 @@ function crearIndexedDBFalso(){
 let printCalled = 0;
 let confirmRespuesta = true;
 const confirmLlamadas = [];
+// El mock de XLSX no genera un .xlsx real: json_to_sheet devuelve las filas tal cual, para poder
+// verificar directamente qué se le pasó (nombres de columna, valores) antes de "escribirlas".
+const xlsxEscrituras = [];
+const XLSXMock = {
+  utils: {
+    json_to_sheet: (filas) => filas,
+    book_new: () => ({ hojas: {} }),
+    book_append_sheet: (libro, hoja, nombre) => { libro.hojas[nombre] = hoja; },
+  },
+  writeFile: (libro, nombreArchivo) => { xlsxEscrituras.push({ libro, nombreArchivo }); },
+};
 const sandbox = {
   console,
   document: documentMock,
+  XLSX: XLSXMock,
   window: { print: () => { printCalled++; }, addEventListener: () => {}, removeEventListener: () => {} },
   confirm: (msg) => { confirmLlamadas.push(msg); return confirmRespuesta; },
   localStorage: (()=>{ const m = new Map(); return {
@@ -1396,6 +1423,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const exactitudCall = calls.find(c=>c.url.includes('/exactitud_por_bodega'));
   assert(!!exactitudCall, 'cargarDashboard debe pedir /exactitud_por_bodega, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.exactitudBodega.length===2 && ctx.__appstate.dash.exactitudBodega[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la exactitud por bodega en state.dash.exactitudBodega, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudBodega));
+  // exactitud_mensual: a diferencia de exactitud_por_bodega, agrupa por mes calendario (no por
+  // ciclo) para poder comparar meses aunque la empresa nunca haya usado ciclos.
+  const exactitudMensualCall = calls.find(c=>c.url.includes('/exactitud_mensual'));
+  assert(!!exactitudMensualCall, 'cargarDashboard debe pedir /exactitud_mensual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.exactitudMensual.length===4, 'cargarDashboard debe dejar la exactitud mensual en state.dash.exactitudMensual, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudMensual));
   const topPositivasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=gt.0'));
   const topNegativasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=lt.0'));
   assert(!!topPositivasCall && topPositivasCall.url.includes('order=valor_diferencia_linea.desc') && topPositivasCall.url.includes('limit=10'), 'cargarDashboard debe pedir el top 10 de excedentes ordenado por valor (costo total de la línea), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
@@ -1516,6 +1548,46 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlDashSinExactitud = ctx.renderDashboard();
   assert(!htmlDashSinExactitud.includes('Ranking por ubicación general') && !htmlDashSinExactitud.includes('Excedentes con más impacto') && !htmlDashSinExactitud.includes('Pérdidas con más impacto'), 'sin datos de exactitud todavía, no deben mostrarse esas secciones, obtuvo: '+htmlDashSinExactitud);
   assert(!htmlDashSinExactitud.includes('Valorización de diferencias'), 'sin datos de valorización, no debe mostrarse esa sección, obtuvo: '+htmlDashSinExactitud);
+
+  // ===== Tendencia de exactitud (exactitud_mensual): compara un mes calendario contra otro sin
+  // depender de que la empresa use ciclos (a pedido explícito: "comparación entre inventarios
+  // por mes, ciclo, año" — se implementó la variante por mes porque en la práctica casi ninguna
+  // empresa cierra ciclos y ese histórico queda vacío). =====
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    exactitudMensual: [
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:6, con_diferencia:4, ubicacion_correcta:10},
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:8, con_diferencia:2, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:7, con_diferencia:3, ubicacion_correcta:10},
+    ],
+  };
+  const htmlTendencia = ctx.renderDashboard();
+  assert(htmlTendencia.includes('Tendencia de exactitud'), 'debe existir la sección de tendencia de exactitud, obtuvo: '+htmlTendencia);
+  // Jun: (6+8)/20=70.0%; Ago: (9+7)/20=80.0% -> exactitud global de cada mes, sumando bodegas.
+  assert(htmlTendencia.includes('70.0') && htmlTendencia.includes('80.0'), 'el gráfico debe mostrar la exactitud global de cada mes, obtuvo: '+htmlTendencia);
+  assert(htmlTendencia.includes('Jun 26') && htmlTendencia.includes('Ago 26'), 'el gráfico debe etiquetar cada barra con su mes, obtuvo: '+htmlTendencia);
+  // Nave Mina pasó de 60% (jun) a 90% (ago): +30 puntos, la que más mejoró.
+  assert(htmlTendencia.includes('<strong>Nave Mina</strong> mejoró 30.0 puntos'), 'debe destacar la bodega que más mejoró con su delta, obtuvo: '+htmlTendencia);
+  assert(htmlTendencia.includes('60.0% → 90.0%'), 'debe mostrar el detalle inicio->fin de la bodega destacada, obtuvo: '+htmlTendencia);
+  // Nave Planta pasó de 80% (jun) a 70% (ago): -10 puntos, la que bajó.
+  assert(htmlTendencia.includes('<strong>Nave Planta</strong> bajó 10.0 puntos'), 'debe destacar la bodega que más bajó, obtuvo: '+htmlTendencia);
+
+  // Con un solo mes de historia todavía no hay "tendencia" que mostrar (no alcanza a comparar).
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    exactitudMensual: [
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+    ],
+  };
+  const htmlUnMes = ctx.renderDashboard();
+  assert(htmlUnMes.includes('solo hay conteos de Ago 26'), 'con un solo mes de historia debe explicar que la tendencia aparece con más de un mes, obtuvo: '+htmlUnMes);
+  assert(!htmlUnMes.includes('mejoró') && !htmlUnMes.includes('bajó'), 'con un solo mes no debe intentar calcular ninguna comparación, obtuvo: '+htmlUnMes);
+
+  // Sin ningún conteo todavía.
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudMensual: [] };
+  const htmlSinMeses = ctx.renderDashboard();
+  assert(htmlSinMeses.includes('Vas a ver la tendencia acá'), 'sin conteos todavía, debe mostrar el mensaje de que la tendencia aparecerá más adelante, obtuvo: '+htmlSinMeses);
 
   // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
   // avance_total/avance_diario usan count()/count(distinct), que PostgREST devuelve como
@@ -3254,6 +3326,59 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // no solo como subtítulo chico debajo del código.
   assert(htmlBuscarMixto.includes('<th>Descripción</th>'), 'la tabla de resultados debe tener una columna "Descripción", obtuvo: '+htmlBuscarMixto);
   assert(filaNoContada.includes('Nunca contado') && filaContada.includes('Ya contado'), 'cada fila debe mostrar la descripción del SKU en su propia celda, obtuvo: '+htmlBuscarMixto);
+
+  // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
+  // por fecha_conteo, paginada, mapeada a columnas en español y escrita con XLSX (mockeado
+  // arriba: json_to_sheet devuelve las filas tal cual, así se puede inspeccionar qué se exportó). =====
+  ctx.__appstate.exportConteos = { desde: '2026-08-20', hasta: '2026-08-20', exportando:false };
+  const htmlExportarForm = ctx.renderBuscar();
+  assert(htmlExportarForm.includes('id="form-exportar-conteos"') && htmlExportarForm.includes('id="ex-desde"') && htmlExportarForm.includes('id="ex-hasta"'), 'debe existir el formulario de exportar con sus campos de fecha, obtuvo: '+htmlExportarForm);
+  assert(htmlExportarForm.includes('value="2026-08-20"'), 'los campos de fecha deben reflejar el estado actual, obtuvo: '+htmlExportarForm);
+  conteosExportablesFixture = [
+    { conteo_id:'ce-1', sku_code:'SKU-EXP1', descripcion:'Perno M8', categoria:'Repuestos', unidad_medida:'UN', codigo_barras:'7801234567890', bodega_maestro:'Nave Mina', ubicacion_maestro:'Interior Nave', storage_bin:'A-01', stock_sistema:10, costo_unitario:500, bodega_contada:'Nave Mina', ubicacion_contada:'Interior Nave', ubicacion_distinta:false, cantidad_contada:8, diferencia:-2, valor_diferencia:-1000, estado:'con_diferencia', fuera_de_plan:false, observacion:'Faltante', fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', responsable:'Ana Torres', ciclo_nombre:'T1 2027' },
+  ];
+  xlsxEscrituras.length = 0;
+  calls.length = 0;
+  await ctx.exportarConteosExcel();
+  const exportCall = calls.find(c=>c.url.includes('/conteos_exportables'));
+  assert(!!exportCall, 'exportarConteosExcel debe pedir /conteos_exportables, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(exportCall.url.includes('fecha_conteo=gte.') && exportCall.url.includes('fecha_conteo=lt.'), 'debe filtrar por rango de fecha_conteo, obtuvo: '+exportCall.url);
+  assert(xlsxEscrituras.length===1, 'debe generar un archivo Excel, obtuvo: '+xlsxEscrituras.length);
+  assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-20.xlsx', 'con la misma fecha en "Desde" y "Hasta", el archivo debe nombrarse con un solo día, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
+  const filaExportada = xlsxEscrituras[0].libro.hojas['Conteos'][0];
+  assert(filaExportada['SKU']==='SKU-EXP1' && filaExportada['Descripción']==='Perno M8' && filaExportada['Categoría']==='Repuestos', 'debe incluir los campos básicos del maestro, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['Cantidad contada']===8 && filaExportada['Diferencia']===-2 && filaExportada['Valor diferencia']===-1000, 'debe incluir el resultado del conteo y su valorización, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['Responsable']==='Ana Torres' && filaExportada['Ciclo']==='T1 2027', 'debe incluir el responsable y el ciclo, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['Ubicación distinta']==='No' && filaExportada['Fuera de plan']==='No', 'los booleanos deben mostrarse como Sí/No, legibles para el ERP, obtuvo: '+JSON.stringify(filaExportada));
+
+  // Rango de fechas (dos días): el nombre del archivo debe reflejar ambos extremos.
+  ctx.__appstate.exportConteos = { desde: '2026-08-01', hasta: '2026-08-31', exportando:false };
+  xlsxEscrituras.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-01_a_2026-08-31.xlsx', 'con un rango de fechas, el archivo debe nombrarse con ambos extremos, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
+
+  // Sin fecha "Desde": no debe llegar a pedir nada ni intentar exportar.
+  ctx.__appstate.exportConteos = { desde: '', hasta: '', exportando:false };
+  calls.length = 0;
+  xlsxEscrituras.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(!calls.some(c=>c.url.includes('/conteos_exportables')), 'sin fecha "Desde" no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(xlsxEscrituras.length===0, 'sin fecha "Desde" no debe generar ningún archivo');
+
+  // "Hasta" anterior a "Desde": tampoco debe exportar.
+  ctx.__appstate.exportConteos = { desde: '2026-08-20', hasta: '2026-08-10', exportando:false };
+  calls.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(!calls.some(c=>c.url.includes('/conteos_exportables')), '"Hasta" anterior a "Desde" no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Sin conteos en el rango: debe avisar y dejar "exportando" en false (no debe quedar el botón
+  // pegado en estado de carga para siempre).
+  conteosExportablesFixture = [];
+  ctx.__appstate.exportConteos = { desde: '2026-01-01', hasta: '2026-01-01', exportando:false };
+  xlsxEscrituras.length = 0;
+  await ctx.exportarConteosExcel();
+  assert(xlsxEscrituras.length===0, 'sin conteos en el rango, no debe generarse ningún archivo');
+  assert(ctx.__appstate.exportConteos.exportando===false, 'sin conteos en el rango, "exportando" debe quedar en false (no debe trabarse el botón), obtuvo: '+ctx.__appstate.exportConteos.exportando);
 
   // handleLogout debe avisar con un toast temporal, igual que el resto de las acciones (login, guardar, borrar, etc.),
   // y borrar la sesión persistida en localStorage para que el próximo que abra el navegador no la herede.
