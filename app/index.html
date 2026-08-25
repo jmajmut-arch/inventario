@@ -1128,6 +1128,10 @@ async function cargarPlanSemanal(){
       ? `/plan_semanal_detalle?ciclo_id=eq.${cicloFiltro}&order=fecha.asc`
       : `/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[], seleccionados:[]}});
+    // Estos dos recálculos de fondo (universo y detalle por CADA entrada ya planificada) disparan
+    // un render() completo cada uno, sin relación con el formulario "Agregar a la planificación"
+    // que la persona puede estar llenando en ese momento. No hace falta protegerlos acá: render()
+    // ya captura y restaura ese formulario alrededor de cualquier render (ver capturarFormularioPlan).
     (rows||[]).forEach(async r=>{
       const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
       setState({plan: {...state.plan, universos: {...state.plan.universos, [r.id]: total}}});
@@ -2246,6 +2250,76 @@ function conservandoCamposConteo(fn){
   ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
   fn();
   ids.forEach(id=>{ const el = document.getElementById(id); if(el && valores[id]!==undefined) el.value = valores[id]; });
+}
+
+// Bug reportado: al elegir bodega/ubicación/storage bin en "Agregar a la planificación", la
+// selección desaparecía sola. Causa: mientras la persona llena ese formulario, hay de sobra
+// actividad de fondo que dispara un render() completo sin relación alguna con lo que está
+// llenando — el ejemplo más frecuente es cargarPlanSemanal() recalculando en segundo plano el
+// universo y el detalle de CADA entrada ya planificada (dos setState por entrada), pero
+// cualquiera de las otras cargas iniciales (cargarTodo) puede seguir resolviendo de fondo si la
+// conexión es lenta, que es justamente el escenario que más le importa a esta app ("incluso sin
+// señal"). Storage bin es lo que más se nota porque su lista de opciones ni siquiera viene del
+// estado (se carga aparte, vía cargarBinsPara), así que un render() de fondo no solo borra la
+// selección: deja el selector entero como si nunca se hubiera elegido ubicación.
+// En vez de perseguir cada setState de fondo uno por uno (imposible de mantener), render() en sí
+// captura y restaura este formulario alrededor de CUALQUIER render mientras esté visible — mismo
+// principio que conservandoCamposConteo, pero aplicado a nivel de render() para cubrir también
+// actividad de fondo que no pasa por un solo punto de entrada conocido.
+function capturarFormularioPlan(){
+  const binEl = document.getElementById('p-bin');
+  if(!binEl) return null; // no estamos mostrando el formulario "Agregar" (otra vista, o editando)
+  const bodegaEl = document.getElementById('p-bodega');
+  const ubicEl = document.getElementById('p-ubic');
+  const binTodosEl = document.getElementById('p-bin-todos');
+  const fechaEl = document.getElementById('p-fecha');
+  const respEl = document.getElementById('p-responsable');
+  const notaEl = document.getElementById('p-nota');
+  return {
+    bodega: bodegaEl && bodegaEl.value,
+    ubicInnerHTML: ubicEl && ubicEl.innerHTML,
+    ubicValue: ubicEl && ubicEl.value,
+    ubicDisabled: ubicEl && ubicEl.disabled,
+    binInnerHTML: binEl.innerHTML,
+    binDisabled: binEl.disabled,
+    binModo: binEl.dataset.modo,
+    binSkuCodes: binEl.dataset.skuCodes,
+    binSeleccionados: [...binEl.selectedOptions].map(o=>o.value),
+    binTodosChecked: binTodosEl && binTodosEl.checked,
+    binTodosDisabled: binTodosEl && binTodosEl.disabled,
+    fecha: fechaEl && fechaEl.value,
+    responsable: respEl && respEl.value,
+    nota: notaEl && notaEl.value,
+  };
+}
+function restaurarFormularioPlan(snap){
+  if(!snap) return;
+  const binEl2 = document.getElementById('p-bin');
+  if(!binEl2) return; // el render cambió de vista o de formulario, nada que restaurar
+  const bodegaEl2 = document.getElementById('p-bodega');
+  const ubicEl2 = document.getElementById('p-ubic');
+  const binTodosEl2 = document.getElementById('p-bin-todos');
+  const fechaEl2 = document.getElementById('p-fecha');
+  const respEl2 = document.getElementById('p-responsable');
+  const notaEl2 = document.getElementById('p-nota');
+  if(bodegaEl2 && snap.bodega!==undefined) bodegaEl2.value = snap.bodega;
+  if(ubicEl2 && snap.ubicInnerHTML!==undefined){
+    ubicEl2.innerHTML = snap.ubicInnerHTML;
+    ubicEl2.value = snap.ubicValue;
+    ubicEl2.disabled = snap.ubicDisabled;
+  }
+  binEl2.innerHTML = snap.binInnerHTML;
+  binEl2.disabled = snap.binDisabled;
+  if(snap.binModo!==undefined) binEl2.dataset.modo = snap.binModo;
+  if(snap.binSkuCodes!==undefined) binEl2.dataset.skuCodes = snap.binSkuCodes;
+  if(binEl2.options) [...binEl2.options].forEach(o=>{ o.selected = snap.binSeleccionados.includes(o.value); });
+  if(binTodosEl2){
+    binTodosEl2.checked = !!snap.binTodosChecked;
+    binTodosEl2.disabled = snap.binTodosDisabled;
+  }
+  if(fechaEl2 && snap.fecha!==undefined) fechaEl2.value = snap.fecha;
+  if(respEl2 && snap.responsable!==undefined) respEl2.value = snap.responsable;
+  if(notaEl2 && snap.nota!==undefined) notaEl2.value = snap.nota;
 }
 
 // Marcar/desmarcar "Lo encontré en otra ubicación" dispara un render() completo (para
@@ -4407,9 +4481,14 @@ function tabBtn(view,label){
    ======================================================================= */
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
+  // Ver capturarFormularioPlan: cualquier render (incluida actividad de fondo sin relación con
+  // lo que la persona está llenando) reconstruye toda la pantalla desde cero, así que hay que
+  // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
+  const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
   root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderEscanerModal();
   bind();
+  restaurarFormularioPlan(snapshotPlan);
 }
 
 function renderCuentaBloqueada(){
