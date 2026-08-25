@@ -678,6 +678,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(binEl.innerHTML.includes('A-01 — 5 SKU') && binEl.innerHTML.includes('A-02 — 3 SKU'), 'p-bin debe listar los storage bin con su cantidad de SKU, obtuvo: '+binEl.innerHTML);
   assert(!binEl.innerHTML.includes('Todos'), 'p-bin multiple no debe tener la opción "Todos" (sin selección ya significa todos), obtuvo: '+binEl.innerHTML);
   assert(chkTodosEl.disabled === false, 'el checkbox "Seleccionar todos" debe habilitarse tras cargar los storage bin');
+  // A pedido: la lista debe cargar con todos los storage bin ya marcados (no dejarlos sin
+  // selección confiando en la regla implícita "sin selección = todos"), y "Seleccionar todos"
+  // debe quedar marcado en automático para que el submit siga mandando el comodín sin filtro.
+  assert(chkTodosEl.checked === true, 'al cargar los storage bin, "Seleccionar todos" debe quedar marcado en automático, obtuvo: '+chkTodosEl.checked);
   // Bug real reportado: el resumen nativo del navegador para <select multiple> ("12 elementos")
   // se leía como cantidad de SKU, no de storage bin, y no cuadraba con el total real al agregar
   // "todos" (un bin puede tener más de un SKU). Se aclara con un resumen propio (bin / SKU).
@@ -694,6 +698,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(binEl.disabled === false, 'p-bin debe seguir habilitado al elegir "Todas" en ubicación específica, obtuvo disabled='+binEl.disabled);
   assert(binEl.innerHTML.includes('A-01 — 7 SKU') && binEl.innerHTML.includes('A-02 — 3 SKU'), 'con "Todas" elegido, p-bin debe listar los bin de toda la bodega con las cantidades sumadas (A-01 aparece en dos ubicaciones: 5+2=7), obtuvo: '+binEl.innerHTML);
   assert(elements['p-bin-resumen'].textContent === '(2 bin / 10 SKU)', 'el resumen debe recalcularse con "Todas" (7+3=10), obtuvo: '+elements['p-bin-resumen'].textContent);
+  assert(chkTodosEl.checked === true, 'al recargar los storage bin de "Todas", "Seleccionar todos" debe volver a quedar marcado, obtuvo: '+chkTodosEl.checked);
   ubicEl.value = 'Interior Nave';
   await new Promise(resolve => {
     ubicEl.dispatch('change', {target: ubicEl});
@@ -721,6 +726,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   chkTodosEl.checked = false;
   binEl.selectedOptions = [];
   await new Promise(resolve => setTimeout(resolve, 20));
+
+  // Bug real reportado: al presionar "Agregar", Ubicación específica y Storage bin (con sus
+  // conteos pendiente/total) se quedaban con los números de antes de agregar hasta que la
+  // persona los volvía a tocar a mano. El submit real (recién ejercitado arriba) debe volver a
+  // pedir esas dos listas para la MISMA bodega/ubicación, sin resetear la selección en curso.
+  assert(calls.some(c=>c.url.includes('/ubicaciones_especificas') && c.url.includes('bodega=eq.Nave')), 'tras agregar, debe refrescar Ubicación específica pidiendo ubicaciones_especificas de nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/ubicaciones_bins') && c.url.includes('bodega=eq.Nave') && c.url.includes('ubicacion=eq.Interior')), 'tras agregar, debe refrescar Storage bin pidiendo ubicaciones_bins de nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(bodegaEl.value === 'Nave Mina' && ubicEl.value === 'Interior Nave', 'tras agregar, la bodega/ubicación elegidas no deben resetearse a "Todas", obtuvo bodega='+bodegaEl.value+' ubicacion='+ubicEl.value);
+  assert(binEl.disabled === false && binEl.innerHTML.includes('A-01 — 5 SKU'), 'tras agregar, Storage bin debe quedar recargado y habilitado, obtuvo disabled='+binEl.disabled+' innerHTML='+binEl.innerHTML);
 
   // Regresión real reportada: si la persona marcaba "Seleccionar todos" y después elegía a mano un
   // bin puntual en la lista, el checkbox seguía marcado (nada lo desmarcaba) y el submit mandaba
@@ -855,7 +869,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Eligiendo solo SKU-P1 (deja SKU-P2 sin marcar), el resto de los SKU de la ubicación debe
   // excluirse de la entrada creada — misma tabla que usa "quitar SKU" sobre una entrada ya
-  // creada (plan_semanal_exclusiones), pero aplicada de una sola vez al crear.
+  // creada (plan_semanal_exclusiones), pero aplicada de una sola vez al crear. Elegir a mano en
+  // la lista (que ahora carga con todo pre-marcado) desmarca "Seleccionar todos" en la app real
+  // (ver el listener 'change' de #p-bin); se simula acá ese mismo efecto.
+  elements['p-bin-todos'].checked = false;
   elements['p-bin'].selectedOptions = [{value:'SKU-P1'}];
   calls.length = 0;
   await new Promise(resolve => {
