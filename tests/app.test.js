@@ -370,7 +370,7 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
-  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=sku_code,descripcion,storage_bin,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
+  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
     // "Piso" (bodega=is.null) no tiene ningún storage_bin cargado -> cargarBinsPara cae al
     // listado de SKU puntuales (ver "sin bin, elegir SKU" más abajo en este archivo).
     // SKU-P3 ya está cubierto por OTRA entrada de plan vigente: skus_disponibles_planificar (la
@@ -381,13 +381,13 @@ const fakeFetchImpl = async (url, opts) => {
     // la lista de exclusión.
     const filas = path.startsWith('/rest/v1/skus_disponibles_planificar')
       ? [
-          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', storage_bin:null, unidad_medida:'UN'},
-          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
         ]
       : [
-          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', storage_bin:null, unidad_medida:'UN'},
-          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', storage_bin:null, unidad_medida:'UN'},
-          {sku_code:'SKU-P3', descripcion:'Repuesto Piso 3 (ya en otra entrada)', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {sku_code:'SKU-P3', descripcion:'Repuesto Piso 3 (ya en otra entrada)', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
         ];
     return {
       status: 200, ok: true,
@@ -401,11 +401,11 @@ const fakeFetchImpl = async (url, opts) => {
   // más abajo) y ahora quedó en C-09 (fuera de los bins activos A-01/A-02: debe salir marcado
   // en vez de perderse). SKU-002 se planificó en A-01 pero su bin actual (A-02) sigue activo
   // (mp2), así que ya está cubierto por el fetch normal y no debe duplicarse como "movido".
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida') && path.includes('sku_code=in.(')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida') && path.includes('sku_code=in.(')){
     const codigos = decodeURIComponent((path.match(/sku_code=in\.\(([^)]*)\)/)||[])[1]||'').split(',');
     const disponibles = {
-      'SKU-999': {sku_code:'SKU-999', descripcion:'Rodamiento 6205', storage_bin:'C-09', unidad_medida:'UN'},
-      'SKU-002': {sku_code:'SKU-002', descripcion:'Tuerca M8', storage_bin:'A-02', unidad_medida:'UN'},
+      'SKU-999': {sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'},
+      'SKU-002': {sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'},
     };
     const filas = codigos.map(c=>disponibles[c]).filter(Boolean);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -421,12 +421,12 @@ const fakeFetchImpl = async (url, opts) => {
     const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
   }
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
     const filas = binFiltro==='A-01'
-      ? [{sku_code:'SKU-001', descripcion:'Perno M8', storage_bin:'A-01', unidad_medida:'UN'}]
+      ? [{sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'}]
       : binFiltro==='A-02'
-        ? [{sku_code:'SKU-002', descripcion:'Tuerca M8', storage_bin:'A-02', unidad_medida:'UN'}]
+        ? [{sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'}]
         : [];
     return {
       status: 200,
@@ -3039,6 +3039,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConteoConPlan.includes('data-pick-plan="SKU-999"') && htmlConteoConPlan.includes('Cambió de bin') && htmlConteoConPlan.includes('se planificó en A-01') && htmlConteoConPlan.includes('ahora está en C-09'), 'el SKU movido de bin debe seguir listado (no perderse) con una advertencia mostrando el bin original y el actual, obtuvo: '+htmlConteoConPlan);
   assert(!(htmlConteoConPlan.match(/data-pick-plan="SKU-002"[\s\S]*?<\/li>/)||[''])[0].includes('Cambió de bin'), 'SKU-002 sigue cubierto por su bin activo: no debe llevar la advertencia de "movido", obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir disponible, ahora bajo su propio título, obtuvo: '+htmlConteoConPlan);
+
+  // Pedido real: cada SKU pendiente del plan del día debe mostrar su ubicación general,
+  // ubicación específica y storage bin (antes solo mostraba código y descripción).
+  assert(htmlConteoConPlan.includes('Nave Mina · Interior Nave · A-01'), 'SKU-001 debe mostrar bodega · ubicación · storage bin bajo su descripción, obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('Nave Mina · Interior Nave · A-02'), 'SKU-002 debe mostrar bodega · ubicación · storage bin bajo su descripción, obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('Nave Mina · Interior Nave · C-09'), 'SKU-999 (movido) debe mostrar su bodega · ubicación · storage bin ACTUAL (C-09), no el original, obtuvo: '+htmlConteoConPlan);
 
   // Sin nada planificado para mí ese día: el bloque "Plan del día" muestra su estado vacío
   // (no un error ni una sección en blanco), y el buscador libre sigue disponible igual.

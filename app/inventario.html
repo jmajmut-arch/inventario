@@ -1084,7 +1084,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
 async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, excluirYaPlanificados}){
-  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1423,7 +1423,7 @@ async function skusMovidosDeEntradas(entradasConBin, binesActivos){
   snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s.storage_bin_original); });
   if(!original.size) return [];
   const codigos = [...original.keys()];
-  const actuales = await rest(`/skus_planificables?activo=eq.true&select=sku_code,descripcion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
+  const actuales = await rest(`/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
   return actuales
     .filter(s => s.storage_bin !== original.get(s.sku_code) && !binesActivos.has(s.storage_bin))
     .map(s => ({...s, binOriginal: original.get(s.sku_code)}));
@@ -3607,6 +3607,9 @@ function renderPlanDelDia(){
                 <li>
                   <button type="button" data-pick-plan="${esc(s.sku_code)}" style="width:100%;text-align:left;background:none;border:none;padding:8px 0;cursor:pointer;color:inherit">
                     <span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}
+                    ${[s.bodega, s.ubicacion, s.storage_bin].filter(Boolean).length? `
+                      <div class="hint" style="margin-top:2px">${esc([s.bodega, s.ubicacion, s.storage_bin].filter(Boolean).join(' · '))}</div>
+                    ` : ''}
                     ${s.binOriginal? `
                       <div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:5px">
                         ${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')}
