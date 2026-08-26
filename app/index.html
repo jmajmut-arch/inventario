@@ -3940,7 +3940,7 @@ function renderReconteo(){
     <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo no cuadra con el stock de sistema. Recuenta para corregir o confirmar la diferencia.</div>
     <div class="card">
       ${rows.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th></th></tr></thead>
+        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
           <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
@@ -3948,6 +3948,9 @@ function renderReconteo(){
           <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
           <td>${causaProbableBadge(r.causa_probable)}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
+          <td class="num">${r.ultima_foto_url
+            ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify([r.ultima_foto_url]))}" aria-label="Ver foto">${ICONS.camera}</button>`
+            : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
           <td class="num"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button></td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">✓</div>No hay materiales con diferencias pendientes.</div>`}
@@ -5243,6 +5246,16 @@ function bind(){
   if(state.view==='reconteo'){
     const btnCargarMasReconteo = document.getElementById('btn-cargar-mas-reconteo');
     if(btnCargarMasReconteo) btnCargarMasReconteo.addEventListener('click', cargarMasReconteos);
+    document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const rutas = JSON.parse(btn.dataset.verFotos);
+        if(!rutas.length) return;
+        try{
+          const urls = await Promise.all(rutas.map(crearUrlFirmada));
+          setState({fotoModal:{urls, index:0}});
+        }catch(e){ toast(e.message,'err'); }
+      });
+    });
     document.querySelectorAll('[data-recontar]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const r = state.reconteos.find(x=>x.id===btn.dataset.recontar);
