@@ -5365,19 +5365,30 @@ function bind(){
     // específica sin que la persona toque nada) y el cambio de ubicación específica en sí.
     async function cargarBinsPara(bodega, ubicacion){
       if(!bodega){ resetPBin(); return; }
-      const selBin = document.getElementById('p-bin');
-      const chkTodos = document.getElementById('p-bin-todos');
-      const hintBin = document.getElementById('p-bin-hint');
-      const resumenBin = document.getElementById('p-bin-resumen');
+      const selBinInicial = document.getElementById('p-bin');
+      const chkTodosInicial = document.getElementById('p-bin-todos');
+      const resumenBinInicial = document.getElementById('p-bin-resumen');
+      if(!selBinInicial || !chkTodosInicial || !resumenBinInicial) return; // no estamos mostrando el formulario "Agregar"
       // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
       // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
-      selBin.innerHTML = '<option value="">Cargando…</option>';
-      selBin.disabled = true;
-      selBin.dataset.modo = 'bins';
-      chkTodos.checked = false;
-      chkTodos.disabled = true;
-      resumenBin.textContent = '';
+      selBinInicial.innerHTML = '<option value="">Cargando…</option>';
+      selBinInicial.disabled = true;
+      selBinInicial.dataset.modo = 'bins';
+      chkTodosInicial.checked = false;
+      chkTodosInicial.disabled = true;
+      resumenBinInicial.textContent = '';
       const opciones = await opcionesBins(bodega, ubicacion);
+      // Los elementos se buscan de nuevo ACÁ, después del await (y otra vez más abajo, tras el
+      // segundo await): un render() de fondo puede haber reemplazado el formulario mientras
+      // esperábamos la respuesta — mismo motivo que en cargarOpcionesEspecificasEnSelect. Escribir
+      // sobre la referencia vieja quedaba en un nodo ya desprendido del DOM, invisible en pantalla:
+      // bug real reportado, Storage bin se quedaba pegado en "Cargando…" (o con los datos de la
+      // ubicación anterior) hasta que la persona volvía a tocar el selector a mano.
+      let selBin = document.getElementById('p-bin');
+      let chkTodos = document.getElementById('p-bin-todos');
+      let hintBin = document.getElementById('p-bin-hint');
+      let resumenBin = document.getElementById('p-bin-resumen');
+      if(!selBin || !chkTodos || !hintBin || !resumenBin) return; // la vista cambió mientras esperábamos
       if(opciones.length){
         selBin.innerHTML = opciones.map(o=>`<option value="${esc(o.storage_bin)}">${esc(o.storage_bin)} — ${o.cantidad_skus} SKU</option>`).join('');
         // Foto bin -> cantidad_skus que actualizarResumenBin() usa para recalcular el resumen
@@ -5397,6 +5408,8 @@ function bind(){
         // total real, que suma los SKU de todos esos bins juntos (normalmente más que uno por bin).
         // Se recalcula en vivo con cada cambio de selección (ver el listener 'change' de #p-bin).
         actualizarResumenBin();
+        selBin.disabled = false;
+        chkTodos.disabled = false;
       }else{
         // Estos SKU no tienen storage bin cargado (ej. carga masiva sin esa columna): en vez de
         // dejar la caja vacía sin explicación, se listan los SKU de la ubicación para poder
@@ -5416,6 +5429,12 @@ function bind(){
           skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true}),
           skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false}),
         ]);
+        // Elementos frescos otra vez, tras este segundo await.
+        selBin = document.getElementById('p-bin');
+        chkTodos = document.getElementById('p-bin-todos');
+        hintBin = document.getElementById('p-bin-hint');
+        resumenBin = document.getElementById('p-bin-resumen');
+        if(!selBin || !chkTodos || !hintBin || !resumenBin) return; // la vista cambió mientras esperábamos
         if(skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES){
           selBin.dataset.modo = 'skus';
           selBin.dataset.skuCodes = JSON.stringify(skusUniversoCompleto.map(s=>s.sku_code));
@@ -5434,9 +5453,9 @@ function bind(){
           resumenBin.textContent = '';
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';
         }
+        selBin.disabled = false;
+        chkTodos.disabled = false;
       }
-      selBin.disabled = false;
-      chkTodos.disabled = false;
     }
     // Recarga las opciones de Ubicación específica (con su conteo pendiente/total) para la
     // bodega dada. Devuelve el valor que quedó elegido, para poder encadenar cargarBinsPara con
