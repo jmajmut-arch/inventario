@@ -426,6 +426,11 @@ const fakeFetchImpl = async (url, opts) => {
       'SKU-999': {sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'},
       'SKU-002': {sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'},
       'SKU-777': {sku_code:'SKU-777', descripcion:'Retén hidráulico', bodega:'Bodega Norte', ubicacion:'Pasillo 5', storage_bin:'N-03', unidad_medida:'UN'},
+      // SKU-555 nunca se movió (mismo bin, misma bodega, misma ubicación de siempre) — su foto es
+      // "legacy" (ver snapshots.mp1 más abajo): se guardó antes de que existieran
+      // bodega_original/ubicacion_original, así que esas dos vienen en null aunque el SKU jamás
+      // cambió de bodega/ubicación en la vida real.
+      'SKU-555': {sku_code:'SKU-555', descripcion:'Filtro de aire', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'},
     };
     const filas = codigos.map(c=>disponibles[c]).filter(Boolean);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -439,6 +444,8 @@ const fakeFetchImpl = async (url, opts) => {
         {sku_code:'SKU-999', storage_bin_original:'A-01', bodega_original:'Nave Mina', ubicacion_original:'Interior Nave'},
         {sku_code:'SKU-002', storage_bin_original:'A-01', bodega_original:'Nave Mina', ubicacion_original:'Interior Nave'},
         {sku_code:'SKU-777', storage_bin_original:'A-01', bodega_original:'Nave Mina', ubicacion_original:'Interior Nave'},
+        // Foto "legacy": plan planificado antes de que existieran estas dos columnas.
+        {sku_code:'SKU-555', storage_bin_original:'A-01', bodega_original:null, ubicacion_original:null},
       ],
       'mp2': [],
     };
@@ -3222,6 +3229,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!skusJuntos.find(s=>s.sku_code==='SKU-002').binOriginal, 'SKU-002 sigue cubierto por el bin activo A-02: no debe llevar marca de "movido" aunque su snapshot original haya sido A-01, obtuvo: '+JSON.stringify(skusJuntos.find(s=>s.sku_code==='SKU-002')));
   const skuReubicado = skusJuntos.find(s=>s.sku_code==='SKU-777');
   assert(!!skuReubicado && skuReubicado.cambioBodega && skuReubicado.cambioUbicacion && skuReubicado.bodegaOriginal==='Nave Mina' && skuReubicado.ubicacionOriginal==='Interior Nave' && skuReubicado.bodega==='Bodega Norte' && skuReubicado.ubicacion==='Pasillo 5', 'SKU-777 debe aparecer marcado como movido de bodega+ubicación, con su ubicación original y la actual, obtuvo: '+JSON.stringify(skuReubicado));
+  // Reportado real: un plan planificado ANTES de que existiera este aviso tiene bodega_original/
+  // ubicacion_original en null en su foto (columnas nuevas), aunque el SKU nunca se movió de
+  // bodega/ubicación. Comparar "null" contra el dato actual como si fuera un cambio mostraría el
+  // aviso en todos los SKU de un plan viejo sin que nada haya pasado — no debe pasar: SKU-555 no
+  // debe aparecer como "movido" (su bin tampoco cambió).
+  assert(!skusJuntos.some(s=>s.sku_code==='SKU-555'), 'SKU-555 (foto legacy sin bodega/ubicación original, mismo bin de siempre) no debe aparecer como movido solo porque esas columnas vengan en null, obtuvo: '+JSON.stringify(skusJuntos));
 
   // renderConteo/renderPlanDelDia: fecha, cascada de bodega (incluye "SKU sin ubicación" porque
   // hay una entrada suelta hoy) y el checklist de SKU pendientes ya resuelto arriba.
