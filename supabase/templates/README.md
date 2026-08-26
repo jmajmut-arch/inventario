@@ -1,26 +1,31 @@
 # Plantillas de correo (Supabase Auth)
 
-InventIA usa Supabase Auth para enviar correos de acceso. Hoy el único correo
-que la app dispara es el de **"Reset your password"** (`recovery.html`):
+InventIA usa Supabase Auth para enviar dos correos de acceso, cada uno con su
+propia plantilla:
 
-- La Edge Function `invite-user` crea la cuenta y llama a
-  `resetPasswordForEmail()` para que la persona invitada defina su contraseña.
-- El botón "Olvidé mi contraseña" del login llama a la misma función.
+- **Invitar a un usuario nuevo** (`invite.html`): la Edge Function
+  `invite-user` crea la cuenta con `admin.inviteUserByEmail()`, que dispara
+  el correo de tipo **Invite user** de Supabase. El texto le da la bienvenida
+  ("Te invitaron a InventIA") en vez de sonar a recuperación de contraseña.
+- **Olvidé mi contraseña** (`recovery.html`): el botón del login llama a
+  `resetPasswordForEmail()`, que dispara el correo de tipo **Reset Password**.
 
-Ambos flujos usan la plantilla de recuperación de Supabase, así que
-`recovery.html` cubre los dos casos con un texto neutro ("crea o restablece
-tu contraseña").
+Antes ambos flujos compartían la plantilla de recuperación con un texto
+neutro; ahora cada uno tiene su propio mensaje.
 
-## Cómo aplicarla
+## Cómo aplicarlas
 
-No existe una API/CLI conectada a este proyecto para subir la plantilla
-automáticamente: hay que pegarla a mano en el panel de Supabase.
+No existe una API/CLI conectada a este proyecto para subir las plantillas
+automáticamente: hay que pegarlas a mano en el panel de Supabase.
 
 1. Entra al [Dashboard del proyecto](https://supabase.com/dashboard/project/ncvwgsbcvklhbyvurxzz/auth/templates).
-2. Abre la pestaña **Reset Password**.
-3. En **Subject heading** escribe: `Accede a tu cuenta de InventIA`.
-4. Copia el contenido de `recovery.html` y pégalo en el editor de **Message body (HTML)**.
-5. Guarda los cambios y usa el botón "Send test email" para revisarla.
+2. Abre la pestaña **Invite user**.
+   - En **Subject heading** escribe: `Te invitaron a InventIA`.
+   - Copia el contenido de `invite.html` y pégalo en el editor de **Message body (HTML)**.
+3. Abre la pestaña **Reset Password**.
+   - En **Subject heading** escribe: `Accede a tu cuenta de InventIA`.
+   - Copia el contenido de `recovery.html` y pégalo en el editor de **Message body (HTML)**.
+4. Guarda los cambios en cada pestaña y usa el botón "Send test email" para revisarlas.
 
 ## Nombre del remitente ("de InventIA")
 

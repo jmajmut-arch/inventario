@@ -691,10 +691,10 @@ async function hayOtraSesionActiva(){
   catch(e){ return false; }
 }
 
-// Al llegar desde el link del correo de invitación, Supabase redirige con el
-// token de sesión en el fragmento de la URL (#access_token=...&type=recovery).
-// Lo detectamos antes del primer render para mostrar "crea tu contraseña"
-// en vez del login normal.
+// Al llegar desde el link del correo de invitación o de recuperar contraseña, Supabase
+// redirige con el token de sesión en el fragmento de la URL
+// (#access_token=...&type=invite o type=recovery). Lo detectamos antes del primer render
+// para mostrar "crea tu contraseña" en vez del login normal.
 async function procesarLlegadaPorInvitacion(){
   const hash = location.hash.startsWith('#') ? location.hash.slice(1) : '';
   const params = new URLSearchParams(hash);
