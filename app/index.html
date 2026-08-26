@@ -4681,11 +4681,12 @@ function renderShell(){
 
 function tabBtn(view,label){
   const bloqueada = vistaBloqueadaParaRol(view);
-  return `<button class="tab ${state.view===view?'active':''} ${bloqueada?'tab-bloqueada':''}" data-tab="${view}" aria-label="${esc(label)}" ${bloqueada?`data-bloqueada="1" title="Solo para administradores"`:''}>
+  return `<button class="tab ${state.view===view?'active':''} ${bloqueada?'tab-bloqueada':''}" data-tab="${view}" ${bloqueada?`data-bloqueada="1" title="Solo para administradores"`:''}>
     <span class="tab-icon-wrap">
       ${ICONS[view==='carga'?'upload':view]}
       ${bloqueada? `<span class="tab-candado" aria-hidden="true">${ICONS.candado}</span>` : ''}
     </span>
+    ${label}
   </button>`;
 }
 
