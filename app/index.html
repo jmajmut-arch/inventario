@@ -1413,24 +1413,46 @@ function entradasActivasContar(cp){
   return cp.entradas.filter(e=> !e.solo_sin_ubicacion && bodegaCoincide(e) && (e.ubicacion||'')===cp.ubicacion);
 }
 
-// SKU que se planificaron con un storage bin específico, pero que una carga masiva posterior
-// les cambió el bin: si el nuevo bin ya no queda cubierto por ninguna entrada activa de esta
-// bodega+ubicación, desaparecerían silenciosamente del plan del día. Se resuelven acá cruzando
-// la foto guardada al planificar (plan_semanal_skus) contra el bin actual real de cada SKU, y
-// se devuelven marcados con `binOriginal` para poder avisar en vez de perderlos.
-async function skusMovidosDeEntradas(entradasConBin, binesActivos){
-  if(!entradasConBin.length) return [];
-  const snapshots = await Promise.all(entradasConBin.map(e=>
-    rest(`/plan_semanal_skus?plan_id=eq.${e.id}&select=sku_code,storage_bin_original`)
+// SKU que se planificaron para una bodega/ubicación/bin determinados, pero que una carga masiva
+// posterior les cambió alguno de esos datos: si ya no coinciden con ninguna entrada activa de
+// este bodega+ubicación, desaparecerían silenciosamente del plan del día. Se resuelven acá
+// cruzando la foto guardada al planificar (plan_semanal_skus) contra los datos actuales de cada
+// SKU, y se devuelven marcados con qué cambió para poder avisar en vez de perderlos. `entradas`
+// debe venir ya acotado a las que tienen bin específico (ver elegirCascadaContar y
+// crearPlanEntrada): solo esas guardan la foto, porque el universo de SKU de una entrada sin bin
+// (bodega+ubicación completa) puede ser demasiado grande para snapshotearlo.
+async function skusMovidosDeEntradas(entradas, binesActivos){
+  if(!entradas.length) return [];
+  const snapshots = await Promise.all(entradas.map(e=>
+    rest(`/plan_semanal_skus?plan_id=eq.${e.id}&select=sku_code,storage_bin_original,bodega_original,ubicacion_original`)
   ));
   const original = new Map();
-  snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s.storage_bin_original); });
+  snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s); });
   if(!original.size) return [];
   const codigos = [...original.keys()];
   const actuales = await rest(`/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
-  return actuales
-    .filter(s => s.storage_bin !== original.get(s.sku_code) && !binesActivos.has(s.storage_bin))
-    .map(s => ({...s, binOriginal: original.get(s.sku_code)}));
+  return actuales.map(s=>{
+    const o = original.get(s.sku_code);
+    const cambioBodega = (s.bodega||null) !== (o.bodega_original||null);
+    const cambioUbicacion = (s.ubicacion||null) !== (o.ubicacion_original||null);
+    const cambioBin = s.storage_bin !== o.storage_bin_original;
+    // Un cambio de solo bin, dentro de la misma bodega+ubicación, ya aparece solo si el bin
+    // nuevo es otro de los activos para esta entrada — no hace falta "recuperarlo" acá.
+    if(!cambioBodega && !cambioUbicacion && (!cambioBin || binesActivos.has(s.storage_bin))) return null;
+    return {...s, bodegaOriginal:o.bodega_original, ubicacionOriginal:o.ubicacion_original, binOriginal:o.storage_bin_original, cambioBodega, cambioUbicacion, cambioBin};
+  }).filter(Boolean);
+}
+
+// Texto de la advertencia para un SKU recuperado por skusMovidosDeEntradas: si cambió de bodega
+// o ubicación, eso es lo relevante para el conteo (importa más que el bin); si solo cambió de
+// bin dentro de la misma bodega+ubicación, se avisa puntualmente de eso.
+function describirCambioPlan(s){
+  if(s.cambioBodega || s.cambioUbicacion){
+    const antes = [s.bodegaOriginal, s.ubicacionOriginal].filter(Boolean).join(' · ') || 'sin ubicación asignada';
+    const ahora = [s.bodega, s.ubicacion].filter(Boolean).join(' · ') || 'sin ubicación asignada';
+    return `Cambió de ubicación: se planificó en ${esc(antes)}, ahora está en ${esc(ahora)}`;
+  }
+  return `Cambió de bin: se planificó en ${esc(s.binOriginal)}, ahora está en ${esc(s.storage_bin||'sin bin')}`;
 }
 
 async function elegirCascadaContar(cambios){
@@ -1449,6 +1471,9 @@ async function elegirCascadaContar(cambios){
     const skus = [];
     listas.flat().forEach(s=>{ if(!vistos.has(s.sku_code)){ vistos.add(s.sku_code); skus.push(s); } });
 
+    // Solo entradas CON bin específico: el universo de SKU a snapshotear queda acotado a lo que
+    // hay en ese bin (chico), a diferencia de una entrada sin bin (bodega+ubicación completa),
+    // que puede cubrir miles de SKU y volvería impracticable guardar la foto de todos.
     const entradasConBin = activas.filter(e=>!e.solo_sin_ubicacion && e.storage_bin);
     if(entradasConBin.length){
       const binesActivos = new Set(activas.map(e=>e.storage_bin).filter(Boolean));
@@ -1489,16 +1514,19 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     if(skusExcluidos && skusExcluidos.length && filas && filas.length){
       await rest('/plan_semanal_exclusiones', {method:'POST', body: filas.flatMap(f=>skusExcluidos.map(sku_code=>({plan_id:f.id, sku_code}))), prefer:'return=minimal'});
     }
-    // Foto del universo de SKU capturado al planificar, por entrada con bin específico: permite
-    // detectar más adelante (ver skusMovidosDeEntradas) si una carga masiva posterior movió
-    // alguno a otro bin, para no perderlo silenciosamente del plan del día.
+    // Foto del universo de SKU capturado al planificar, por entrada CON bin específico (el
+    // universo queda acotado a lo que hay en ese bin): permite detectar más adelante (ver
+    // skusMovidosDeEntradas) si una carga masiva posterior movió alguno a otro bin, bodega o
+    // ubicación, para no perderlo silenciosamente del plan del día. Una entrada sin bin (toda
+    // una bodega+ubicación) puede cubrir miles de SKU, así que no se le guarda esta foto — el
+    // costo de escribirla no compensa frente a lo poco frecuente del caso que resuelve.
     if(!soloSinUbicacion && filas && filas.length){
       const conBin = filas.filter(f=>f.storage_bin);
       if(conBin.length){
         const snapshots = await Promise.all(conBin.map(f=>
           skusDeUbicacion({bodega:f.bodega, ubicacion:f.ubicacion, storage_bin:f.storage_bin, excluidos:[], soloSinUbicacion:false})
         ));
-        const filasSnapshot = conBin.flatMap((f,i)=>snapshots[i].map(s=>({plan_id:f.id, sku_code:s.sku_code, storage_bin_original:f.storage_bin})));
+        const filasSnapshot = conBin.flatMap((f,i)=>snapshots[i].map(s=>({plan_id:f.id, sku_code:s.sku_code, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion})));
         if(filasSnapshot.length){
           await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal'});
         }
@@ -3839,10 +3867,10 @@ function renderPlanDelDia(){
                     ${[s.bodega, s.ubicacion, s.storage_bin].filter(Boolean).length? `
                       <div class="hint" style="margin-top:2px">${esc([s.bodega, s.ubicacion, s.storage_bin].filter(Boolean).join(' · '))}</div>
                     ` : ''}
-                    ${s.binOriginal? `
+                    ${s.cambioBodega || s.cambioUbicacion || s.cambioBin? `
                       <div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:5px">
                         ${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')}
-                        Cambió de bin: se planificó en ${esc(s.binOriginal)}, ahora está en ${esc(s.storage_bin||'sin bin')}
+                        ${describirCambioPlan(s)}
                       </div>
                     ` : ''}
                   </button>
