@@ -1986,14 +1986,23 @@ function detectarMapeo(headers, campos){
 /* =======================================================================
    ACCIONES — SKUs
    ======================================================================= */
+// Detecta el rechazo del índice único (empresa_id, sku_code, bodega_key) para mostrar un
+// mensaje claro en vez del error crudo de Postgres. A propósito ya NO se resuelve con un
+// upsert: hacerlo pisaba en silencio los datos de un SKU existente si alguien reusaba su
+// código para un material distinto (bug real: "123456" con "Filtro" quedó sobrescrito por
+// "Sillas" al cargar de nuevo el mismo código sin bodega). Para actualizar un SKU ya
+// cargado se usa la carga masiva, que sí actualiza los que ya existen a propósito.
+function esErrorCodigoSkuDuplicado(e){
+  return /skus_empresa_id_sku_code_bodega_key/i.test((e && e.message) || '');
+}
+function mensajeCodigoSkuDuplicado(skuCode, bodega){
+  return `El código ${skuCode} ya existe${bodega? ` en ${bodega}` : ' sin bodega asignada'}. Para actualizarlo, usa la carga masiva.`;
+}
 async function crearSkuManual(payload){
   if(!perfilCargado()) return false;
   const capturadoEn = new Date().toISOString();
   try{
-    // upsert por (empresa_id, sku_code): si el código ya existía para esta empresa, se
-    // actualiza con los datos ingresados en vez de fallar por la restricción única —
-    // mismo criterio que usa la carga masiva por CSV.
-    await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id, capturado_en: capturadoEn}], prefer:'return=minimal,resolution=merge-duplicates'});
+    await rest('/skus', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id, capturado_en: capturadoEn}], prefer:'return=minimal'});
     toast('SKU guardado correctamente');
     refrescarListaSkus();
     return true;
@@ -2005,7 +2014,7 @@ async function crearSkuManual(payload){
       toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
       return true;
     }
-    toast(e.message,'err');
+    toast(esErrorCodigoSkuDuplicado(e) ? mensajeCodigoSkuDuplicado(payload.sku_code, payload.bodega) : e.message, 'err');
     return false;
   }
 }
@@ -2214,7 +2223,8 @@ async function descartarAccionOffline(id){
 }
 
 // Procesa un único item encolado sin conexión. El tipo decide qué hacer:
-// - 'sku': upsert directo a /skus (mismo criterio que crearSkuManual/carga masiva).
+// - 'sku': INSERT directo a /skus (mismo criterio que crearSkuManual — sin upsert, ver
+//   esErrorCodigoSkuDuplicado, para no pisar en silencio un SKU existente).
 // - 'conteo' (o sin tipo, para lo ya encolado antes de que existiera este campo): sube sus
 //   fotos pendientes (si tiene), crea el conteo y lo enlaza con esas fotos.
 // No toca la cola/localStorage; eso lo decide quien llama según el resultado.
@@ -2224,7 +2234,7 @@ async function procesarUnItemOffline(item){
   const capturadoEn = new Date(item.creado_en).toISOString();
   try{
     if(item.tipo==='sku'){
-      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:[{
+      await rest('/skus', {method:'POST', body:[{
         sku_code: item.sku_code,
         descripcion: item.descripcion,
         categoria: item.categoria,
@@ -2235,7 +2245,7 @@ async function procesarUnItemOffline(item){
         stock_sistema: item.stock_sistema,
         empresa_id: item.empresa_id,
         capturado_en: capturadoEn,
-      }], prefer:'return=minimal,resolution=merge-duplicates'});
+      }], prefer:'return=minimal'});
       return {ok:true};
     }
 
@@ -2266,6 +2276,7 @@ async function procesarUnItemOffline(item){
     return {ok:true};
   }catch(e){
     if(pareceFalloDeRed(e)) return {ok:false, red:true};
+    if(item.tipo==='sku' && esErrorCodigoSkuDuplicado(e)) return {ok:false, red:false, mensaje:mensajeCodigoSkuDuplicado(item.sku_code, item.bodega)};
     return {ok:false, red:false, mensaje:e.message};
   }
 }
