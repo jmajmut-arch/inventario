@@ -1433,8 +1433,13 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   const actuales = await rest(`/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
   return actuales.map(s=>{
     const o = original.get(s.sku_code);
-    const cambioBodega = (s.bodega||null) !== (o.bodega_original||null);
-    const cambioUbicacion = (s.ubicacion||null) !== (o.ubicacion_original||null);
+    // Fotos guardadas antes de que existieran estas dos columnas (plan planificado antes de este
+    // aviso) quedan con ambas en null — ahí no hay con qué comparar bodega/ubicación, así que no
+    // se puede saber si "cambiaron": tratarlo como si sí hubiera cambiado (null → cualquier dato)
+    // mostraría el aviso en TODOS los SKU de ese plan viejo aunque nada se haya movido.
+    const tieneOriginalBodegaUbicacion = !!(o.bodega_original || o.ubicacion_original);
+    const cambioBodega = tieneOriginalBodegaUbicacion && (s.bodega||null) !== (o.bodega_original||null);
+    const cambioUbicacion = tieneOriginalBodegaUbicacion && (s.ubicacion||null) !== (o.ubicacion_original||null);
     const cambioBin = s.storage_bin !== o.storage_bin_original;
     // Un cambio de solo bin, dentro de la misma bodega+ubicación, ya aparece solo si el bin
     // nuevo es otro de los activos para esta entrada — no hace falta "recuperarlo" acá.
