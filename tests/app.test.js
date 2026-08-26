@@ -1877,6 +1877,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.procesarLlegadaPorInvitacion();
   assert(ctx.__appstate.debeCrearPassword===true, 'debe activar debeCrearPassword al llegar con un token de recovery en el hash');
   assert(ctx.__appstate.session && ctx.__appstate.session.access_token==='tok-invitado', 'debe armar la sesión con el access_token del hash, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+
+  // Lo mismo debe pasar con type=invite (el que realmente manda invite-user desde que usa
+  // admin.inviteUserByEmail en vez de resetPasswordForEmail), no solo con type=recovery.
+  ctx.__appstate.session = null; ctx.__appstate.debeCrearPassword = false;
+  ctx.location.hash = '#access_token=tok-invitado-2&refresh_token=ref-2&type=invite';
+  await ctx.procesarLlegadaPorInvitacion();
+  assert(ctx.__appstate.debeCrearPassword===true, 'debe activar debeCrearPassword al llegar con un token de invite en el hash');
+  assert(ctx.__appstate.session && ctx.__appstate.session.access_token==='tok-invitado-2', 'debe armar la sesión con el access_token del hash (type=invite), obtuvo: '+JSON.stringify(ctx.__appstate.session));
+
+  // Vuelve a dejar la sesión con el token de recovery para el resto de las aserciones de abajo.
+  ctx.location.hash = '#access_token=tok-invitado&refresh_token=ref-1&type=recovery';
+  await ctx.procesarLlegadaPorInvitacion();
+
   const htmlCrearPass = ctx.renderCrearPassword();
   assert(htmlCrearPass.includes('id="crear-password-form"') && htmlCrearPass.includes('id="f-nueva-pass"'), 'debe mostrar el formulario para crear contraseña, obtuvo: '+htmlCrearPass);
 
