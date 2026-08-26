@@ -3622,7 +3622,10 @@ function renderSkus(){
 function iconoUltimoConteo(estado, diferencia){
   if(!estado) return '';
   const dif = Number(diferencia)||0;
-  const color = estado==='aprobado' ? 'var(--ok)' : (dif>0 ? 'var(--warn)' : 'var(--danger)');
+  // var(--warn) se ve café/naranjo en el tema claro (pensado para dar contraste como texto de
+  // badge), no como un amarillo franco. Para este punto de color se usa un amarillo fijo, que se
+  // distingue mejor de rojo/verde en cualquier tema.
+  const color = estado==='aprobado' ? 'var(--ok)' : (dif>0 ? '#f1c40f' : 'var(--danger)');
   const titulo = estado==='aprobado' ? 'Último conteo cuadrado (sin diferencia)'
     : dif>0 ? `Último conteo con diferencia positiva (+${dif})`
     : `Último conteo con diferencia negativa (${dif})`;
