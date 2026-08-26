@@ -3847,15 +3847,11 @@ function renderConteo(){
         </div>
       </div>
     ` : `
+      <button type="button" id="btn-quitar-sku" aria-label="Volver a la lista de SKU" style="display:flex;align-items:center;gap:4px;background:none;border:none;color:var(--amber);font-weight:600;font-size:13px;padding:6px 0;margin-bottom:6px">‹ Volver</button>
       <div class="selected-sku">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div>
-            <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
-            <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
-            <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Stock sistema: ${state.skuSeleccionado.stock_sistema!==null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
-          </div>
-          <button id="btn-quitar-sku" style="background:none;border:none;color:var(--text-faint)">${ICONS.x}</button>
-        </div>
+        <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
+        <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Stock sistema: ${state.skuSeleccionado.stock_sistema!==null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
       </div>
 
       <div class="card">
