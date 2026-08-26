@@ -450,6 +450,12 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
+  // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key) para probar que
+  // crearSkuManual / procesarUnItemOffline lo traducen a un mensaje claro en vez del error
+  // crudo de Postgres — ver esErrorCodigoSkuDuplicado.
+  if(path==='/rest/v1/skus' && opts && opts.method==='POST' && JSON.parse(opts.body)[0].sku_code==='SKU-DUP-EXISTE'){
+    return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_key"'}) };
+  }
   // Otras rutas usadas por cargarTodo/cargarPlanSemanal, /auth/v1/signup, etc. -> vacío.
   return { status: 200, ok: true, headers: { get: () => null }, text: async () => '[]', json: async () => ([]) };
 };
@@ -2218,15 +2224,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.perfil.empresas.nombre==='Minera Andes Sur', 'debe reflejar el nuevo nombre en el estado local tras guardar, obtuvo: '+ctx.__appstate.perfil.empresas.nombre);
 
   // Las acciones de escritura deben viajar con el empresa_id del perfil actual (aislamiento entre empresas).
-  // crearSkuManual debe hacer upsert (on_conflict=empresa_id,sku_code + merge-duplicates), igual que la
-  // carga masiva: si el código ya existía para esta empresa, se actualiza en vez de fallar por duplicado.
+  // crearSkuManual debe hacer un INSERT simple a /skus, SIN upsert: si el código ya existe
+  // para esta empresa+bodega, el índice único debe rechazarlo en vez de pisar en silencio
+  // los datos de otro material con el mismo código (ver esErrorCodigoSkuDuplicado).
   calls.length = 0;
   await ctx.crearSkuManual({sku_code:'SKU-999', descripcion:'Perno de prueba', activo:true});
   const postSku = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/skus'));
   assert(!!postSku, 'crearSkuManual debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(postSku.url.includes('on_conflict=empresa_id,sku_code,bodega_key'), 'crearSkuManual debe hacer upsert por (empresa_id, sku_code, bodega_key) — bodega_key en vez de bodega para que el upsert también funcione con bodega en blanco, ver migración permitir_mismo_sku_en_varias_bodegas, obtuvo: '+postSku.url);
-  assert((postSku.opts.headers.Prefer||'').includes('resolution=merge-duplicates'), 'el upsert debe pedir resolution=merge-duplicates para actualizar en vez de fallar si ya existe, obtuvo: '+postSku.opts.headers.Prefer);
+  assert(postSku.url.endsWith('/rest/v1/skus'), 'crearSkuManual debe hacer un INSERT simple a /skus (sin on_conflict), obtuvo: '+postSku.url);
+  assert(!(postSku.opts.headers.Prefer||'').includes('resolution=merge-duplicates'), 'crearSkuManual ya no debe pedir resolution=merge-duplicates, un código repetido debe rechazarse en vez de pisar el existente, obtuvo: '+postSku.opts.headers.Prefer);
   assert(JSON.parse(postSku.opts.body)[0].empresa_id==='emp-1', 'el POST de crearSkuManual debe incluir el empresa_id del perfil actual, obtuvo: '+postSku.opts.body);
+
+  // Si el código+bodega ya existe, crearSkuManual debe mostrar "código ya existe" en vez del
+  // error crudo de Postgres, y NO debe haber quedado ningún SKU guardado con esos datos.
+  const toastRootDup = elements['toast-root'];
+  const toastsAntesDup = toastRootDup ? toastRootDup.hijos.length : 0;
+  const okDup = await ctx.crearSkuManual({sku_code:'SKU-DUP-EXISTE', descripcion:'Sillas', bodega:'', activo:true});
+  assert(okDup===false, 'crearSkuManual debe devolver false cuando el código ya existe, obtuvo: '+okDup);
+  const toastsDup = toastRootDup.hijos.slice(toastsAntesDup);
+  assert(toastsDup.length===1 && /ya existe/i.test(toastsDup[0].textContent) && toastsDup[0].textContent.includes('SKU-DUP-EXISTE'), 'debe avisar con un mensaje claro de "código ya existe", no el error crudo de Postgres, obtuvo: '+JSON.stringify(toastsDup.map(t=>t.textContent)));
+  assert(!/duplicate key|constraint/i.test(toastsDup[0].textContent), 'el mensaje no debe filtrar el error crudo de la base de datos, obtuvo: '+toastsDup[0].textContent);
+
   // crearSkuManual dispara refrescarListaSkus() sin esperarlo (fire-and-forget): hay que dejar
   // que esa cadena de promesas termine aquí, o su llamada a /ultimo_conteo_por_sku se cuela
   // más adelante y contamina el conteo de llamadas del siguiente bloque (perfil no cargado).
@@ -2746,7 +2764,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const okSkuOffline = await ctx.crearSkuManual({sku_code:'SKU-OFF-1', descripcion:'Perno offline', categoria:null, unidad_medida:null, bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:null});
   ctx.fetch = fetchOriginalSkuOffline;
   assert(okSkuOffline===true, 'crearSkuManual sin conexión debe devolver true (se encoló, no es un error), obtuvo: '+okSkuOffline);
-  assert(calls.length===0 || !calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('resolution=merge-duplicates') && c.url.includes('/skus')), 'no debe haber quedado un POST exitoso a /skus, solo el intento fallido');
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/skus')), 'no debe haber quedado un POST exitoso a /skus, solo el intento fallido');
   assert(ctx.__appstate.colaOffline.length===1, 'crearSkuManual sin conexión debe agregar el SKU a la cola offline, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
   const itemSkuEncolado = ctx.__appstate.colaOffline[0];
   assert(itemSkuEncolado.tipo==='sku' && itemSkuEncolado.sku_code==='SKU-OFF-1' && itemSkuEncolado.empresa_id==='emp-1', 'el SKU encolado debe tener tipo "sku" y los datos ingresados, obtuvo: '+JSON.stringify(itemSkuEncolado));
@@ -2758,14 +2776,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.offlineModal = false;
   assert(modalConSku.includes('SKU · SKU-OFF-1') && modalConSku.includes('Perno offline'), 'el panel debe mostrar la etiqueta "SKU" y la descripción ingresada, obtuvo: '+modalConSku);
 
-  // sincronizarColaOffline: con conexión, debe hacer upsert a /skus (mismo on_conflict que crearSkuManual online).
+  // sincronizarColaOffline: con conexión, debe hacer un INSERT simple a /skus (sin upsert),
+  // igual que crearSkuManual online — mismo motivo: no pisar en silencio un SKU existente.
   calls.length = 0;
   await ctx.sincronizarColaOffline();
-  const postSkuSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus') && c.url.includes('on_conflict=empresa_id,sku_code'));
-  assert(!!postSkuSincronizado, 'sincronizarColaOffline debe hacer upsert a /skus para un item tipo "sku", obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(JSON.parse(postSkuSincronizado.opts.body)[0].sku_code==='SKU-OFF-1', 'el upsert debe llevar el código del SKU encolado, obtuvo: '+postSkuSincronizado.opts.body);
+  const postSkuSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/rest/v1/skus'));
+  assert(!!postSkuSincronizado, 'sincronizarColaOffline debe hacer POST a /skus para un item tipo "sku", obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.parse(postSkuSincronizado.opts.body)[0].sku_code==='SKU-OFF-1', 'el POST debe llevar el código del SKU encolado, obtuvo: '+postSkuSincronizado.opts.body);
   assert(JSON.parse(postSkuSincronizado.opts.body)[0].capturado_en===new Date(itemSkuEncolado.creado_en).toISOString(), 'el upsert de un SKU offline debe llevar capturado_en con la fecha original en que se encoló, obtuvo: '+postSkuSincronizado.opts.body);
   assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, el SKU debe salir de la cola');
+
+  // sincronizarColaOffline: si el código+bodega ya existe (mismo caso que crearSkuManual
+  // online), el item debe quedar marcado "error" con el mensaje claro, no reintentarse en
+  // bucle ni perderse en silencio.
+  ctx.guardarColaOffline([{id:'off-dup-1', tipo:'sku', sku_code:'SKU-DUP-EXISTE', descripcion:'Sillas', bodega:'', empresa_id:'emp-1', creado_en:new Date().toISOString(), estado:'pendiente'}]);
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  const colaTrasDup = ctx.leerColaOffline();
+  assert(colaTrasDup.length===1 && colaTrasDup[0].estado==='error', 'un SKU offline con código ya existente debe quedar marcado "error" en la cola, no perderse, obtuvo: '+JSON.stringify(colaTrasDup));
+  assert(/ya existe/i.test(colaTrasDup[0].error) && colaTrasDup[0].error.includes('SKU-DUP-EXISTE'), 'el mensaje de error guardado debe ser el claro de "código ya existe", no el crudo de Postgres, obtuvo: '+colaTrasDup[0].error);
+  assert(!/duplicate key|constraint/i.test(colaTrasDup[0].error), 'el mensaje de error no debe filtrar el error crudo de la base de datos, obtuvo: '+colaTrasDup[0].error);
 
   // Limpieza para no afectar pruebas siguientes.
   ctx.guardarColaOffline([]);
