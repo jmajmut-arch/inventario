@@ -2489,7 +2489,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filaSc = htmlColorFilas.slice(htmlColorFilas.indexOf('SKU-SC')-300, htmlColorFilas.indexOf('SKU-SC'));
   assert(!htmlColorFilas.includes('color-mix'), 'ya no debe pintarse el fondo de la fila, solo el ícono, obtuvo: '+htmlColorFilas);
   assert(filaNeg.includes('var(--danger)') && filaNeg.includes('border-radius:50%'), 'diferencia negativa (faltante) debe mostrar el ícono rojo, obtuvo: '+filaNeg);
-  assert(filaPos.includes('var(--warn)') && filaPos.includes('border-radius:50%'), 'diferencia positiva (sobrante) debe mostrar el ícono amarillo, obtuvo: '+filaPos);
+  assert(filaPos.includes('#f1c40f') && filaPos.includes('border-radius:50%'), 'diferencia positiva (sobrante) debe mostrar el ícono amarillo (color fijo, no var(--warn) que se ve café en el tema claro), obtuvo: '+filaPos);
   assert(filaOk.includes('var(--ok)') && filaOk.includes('border-radius:50%'), 'el SKU cuadrado (aprobado) debe mostrar el ícono verde, obtuvo: '+filaOk);
   assert(!filaSc.includes('border-radius:50%'), 'el SKU que aún no se ha contado no debe mostrar ningún ícono, obtuvo: '+filaSc);
   assert(htmlColorFilas.includes('btn-eliminar-skus-sin-contar'), 'la tabla de SKU debe incluir el botón para eliminar todo lo no contado, obtuvo: '+htmlColorFilas);
