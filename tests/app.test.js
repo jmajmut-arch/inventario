@@ -3312,6 +3312,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlBuscarFueraPlan = ctx.renderBuscar();
   assert(htmlBuscarFueraPlan.includes('id="b-solo-fuera-plan"') && htmlBuscarFueraPlan.includes('Fuera de plan'), 'debe mostrar el checkbox del filtro y el badge "Fuera de plan" en el resultado, obtuvo: '+htmlBuscarFueraPlan);
 
+  // Buscar: filtro "Contado hoy" -- filtra fecha_conteo por el rango de HOY en hora local (mismo
+  // patrón que exportarConteosExcel), sin importar en qué huso horario esté la persona. No se
+  // fija el instante exacto (depende del huso horario de donde corra el test, igual que en
+  // producción), solo que arma el rango gte/lt y que no aparece cuando el filtro está apagado.
+  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
+  const pathBuscarSinContadoHoy = ctx.construirPathBusqueda(0);
+  assert(!pathBuscarSinContadoHoy.includes('fecha_conteo='), 'sin "Contado hoy" marcado, la búsqueda no debe filtrar por fecha_conteo, obtuvo: '+pathBuscarSinContadoHoy);
+  ctx.__appstate.busqueda = { ...ctx.__appstate.busqueda, soloContadoHoy:true };
+  const pathBuscarContadoHoy = ctx.construirPathBusqueda(0);
+  assert(pathBuscarContadoHoy.includes('fecha_conteo=gte.') && pathBuscarContadoHoy.includes('fecha_conteo=lt.'), 'con "Contado hoy" marcado, la búsqueda debe filtrar por rango de fecha_conteo, obtuvo: '+pathBuscarContadoHoy);
+  const htmlBuscarContadoHoy = ctx.renderBuscar();
+  assert(htmlBuscarContadoHoy.includes('id="b-contado-hoy"') && htmlBuscarContadoHoy.includes('Contado hoy'), 'debe mostrar el checkbox del filtro "Contado hoy", obtuvo: '+htmlBuscarContadoHoy);
+
   // Buscar ahora busca en todo el maestro de SKU (skus_busqueda), no solo en el historial de
   // conteos: un SKU nunca contado debe aparecer con "No contado", sin fecha/estado/fotos.
   ctx.__appstate.busqueda = { texto:'filtro', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 };
