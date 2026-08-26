@@ -379,6 +379,7 @@ let state = {
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
   offlineModal: false,
+  exportarModal: false,
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
   equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
   ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
@@ -2938,6 +2939,31 @@ function renderFotoModal(){
   </div>`;
 }
 
+// Se movió acá desde la vista "Buscar" (era un formulario más al final de esa pantalla, poco
+// descubrible) a pedido: ahora se abre desde un ícono propio en la barra superior, disponible
+// desde cualquier vista.
+function renderExportarModal(){
+  if(!state.exportarModal) return '';
+  return `<div class="foto-modal-backdrop" id="exportar-modal-backdrop">
+    <div class="card" style="width:min(92vw,440px);margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">Exportar conteos a Excel</h2>
+        <button id="exportar-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      <form id="form-exportar-conteos">
+        <div class="row2">
+          <div><label for="ex-desde">Desde</label><input type="date" id="ex-desde" value="${esc(state.exportConteos.desde)}" required></div>
+          <div><label for="ex-hasta">Hasta</label><input type="date" id="ex-hasta" value="${esc(state.exportConteos.hasta)}"></div>
+        </div>
+        <div class="hint">Un archivo .xlsx con un renglón por conteo realizado en ese rango, con el detalle del material (SKU, descripción, categoría, bodega, ubicación, storage bin, stock de sistema) y el resultado del conteo (cantidad, diferencia, estado, responsable, fecha).</div>
+        <div style="margin-top:12px">
+          <button type="submit" class="btn btn-primary" ${state.exportConteos.exportando?'disabled':''}>${state.exportConteos.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+}
+
 function renderOfflineModal(){
   if(!state.offlineModal) return '';
   const cola = state.colaOffline;
@@ -3461,7 +3487,10 @@ function causaProbableBadge(causa){
 function estadoBadge(estado, diferencia){
   if(diferencia && Number(diferencia)!==0) return `<span class="badge badge-warn">Diferencia ${diferencia>0?'+':''}${diferencia}</span>`;
   if(estado==='pendiente_revision') return `<span class="badge badge-neutral">Pendiente</span>`;
-  return `<span class="badge badge-ok">${esc(estado||'ok')}</span>`;
+  // El valor en base (y en el dropdown de filtro) sigue siendo "aprobado" -- eso no se toca,
+  // solo el texto que ve la persona: "Cuadrado" describe mejor un conteo sin diferencia que
+  // "Aprobado", que sonaba a que alguien lo revisó y dio el visto bueno.
+  return `<span class="badge badge-ok">${estado==='aprobado' ? 'Cuadrado' : esc(estado||'ok')}</span>`;
 }
 
 // Reportado: en Planificación, el rango de la semana mostrado ("23 ago – 29 ago") no coincidía
@@ -3937,7 +3966,7 @@ function renderBuscar(){
             <select id="b-estado">
               <option value="">Todos</option>
               <option value="no_contado" ${b.estado==='no_contado'?'selected':''}>No contado</option>
-              <option value="aprobado" ${b.estado==='aprobado'?'selected':''}>Aprobado</option>
+              <option value="aprobado" ${b.estado==='aprobado'?'selected':''}>Cuadrado</option>
               <option value="con_diferencia" ${b.estado==='con_diferencia'?'selected':''}>Con diferencia</option>
               <option value="pendiente_revision" ${b.estado==='pendiente_revision'?'selected':''}>Pendiente</option>
             </select>
@@ -3961,20 +3990,6 @@ function renderBuscar(){
         </label>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section-head"><div><span class="eyebrow">Para cargar a un ERP</span><h2 style="font-size:15px">Exportar conteos a Excel</h2></div></div>
-    <div class="card" style="margin-bottom:14px">
-      <form id="form-exportar-conteos">
-        <div class="row2">
-          <div><label for="ex-desde">Desde</label><input type="date" id="ex-desde" value="${esc(state.exportConteos.desde)}" required></div>
-          <div><label for="ex-hasta">Hasta</label><input type="date" id="ex-hasta" value="${esc(state.exportConteos.hasta)}"></div>
-        </div>
-        <div class="hint">Un archivo .xlsx con un renglón por conteo realizado en ese rango, con el detalle del material (SKU, descripción, categoría, bodega, ubicación, storage bin, stock de sistema) y el resultado del conteo (cantidad, diferencia, estado, responsable, fecha).</div>
-        <div style="margin-top:12px">
-          <button type="submit" class="btn btn-secondary" ${state.exportConteos.exportando?'disabled':''}>${state.exportConteos.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>
         </div>
       </form>
     </div>
@@ -4661,6 +4676,7 @@ function renderShell(){
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
           <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
+          <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel">${ICONS.download.replace('style="width:15px;height:15px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
           <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
         </div>
       </div>
@@ -4707,7 +4723,7 @@ function render(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderEscanerModal();
+  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -4796,6 +4812,21 @@ function bind(){
       btn.addEventListener('click', ()=> descartarAccionOffline(btn.dataset.descartarOffline));
     });
   }
+  if(state.exportarModal){
+    document.getElementById('exportar-modal-close').addEventListener('click', ()=> setState({exportarModal:false}));
+    document.getElementById('exportar-modal-backdrop').addEventListener('click', e=>{
+      if(e.target.id === 'exportar-modal-backdrop') setState({exportarModal:false});
+    });
+    document.getElementById('form-exportar-conteos').addEventListener('submit', e=>{
+      e.preventDefault();
+      setState({exportConteos:{
+        ...state.exportConteos,
+        desde: document.getElementById('ex-desde').value,
+        hasta: document.getElementById('ex-hasta').value,
+      }});
+      exportarConteosExcel();
+    });
+  }
   if(state.escanerModal){
     document.getElementById('escaner-modal-close').addEventListener('click', cerrarEscaner);
     document.getElementById('escaner-modal-backdrop').addEventListener('click', e=>{
@@ -4864,6 +4895,7 @@ function bind(){
   document.getElementById('btn-logout').addEventListener('click', ()=>{ detenerEscaner(); handleLogout(); });
   document.getElementById('btn-config').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'config'}); });
   document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
+  document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=> setState({exportarModal:true}));
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
   const btnVerOffline = document.getElementById('btn-ver-offline');
@@ -5239,15 +5271,6 @@ function bind(){
     });
     const btnCargarMasBusqueda = document.getElementById('btn-cargar-mas-busqueda');
     if(btnCargarMasBusqueda) btnCargarMasBusqueda.addEventListener('click', buscarMasConteos);
-    document.getElementById('form-exportar-conteos').addEventListener('submit', e=>{
-      e.preventDefault();
-      setState({exportConteos:{
-        ...state.exportConteos,
-        desde: document.getElementById('ex-desde').value,
-        hasta: document.getElementById('ex-hasta').value,
-      }});
-      exportarConteosExcel();
-    });
   }
 
   if(state.view==='plan'){

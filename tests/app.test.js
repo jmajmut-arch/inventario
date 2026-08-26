@@ -3373,10 +3373,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
   // por fecha_conteo, paginada, mapeada a columnas en español y escrita con XLSX (mockeado
   // arriba: json_to_sheet devuelve las filas tal cual, así se puede inspeccionar qué se exportó). =====
+  // Exportar conteos vive en su propio modal (ícono en la barra superior), no como formulario
+  // suelto dentro de Buscar -- ver renderExportarModal().
   ctx.__appstate.exportConteos = { desde: '2026-08-20', hasta: '2026-08-20', exportando:false };
-  const htmlExportarForm = ctx.renderBuscar();
+  const htmlSinModal = ctx.renderExportarModal();
+  assert(htmlSinModal==='', 'sin exportarModal activo, renderExportarModal no debe mostrar nada, obtuvo: '+htmlSinModal);
+  ctx.__appstate.exportarModal = true;
+  const htmlExportarForm = ctx.renderExportarModal();
   assert(htmlExportarForm.includes('id="form-exportar-conteos"') && htmlExportarForm.includes('id="ex-desde"') && htmlExportarForm.includes('id="ex-hasta"'), 'debe existir el formulario de exportar con sus campos de fecha, obtuvo: '+htmlExportarForm);
   assert(htmlExportarForm.includes('value="2026-08-20"'), 'los campos de fecha deben reflejar el estado actual, obtuvo: '+htmlExportarForm);
+  ctx.__appstate.exportarModal = false;
   conteosExportablesFixture = [
     { conteo_id:'ce-1', sku_code:'SKU-EXP1', descripcion:'Perno M8', categoria:'Repuestos', unidad_medida:'UN', codigo_barras:'7801234567890', bodega_maestro:'Nave Mina', ubicacion_maestro:'Interior Nave', storage_bin:'A-01', stock_sistema:10, costo_unitario:500, bodega_contada:'Nave Mina', ubicacion_contada:'Interior Nave', ubicacion_distinta:false, cantidad_contada:8, diferencia:-2, valor_diferencia:-1000, estado:'con_diferencia', fuera_de_plan:false, observacion:'Faltante', fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', responsable:'Ana Torres', ciclo_nombre:'T1 2027' },
   ];
