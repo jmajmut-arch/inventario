@@ -2335,6 +2335,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const htmlHistorial = ctx.renderCargaMasiva();
   assert(htmlHistorial.includes('Historial de cargas'), 'Carga masiva debe mostrar la sección de historial, obtuvo: '+htmlHistorial);
+  // Recomendación agregada tras encontrar en producción planes que no detectaban cambios de
+  // ubicación porque se cargaron sin Storage bin: la vista de Carga masiva debe recordarlo.
+  assert(htmlHistorial.includes('Storage bin</b> con la ubicación física final'), 'Carga masiva debe recomendar completar Storage bin con la ubicación final, obtuvo: '+htmlHistorial);
   assert(htmlHistorial.includes('materiales_agosto.xlsx') && htmlHistorial.includes('118 de 120 filas cargadas') && htmlHistorial.includes('2 con error'), 'debe listar el archivo con cuántas filas entraron bien y con error, obtuvo: '+htmlHistorial);
   assert(htmlHistorial.includes('Por: Ana Torres'), 'debe mostrar quién hizo la carga, obtuvo: '+htmlHistorial);
   assert(htmlHistorial.includes('carga_inicial.csv') && htmlHistorial.includes('Por: Sistema'), 'una carga sin usuario asociado debe mostrarse como "Sistema", igual que en trazabilidad, obtuvo: '+htmlHistorial);
