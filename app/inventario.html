@@ -362,7 +362,7 @@ let state = {
   tema: localStorage.getItem('tema_app') || 'claro',
   cargaPreview: null,
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -1715,6 +1715,16 @@ function construirPathBusqueda(offset){
   if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null&conteo_id=not.is.null`;
   else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
   if(state.busqueda.soloFueraDePlan) path += `&fuera_de_plan=eq.true`;
+  if(state.busqueda.soloContadoHoy){
+    // Mismo patrón que exportarConteosExcel: se arma el instante real a partir de la medianoche
+    // LOCAL de hoy (no un string con "Z" a la fuerza), para que "hoy" coincida con el día
+    // calendario que la persona ve en su pantalla, sin importar el huso horario.
+    const hoy = fechaISO(new Date());
+    const desdeInstante = new Date(hoy+'T00:00:00').toISOString();
+    const mañana = fechaISO(sumarDias(new Date(hoy+'T00:00:00'), 1));
+    const hastaInstante = new Date(mañana+'T00:00:00').toISOString();
+    path += `&fecha_conteo=gte.${desdeInstante}&fecha_conteo=lt.${hastaInstante}`;
+  }
   return path;
 }
 
@@ -3988,6 +3998,10 @@ function renderBuscar(){
           <input type="checkbox" id="b-solo-fuera-plan" ${b.soloFueraDePlan?'checked':''}>
           Solo fuera de plan
         </label>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
+          <input type="checkbox" id="b-contado-hoy" ${b.soloContadoHoy?'checked':''}>
+          Contado hoy
+        </label>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
         </div>
@@ -5254,6 +5268,7 @@ function bind(){
         ciclo: selCiclo ? selCiclo.value : '',
         soloConFotos: document.getElementById('b-solo-fotos').checked,
         soloFueraDePlan: document.getElementById('b-solo-fuera-plan').checked,
+        soloContadoHoy: document.getElementById('b-contado-hoy').checked,
         buscando: true,
         yaBuscado: true,
       }});
