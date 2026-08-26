@@ -410,17 +410,22 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
-  // skusMovidosDeEntradas (elegirCascadaContar): cruce por sku_code=in.(...) contra el bin
-  // ACTUAL de cada SKU snapshoteado al planificar, para detectar los que una carga masiva
-  // posterior movió de bin. SKU-999 se planificó en A-01 (ver plan_semanal_skus?plan_id=eq.mp1
-  // más abajo) y ahora quedó en C-09 (fuera de los bins activos A-01/A-02: debe salir marcado
-  // en vez de perderse). SKU-002 se planificó en A-01 pero su bin actual (A-02) sigue activo
-  // (mp2), así que ya está cubierto por el fetch normal y no debe duplicarse como "movido".
+  // skusMovidosDeEntradas (elegirCascadaContar): cruce por sku_code=in.(...) contra los datos
+  // ACTUALES de cada SKU snapshoteado al planificar, para detectar los que una carga masiva
+  // posterior movió de bin, bodega o ubicación. SKU-999 se planificó en A-01 (ver
+  // plan_semanal_skus?plan_id=eq.mp1 más abajo) y ahora quedó en C-09 (fuera de los bins activos
+  // A-01/A-02: debe salir marcado en vez de perderse). SKU-002 se planificó en A-01 pero su bin
+  // actual (A-02) sigue activo (mp2), así que ya está cubierto por el fetch normal y no debe
+  // duplicarse como "movido". SKU-777 se planificó en Nave Mina/Interior Nave (bin A-01) pero una
+  // carga masiva lo reasignó a otra bodega+ubicación completa (Bodega Norte/Pasillo 5): sin la
+  // foto original de bodega/ubicación, desaparecería en silencio porque ya no calza con ninguna
+  // entrada activa de esta cascada.
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida') && path.includes('sku_code=in.(')){
     const codigos = decodeURIComponent((path.match(/sku_code=in\.\(([^)]*)\)/)||[])[1]||'').split(',');
     const disponibles = {
       'SKU-999': {sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'},
       'SKU-002': {sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'},
+      'SKU-777': {sku_code:'SKU-777', descripcion:'Retén hidráulico', bodega:'Bodega Norte', ubicacion:'Pasillo 5', storage_bin:'N-03', unidad_medida:'UN'},
     };
     const filas = codigos.map(c=>disponibles[c]).filter(Boolean);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -430,7 +435,11 @@ const fakeFetchImpl = async (url, opts) => {
       return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
     }
     const snapshots = {
-      'mp1': [{sku_code:'SKU-999', storage_bin_original:'A-01'}, {sku_code:'SKU-002', storage_bin_original:'A-01'}],
+      'mp1': [
+        {sku_code:'SKU-999', storage_bin_original:'A-01', bodega_original:'Nave Mina', ubicacion_original:'Interior Nave'},
+        {sku_code:'SKU-002', storage_bin_original:'A-01', bodega_original:'Nave Mina', ubicacion_original:'Interior Nave'},
+        {sku_code:'SKU-777', storage_bin_original:'A-01', bodega_original:'Nave Mina', ubicacion_original:'Interior Nave'},
+      ],
       'mp2': [],
     };
     const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
@@ -849,14 +858,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(filasMulti[0].storage_bin==='A-01' && filasMulti[1].storage_bin==='A-02', 'Cada fila debe llevar su propio storage_bin, obtuvo: '+JSON.stringify(filasMulti));
   assert(filasMulti[0].responsable_id==='u1' && filasMulti[1].responsable_id==='u1', 'Cada fila debe llevar el responsable_id elegido, obtuvo: '+JSON.stringify(filasMulti));
   assert(filasMulti[0].empresa_id==='emp-1' && filasMulti[1].empresa_id==='emp-1', 'Cada fila debe llevar el empresa_id del perfil actual, obtuvo: '+JSON.stringify(filasMulti));
-  // crearPlanEntrada, con un bin específico, debe guardar en plan_semanal_skus una foto de qué
-  // SKU quedaron cubiertos y con qué bin (ver skusMovidosDeEntradas): permite avisar más adelante
-  // si una carga masiva posterior los mueve de bin, en vez de perderlos silenciosamente.
+  // crearPlanEntrada debe guardar en plan_semanal_skus una foto de qué SKU quedaron cubiertos y
+  // con qué bin, bodega y ubicación (ver skusMovidosDeEntradas): permite avisar más adelante si
+  // una carga masiva posterior los mueve de bin, bodega o ubicación, en vez de perderlos
+  // silenciosamente.
   const postSnapshot = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_skus'));
-  assert(!!postSnapshot, 'crearPlanEntrada con storage bin específico debe guardar una foto en plan_semanal_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!postSnapshot, 'crearPlanEntrada debe guardar una foto en plan_semanal_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const filasSnapshot = JSON.parse(postSnapshot.opts.body);
-  assert(filasSnapshot.some(f=>f.plan_id==='plan-nuevo-1' && f.sku_code==='SKU-001' && f.storage_bin_original==='A-01'), 'debe guardar el SKU del bin A-01 (plan-nuevo-1) con ese bin como original, obtuvo: '+JSON.stringify(filasSnapshot));
-  assert(filasSnapshot.some(f=>f.plan_id==='plan-nuevo-2' && f.sku_code==='SKU-002' && f.storage_bin_original==='A-02'), 'debe guardar el SKU del bin A-02 (plan-nuevo-2) con ese bin como original, obtuvo: '+JSON.stringify(filasSnapshot));
+  assert(filasSnapshot.some(f=>f.plan_id==='plan-nuevo-1' && f.sku_code==='SKU-001' && f.storage_bin_original==='A-01' && f.bodega_original==='Nave Mina' && f.ubicacion_original==='Interior Nave'), 'debe guardar el SKU del bin A-01 (plan-nuevo-1) con ese bin, bodega y ubicación como originales, obtuvo: '+JSON.stringify(filasSnapshot));
+  assert(filasSnapshot.some(f=>f.plan_id==='plan-nuevo-2' && f.sku_code==='SKU-002' && f.storage_bin_original==='A-02' && f.bodega_original==='Nave Mina' && f.ubicacion_original==='Interior Nave'), 'debe guardar el SKU del bin A-02 (plan-nuevo-2) con ese bin, bodega y ubicación como originales, obtuvo: '+JSON.stringify(filasSnapshot));
 
   // Sin bins seleccionados ni responsable -> una sola fila con storage_bin y responsable_id null.
   calls.length = 0;
@@ -3202,12 +3212,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // ya no es ninguno de los bin activos de esta ubicación (A-01/A-02) — debe seguir apareciendo,
   // marcado con el bin original, en vez de perderse. SKU-002 también quedó snapshoteado en A-01,
   // pero su bin actual (A-02) sigue activo -> ya viene por el fetch normal, no debe duplicarse.
+  // SKU-777 se planificó acá pero una carga lo reasignó a otra bodega+ubicación completa (ya no
+  // "Nave Mina · Interior Nave") -> debe recuperarse igual, marcado con el cambio de ubicación.
   await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
   const skusJuntos = ctx.__appstate.contarPlan.skusPendientes;
-  assert(Array.isArray(skusJuntos) && skusJuntos.length===3 && skusJuntos.some(s=>s.sku_code==='SKU-001') && skusJuntos.some(s=>s.sku_code==='SKU-002'), 'elegirCascadaContar debe juntar los SKU pendientes de todos los bin de la ubicación (SKU-001 de A-01 y SKU-002 de A-02) más el SKU movido, obtuvo: '+JSON.stringify(skusJuntos));
+  assert(Array.isArray(skusJuntos) && skusJuntos.length===4 && skusJuntos.some(s=>s.sku_code==='SKU-001') && skusJuntos.some(s=>s.sku_code==='SKU-002'), 'elegirCascadaContar debe juntar los SKU pendientes de todos los bin de la ubicación (SKU-001 de A-01 y SKU-002 de A-02) más los SKU recuperados, obtuvo: '+JSON.stringify(skusJuntos));
   const skuMovido = skusJuntos.find(s=>s.sku_code==='SKU-999');
-  assert(!!skuMovido && skuMovido.storage_bin==='C-09' && skuMovido.binOriginal==='A-01', 'SKU-999 debe aparecer marcado como movido, con su bin actual (C-09) y el bin con el que se planificó (A-01), obtuvo: '+JSON.stringify(skuMovido));
+  assert(!!skuMovido && skuMovido.storage_bin==='C-09' && skuMovido.binOriginal==='A-01' && !skuMovido.cambioBodega && !skuMovido.cambioUbicacion, 'SKU-999 debe aparecer marcado como movido de bin (no de bodega/ubicación), con su bin actual (C-09) y el bin con el que se planificó (A-01), obtuvo: '+JSON.stringify(skuMovido));
   assert(!skusJuntos.find(s=>s.sku_code==='SKU-002').binOriginal, 'SKU-002 sigue cubierto por el bin activo A-02: no debe llevar marca de "movido" aunque su snapshot original haya sido A-01, obtuvo: '+JSON.stringify(skusJuntos.find(s=>s.sku_code==='SKU-002')));
+  const skuReubicado = skusJuntos.find(s=>s.sku_code==='SKU-777');
+  assert(!!skuReubicado && skuReubicado.cambioBodega && skuReubicado.cambioUbicacion && skuReubicado.bodegaOriginal==='Nave Mina' && skuReubicado.ubicacionOriginal==='Interior Nave' && skuReubicado.bodega==='Bodega Norte' && skuReubicado.ubicacion==='Pasillo 5', 'SKU-777 debe aparecer marcado como movido de bodega+ubicación, con su ubicación original y la actual, obtuvo: '+JSON.stringify(skuReubicado));
 
   // renderConteo/renderPlanDelDia: fecha, cascada de bodega (incluye "SKU sin ubicación" porque
   // hay una entrada suelta hoy) y el checklist de SKU pendientes ya resuelto arriba.
@@ -3219,6 +3233,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConteoConPlan.includes('data-pick-plan="SKU-001"') && htmlConteoConPlan.includes('data-pick-plan="SKU-002"'), 'debe listar ambos SKU pendientes resueltos para tocar y contar, obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('data-pick-plan="SKU-999"') && htmlConteoConPlan.includes('Cambió de bin') && htmlConteoConPlan.includes('se planificó en A-01') && htmlConteoConPlan.includes('ahora está en C-09'), 'el SKU movido de bin debe seguir listado (no perderse) con una advertencia mostrando el bin original y el actual, obtuvo: '+htmlConteoConPlan);
   assert(!(htmlConteoConPlan.match(/data-pick-plan="SKU-002"[\s\S]*?<\/li>/)||[''])[0].includes('Cambió de bin'), 'SKU-002 sigue cubierto por su bin activo: no debe llevar la advertencia de "movido", obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('data-pick-plan="SKU-777"') && htmlConteoConPlan.includes('Cambió de ubicación') && htmlConteoConPlan.includes('se planificó en Nave Mina · Interior Nave') && htmlConteoConPlan.includes('ahora está en Bodega Norte · Pasillo 5'), 'el SKU reasignado a otra bodega+ubicación debe seguir listado con una advertencia de cambio de ubicación (no la de "Cambió de bin"), obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir disponible, ahora bajo su propio título, obtuvo: '+htmlConteoConPlan);
 
   // Pedido real: cada SKU pendiente del plan del día debe mostrar su ubicación general,
