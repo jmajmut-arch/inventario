@@ -5443,8 +5443,14 @@ function bind(){
     // ese mismo valor — compartida entre el cambio de bodega (que siempre vuelve a "Todas") y el
     // refresco tras agregar una entrada (que intenta conservar la ubicación ya elegida).
     async function cargarOpcionesEspecificasEnSelect(bodega, valorPreferido){
-      const selUbic = document.getElementById('p-ubic');
       const opciones = await opcionesEspecificas(bodega);
+      // El <select> se busca ACÁ, después del await: un render() de fondo (p.ej. el que dispara
+      // cargarPlanSemanal justo tras agregar una entrada) puede reemplazar el formulario mientras
+      // esperábamos la respuesta. Buscarlo antes del await escribía sobre un nodo ya desprendido
+      // del DOM (invisible en pantalla) — bug real reportado: las cantidades ("6/8", etc.) se
+      // quedaban con el valor viejo hasta que la persona volvía a tocar el selector a mano.
+      const selUbic = document.getElementById('p-ubic');
+      if(!selUbic) return ''; // la vista cambió mientras esperábamos la respuesta
       const bodegaObj = state.plan.generales.find(g => bodega===BODEGA_VACIA ? g.bodega===null : g.bodega===bodega);
       selUbic.innerHTML = `<option value="">Todas${bodegaObj? ` (${bodegaObj.cantidad_pendiente}/${bodegaObj.cantidad_skus})` : ''}</option>` + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`).join('');
       selUbic.disabled = false;
