@@ -2908,6 +2908,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlReconteoSinMas = ctx.renderReconteo();
   assert(!htmlReconteoSinMas.includes('id="btn-cargar-mas-reconteo"'), 'sin más páginas, el botón "Cargar más" no debe mostrarse, obtuvo: '+htmlReconteoSinMas);
 
+  // ===== Reconteo: ícono para ver la foto del último conteo =====
+  ctx.__appstate.reconteos = [
+    { id:'rf1', sku_code:'SKU-FOTO', descripcion:'Con foto', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', ultima_foto_url:'emp-1/SKU-FOTO/foto.jpg' },
+    { id:'rf2', sku_code:'SKU-SIN-FOTO', descripcion:'Sin foto', stock_sistema:5, ultima_cantidad_contada:3, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', ultima_foto_url:null },
+  ];
+  ctx.__appstate.reconteosHayMas = false;
+  const htmlReconteoFotos = ctx.renderReconteo();
+  assert(htmlReconteoFotos.includes('<th class="num">Foto</th>'), 'debe mostrar la columna "Foto" en la tabla de reconteo, obtuvo: '+htmlReconteoFotos);
+  assert(htmlReconteoFotos.includes(`data-ver-fotos="${ctx.esc(JSON.stringify(['emp-1/SKU-FOTO/foto.jpg']))}"`), 'una fila con última foto debe mostrar el botón para verla con la ruta correcta, obtuvo: '+htmlReconteoFotos);
+  assert(htmlReconteoFotos.includes('icon-btn disabled'), 'una fila sin foto registrada debe mostrar el ícono deshabilitado, obtuvo: '+htmlReconteoFotos);
+
   // ===== Dashboard: "Materiales contados" con "Cargar más" =====
   calls.length = 0;
   await ctx.cargarUltimosConteos();
