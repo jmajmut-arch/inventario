@@ -5484,11 +5484,12 @@ function bind(){
       const bodega = document.getElementById('p-bodega').value;
       await cargarBinsPara(bodega, e.target.value);
     });
-    // Bug real reportado: al presionar "Agregar", los SKU recién planificados dejan de contar
-    // como pendientes, pero Ubicación específica y Storage bin (que no salen de state, sino de
-    // estas cargas aparte) se quedaban con los números de antes de agregar hasta que la persona
-    // volvía a tocarlos a mano. Se refrescan acá mismo, conservando la bodega/ubicación elegidas
-    // (sin resetear a "Todas") para poder seguir agregando entradas seguidas sin perder el lugar.
+    // Bug real reportado: al presionar "Agregar" (y lo mismo al quitar un SKU o borrar una
+    // entrada/selección), los SKU afectados dejan de contar como pendientes, pero Ubicación
+    // específica y Storage bin (que no salen de state, sino de estas cargas aparte) se quedaban
+    // con los números de antes hasta que la persona volvía a tocarlos a mano. Se refrescan acá
+    // mismo, conservando la bodega/ubicación elegidas (sin resetear a "Todas") para poder seguir
+    // agregando entradas seguidas sin perder el lugar.
     async function refrescarCascadaTrasAgregar(){
       const bodegaEl = document.getElementById('p-bodega');
       const selUbic = document.getElementById('p-ubic');
@@ -5516,7 +5517,10 @@ function bind(){
       actualizarResumenBin();
     });
     document.querySelectorAll('[data-borrar-plan]').forEach(btn=>{
-      btn.addEventListener('click', ()=> confirmarYBorrarPlanEntrada(btn.dataset.borrarPlan));
+      btn.addEventListener('click', async ()=>{
+        await confirmarYBorrarPlanEntrada(btn.dataset.borrarPlan);
+        await refrescarCascadaTrasAgregar();
+      });
     });
     document.querySelectorAll('.plan-select-check').forEach(chk=>{
       chk.addEventListener('change', ()=> alternarSeleccionPlan(chk.dataset.selectPlan));
@@ -5524,11 +5528,17 @@ function bind(){
     const chkTodoPlan = document.getElementById('chk-seleccionar-todo-plan');
     if(chkTodoPlan) chkTodoPlan.addEventListener('change', alternarSeleccionTodoPlan);
     const btnBorrarSeleccion = document.getElementById('btn-borrar-seleccion-plan');
-    if(btnBorrarSeleccion) btnBorrarSeleccion.addEventListener('click', confirmarYBorrarSeleccionPlan);
+    if(btnBorrarSeleccion) btnBorrarSeleccion.addEventListener('click', async ()=>{
+      await confirmarYBorrarSeleccionPlan();
+      await refrescarCascadaTrasAgregar();
+    });
     const btnCancelarSeleccion = document.getElementById('btn-cancelar-seleccion-plan');
     if(btnCancelarSeleccion) btnCancelarSeleccion.addEventListener('click', ()=> setState({plan:{...state.plan, seleccionados:[]}}));
     document.querySelectorAll('.plan-sku-quitar').forEach(btn=>{
-      btn.addEventListener('click', ()=> excluirSkuDePlan(btn.dataset.planId, btn.dataset.skuCode));
+      btn.addEventListener('click', async ()=>{
+        await excluirSkuDePlan(btn.dataset.planId, btn.dataset.skuCode);
+        await refrescarCascadaTrasAgregar();
+      });
     });
     document.querySelectorAll('[data-editar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({plan:{...state.plan, editando: btn.dataset.editarPlan}}));
