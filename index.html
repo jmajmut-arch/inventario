@@ -173,6 +173,7 @@
   .price-note{text-align:center;color:var(--text-faint);font-size:12.5px;margin-top:32px;}
   .price-note a{color:inherit;text-decoration:underline;text-underline-offset:2px;}
   .price-cta-alt{display:block;width:100%;text-align:center;margin-top:12px;padding:0;background:none;border:none;font-family:inherit;font-size:12.5px;color:var(--text-faint);text-decoration:underline;text-underline-offset:2px;cursor:pointer;}
+  .price-cta:disabled{opacity:.5;cursor:not-allowed;}
 
   .closing{margin:0 24px;border-radius:32px;background:linear-gradient(160deg,#2c2117,#1a130b);text-align:center;padding:88px 24px;}
   .closing h2{font-size:clamp(1.9rem,4vw,3rem);letter-spacing:-0.02em;color:#fdf6ec;margin-bottom:16px;}
@@ -488,7 +489,7 @@
             <li>Dashboard de avance</li>
             <li>Soporte por correo</li>
           </ul>
-          <a class="price-cta" href="app/index.html?plan=basico">Suscribirme</a>
+          <button type="button" class="price-cta" disabled title="Muy pronto — mientras tanto, escríbenos o explora la demo">Suscribirme</button>
           <button type="button" class="price-cta-alt" data-abrir-demo>o explora la demo primero</button>
         </div>
 
@@ -506,7 +507,7 @@
             <li>Auditoría de cambios</li>
             <li>Soporte prioritario</li>
           </ul>
-          <a class="price-cta" href="app/index.html?plan=profesional">Suscribirme</a>
+          <button type="button" class="price-cta" disabled title="Muy pronto — mientras tanto, escríbenos o explora la demo">Suscribirme</button>
           <button type="button" class="price-cta-alt" data-abrir-demo>o explora la demo primero</button>
         </div>
 
