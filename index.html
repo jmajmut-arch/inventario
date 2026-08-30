@@ -417,7 +417,7 @@
   </section>
     <div>
        
-      <button type="button" class="cta" data-abrir-demo>Ver Invent<span class="ia">IA</span> en acción →</button>
+      <button type="button" class="cta" data-abrir-demo data-plan="hero">Ver Invent<span class="ia">IA</span> en acción →</button>
       
       <a class="cta-ghost" href="#planes">Conocer planes <span>→</span></a>
     </div>
@@ -522,7 +522,7 @@
             <li>Soporte por correo</li>
           </ul>
           <button type="button" class="price-cta" disabled title="Muy pronto — mientras tanto, escríbenos o explora la demo">Suscribirme</button>
-          <button type="button" class="price-cta-alt" data-abrir-demo>o explora la demo primero</button>
+          <button type="button" class="price-cta-alt" data-abrir-demo data-plan="Básico">o explora la demo primero</button>
         </div>
 
         <div class="price-card featured reveal">
@@ -540,7 +540,7 @@
             <li>Soporte prioritario</li>
           </ul>
           <button type="button" class="price-cta" disabled title="Muy pronto — mientras tanto, escríbenos o explora la demo">Suscribirme</button>
-          <button type="button" class="price-cta-alt" data-abrir-demo>o explora la demo primero</button>
+          <button type="button" class="price-cta-alt" data-abrir-demo data-plan="Profesional">o explora la demo primero</button>
         </div>
 
         <div class="price-card reveal">
@@ -555,12 +555,12 @@
             <li>Onboarding asistido</li>
             <li>Soporte prioritario dedicado</li>
           </ul>
-          <button type="button" class="price-cta" data-abrir-demo>Explorar la demo</button>
-          <a class="price-cta-alt" href="mailto:contacto@inventiapp.cl?subject=Solicitud%20de%20piloto%20InventIA">Solicitar piloto con mi bodega</a>
+          <button type="button" class="price-cta" data-abrir-demo data-plan="Empresa">Explorar la demo</button>
+          <a class="price-cta-alt" href="mailto:contacto@inventiapp.cl?subject=Solicitud%20de%20piloto%20InventIA" data-track-mailto="piloto_empresa">Solicitar piloto con mi bodega</a>
         </div>
 
       </div>
-      <div class="price-note">Precios en USD, netos + IVA. El equivalente en CLP es referencial y varía con el tipo de cambio. <a href="mailto:contacto@inventiapp.cl?subject=Ajustar%20plan%20InventIA">Escríbenos</a> para ajustar el plan a tu operación.</div>
+      <div class="price-note">Precios en USD, netos + IVA. El equivalente en CLP es referencial y varía con el tipo de cambio. <a href="mailto:contacto@inventiapp.cl?subject=Ajustar%20plan%20InventIA" data-track-mailto="ajustar_plan">Escríbenos</a> para ajustar el plan a tu operación.</div>
     </div>
   </section>
 
@@ -605,7 +605,7 @@
   <div class="closing reveal">
     <h2>¿Listo para saber qué tan confiable es tu inventario?</h2>
     <p>Prueba la demo ahora mismo, sin instalar nada, en el dispositivo móvil que ya tienes.</p>
-    <button type="button" class="cta" data-abrir-demo>Explorar la demo</button>
+    <button type="button" class="cta" data-abrir-demo data-plan="closing">Explorar la demo</button>
     <span class="cta-sub-link">¿Ya eres cliente? <a href="app/index.html">Ingresar a la app</a></span>
   </div>
 
@@ -659,7 +659,7 @@
           <div><span>Correo</span><span class="mono">demo@inventiapp.cl</span></div>
           <div><span>Contraseña</span><span class="mono">DemoInventIA2026</span></div>
         </div>
-        <a class="cta" href="app/index.html" target="_blank" rel="noopener">Entrar a la demo ›</a>
+        <a class="cta" id="demo-entrar-link" href="app/index.html" target="_blank" rel="noopener">Entrar a la demo ›</a>
         <p class="modal-note">En las próximas 24 horas te escribimos para coordinar un piloto real y gratuito con el catálogo de tu propia bodega.</p>
       </div>
 
@@ -711,20 +711,25 @@
   var demoError = document.getElementById('demo-error');
   var demoSubmitBtn = document.getElementById('demo-submit-btn');
 
+  function trackEvent(nombre, params){
+    if(typeof window.gtag === 'function') gtag('event', nombre, params || {});
+  }
+
   var demoAbiertoEn = 0;
-  function abrirDemoModal(){
+  function abrirDemoModal(plan){
     demoFormWrap.style.display = '';
     demoOk.classList.remove('open');
     demoError.style.display = 'none';
     demoBackdrop.classList.add('open');
     demoAbiertoEn = Date.now();
+    trackEvent('demo_modal_open', { plan: plan || 'general' });
   }
   function cerrarDemoModal(){
     demoBackdrop.classList.remove('open');
   }
 
   document.querySelectorAll('[data-abrir-demo]').forEach(function(btn){
-    btn.addEventListener('click', abrirDemoModal);
+    btn.addEventListener('click', function(){ abrirDemoModal(btn.getAttribute('data-plan')); });
   });
   document.getElementById('demo-modal-close').addEventListener('click', cerrarDemoModal);
   demoBackdrop.addEventListener('click', function(e){
@@ -771,6 +776,7 @@
       });
       demoFormWrap.style.display = 'none';
       demoOk.classList.add('open');
+      trackEvent('generate_lead', { lead_type: 'demo' });
     }).catch(function(err){
       demoError.textContent = err.message;
       demoError.style.display = 'block';
@@ -778,6 +784,10 @@
       demoSubmitBtn.disabled = false;
       demoSubmitBtn.textContent = 'Ver la demo';
     });
+  });
+
+  document.getElementById('demo-entrar-link').addEventListener('click', function(){
+    trackEvent('demo_start');
   });
 </script>
 
@@ -796,6 +806,7 @@
     contactoError.style.display = 'none';
     contactoBackdrop.classList.add('open');
     contactoAbiertoEn = Date.now();
+    trackEvent('contacto_modal_open');
   }
   function cerrarContactoModal(){
     contactoBackdrop.classList.remove('open');
@@ -848,6 +859,7 @@
       });
       contactoFormWrap.style.display = 'none';
       contactoOk.classList.add('open');
+      trackEvent('generate_lead', { lead_type: 'contacto' });
     }).catch(function(err){
       contactoError.textContent = err.message;
       contactoError.style.display = 'block';
@@ -907,9 +919,18 @@
   }
 </script>
 
-<a class="whatsapp-float" href="https://wa.me/56968372524?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20InventIA" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">
+<a class="whatsapp-float" id="whatsapp-float-link" href="https://wa.me/56968372524?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20InventIA" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">
   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm0 1.67c2.19 0 4.25.85 5.8 2.4a8.2 8.2 0 0 1 2.41 5.84c0 4.55-3.7 8.25-8.25 8.25a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.18 8.18 0 0 1-1.26-4.38c0-4.55 3.7-8.25 8.28-8.25zm-4.55 4.5c-.16 0-.42.06-.64.31-.22.25-.85.83-.85 2.03s.87 2.36.99 2.52c.12.16 1.7 2.72 4.2 3.7 2.08.82 2.5.66 2.95.62.45-.04 1.46-.6 1.66-1.18.2-.58.2-1.08.14-1.18-.06-.1-.22-.16-.46-.28-.24-.12-1.46-.72-1.68-.8-.23-.08-.39-.12-.56.12-.16.24-.64.8-.78.97-.14.16-.29.18-.53.06-.24-.12-1.02-.38-1.94-1.2-.72-.64-1.2-1.43-1.34-1.67-.14-.24-.02-.37.1-.49.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.56-1.36-.78-1.86-.2-.49-.4-.42-.56-.43-.14-.01-.3-.01-.46-.01z"/></svg>
 </a>
+
+<script>
+  var waLink = document.getElementById('whatsapp-float-link');
+  if(waLink) waLink.addEventListener('click', function(){ trackEvent('contact_whatsapp_click'); });
+
+  document.querySelectorAll('[data-track-mailto]').forEach(function(a){
+    a.addEventListener('click', function(){ trackEvent('contact_email_click', { origen: a.getAttribute('data-track-mailto') }); });
+  });
+</script>
 
 </body>
 </html>
