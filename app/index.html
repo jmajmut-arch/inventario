@@ -1138,13 +1138,24 @@ async function cargarPlanSemanal(){
     // un render() completo cada uno, sin relación con el formulario "Agregar a la planificación"
     // que la persona puede estar llenando en ese momento. No hace falta protegerlos acá: render()
     // ya captura y restaura ese formulario alrededor de cualquier render (ver capturarFormularioPlan).
+    // Cada callback tiene su propio try/catch: son recálculos de fondo por entrada, en paralelo
+    // vía forEach (que no espera ni encadena las promesas que dispara) — sin este try/catch, un
+    // fetch que falla (red caída, pestaña en background) queda como una promesa rechazada sin
+    // manejar, la captura Sentry como error no capturado y el try/catch de cargarPlanSemanal ya
+    // no lo alcanza porque el forEach que lo disparó ya terminó. Silencioso a propósito: no es
+    // una acción que la persona haya iniciado, y esa entrada simplemente no actualiza su conteo
+    // esta vez (se reintenta solo al volver a cargar la pestaña).
     (rows||[]).forEach(async r=>{
-      const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
-      setState({plan: {...state.plan, universos: {...state.plan.universos, [r.id]: total}}});
+      try{
+        const total = await contarUniversoUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
+        setState({plan: {...state.plan, universos: {...state.plan.universos, [r.id]: total}}});
+      }catch(e){ /* recálculo de fondo no crítico, ver comentario arriba */ }
     });
     (rows||[]).forEach(async r=>{
-      const skus = await skusDeUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
-      setState({plan: {...state.plan, detalle: {...state.plan.detalle, [r.id]: skus}}});
+      try{
+        const skus = await skusDeUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin, excluidos:r.skus_excluidos, soloSinUbicacion:r.solo_sin_ubicacion});
+        setState({plan: {...state.plan, detalle: {...state.plan.detalle, [r.id]: skus}}});
+      }catch(e){ /* recálculo de fondo no crítico, ver comentario arriba */ }
     });
   }catch(e){ toast(e.message,'err'); }
 }
