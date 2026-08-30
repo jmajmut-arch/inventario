@@ -2635,6 +2635,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.pareceFalloDeRed(new ctx.__TypeError('Failed to fetch'))===true, 'un TypeError debe considerarse fallo de red');
   assert(ctx.pareceFalloDeRed(new Error('Mensaje de error del servidor'))===false, 'un Error normal (HTTP) no debe considerarse fallo de red');
 
+  // rest(): cuando fetch() rechaza con un TypeError crudo (sin conexión), rest() debe volver
+  // a lanzar un TypeError (para que pareceFalloDeRed lo siga reconociendo y los flujos con
+  // manejo offline sigan encolando) pero con un mensaje en español entendible — no el texto
+  // crudo del navegador ("Failed to fetch") — para los ~30 sitios de la app que no tienen
+  // manejo offline propio y solo hacen toast(e.message).
+  const fetchOriginalRest = ctx.fetch;
+  ctx.fetch = async ()=>{ throw new ctx.__TypeError('Failed to fetch'); };
+  let errorDeRest = null;
+  try{ await ctx.rest('/algo-que-sea'); }catch(e){ errorDeRest = e; }
+  assert(errorDeRest instanceof ctx.__TypeError, 'rest() debe relanzar un TypeError (no un Error genérico) ante un fallo real de red, para no romper pareceFalloDeRed en los flujos offline, obtuvo: '+(errorDeRest && errorDeRest.constructor.name));
+  assert(errorDeRest && errorDeRest.message === 'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', 'el mensaje debe ser en español y entendible, no el texto crudo del navegador, obtuvo: '+(errorDeRest && errorDeRest.message));
+  ctx.fetch = fetchOriginalRest;
+
   // Sin conexión (fetch rechaza con TypeError): guardarConteo debe encolar el conteo en
   // localStorage (con estado "pendiente") en vez de mostrar un error, guardar la(s) foto(s)
   // en IndexedDB (no se pierden), y limpiar el formulario igual que si hubiera guardado con éxito.
@@ -2648,10 +2661,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     if(u.pathname==='/rest/v1/conteos' && opts.method==='POST') throw new ctx.__TypeError('Failed to fetch');
     return fetchOriginalOffline(url, opts);
   };
+  const toastRootOffline = elements['toast-root'];
+  const toastsAntesOffline = toastRootOffline ? toastRootOffline.hijos.length : 0;
   calls.length = 0;
   await ctx.guardarConteo({cantidad:7, ubicacion:'Rack A', bodega:'Nave Mina', observacion:'nota'});
   ctx.fetch = fetchOriginalOffline;
   assert(!calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/')), 'sin conexión, no debe intentar subir la foto todavía (se sube recién al sincronizar)');
+  // El conteo se guardó bien (localmente): el aviso debe ser de tipo "warn" (ámbar), no "err"
+  // (rojo) — un guardado exitoso sin conexión no debe verse como si algo hubiera fallado,
+  // justo en el momento en que el operador más necesita sentir que su conteo quedó a salvo.
+  const toastsOffline = toastRootOffline.hijos.slice(toastsAntesOffline);
+  assert(toastsOffline.length===1 && toastsOffline[0].className==='toast warn', 'el aviso de conteo guardado sin conexión debe usar el tipo "warn" (ámbar), no "err" (rojo), obtuvo className: '+(toastsOffline[0]&&toastsOffline[0].className));
   assert(ctx.__appstate.colaOffline.length===1, 'guardarConteo sin conexión debe agregar el conteo a la cola offline, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
   const itemEncolado = ctx.__appstate.colaOffline[0];
   assert(itemEncolado.sku_id==='sku-offline' && itemEncolado.sku_code==='SKU-OFF' && itemEncolado.cantidad_contada===7 && itemEncolado.ubicacion_contada==='Rack A' && itemEncolado.empresa_id==='emp-1', 'el conteo encolado debe llevar los datos ingresados y el empresa_id del perfil actual, obtuvo: '+JSON.stringify(itemEncolado));
@@ -3078,6 +3098,47 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.escanerModal===null, 'al escanear para agregar un SKU, el modal debe cerrarse de inmediato, obtuvo: '+JSON.stringify(ctx.__appstate.escanerModal));
   assert(documentMock.getElementById('s-code').value === 'BARCODE-NUEVO-999', 'debe llenar el campo de código del formulario de alta con el código leído, obtuvo: '+documentMock.getElementById('s-code').value);
 
+  // Escanear un SKU del Plan del día: si el código coincide con un SKU de la lista de
+  // pendientes actualmente visible, debe marcarse conteoOrigenPlan=true (para que
+  // guardarConteo lo grabe con fuera_de_plan=false), igual que si se hubiera tocado desde la
+  // lista. Si el código existe en el maestro pero no está en esa lista, sigue funcionando
+  // (nunca bloquea el conteo) pero queda como fuera de plan, igual que el buscador libre.
+  ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, skusPendientes: [{sku_code:'SKU-A', descripcion:'Perno M8'}]};
+  ctx.__appstate.skus = skusEscaner;
+  ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+  ctx.__appstate.skuSeleccionado = null;
+  await ctx.onCodigoEscaneado('SKU-A');
+  assert(ctx.__appstate.conteoOrigenPlan===true, 'un SKU escaneado que está en el plan del día visible debe marcarse conteoOrigenPlan=true, obtuvo: '+ctx.__appstate.conteoOrigenPlan);
+  ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+  ctx.__appstate.skuSeleccionado = null;
+  await ctx.onCodigoEscaneado('SKU-B');
+  assert(ctx.__appstate.conteoOrigenPlan===false, 'un SKU escaneado que existe pero no está en el plan del día visible debe marcarse conteoOrigenPlan=false (fuera de plan), obtuvo: '+ctx.__appstate.conteoOrigenPlan);
+  assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-b', 'el SKU fuera del plan igual debe quedar seleccionado, nunca bloqueado, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
+
+  // Lo mismo debe respetarse eligiendo entre bodegas (elegirSkuEscaneado), no solo en la
+  // resolución directa de una única coincidencia.
+  ctx.__appstate.skus = skusEscanerMultiBodega;
+  ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+  ctx.__appstate.skuSeleccionado = null;
+  ctx.elegirSkuEscaneado('sku-a-planta');
+  assert(ctx.__appstate.conteoOrigenPlan===true, 'elegirSkuEscaneado también debe marcar conteoOrigenPlan=true cuando el sku_code elegido está en el plan del día visible, obtuvo: '+ctx.__appstate.conteoOrigenPlan);
+  ctx.__appstate.skus = skusEscaner;
+  ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, skusPendientes: null};
+
+  // renderPlanDelDia: el botón de escanear debe verse junto a la lista de pendientes, para
+  // no obligar a abandonar el plan e ir al buscador libre solo para escanear.
+  ctx.__appstate.contarPlan = {
+    ...ctx.__appstate.contarPlan,
+    bodega:'Nave Mina', ubicacion:'Interior Nave',
+    entradas:[{id:'mp1', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', solo_sin_ubicacion:false, responsable_id:'resp-yo', skus_excluidos:[]}],
+    skusPendientes:[{sku_code:'SKU-A', descripcion:'Perno M8'}],
+  };
+  const htmlPlanConPendientes = ctx.renderPlanDelDia();
+  assert(htmlPlanConPendientes.includes('id="btn-escanear-plan"'), 'la tarjeta Plan del día debe mostrar un botón de escanear junto a la lista de pendientes, obtuvo: '+htmlPlanConPendientes);
+  ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, bodega:'', ubicacion:'', skusPendientes:null};
+  const htmlPlanSinElegir = ctx.renderPlanDelDia();
+  assert(!htmlPlanSinElegir.includes('id="btn-escanear-plan"'), 'sin bodega/ubicación elegida todavía no debe verse el botón de escanear del plan, obtuvo: '+htmlPlanSinElegir);
+
   // conservandoCamposConteo: agregar o quitar una foto vuelve a renderizar toda la pantalla
   // (para mostrar la miniatura), pero eso no debe borrar lo que la persona ya tipeó en el
   // resto del formulario — en especial la cantidad, que no tiene ningún valor por defecto.
@@ -3195,6 +3256,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.setState({view:'conteo', contarPlan:{...ctx.__appstate.contarPlan, cargado:false}});
   await new Promise(resolve=>setTimeout(resolve, 20));
   assert(calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'al resetear contarPlan.cargado (lo que hace seleccionar la pestaña Contar), debe volver a pedir el plan del día, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Bug real reportado: el buscador de SKU en Contar volvía a robar el foco (y a abrir el
+  // teclado del celular) en cada re-render mientras seguía en el mismo paso de búsqueda —
+  // por ejemplo, cada vez que se elegía bodega/ubicación o terminaba de cargar el plan — en
+  // vez de solo la primera vez que aparece. Se verifica contando llamadas a focus() en varios
+  // bind() sucesivos sin volver a entrar a la pantalla ni elegir un SKU.
+  ctx.setState({view:'dashboard'});
+  let vecesEnfocado = 0;
+  const buscadorEl = documentMock.getElementById('sku-search');
+  const focusOriginal = buscadorEl.focus;
+  buscadorEl.focus = ()=> vecesEnfocado++;
+  ctx.setState({view:'conteo', skuSeleccionado:null});
+  ctx.bind();
+  ctx.bind();
+  assert(vecesEnfocado===1, 'el buscador de SKU debe enfocarse una sola vez al entrar a Contar, no en cada re-render posterior, obtuvo '+vecesEnfocado+' llamadas a focus()');
+  buscadorEl.focus = focusOriginal;
 
   // entradasActivasContar: resuelve las entradas que calzan con bodega+ubicación (sin filtro de
   // storage bin — se sacó a pedido: la persona solo elige bodega y ubicación, y se juntan los SKU

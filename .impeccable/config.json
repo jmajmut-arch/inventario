@@ -11,6 +11,15 @@
         ],
         "createdAt": "2026-08-30T11:58:49.633Z",
         "reason": "false positive: page bg is --bg:#faf6ee (light cream, confirmed by the detector's own cream-palette finding), .price-card.featured sits on --surface:#fff, not a dark background — rule mislabels a light-surface accent glow"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-08-30T12:33:22.624Z",
+        "reason": "same as above — case-variant match on the Google Fonts import line"
       }
     ]
   }
