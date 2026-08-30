@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-08-30T11:58:49.633Z",
+        "reason": "false positive: page bg is --bg:#faf6ee (light cream, confirmed by the detector's own cream-palette finding), .price-card.featured sits on --surface:#fff, not a dark background — rule mislabels a light-surface accent glow"
+      }
+    ]
+  }
+}

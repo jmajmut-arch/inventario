@@ -71,7 +71,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   :root{
     --bg:#faf6ee; --surface:#ffffff; --surface-2:#f1e9d8; --line:#e7dcc4;
     --amber:#bd5b2c; --amber-dim:#8c4520; --on-amber:#fffaf3;
-    --text:#241a10; --text-dim:#5f5142; --text-faint:#9c8b76;
+    --text:#241a10; --text-dim:#5f5142; --text-faint:#6f6050;
     --good:#3f7d4f; --good-bg:rgba(63,125,79,.1);
   }
   *{box-sizing:border-box;}
@@ -99,12 +99,25 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   .nav-links{display:flex;align-items:center;gap:30px;font-size:14px;font-weight:500;color:var(--text-dim);}
   .nav-links a:hover{color:var(--text);}
   .nav-cta{padding:9px 20px;border-radius:100px;background:var(--text);color:var(--bg);font-size:13.5px;font-weight:700;}
-  @media (max-width:680px){ .nav-links{display:none;} }
+  .nav-toggle{display:none;width:40px;height:40px;border-radius:10px;align-items:center;justify-content:center;background:none;flex-shrink:0;}
+  .nav-toggle:hover{background:rgba(36,26,16,.06);}
+  .nav-toggle svg{width:20px;height:20px;stroke:var(--text);}
+  .nav-toggle .icon-close{display:none;}
+  .nav-toggle.open .icon-menu{display:none;}
+  .nav-toggle.open .icon-close{display:block;}
+  @media (max-width:680px){
+    .nav-toggle{display:flex;order:3;margin-left:10px;}
+    .nav-cta{order:2;}
+    .nav-links{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;align-items:stretch;gap:2px;background:var(--bg);border-bottom:1px solid rgba(36,26,16,.08);box-shadow:0 16px 32px -20px rgba(36,26,16,.25);padding:8px 24px 16px;}
+    .nav-links.open{display:flex;}
+    .nav-links a{padding:12px 4px;border-radius:10px;}
+    .nav-links a:hover{background:rgba(36,26,16,.05);}
+  }
 
   /* ---- hero ---- */
   .hero{padding:96px 0 40px;text-align:center;}
   @media (max-width:680px){ .hero{padding:56px 0 32px;} }
-  .kicker{display:inline-block;font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);background:rgba(189,91,44,.1);padding:6px 14px;border-radius:100px;margin-bottom:22px;}
+  .kicker{display:inline-block;font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#964721;background:rgba(189,91,44,.1);padding:6px 14px;border-radius:100px;margin-bottom:22px;}
   .hero h1{font-size:clamp(2.4rem,6vw,4.6rem);line-height:1.03;letter-spacing:-0.03em;margin:0 auto 22px;max-width:820px;}
   .hero h1 span{color:var(--amber);}
   .hero-sub{font-size:clamp(1.05rem,2vw,1.3rem);line-height:1.55;color:var(--text-dim);max-width:620px;margin:0 auto 36px;}
@@ -277,7 +290,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         <div class="brand-badge">IA</div>
         <div class="brand-name">Invent<span class="ia">IA</span></div>
       </div>
-      <div class="nav-links">
+      <div class="nav-links" id="nav-links">
         <a href="#resuelve">Producto</a>
         <a href="#funciona">¿Cómo funciona?</a>
         <a href="#planes">Planes</a>
@@ -285,6 +298,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         <a href="#" data-abrir-contacto>Contacto</a>
       </div>
       <a class="nav-cta" href="app/index.html">Ingresar</a>
+      <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Abrir menú" aria-expanded="false" aria-controls="nav-links">
+        <svg class="icon-menu" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>
+      </button>
     </div>
   </div>
 
@@ -292,19 +309,34 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <div class="kicker">La solución de inventario adaptable a minería, industria y empresas de todo rubro</div>
     <h1><span>Haz tu inventario físico</span> más rápido, trazable y sin excel.</h1>
     <p class="hero-sub">Planifica, cuenta y audita desde cualquier dispositivo móvil. Mantiene tus datos respaldados y a tu equipo sincronizado.</p>
+
+    <div>
+
+      <button type="button" class="cta" data-abrir-demo data-plan="hero">Ver Invent<span class="ia">IA</span> en acción →</button>
+
+      <a class="cta-ghost" href="#planes">Conocer planes <span>→</span></a>
+    </div>
+    <div class="cta-sub">Funciona desde cualquier dispositivo móvil o computador. Sin instalar aplicaciones. Sin depender de Excel.</div>
+
+    <div class="hero-shot reveal">
+      <div class="hero-shot-glow"></div>
+      <img class="hero-photo" src="img/hero-conteo.jpg" alt="Persona contando inventario en bodega con un dispositivo móvil">
+    </div>
+  </div>
+
   <section id="resuelve">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">¿Qué resuelve?</div>
+        <h2 class="section-title">¿Qué resuelve?</h2>
         <div class="section-sub">Está pensado para el conteo físico real: se adapta a bodegas de cualquier tamaño, funciona sin depender de internet, y permite que varios responsables cuenten al mismo tiempo, de forma organizada. El resultado: control real de tu inventario y datos confiables para decidir.</div>
-       
+
       </div>
       <div class="carousel reveal">
         <div class="carousel-track" id="vista-track">
 
           <div class="carousel-slide">
             <div class="section-head reveal" style="margin-bottom:28px;">
-              <div class="section-title">La diferencia en un vistazo</div>
+              <h3 class="section-title">La diferencia en un vistazo</h3>
               <div class="section-sub">El mismo inventario, dos formas muy distintas de hacerlo.</div>
             </div>
             <img class="comparativa-img reveal" src="img/comparacion-tradicional-vs-inventia.png" alt="Comparación entre el inventario tradicional (Excel, conteo manual, papel, consolidación, cruces, diferencias y reconteo: más tiempo, más costos, más errores, menos visibilidad) y el proceso con InventIA (planificar, contar desde el dispositivo móvil, datos en tiempo real, diferencia automática, reconteo dirigido e informe: menos tiempo, menos costos, más precisión, visibilidad total)">
@@ -313,7 +345,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="carousel-slide">
             <div class="vista-grid">
               <div class="vista-text">
-                <div class="section-title">Todo tu avance,<br>en un solo lugar</div>
+                <h3 class="section-title">Todo tu avance,<br>en un solo lugar</h3>
                 <p>Mientras tu equipo cuenta en terreno, el dashboard se arma solo: avance en tiempo real y proyección de término, sin trabajo administrativo extra.</p>
                 <ul class="vista-points">
                   <li><b>Avance en tiempo real</b>, por bodega y ubicación.</li>
@@ -333,7 +365,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="carousel-slide">
             <div class="vista-grid">
               <div class="vista-text">
-                <div class="section-title">Proyección de término<br>y ranking</div>
+                <h3 class="section-title">Proyección de término<br>y ranking</h3>
                 <p>El sistema calcula solo cuándo se va a terminar el inventario, al ritmo real con que está contando el equipo.</p>
                 <ul class="vista-points">
                   <li><b>Fecha estimada de término</b>, recalculada según el ritmo de los últimos 14 días.</li>
@@ -353,7 +385,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="carousel-slide">
             <div class="vista-grid">
               <div class="vista-text">
-                <div class="section-title">Cuenta en terreno,<br>hasta con el código de barras</div>
+                <h3 class="section-title">Cuenta en terreno,<br>hasta con el código de barras</h3>
                 <p>Busca el SKU o apunta la cámara al código de barras: el sistema lo reconoce solo, incluso sin señal.</p>
                 <ul class="vista-points">
                   <li><b>Escaneo de código de barras o QR</b>, con reconocimiento al instante.</li>
@@ -373,7 +405,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="carousel-slide">
             <div class="vista-grid">
               <div class="vista-text">
-                <div class="section-title">Respaldo fotográfico<br>por cada conteo</div>
+                <h3 class="section-title">Respaldo fotográfico<br>por cada conteo</h3>
                 <p>Cada cantidad contada puede quedar con foto, y si hace falta más de una, también.</p>
                 <ul class="vista-points">
                   <li><b>Una o varias fotos</b> por conteo, con navegación entre ellas.</li>
@@ -393,7 +425,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="carousel-slide">
             <div class="vista-grid">
               <div class="vista-text">
-                <div class="section-title">Encuentra las diferencias<br>antes de cerrar el inventario</div>
+                <h3 class="section-title">Encuentra las diferencias<br>antes de cerrar el inventario</h3>
                 <p>El sistema calcula solo qué no cuadra contra el stock del sistema, sin cruzar planillas para encontrarlo.</p>
                 <ul class="vista-points">
                   <li><b>Diferencia calculada</b> automáticamente en cada conteo.</li>
@@ -427,25 +459,11 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       </div>
     </div>
   </section>
-    <div>
-       
-      <button type="button" class="cta" data-abrir-demo data-plan="hero">Ver Invent<span class="ia">IA</span> en acción →</button>
-      
-      <a class="cta-ghost" href="#planes">Conocer planes <span>→</span></a>
-    </div>
-    <div class="cta-sub">Funciona desde cualquier dispositivo móvil o computador. Sin instalar aplicaciones. Sin depender de Excel.</div>
-
-    <div class="hero-shot reveal">
-      <div class="hero-shot-glow"></div>
-      <img class="hero-photo" src="img/hero-conteo.jpg" alt="Persona contando inventario en bodega con un dispositivo móvil">
-    </div>
-  </div>
-
 
   <section id="funciona">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">¿Cómo funciona?</div>
+        <h2 class="section-title">¿Cómo funciona?</h2>
         <div class="section-sub">Tres pasos, sin curva de aprendizaje para el equipo en terreno.</div>
       </div>
       <div class="steps">
@@ -471,7 +489,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <section id="control">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">¿Tu inventario está realmente bajo control?</div>
+        <h2 class="section-title">¿Tu inventario está realmente bajo control?</h2>
       </div>
 
       <div class="checklist-grid">
@@ -501,7 +519,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <section id="video">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">Míralo funcionando</div>
+        <h2 class="section-title">Míralo funcionando</h2>
         <div class="section-sub">Un video corto de InventIA en acción.</div>
       </div>
       <div class="video-frame reveal">
@@ -515,7 +533,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <section id="planes">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">Planes</div>
+        <h2 class="section-title">Planes</h2>
         <div class="section-sub">Elige según el tamaño de tu operación. Puedes cambiar de plan cuando quieras.</div>
       </div>
       <div class="price-grid">
@@ -579,7 +597,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <section id="faq">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="section-title">Preguntas frecuentes</div>
+        <h2 class="section-title">Preguntas frecuentes</h2>
    </div>
       <div class="faq-list">
         <details class="faq-item reveal">
@@ -608,7 +626,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         </details>
         <details class="faq-item reveal">
           <summary>¿Puedo probar el sistema antes de contratar?</summary>
-          <p>Sí, de dos formas: prueba la demo ahora mismo con datos de ejemplo (botón más arriba), y si te interesa, coordinamos un piloto real y gratuito con el catálogo de tu propia bodega.</p>
+          <p>Sí, de dos formas: deja tus datos en el botón de arriba y te damos acceso inmediato a una demo con datos de ejemplo, y si te interesa, coordinamos un piloto real y gratuito con el catálogo de tu propia bodega.</p>
         </details>
       </div>
     </div>
@@ -616,7 +634,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
   <div class="closing reveal">
     <h2>¿Listo para saber qué tan confiable es tu inventario?</h2>
-    <p>Prueba la demo ahora mismo, sin instalar nada, en el dispositivo móvil que ya tienes.</p>
+    <p>Deja tus datos y entra a la demo al instante, sin instalar nada, en el dispositivo móvil que ya tienes.</p>
     <button type="button" class="cta" data-abrir-demo data-plan="closing">Explorar la demo</button>
     <span class="cta-sub-link">¿Ya eres cliente? <a href="app/index.html">Ingresar a la app</a></span>
   </div>
@@ -713,6 +731,24 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   </div>
 
 <script>
+  var navToggle = document.getElementById('nav-toggle');
+  var navLinks = document.getElementById('nav-links');
+  function cerrarMenuMovil(){
+    navLinks.classList.remove('open');
+    navToggle.classList.remove('open');
+    navToggle.setAttribute('aria-expanded', 'false');
+    navToggle.setAttribute('aria-label', 'Abrir menú');
+  }
+  navToggle.addEventListener('click', function(){
+    var abierto = navLinks.classList.toggle('open');
+    navToggle.classList.toggle('open', abierto);
+    navToggle.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+    navToggle.setAttribute('aria-label', abierto ? 'Cerrar menú' : 'Abrir menú');
+  });
+  navLinks.querySelectorAll('a').forEach(function(a){
+    a.addEventListener('click', cerrarMenuMovil);
+  });
+
   var SUPABASE_URL = 'https://ncvwgsbcvklhbyvurxzz.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE';
 
