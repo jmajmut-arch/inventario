@@ -494,7 +494,7 @@
       </div>
       <div class="video-frame reveal">
         <div class="video-ratio">
-          <iframe src="https://www.youtube.com/embed/vX__YUxafQc" title="Demo de InventIA" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          <iframe id="video-demo-iframe" src="https://www.youtube.com/embed/vX__YUxafQc?enablejsapi=1" title="Demo de InventIA" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
         </div>
       </div>
     </div>
@@ -916,6 +916,29 @@
     els.forEach(function(el){ io.observe(el); });
   }else{
     els.forEach(function(el){ el.classList.add('in'); });
+  }
+</script>
+
+<script>
+  // Rastrea la primera vez que alguien le da play al video demo del landing.
+  var videoDemoIframe = document.getElementById('video-demo-iframe');
+  if(videoDemoIframe){
+    var videoPlayContado = false;
+    window.onYouTubeIframeAPIReady = function(){
+      new YT.Player('video-demo-iframe', {
+        events: {
+          onStateChange: function(e){
+            if(e.data === YT.PlayerState.PLAYING && !videoPlayContado){
+              videoPlayContado = true;
+              trackEvent('video_play', { video: 'demo_landing' });
+            }
+          }
+        }
+      });
+    };
+    var ytApiScript = document.createElement('script');
+    ytApiScript.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(ytApiScript);
   }
 </script>
 
