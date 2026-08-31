@@ -2126,6 +2126,20 @@ function resumenErroresAArray(resumenErrores){
   return Array.from(resumenErrores, ([motivo, cantidad])=>({motivo, cantidad})).sort((a,b)=>b.cantidad-a.cantidad);
 }
 
+// Cargas de antes de este cambio guardaron detalle_errores fila por fila (sin agrupar, y
+// limitado a 50 entradas) — sin esto, el historial las mostraría como hasta 50 líneas idénticas
+// y sin cantidad ("× sku_code vacío"). Agrupa también esas entradas viejas al mostrarlas: una
+// entrada sin `cantidad` numérica se cuenta como 1 (nota: para cargas viejas la cantidad mostrada
+// puede ser menor a la real, porque el guardado original ya venía recortado a 50 filas).
+function agruparDetalleErrores(detalleErrores){
+  const mapa = new Map();
+  (detalleErrores||[]).forEach(e=>{
+    const cantidad = typeof e.cantidad==='number' ? e.cantidad : 1;
+    mapa.set(e.motivo, (mapa.get(e.motivo)||0) + cantidad);
+  });
+  return resumenErroresAArray(mapa);
+}
+
 async function confirmarCargaMasiva(){
   if(!perfilCargado()) return;
   const { file, data, mapeo, modo } = state.cargaPreview;
@@ -3852,7 +3866,7 @@ function renderCargaMasiva(){
           <details style="margin-top:4px">
             <summary class="hint" style="cursor:pointer">Ver detalle</summary>
             <ul style="margin:4px 0 0;padding-left:18px;font-size:13px">
-              ${f.detalle_errores.map(e=>`<li>${esc(e.cantidad)} × ${esc(e.motivo)}</li>`).join('')}
+              ${agruparDetalleErrores(f.detalle_errores).map(e=>`<li>${esc(e.cantidad)} × ${esc(e.motivo)}</li>`).join('')}
             </ul>
           </details>
           ` : ''}
