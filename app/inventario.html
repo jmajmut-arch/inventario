@@ -2105,6 +2105,20 @@ async function confirmarCargaMasiva(){
     const stockRaw = valor(row,'stock_sistema');
     const costoRaw = valor(row,'costo_unitario');
     const bodega = valor(row,'bodega') || null;
+    // Un valor negativo (típico de notas de crédito/ajustes en exportaciones de SAP) viola el
+    // check constraint de la tabla — sin este filtro, esa UNA fila hace fallar el INSERT masivo
+    // completo (todo el archivo, no solo esa fila), porque se manda como un solo lote. Se guarda
+    // el SKU igual, sin ese dato puntual, y se deja registrado como error de esa fila.
+    let stock_sistema = stockRaw!=='' ? Number(stockRaw) : null;
+    if(stock_sistema !== null && stock_sistema < 0){
+      error++; errores.push({fila:idx+2, motivo:`Stock del sistema negativo (${stockRaw}), se guardó sin ese dato`});
+      stock_sistema = null;
+    }
+    let costo_unitario = costoRaw!=='' ? Number(costoRaw) : null;
+    if(costo_unitario !== null && costo_unitario < 0){
+      error++; errores.push({fila:idx+2, motivo:`Costo unitario negativo (${costoRaw}), se guardó sin ese dato`});
+      costo_unitario = null;
+    }
     porCodigoYBodega.set(JSON.stringify([sku_code, bodega]), {
       sku_code,
       empresa_id: state.perfil.empresa_id,
@@ -2114,8 +2128,8 @@ async function confirmarCargaMasiva(){
       ubicacion: valor(row,'ubicacion') || null,
       storage_bin: valor(row,'storage_bin') || null,
       bodega,
-      stock_sistema: stockRaw!=='' ? Number(stockRaw) : null,
-      costo_unitario: costoRaw!=='' ? Number(costoRaw) : null,
+      stock_sistema,
+      costo_unitario,
       activo: true,
       updated_at: marcaTiempo,
       capturado_en: marcaTiempo,
