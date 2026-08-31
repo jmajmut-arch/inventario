@@ -2301,6 +2301,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.costo_unitario===1500) && filasCarga.some(f=>f.bodega==='Planta' && f.costo_unitario===null), 'la carga masiva debe mapear costo_unitario cuando viene en el archivo, y dejarlo null cuando la celda viene vacía, obtuvo: '+JSON.stringify(filasCarga));
 
+  // Un costo o stock negativo (típico de notas de crédito/ajustes en exportaciones de SAP)
+  // viola el check constraint de la tabla — antes, esa UNA fila hacía fallar el INSERT masivo
+  // COMPLETO (el archivo entero, no solo esa fila), porque se manda como un solo lote. Ahora
+  // se debe guardar el SKU igual, sin ese dato puntual, y dejarlo registrado como error de fila.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock', costo_unitario:'Costo' },
+    data: [
+      { Codigo:'SKU-COSTO-NEG', Bodega:'Nave', Stock:'10', Costo:'-500' },
+      { Codigo:'SKU-STOCK-NEG', Bodega:'Nave', Stock:'-3', Costo:'100' },
+    ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postCargaNeg = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filasCargaNeg = JSON.parse(postCargaNeg.opts.body);
+  assert(filasCargaNeg.length===2, 'ambas filas deben llegar al upsert (no descartarse), obtuvo: '+JSON.stringify(filasCargaNeg));
+  const filaCostoNeg = filasCargaNeg.find(f=>f.sku_code==='SKU-COSTO-NEG');
+  assert(filaCostoNeg.costo_unitario===null, 'un costo_unitario negativo debe guardarse como null, no mandarse tal cual, obtuvo: '+JSON.stringify(filaCostoNeg));
+  assert(filaCostoNeg.stock_sistema===10, 'el resto de los datos de esa fila debe conservarse, obtuvo: '+JSON.stringify(filaCostoNeg));
+  const filaStockNeg = filasCargaNeg.find(f=>f.sku_code==='SKU-STOCK-NEG');
+  assert(filaStockNeg.stock_sistema===null, 'un stock_sistema negativo debe guardarse como null, no mandarse tal cual, obtuvo: '+JSON.stringify(filaStockNeg));
+  const postRegistrarCargaNeg = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
+  const bodyRegistrarCargaNeg = JSON.parse(postRegistrarCargaNeg.opts.body)[0];
+  assert(bodyRegistrarCargaNeg.filas_error===2, 'las dos filas con valor negativo deben quedar contadas como error en el resumen, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg));
+  assert(bodyRegistrarCargaNeg.detalle_errores.some(e=>/costo unitario negativo/i.test(e.motivo)) && bodyRegistrarCargaNeg.detalle_errores.some(e=>/stock del sistema negativo/i.test(e.motivo)), 'el detalle de errores debe explicar cuál dato vino negativo, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
+
   // Si el archivo trae dos filas del mismo código EN LA MISMA bodega, ahí sí no hay forma
   // de saber cuál es la correcta: se queda con la última (mismo criterio que antes).
   ctx.__appstate.cargaPreview = {
