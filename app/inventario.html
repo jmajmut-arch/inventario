@@ -2083,6 +2083,10 @@ async function prepararCargaMasiva(file){
   }catch(e){ toast(e.message,'err'); }
 }
 
+function resumenErroresAArray(resumenErrores){
+  return Array.from(resumenErrores, ([motivo, cantidad])=>({motivo, cantidad})).sort((a,b)=>b.cantidad-a.cantidad);
+}
+
 async function confirmarCargaMasiva(){
   if(!perfilCargado()) return;
   const { file, data, mapeo, modo } = state.cargaPreview;
@@ -2091,7 +2095,13 @@ async function confirmarCargaMasiva(){
   setState({loading:true});
 
   const marcaTiempo = new Date().toISOString();
-  let ok=0, error=0; const errores=[];
+  let ok=0, error=0;
+  // Se agrupan por motivo, no fila por fila: un archivo grande puede tener miles de filas con
+  // el mismo problema (ej. "1.306 con costo negativo"), y una lista fila por fila no es legible
+  // ni práctica de mostrar en el historial — tampoco depende de un tope arbitrario de cuántas
+  // filas guardar en detalle, como sí lo era la lista plana anterior.
+  const resumenErrores = new Map();
+  const anotarError = (motivo) => { error++; resumenErrores.set(motivo, (resumenErrores.get(motivo)||0)+1); };
   // Un mismo sku_code puede vivir en más de una bodega (cada bodega es su propia fila, con
   // su propio stock/ubicación), así que la clave de deduplicado es código+bodega, no solo
   // el código: si el archivo trae dos filas del mismo código en bodegas distintas, ambas
@@ -2100,7 +2110,7 @@ async function confirmarCargaMasiva(){
   const porCodigoYBodega = new Map();
   data.forEach((row,idx)=>{
     const sku_code = valor(row,'sku_code');
-    if(!sku_code){ error++; errores.push({fila:idx+2, motivo:'Código de SKU vacío'}); return; }
+    if(!sku_code){ anotarError('Código de SKU vacío'); return; }
     ok++;
     const stockRaw = valor(row,'stock_sistema');
     const costoRaw = valor(row,'costo_unitario');
@@ -2111,12 +2121,12 @@ async function confirmarCargaMasiva(){
     // el SKU igual, sin ese dato puntual, y se deja registrado como error de esa fila.
     let stock_sistema = stockRaw!=='' ? Number(stockRaw) : null;
     if(stock_sistema !== null && stock_sistema < 0){
-      error++; errores.push({fila:idx+2, motivo:`Stock del sistema negativo (${stockRaw}), se guardó sin ese dato`});
+      anotarError('Stock del sistema negativo, se guardó sin ese dato');
       stock_sistema = null;
     }
     let costo_unitario = costoRaw!=='' ? Number(costoRaw) : null;
     if(costo_unitario !== null && costo_unitario < 0){
-      error++; errores.push({fila:idx+2, motivo:`Costo unitario negativo (${costoRaw}), se guardó sin ese dato`});
+      anotarError('Costo unitario negativo, se guardó sin ese dato');
       costo_unitario = null;
     }
     porCodigoYBodega.set(JSON.stringify([sku_code, bodega]), {
@@ -2154,7 +2164,7 @@ async function confirmarCargaMasiva(){
     if(modo==='reemplazar' && lote.length){
       await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
     }
-    await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
+    await registrarCarga(file.name, 'skus', data.length, ok, error, resumenErroresAArray(resumenErrores));
     toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
     refrescarListaSkus();
     setState({loading:false, cargaPreview:null});
@@ -2162,7 +2172,8 @@ async function confirmarCargaMasiva(){
     // Con la carga partida en bloques, un bloque que falla a mitad de camino no invalida los
     // anteriores que ya se guardaron — se informa cuántos SKU sí entraron antes del corte.
     const filasFallidas = lote.length - insertados;
-    await registrarCarga(file.name, 'skus', data.length, insertados, error + filasFallidas, [...errores, {motivo:e.message}]);
+    if(filasFallidas>0) resumenErrores.set(e.message, filasFallidas);
+    await registrarCarga(file.name, 'skus', data.length, insertados, error + filasFallidas, resumenErroresAArray(resumenErrores));
     setState({loading:false});
     toast(insertados ? `Se cargaron ${insertados} de ${lote.length} SKU antes de fallar: ${e.message}` : e.message, 'err');
   }
@@ -2186,7 +2197,7 @@ async function cargarHistorialCargas(){
   state.cargasHistorial.cargando = true;
   render();
   try{
-    const filas = await rest('/cargas_masivas?select=id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,created_at,usuarios(nombre)&order=created_at.desc&limit=20');
+    const filas = await rest('/cargas_masivas?select=id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,detalle_errores,created_at,usuarios(nombre)&order=created_at.desc&limit=20');
     state.cargasHistorial.filas = filas || [];
   }catch(e){ toast(e.message,'err'); }
   state.cargasHistorial.cargando = false;
@@ -3788,6 +3799,14 @@ function renderCargaMasiva(){
             ${f.filas_ok} de ${f.filas_totales} filas cargadas
             ${f.filas_error? `<span style="color:var(--danger)"> · ${f.filas_error} con error</span>` : ''}
           </div>
+          ${f.filas_error && f.detalle_errores && f.detalle_errores.length? `
+          <details style="margin-top:4px">
+            <summary class="hint" style="cursor:pointer">Ver detalle</summary>
+            <ul style="margin:4px 0 0;padding-left:18px;font-size:13px">
+              ${f.detalle_errores.map(e=>`<li>${esc(e.cantidad)} × ${esc(e.motivo)}</li>`).join('')}
+            </ul>
+          </details>
+          ` : ''}
         </div>
       `).join('')}</div>
       ` : `<div class="empty" style="padding:14px 8px">Todavía no se ha cargado nada.</div>`}
