@@ -309,7 +309,7 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/cargas_masivas')){
     const filas = [
-      {id:'c1', nombre_archivo:'materiales_agosto.xlsx', tipo:'skus', filas_totales:120, filas_ok:118, filas_error:2, created_at:'2026-08-20T14:30:00Z', usuarios:{nombre:'Ana Torres'}},
+      {id:'c1', nombre_archivo:'materiales_agosto.xlsx', tipo:'skus', filas_totales:120, filas_ok:118, filas_error:2, detalle_errores:[{motivo:'Código de SKU vacío', cantidad:2}], created_at:'2026-08-20T14:30:00Z', usuarios:{nombre:'Ana Torres'}},
       {id:'c2', nombre_archivo:'carga_inicial.csv', tipo:'skus', filas_totales:50, filas_ok:50, filas_error:0, created_at:'2026-08-01T09:00:00Z', usuarios:null},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -2327,7 +2327,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postRegistrarCargaNeg = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
   const bodyRegistrarCargaNeg = JSON.parse(postRegistrarCargaNeg.opts.body)[0];
   assert(bodyRegistrarCargaNeg.filas_error===2, 'las dos filas con valor negativo deben quedar contadas como error en el resumen, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg));
-  assert(bodyRegistrarCargaNeg.detalle_errores.some(e=>/costo unitario negativo/i.test(e.motivo)) && bodyRegistrarCargaNeg.detalle_errores.some(e=>/stock del sistema negativo/i.test(e.motivo)), 'el detalle de errores debe explicar cuál dato vino negativo, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
+  assert(bodyRegistrarCargaNeg.detalle_errores.some(e=>/costo unitario negativo/i.test(e.motivo) && e.cantidad===1) && bodyRegistrarCargaNeg.detalle_errores.some(e=>/stock del sistema negativo/i.test(e.motivo) && e.cantidad===1), 'el detalle de errores debe explicar cuál dato vino negativo y cuántas filas, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
+  assert(!bodyRegistrarCargaNeg.detalle_errores.some(e=>/-500|-3/.test(e.motivo)), 'el detalle agrupado no debe mezclar el valor puntual de cada fila (eso ya no cabe al agrupar por motivo), obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
+
+  // El detalle de errores se agrupa por motivo (no fila por fila): un archivo con miles de filas
+  // con el mismo problema debe verse como "N × motivo", no como una lista larga de filas sueltas
+  // — a pedido de Joel, para que el historial de cargas sea legible con archivos grandes.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', costo_unitario:'Costo' },
+    data: [
+      { Codigo:'SKU-AGRUP-1', Bodega:'Nave', Costo:'-10' },
+      { Codigo:'SKU-AGRUP-2', Bodega:'Nave', Costo:'-20' },
+      { Codigo:'SKU-AGRUP-3', Bodega:'Nave', Costo:'-30' },
+      { Codigo:'', Bodega:'Nave', Costo:'5' },
+    ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postRegistrarCargaAgrup = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
+  const bodyAgrup = JSON.parse(postRegistrarCargaAgrup.opts.body)[0];
+  assert(bodyAgrup.detalle_errores.length===2, 'debe haber exactamente 2 motivos distintos (costo negativo + código vacío), no una entrada por fila, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
+  const motivoCostoAgrup = bodyAgrup.detalle_errores.find(e=>/costo unitario negativo/i.test(e.motivo));
+  assert(!!motivoCostoAgrup && motivoCostoAgrup.cantidad===3, 'las 3 filas con costo negativo deben agruparse en una sola entrada con cantidad:3, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
+  const motivoVacioAgrup = bodyAgrup.detalle_errores.find(e=>/código de sku vacío/i.test(e.motivo));
+  assert(!!motivoVacioAgrup && motivoVacioAgrup.cantidad===1, 'la fila sin código debe contarse aparte, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
 
   // Un archivo grande (ej. 64.000 filas de un maestro SAP) se parte en bloques de 2.000 antes
   // de mandarlo — un solo POST con todo el archivo superaba el statement_timeout de la base
@@ -2388,6 +2413,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // ubicación porque se cargaron sin Storage bin: la vista de Carga masiva debe recordarlo.
   assert(htmlHistorial.includes('Storage bin</b> con la ubicación física final'), 'Carga masiva debe recomendar completar Storage bin con la ubicación final, obtuvo: '+htmlHistorial);
   assert(htmlHistorial.includes('materiales_agosto.xlsx') && htmlHistorial.includes('118 de 120 filas cargadas') && htmlHistorial.includes('2 con error'), 'debe listar el archivo con cuántas filas entraron bien y con error, obtuvo: '+htmlHistorial);
+  // A pedido de Joel: el historial debe mostrar POR QUÉ no se cargaron ciertas filas, no solo
+  // el conteo — con el detalle agrupado por motivo (ver detalle_errores en el fixture de c1).
+  assert(htmlHistorial.includes('Ver detalle') && htmlHistorial.includes('2 × Código de SKU vacío'), 'debe mostrar el detalle agrupado de por qué fallaron las filas, obtuvo: '+htmlHistorial);
+  // carga_inicial.csv (c2) no tuvo errores (filas_error:0): no debe mostrar "Ver detalle".
+  const bloqueCargaInicial = htmlHistorial.slice(htmlHistorial.indexOf('carga_inicial.csv'));
+  assert(!bloqueCargaInicial.includes('Ver detalle'), 'una carga sin errores no debe mostrar el desplegable de detalle, obtuvo: '+bloqueCargaInicial.slice(0,300));
   assert(htmlHistorial.includes('Por: Ana Torres'), 'debe mostrar quién hizo la carga, obtuvo: '+htmlHistorial);
   assert(htmlHistorial.includes('carga_inicial.csv') && htmlHistorial.includes('Por: Sistema'), 'una carga sin usuario asociado debe mostrarse como "Sistema", igual que en trazabilidad, obtuvo: '+htmlHistorial);
 
