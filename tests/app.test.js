@@ -310,6 +310,9 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/cargas_masivas')){
     const filas = [
       {id:'c1', nombre_archivo:'materiales_agosto.xlsx', tipo:'skus', filas_totales:120, filas_ok:118, filas_error:2, detalle_errores:[{motivo:'Código de SKU vacío', cantidad:2}], created_at:'2026-08-20T14:30:00Z', usuarios:{nombre:'Ana Torres'}},
+      // Formato viejo (previo al agrupado): una entrada por fila, sin `cantidad`, tal como
+      // quedó guardado en cargas reales de antes de este cambio.
+      {id:'c3', nombre_archivo:'antiguo.csv', tipo:'skus', filas_totales:10, filas_ok:7, filas_error:3, detalle_errores:[{fila:2,motivo:'sku_code vacío'},{fila:3,motivo:'sku_code vacío'},{fila:4,motivo:'sku_code vacío'}], created_at:'2026-08-10T09:00:00Z', usuarios:null},
       {id:'c2', nombre_archivo:'carga_inicial.csv', tipo:'skus', filas_totales:50, filas_ok:50, filas_error:0, created_at:'2026-08-01T09:00:00Z', usuarios:null},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -2405,7 +2408,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
   await ctx.cargarHistorialCargas();
   assert(ctx.__appstate.cargasHistorial.cargado===true, 'cargarHistorialCargas debe marcar cargado:true al terminar');
-  assert(ctx.__appstate.cargasHistorial.filas.length===2 && ctx.__appstate.cargasHistorial.filas[0].nombre_archivo==='materiales_agosto.xlsx', 'cargarHistorialCargas debe cargar el historial de la empresa, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial.filas));
+  assert(ctx.__appstate.cargasHistorial.filas.length===3 && ctx.__appstate.cargasHistorial.filas[0].nombre_archivo==='materiales_agosto.xlsx', 'cargarHistorialCargas debe cargar el historial de la empresa, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial.filas));
 
   const htmlHistorial = ctx.renderCargaMasiva();
   assert(htmlHistorial.includes('Historial de cargas'), 'Carga masiva debe mostrar la sección de historial, obtuvo: '+htmlHistorial);
@@ -2416,6 +2419,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // A pedido de Joel: el historial debe mostrar POR QUÉ no se cargaron ciertas filas, no solo
   // el conteo — con el detalle agrupado por motivo (ver detalle_errores en el fixture de c1).
   assert(htmlHistorial.includes('Ver detalle') && htmlHistorial.includes('2 × Código de SKU vacío'), 'debe mostrar el detalle agrupado de por qué fallaron las filas, obtuvo: '+htmlHistorial);
+  // Una carga vieja (formato pre-agrupado: 3 entradas sueltas {fila,motivo}, sin `cantidad`)
+  // debe agruparse igual al mostrarse, en vez de listar 3 líneas idénticas sin número.
+  assert(htmlHistorial.includes('3 × sku_code vacío'), 'una carga vieja (sin cantidad guardada) debe agruparse al renderizar, no listarse fila por fila, obtuvo: '+htmlHistorial);
   // carga_inicial.csv (c2) no tuvo errores (filas_error:0): no debe mostrar "Ver detalle".
   const bloqueCargaInicial = htmlHistorial.slice(htmlHistorial.indexOf('carga_inicial.csv'));
   assert(!bloqueCargaInicial.includes('Ver detalle'), 'una carga sin errores no debe mostrar el desplegable de detalle, obtuvo: '+bloqueCargaInicial.slice(0,300));
