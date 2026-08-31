@@ -1975,22 +1975,25 @@ async function leerArchivoMasivo(file){
 // Stock sistema, Costo unitario, Unidad de medida al final. "Batch" reemplaza a "Categoria" en
 // todos lados (no solo acá) — mismo campo `categoria` de siempre, solo cambia cómo se llama y
 // qué encabezados de columna detecta (new/dañado/reparado/scrap es el tipo de dato esperado).
+// bodega/ubicacion/storage_bin/costo_unitario son obligatorios (no solo sku_code/stock_sistema):
+// sin ellos, Exactitud de ubicación, Valorización y el aviso de cambio de ubicación en Plan del
+// día quedan cojos — se prefiere exigir la columna en la carga a que fallen en silencio después.
 const CAMPOS_SKU = [
   { campo:'sku_code', obligatorio:true, etiqueta:'Material',
     alias:['material','sku','sku code','codigo','codigo sku','codigo material','cod','cod sku','item','item code','articulo','part number','material number','nro material','n material'] },
   { campo:'descripcion', obligatorio:false, etiqueta:'Descripcion',
     alias:['material description','descripcion','descripcion material','texto breve de material','short text','nombre','detalle','desc'] },
-  { campo:'bodega', obligatorio:false, etiqueta:'Ubicación general (Planta)',
+  { campo:'bodega', obligatorio:true, etiqueta:'Ubicación general (Planta)',
     alias:['ubicacion general','description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
-  { campo:'ubicacion', obligatorio:false, etiqueta:'Ubicación específica (Storage Location)',
+  { campo:'ubicacion', obligatorio:true, etiqueta:'Ubicación específica (Storage Location)',
     alias:['ubicacion especifica','storage location','ubicacion','location','rack'] },
-  { campo:'storage_bin', obligatorio:false, etiqueta:'Storage bin',
+  { campo:'storage_bin', obligatorio:true, etiqueta:'Storage bin',
     alias:['storage bin','bin','posicion','slot'] },
   { campo:'categoria', obligatorio:false, etiqueta:'Batch',
     alias:['batch','batch status','lote','estado material','material status','condicion','categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
   { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
     alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
-  { campo:'costo_unitario', obligatorio:false, etiqueta:'Costo unitario',
+  { campo:'costo_unitario', obligatorio:true, etiqueta:'Costo unitario',
     alias:['costo unitario','costo_unitario','precio unitario','moving average price','standard price','unit cost','unit price','valor unitario','costo','precio'] },
   { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
     alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },

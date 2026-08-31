@@ -2450,6 +2450,35 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!/id="btn-confirmar-carga"[^>]*disabled/.test(htmlAvisoConfirmado), 'al marcar "cargar de todas formas" el botón debe habilitarse, obtuvo: '+htmlAvisoConfirmado);
   ctx.__appstate.cargaPreview = null;
 
+  // A pedido de Joel: bodega, ubicación, storage bin y costo unitario son obligatorios en la
+  // carga masiva (no solo sku_code/stock_sistema) — sin mapear alguno, "Confirmar e importar"
+  // debe quedar deshabilitado y avisar cuáles faltan.
+  const camposConObligatorios = [
+    {campo:'sku_code', etiqueta:'Material', obligatorio:true},
+    {campo:'bodega', etiqueta:'Ubicación general (Planta)', obligatorio:true},
+    {campo:'ubicacion', etiqueta:'Ubicación específica (Storage Location)', obligatorio:true},
+    {campo:'storage_bin', etiqueta:'Storage bin', obligatorio:true},
+    {campo:'stock_sistema', etiqueta:'Stock sistema', obligatorio:true},
+    {campo:'costo_unitario', etiqueta:'Costo unitario', obligatorio:true},
+  ];
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', stock_sistema:'Stock' }, // faltan bodega/ubicacion/storage_bin/costo_unitario
+    campos: camposConObligatorios,
+    headers: ['Codigo','Stock'],
+    data: [{ Codigo:'SKU-X', Stock:'5' }],
+    confirmaReemplazo: false,
+  };
+  const htmlFaltantes = ctx.renderCargaPreview();
+  assert(htmlFaltantes.includes('Falta asignar') && htmlFaltantes.includes('Ubicación general (Planta)') && htmlFaltantes.includes('Storage bin') && htmlFaltantes.includes('Costo unitario'), 'debe avisar cuáles campos obligatorios faltan mapear, obtuvo: '+htmlFaltantes);
+  assert(/id="btn-confirmar-carga"[^>]*disabled/.test(htmlFaltantes), 'el botón debe quedar deshabilitado mientras falten campos obligatorios, obtuvo: '+htmlFaltantes);
+
+  ctx.__appstate.cargaPreview.mapeo = { sku_code:'Codigo', stock_sistema:'Stock', bodega:'Bodega', ubicacion:'Ubic', storage_bin:'Bin', costo_unitario:'Costo' };
+  const htmlCompleto = ctx.renderCargaPreview();
+  assert(!htmlCompleto.includes('Falta asignar') && !/id="btn-confirmar-carga"[^>]*disabled/.test(htmlCompleto), 'con todos los obligatorios mapeados, el botón debe habilitarse, obtuvo: '+htmlCompleto);
+  ctx.__appstate.cargaPreview = null;
+
   // Si el archivo trae dos filas del mismo código EN LA MISMA bodega, ahí sí no hay forma
   // de saber cuál es la correcta: se queda con la última (mismo criterio que antes).
   ctx.__appstate.cargaPreview = {
