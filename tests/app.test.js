@@ -2329,6 +2329,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(bodyRegistrarCargaNeg.filas_error===2, 'las dos filas con valor negativo deben quedar contadas como error en el resumen, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg));
   assert(bodyRegistrarCargaNeg.detalle_errores.some(e=>/costo unitario negativo/i.test(e.motivo)) && bodyRegistrarCargaNeg.detalle_errores.some(e=>/stock del sistema negativo/i.test(e.motivo)), 'el detalle de errores debe explicar cuál dato vino negativo, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
 
+  // Un archivo grande (ej. 64.000 filas de un maestro SAP) se parte en bloques de 2.000 antes
+  // de mandarlo — un solo POST con todo el archivo superaba el statement_timeout de la base
+  // (ver comentario en confirmarCargaMasiva). Con 2.500 filas únicas deben salir 2 POST: uno
+  // de 2.000 y uno de 500, no uno solo con las 2.500.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales_grande.xlsx' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo' },
+    data: Array.from({length:2500}, (_,i)=>({ Codigo:`SKU-LOTE-${i}` })),
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postsCargaLote = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  assert(postsCargaLote.length===2, 'un archivo de 2.500 filas debe mandarse en 2 bloques (2.000 + 500), no en un solo POST, obtuvo: '+postsCargaLote.length);
+  const tamañosLote = postsCargaLote.map(c=>JSON.parse(c.opts.body).length).sort((a,b)=>b-a);
+  assert(tamañosLote[0]===2000 && tamañosLote[1]===500, 'los bloques deben ser de 2.000 y 500 filas, obtuvo: '+JSON.stringify(tamañosLote));
+  const toastLote = elements['toast-root'].hijos[elements['toast-root'].hijos.length-1];
+  assert(toastLote.textContent.includes('2500 SKUs cargados'), 'el resumen final debe sumar las filas de todos los bloques, obtuvo: '+toastLote.textContent);
+  ctx.__appstate.cargaPreview = null;
+  await new Promise(r=>setTimeout(r, 0));
+
   // Si el archivo trae dos filas del mismo código EN LA MISMA bodega, ahí sí no hay forma
   // de saber cuál es la correcta: se queda con la última (mismo criterio que antes).
   ctx.__appstate.cargaPreview = {
