@@ -2330,7 +2330,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postRegistrarCargaNeg = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
   const bodyRegistrarCargaNeg = JSON.parse(postRegistrarCargaNeg.opts.body)[0];
   assert(bodyRegistrarCargaNeg.filas_error===2, 'las dos filas con valor negativo deben quedar contadas como error en el resumen, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg));
-  assert(bodyRegistrarCargaNeg.detalle_errores.some(e=>/costo unitario negativo/i.test(e.motivo) && e.cantidad===1) && bodyRegistrarCargaNeg.detalle_errores.some(e=>/stock del sistema negativo/i.test(e.motivo) && e.cantidad===1), 'el detalle de errores debe explicar cuál dato vino negativo y cuántas filas, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
+  assert(bodyRegistrarCargaNeg.detalle_errores.some(e=>/costo en negativo/i.test(e.motivo) && e.cantidad===1) && bodyRegistrarCargaNeg.detalle_errores.some(e=>/stock en negativo/i.test(e.motivo) && e.cantidad===1), 'el detalle de errores debe explicar cuál dato vino negativo y cuántas filas, obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
   assert(!bodyRegistrarCargaNeg.detalle_errores.some(e=>/-500|-3/.test(e.motivo)), 'el detalle agrupado no debe mezclar el valor puntual de cada fila (eso ya no cabe al agrupar por motivo), obtuvo: '+JSON.stringify(bodyRegistrarCargaNeg.detalle_errores));
 
   // El detalle de errores se agrupa por motivo (no fila por fila): un archivo con miles de filas
@@ -2352,7 +2352,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postRegistrarCargaAgrup = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
   const bodyAgrup = JSON.parse(postRegistrarCargaAgrup.opts.body)[0];
   assert(bodyAgrup.detalle_errores.length===2, 'debe haber exactamente 2 motivos distintos (costo negativo + código vacío), no una entrada por fila, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
-  const motivoCostoAgrup = bodyAgrup.detalle_errores.find(e=>/costo unitario negativo/i.test(e.motivo));
+  const motivoCostoAgrup = bodyAgrup.detalle_errores.find(e=>/costo en negativo/i.test(e.motivo));
   assert(!!motivoCostoAgrup && motivoCostoAgrup.cantidad===3, 'las 3 filas con costo negativo deben agruparse en una sola entrada con cantidad:3, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
   const motivoVacioAgrup = bodyAgrup.detalle_errores.find(e=>/código de sku vacío/i.test(e.motivo));
   assert(!!motivoVacioAgrup && motivoVacioAgrup.cantidad===1, 'la fila sin código debe contarse aparte, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
@@ -2377,6 +2377,55 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(toastLote.textContent.includes('2500 SKUs cargados'), 'el resumen final debe sumar las filas de todos los bloques, obtuvo: '+toastLote.textContent);
   ctx.__appstate.cargaPreview = null;
   await new Promise(r=>setTimeout(r, 0));
+
+  // ===== Carga masiva: aviso cuando las bodegas del archivo no coinciden con nada existente =====
+  // Caso real: Materials.xlsx con bodegas "B501"/"B521" no coincidía con la data ya cargada en
+  // "Nave Mina"/"Nave Planta" (fixture de /ubicaciones_generales), duplicando ~55.000 SKU en vez
+  // de actualizarlos porque la bodega es parte de la identidad de cada fila.
+  calls.length = 0;
+  const avisoMismatch = await ctx.calcularAvisoBodega(
+    [{ Codigo:'SKU-X', Bodega:'B501' }, { Codigo:'SKU-Y', Bodega:'B521' }],
+    'Bodega'
+  );
+  assert(!!avisoMismatch, 'un archivo cuyas bodegas no coinciden con ninguna existente debe generar aviso, obtuvo: '+JSON.stringify(avisoMismatch));
+  assert(JSON.stringify(avisoMismatch.archivo)===JSON.stringify(['B501','B521']), 'debe listar las bodegas distintas del archivo (ordenadas), obtuvo: '+JSON.stringify(avisoMismatch.archivo));
+  assert(avisoMismatch.existentes.includes('Nave Mina') && avisoMismatch.existentes.includes('Nave Planta'), 'debe listar las bodegas ya existentes, obtuvo: '+JSON.stringify(avisoMismatch.existentes));
+  assert(avisoMismatch.confirmado===false, 'el aviso arranca sin confirmar, obtuvo: '+JSON.stringify(avisoMismatch));
+  assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'calcularAvisoBodega debe consultar las bodegas ya cargadas, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Coincidencia parcial (agregaste un sitio nuevo, pero al menos una bodega ya existía) no debe
+  // avisar — eso es crecimiento normal, no un error de nomenclatura.
+  const avisoCoincide = await ctx.calcularAvisoBodega(
+    [{ Codigo:'SKU-X', Bodega:'Nave Mina' }, { Codigo:'SKU-Y', Bodega:'B999' }],
+    'Bodega'
+  );
+  assert(avisoCoincide===null, 'con al menos una bodega coincidente no debe avisar, obtuvo: '+JSON.stringify(avisoCoincide));
+
+  // Sin columna de bodega mapeada no hay nada que comparar (y no debe llamar a la red).
+  calls.length = 0;
+  const avisoSinColumna = await ctx.calcularAvisoBodega([{ Codigo:'SKU-X' }], undefined);
+  assert(avisoSinColumna===null && calls.length===0, 'sin columna de bodega mapeada no debe avisar ni consultar la red, obtuvo: '+JSON.stringify(avisoSinColumna));
+
+  // El aviso debe verse en la vista previa y bloquear "Confirmar e importar" hasta marcar el
+  // checkbox — mismo patrón que ya usa "Reemplazar completo".
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}, {campo:'bodega', etiqueta:'Bodega', obligatorio:false}],
+    headers: ['Codigo','Bodega'],
+    data: [{ Codigo:'SKU-X', Bodega:'B501' }],
+    confirmaReemplazo: false,
+    avisoBodega: { archivo:['B501'], existentes:['Nave Mina','Nave Planta'], confirmado:false },
+  };
+  const htmlAviso = ctx.renderCargaPreview();
+  assert(htmlAviso.includes('no coinciden con las que ya tienes cargadas') && htmlAviso.includes('B501') && htmlAviso.includes('Nave Mina'), 'debe mostrar el aviso con las bodegas del archivo y las ya existentes, obtuvo: '+htmlAviso);
+  assert(/id="btn-confirmar-carga"[^>]*disabled/.test(htmlAviso), 'el botón de confirmar debe estar deshabilitado mientras no se confirme el aviso, obtuvo: '+htmlAviso);
+
+  ctx.__appstate.cargaPreview.avisoBodega.confirmado = true;
+  const htmlAvisoConfirmado = ctx.renderCargaPreview();
+  assert(!/id="btn-confirmar-carga"[^>]*disabled/.test(htmlAvisoConfirmado), 'al marcar "cargar de todas formas" el botón debe habilitarse, obtuvo: '+htmlAvisoConfirmado);
+  ctx.__appstate.cargaPreview = null;
 
   // Si el archivo trae dos filas del mismo código EN LA MISMA bodega, ahí sí no hay forma
   // de saber cuál es la correcta: se queda con la última (mismo criterio que antes).
@@ -2418,10 +2467,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlHistorial.includes('materiales_agosto.xlsx') && htmlHistorial.includes('118 de 120 filas cargadas') && htmlHistorial.includes('2 con error'), 'debe listar el archivo con cuántas filas entraron bien y con error, obtuvo: '+htmlHistorial);
   // A pedido de Joel: el historial debe mostrar POR QUÉ no se cargaron ciertas filas, no solo
   // el conteo — con el detalle agrupado por motivo (ver detalle_errores en el fixture de c1).
-  assert(htmlHistorial.includes('Ver detalle') && htmlHistorial.includes('2 × Código de SKU vacío'), 'debe mostrar el detalle agrupado de por qué fallaron las filas, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('Ver detalle') && htmlHistorial.includes('Código de SKU vacío - 2 SKU'), 'debe mostrar el detalle agrupado de por qué fallaron las filas, obtuvo: '+htmlHistorial);
   // Una carga vieja (formato pre-agrupado: 3 entradas sueltas {fila,motivo}, sin `cantidad`)
   // debe agruparse igual al mostrarse, en vez de listar 3 líneas idénticas sin número.
-  assert(htmlHistorial.includes('3 × sku_code vacío'), 'una carga vieja (sin cantidad guardada) debe agruparse al renderizar, no listarse fila por fila, obtuvo: '+htmlHistorial);
+  assert(htmlHistorial.includes('sku_code vacío - 3 SKU'), 'una carga vieja (sin cantidad guardada) debe agruparse al renderizar, no listarse fila por fila, obtuvo: '+htmlHistorial);
   // carga_inicial.csv (c2) no tuvo errores (filas_error:0): no debe mostrar "Ver detalle".
   const bloqueCargaInicial = htmlHistorial.slice(htmlHistorial.indexOf('carga_inicial.csv'));
   assert(!bloqueCargaInicial.includes('Ver detalle'), 'una carga sin errores no debe mostrar el desplegable de detalle, obtuvo: '+bloqueCargaInicial.slice(0,300));
