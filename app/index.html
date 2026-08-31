@@ -2113,12 +2113,35 @@ async function crearSkuManual(payload){
   }
 }
 
+// La bodega es parte de la identidad de cada fila (on_conflict incluye bodega_key, ver
+// confirmarCargaMasiva): si un archivo nuevo usa nombres/códigos de bodega que no existen en lo
+// que ya está cargado, esas filas NO actualizan lo existente — crean SKU duplicados en la bodega
+// nueva y dejan los viejos activos (caso real: Materials.xlsx con bodegas "B501"/"B521" no
+// coincidía con la data de pruebas anterior en "Nave Mina"/"Patio 3000"/etc., duplicando ~55.000
+// SKU). Se avisa solo con mismatch TOTAL (ninguna bodega del archivo coincide) — una coincidencia
+// parcial es simplemente agregar un sitio nuevo, no un error de nomenclatura.
+async function calcularAvisoBodega(data, columnaBodega){
+  if(!columnaBodega) return null;
+  const bodegasArchivo = Array.from(new Set(data.map(r=>String(r[columnaBodega]||'').trim()).filter(Boolean))).sort();
+  if(!bodegasArchivo.length) return null;
+  let existentes;
+  try{
+    const rows = await rest('/ubicaciones_generales?select=bodega');
+    existentes = Array.from(new Set((rows||[]).map(r=>r.bodega).filter(Boolean))).sort();
+  }catch(e){ return null; } // si falla la consulta, no se bloquea el flujo con un aviso a medias
+  if(!existentes.length) return null; // primera carga de la empresa: nada con qué comparar
+  const hayCoincidencia = bodegasArchivo.some(b=>existentes.includes(b));
+  if(hayCoincidencia) return null;
+  return { archivo: bodegasArchivo, existentes, confirmado:false };
+}
+
 async function prepararCargaMasiva(file){
   try{
     const {headers, data} = await leerArchivoMasivo(file);
     if(!headers.length || !data.length){ toast('El archivo no tiene filas de datos','err'); return; }
     const mapeo = detectarMapeo(headers, CAMPOS_SKU);
-    setState({cargaPreview: { file, headers, data, campos:CAMPOS_SKU, mapeo, modo:'complementar', confirmaReemplazo:false }});
+    const avisoBodega = await calcularAvisoBodega(data, mapeo.bodega);
+    setState({cargaPreview: { file, headers, data, campos:CAMPOS_SKU, mapeo, modo:'complementar', confirmaReemplazo:false, avisoBodega }});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2174,12 +2197,12 @@ async function confirmarCargaMasiva(){
     // el SKU igual, sin ese dato puntual, y se deja registrado como error de esa fila.
     let stock_sistema = stockRaw!=='' ? Number(stockRaw) : null;
     if(stock_sistema !== null && stock_sistema < 0){
-      anotarError('Stock del sistema negativo, se guardó sin ese dato');
+      anotarError('Stock en negativo');
       stock_sistema = null;
     }
     let costo_unitario = costoRaw!=='' ? Number(costoRaw) : null;
     if(costo_unitario !== null && costo_unitario < 0){
-      anotarError('Costo unitario negativo, se guardó sin ese dato');
+      anotarError('Costo en negativo');
       costo_unitario = null;
     }
     porCodigoYBodega.set(JSON.stringify([sku_code, bodega]), {
@@ -3866,7 +3889,7 @@ function renderCargaMasiva(){
           <details style="margin-top:4px">
             <summary class="hint" style="cursor:pointer">Ver detalle</summary>
             <ul style="margin:4px 0 0;padding-left:18px;font-size:13px">
-              ${agruparDetalleErrores(f.detalle_errores).map(e=>`<li>${esc(e.cantidad)} × ${esc(e.motivo)}</li>`).join('')}
+              ${agruparDetalleErrores(f.detalle_errores).map(e=>`<li>${esc(e.motivo)} - ${esc(e.cantidad)} SKU</li>`).join('')}
             </ul>
           </details>
           ` : ''}
@@ -3878,13 +3901,26 @@ function renderCargaMasiva(){
 }
 
 function renderCargaPreview(){
-  const { headers, data, campos, mapeo, modo, confirmaReemplazo } = state.cargaPreview;
+  const { headers, data, campos, mapeo, modo, confirmaReemplazo, avisoBodega } = state.cargaPreview;
   const filasPreview = data.slice(0,5);
   const camposFaltantes = campos.filter(c=>c.obligatorio && !mapeo[c.campo]);
   const bloqueaReemplazo = modo==='reemplazar' && !confirmaReemplazo;
+  const bloqueaAvisoBodega = !!avisoBodega && !avisoBodega.confirmado;
   return `
     <div class="section-head"><div><span class="eyebrow">Carga de SKU</span><h2>Revisa las columnas detectadas</h2></div></div>
     <div class="hint" style="margin-bottom:12px">${data.length} filas encontradas. La app adivinó qué columna corresponde a cada campo — revísalo y corrige lo que haga falta antes de confirmar.</div>
+    ${avisoBodega? `
+    <div class="card" style="border-color:var(--danger);margin-bottom:12px">
+      <div style="font-weight:600;color:var(--danger)">⚠ Las bodegas de este archivo no coinciden con las que ya tienes cargadas</div>
+      <div class="hint" style="margin-top:4px">Archivo: ${avisoBodega.archivo.map(esc).join(', ')}</div>
+      <div class="hint">Ya tienes cargadas: ${avisoBodega.existentes.slice(0,10).map(esc).join(', ')}${avisoBodega.existentes.length>10?` y ${avisoBodega.existentes.length-10} más`:''}</div>
+      <div class="hint" style="margin-top:6px">Si no es intencional, esto puede duplicar tus SKU en vez de actualizarlos: como la bodega es distinta, no se pisan los que ya existen, se crean de nuevo bajo la bodega nueva. Revísalo antes de continuar.</div>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
+        <input type="checkbox" id="chk-confirma-aviso-bodega" style="margin-top:2px" ${avisoBodega.confirmado?'checked':''}>
+        Entiendo, cargar de todas formas.
+      </label>
+    </div>
+    ` : ''}
 
     <div class="section-head"><h2 style="font-size:15px">¿Cómo cargar estos datos?</h2></div>
     <label class="opcion-carga ${modo==='complementar'?'activo':''}">
@@ -3934,7 +3970,7 @@ function renderCargaPreview(){
 
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-secondary" id="btn-cancelar-carga">Cancelar</button>
-      <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||bloqueaReemplazo||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Confirmar e importar'}</button>
+      <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||bloqueaReemplazo||bloqueaAvisoBodega||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Confirmar e importar'}</button>
     </div>
   `;
 }
@@ -5314,8 +5350,15 @@ function bind(){
   if(state.view==='carga'){
     if(state.cargaPreview){
       document.querySelectorAll('[data-campo]').forEach(sel=>{
-        sel.addEventListener('change', e=>{
-          state.cargaPreview.mapeo[sel.dataset.campo] = e.target.value || undefined;
+        sel.addEventListener('change', async e=>{
+          const campo = sel.dataset.campo;
+          state.cargaPreview.mapeo[campo] = e.target.value || undefined;
+          // Cambiar qué columna es "bodega" cambia contra qué se compara el aviso de mismatch —
+          // hay que recalcularlo (y esperar antes de renderizar, o se ve el aviso viejo un instante).
+          if(campo==='bodega'){
+            const avisoBodega = await calcularAvisoBodega(state.cargaPreview.data, state.cargaPreview.mapeo.bodega);
+            if(state.cargaPreview) state.cargaPreview.avisoBodega = avisoBodega; // por si canceló mientras se esperaba
+          }
           render();
         });
       });
@@ -5329,6 +5372,11 @@ function bind(){
       const chkReemplazo = document.getElementById('chk-confirma-reemplazo');
       if(chkReemplazo) chkReemplazo.addEventListener('change', e=>{
         state.cargaPreview.confirmaReemplazo = e.target.checked;
+        render();
+      });
+      const chkAvisoBodega = document.getElementById('chk-confirma-aviso-bodega');
+      if(chkAvisoBodega) chkAvisoBodega.addEventListener('change', e=>{
+        state.cargaPreview.avisoBodega.confirmado = e.target.checked;
         render();
       });
       document.getElementById('btn-cancelar-carga').addEventListener('click', ()=> setState({cargaPreview:null}));
