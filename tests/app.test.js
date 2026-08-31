@@ -2375,8 +2375,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(tamañosLote[0]===2000 && tamañosLote[1]===500, 'los bloques deben ser de 2.000 y 500 filas, obtuvo: '+JSON.stringify(tamañosLote));
   const toastLote = elements['toast-root'].hijos[elements['toast-root'].hijos.length-1];
   assert(toastLote.textContent.includes('2500 SKUs cargados'), 'el resumen final debe sumar las filas de todos los bloques, obtuvo: '+toastLote.textContent);
+  // A pedido de Joel: mostrar el avance mientras se suben los bloques. Al terminar (éxito o
+  // error) debe volver a null, para no dejar una barra de progreso "pegada".
+  assert(ctx.__appstate.cargaMasivaProgreso===null, 'cargaMasivaProgreso debe quedar en null al terminar la carga, obtuvo: '+JSON.stringify(ctx.__appstate.cargaMasivaProgreso));
   ctx.__appstate.cargaPreview = null;
   await new Promise(r=>setTimeout(r, 0));
+
+  // Render del avance: con cargaMasivaProgreso seteado y loading:true, la vista previa debe
+  // mostrar el porcentaje y deshabilitar "Cancelar" (no solo "Confirmar").
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales_grande.xlsx' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}],
+    headers: ['Codigo'],
+    data: [{ Codigo:'SKU-X' }],
+    confirmaReemplazo: false,
+  };
+  ctx.__appstate.cargaMasivaProgreso = { actual: 6000, total: 20000 };
+  ctx.__appstate.loading = true;
+  const htmlProgreso = ctx.renderCargaPreview();
+  assert(htmlProgreso.includes('30%') && htmlProgreso.includes('6.000') && htmlProgreso.includes('20.000'), 'debe mostrar el porcentaje y las cantidades del avance, obtuvo: '+htmlProgreso);
+  assert(/id="btn-cancelar-carga"[^>]*disabled/.test(htmlProgreso), 'Cancelar debe deshabilitarse mientras hay una carga en curso, obtuvo: '+htmlProgreso);
+  ctx.__appstate.loading = false;
+  ctx.__appstate.cargaMasivaProgreso = null;
+  ctx.__appstate.cargaPreview = null;
 
   // ===== Carga masiva: aviso cuando las bodegas del archivo no coinciden con nada existente =====
   // Caso real: Materials.xlsx con bodegas "B501"/"B521" no coincidía con la data ya cargada en

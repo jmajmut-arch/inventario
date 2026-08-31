@@ -363,6 +363,7 @@ let state = {
   reconteosCargandoMas: false,
   tema: localStorage.getItem('tema_app') || 'claro',
   cargaPreview: null,
+  cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
@@ -920,7 +921,7 @@ async function solicitarRecuperacion(email){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]} };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]} };
 }
 
 function handleLogout(){
@@ -2230,11 +2231,13 @@ async function confirmarCargaMasiva(){
   // sin tocar los triggers ni la configuración de la base: cada POST individual es chico y rápido.
   const TAM_LOTE_CARGA = 2000;
   let insertados = 0;
+  setState({cargaMasivaProgreso: {actual:0, total:lote.length}});
   try{
     for(let i=0; i<lote.length; i+=TAM_LOTE_CARGA){
       const bloque = lote.slice(i, i+TAM_LOTE_CARGA);
       await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
       insertados += bloque.length;
+      setState({cargaMasivaProgreso: {actual:insertados, total:lote.length}});
     }
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
@@ -2243,14 +2246,14 @@ async function confirmarCargaMasiva(){
     await registrarCarga(file.name, 'skus', data.length, ok, error, resumenErroresAArray(resumenErrores));
     toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
     refrescarListaSkus();
-    setState({loading:false, cargaPreview:null});
+    setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null});
   }catch(e){
     // Con la carga partida en bloques, un bloque que falla a mitad de camino no invalida los
     // anteriores que ya se guardaron — se informa cuántos SKU sí entraron antes del corte.
     const filasFallidas = lote.length - insertados;
     if(filasFallidas>0) resumenErrores.set(e.message, filasFallidas);
     await registrarCarga(file.name, 'skus', data.length, insertados, error + filasFallidas, resumenErroresAArray(resumenErrores));
-    setState({loading:false});
+    setState({loading:false, cargaMasivaProgreso:null});
     toast(insertados ? `Se cargaron ${insertados} de ${lote.length} SKU antes de fallar: ${e.message}` : e.message, 'err');
   }
 }
@@ -3906,6 +3909,8 @@ function renderCargaPreview(){
   const camposFaltantes = campos.filter(c=>c.obligatorio && !mapeo[c.campo]);
   const bloqueaReemplazo = modo==='reemplazar' && !confirmaReemplazo;
   const bloqueaAvisoBodega = !!avisoBodega && !avisoBodega.confirmado;
+  const pg = state.cargaMasivaProgreso;
+  const progresoCarga = pg && pg.total ? { actual:pg.actual, total:pg.total, pct:Math.round(pg.actual/pg.total*100) } : null;
   return `
     <div class="section-head"><div><span class="eyebrow">Carga de SKU</span><h2>Revisa las columnas detectadas</h2></div></div>
     <div class="hint" style="margin-bottom:12px">${data.length} filas encontradas. La app adivinó qué columna corresponde a cada campo — revísalo y corrige lo que haga falta antes de confirmar.</div>
@@ -3968,8 +3973,17 @@ function renderCargaPreview(){
 
     ${camposFaltantes.length? `<div class="hint" style="color:var(--danger)">Falta asignar: ${camposFaltantes.map(c=>esc(c.etiqueta)).join(', ')}.</div>` : ''}
 
+    ${progresoCarga? `
+    <div style="margin-top:14px">
+      <div class="hint" style="margin-bottom:4px">Cargando… ${progresoCarga.pct}% (${progresoCarga.actual.toLocaleString('es-CL')} de ${progresoCarga.total.toLocaleString('es-CL')} SKU)</div>
+      <div style="height:6px;border-radius:3px;background:var(--line);overflow:hidden">
+        <div style="height:100%;width:${progresoCarga.pct}%;background:var(--amber);transition:width .2s"></div>
+      </div>
+    </div>
+    ` : ''}
+
     <div class="btn-row" style="margin-top:14px">
-      <button class="btn btn-secondary" id="btn-cancelar-carga">Cancelar</button>
+      <button class="btn btn-secondary" id="btn-cancelar-carga" ${state.loading?'disabled':''}>Cancelar</button>
       <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||bloqueaReemplazo||bloqueaAvisoBodega||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Confirmar e importar'}</button>
     </div>
   `;
