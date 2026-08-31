@@ -1890,7 +1890,7 @@ async function exportarConteosExcel(){
     const filasExcel = filas.map(f=>({
       'SKU': f.sku_code,
       'Descripción': f.descripcion,
-      'Categoría': f.categoria,
+      'Batch': f.categoria,
       'Unidad de medida': f.unidad_medida,
       'Código de barras': f.codigo_barras,
       'Bodega (maestro)': f.bodega_maestro,
@@ -2009,25 +2009,30 @@ async function leerArchivoMasivo(file){
    SAP o de cualquier planilla armada a mano), a que campo de la tabla
    "skus" corresponde cada una, sin depender de encabezados fijos.
    ======================================================================= */
+// Orden y etiquetas a pedido de Joel (coincide con el flujo real de revisión de un maestro
+// SAP): Material, Descripción, Ubicación general, Ubicación específica, Storage bin, Batch,
+// Stock sistema, Costo unitario, Unidad de medida al final. "Batch" reemplaza a "Categoria" en
+// todos lados (no solo acá) — mismo campo `categoria` de siempre, solo cambia cómo se llama y
+// qué encabezados de columna detecta (new/dañado/reparado/scrap es el tipo de dato esperado).
 const CAMPOS_SKU = [
-  { campo:'sku_code', obligatorio:true, etiqueta:'Codigo SKU',
+  { campo:'sku_code', obligatorio:true, etiqueta:'Material',
     alias:['material','sku','sku code','codigo','codigo sku','codigo material','cod','cod sku','item','item code','articulo','part number','material number','nro material','n material'] },
   { campo:'descripcion', obligatorio:false, etiqueta:'Descripcion',
     alias:['material description','descripcion','descripcion material','texto breve de material','short text','nombre','detalle','desc'] },
-  { campo:'categoria', obligatorio:false, etiqueta:'Categoria',
-    alias:['plant name','categoria','material group','grupo de articulos','familia','grupo','clase'] },
-  { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
-    alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
-  { campo:'ubicacion', obligatorio:false, etiqueta:'Ubicación específica',
+  { campo:'bodega', obligatorio:false, etiqueta:'Ubicación general (Planta)',
+    alias:['ubicacion general','description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
+  { campo:'ubicacion', obligatorio:false, etiqueta:'Ubicación específica (Storage Location)',
     alias:['ubicacion especifica','storage location','ubicacion','location','rack'] },
   { campo:'storage_bin', obligatorio:false, etiqueta:'Storage bin',
     alias:['storage bin','bin','posicion','slot'] },
-  { campo:'bodega', obligatorio:false, etiqueta:'Ubicación general',
-    alias:['ubicacion general','description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
+  { campo:'categoria', obligatorio:false, etiqueta:'Batch',
+    alias:['batch','batch status','lote','estado material','material status','condicion','categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
   { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
     alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
   { campo:'costo_unitario', obligatorio:false, etiqueta:'Costo unitario',
     alias:['costo unitario','costo_unitario','precio unitario','moving average price','standard price','unit cost','unit price','valor unitario','costo','precio'] },
+  { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
+    alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
 ];
 
 function normalizarTexto(s){
@@ -3138,7 +3143,7 @@ function renderExportarModal(){
           <div><label for="ex-desde">Desde</label><input type="date" id="ex-desde" value="${esc(state.exportConteos.desde)}" required></div>
           <div><label for="ex-hasta">Hasta</label><input type="date" id="ex-hasta" value="${esc(state.exportConteos.hasta)}"></div>
         </div>
-        <div class="hint">Un archivo .xlsx con un renglón por conteo realizado en ese rango, con el detalle del material (SKU, descripción, categoría, bodega, ubicación, storage bin, stock de sistema) y el resultado del conteo (cantidad, diferencia, estado, responsable, fecha).</div>
+        <div class="hint">Un archivo .xlsx con un renglón por conteo realizado en ese rango, con el detalle del material (SKU, descripción, batch, bodega, ubicación, storage bin, stock de sistema) y el resultado del conteo (cantidad, diferencia, estado, responsable, fecha).</div>
         <div style="margin-top:12px">
           <button type="submit" class="btn btn-primary" ${state.exportConteos.exportando?'disabled':''}>${state.exportConteos.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>
         </div>
@@ -3761,7 +3766,7 @@ function renderSkus(){
         <label for="s-desc">Descripción</label>
         <input type="text" id="s-desc" placeholder="Ej. Filtro hidraulico 3 pulgadas">
         <div class="row2">
-          <div><label for="s-cat">Categoría</label><input type="text" id="s-cat" list="dl-categorias" autocomplete="off" placeholder="Repuestos"></div>
+          <div><label for="s-cat">Batch</label><input type="text" id="s-cat" list="dl-categorias" autocomplete="off" placeholder="New, dañado, reparado, scrap"></div>
           <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" list="dl-unidades" autocomplete="off" placeholder="UN, KG, LT..."></div>
         </div>
         <div class="row2">
@@ -3864,7 +3869,7 @@ function renderCargaMasiva(){
 
     <div class="card">
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de SKU</h3>
-      <div class="hint">Sube un archivo <b>Excel (.xlsx)</b> o <b>.csv</b> con el maestro de materiales — de SAP o de cualquier otro formato. La app detecta sola qué columna es el código, descripción, bodega, ubicación, categoría y stock, y te deja revisar y corregir antes de guardar. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
+      <div class="hint">Sube un archivo <b>Excel (.xlsx)</b> o <b>.csv</b> con el maestro de materiales — de SAP o de cualquier otro formato. La app detecta sola qué columna es el código, descripción, bodega, ubicación, batch y stock, y te deja revisar y corregir antes de guardar. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
       <div class="hint">Recomendado: completa siempre <b>Storage bin</b> con la ubicación física final de cada material (no lo dejes en blanco). Es el dato que usa el Plan del día para avisar automáticamente si una carga posterior reubica un material ya planificado.</div>
       <div class="file-input" style="margin-top:12px">
         <input type="file" id="file-skus" accept=".csv,.xlsx,.xls">

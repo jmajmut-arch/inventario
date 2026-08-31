@@ -3685,7 +3685,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(xlsxEscrituras.length===1, 'debe generar un archivo Excel, obtuvo: '+xlsxEscrituras.length);
   assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-20.xlsx', 'con la misma fecha en "Desde" y "Hasta", el archivo debe nombrarse con un solo día, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
   const filaExportada = xlsxEscrituras[0].libro.hojas['Conteos'][0];
-  assert(filaExportada['SKU']==='SKU-EXP1' && filaExportada['Descripción']==='Perno M8' && filaExportada['Categoría']==='Repuestos', 'debe incluir los campos básicos del maestro, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['SKU']==='SKU-EXP1' && filaExportada['Descripción']==='Perno M8' && filaExportada['Batch']==='Repuestos', 'debe incluir los campos básicos del maestro, obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Cantidad contada']===8 && filaExportada['Diferencia']===-2 && filaExportada['Valor diferencia']===-1000, 'debe incluir el resultado del conteo y su valorización, obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Responsable']==='Ana Torres' && filaExportada['Ciclo']==='T1 2027', 'debe incluir el responsable y el ciclo, obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Ubicación distinta']==='No' && filaExportada['Fuera de plan']==='No', 'los booleanos deben mostrarse como Sí/No, legibles para el ERP, obtuvo: '+JSON.stringify(filaExportada));
