@@ -2136,20 +2136,35 @@ async function confirmarCargaMasiva(){
     });
   });
   const lote = Array.from(porCodigoYBodega.values());
+  // Un solo POST con todo el archivo (ej. 64.000 filas) supera el statement_timeout de 8s del
+  // rol authenticated: cada fila dispara triggers propios (auditoría + chequeo de límite de
+  // bodega), y ese costo por-fila multiplicado por decenas de miles de filas hace que Postgres
+  // corte la consulta a mitad de camino — con un archivo grande, la carga entera fallaba (aunque
+  // los datos fueran válidos) solo por el tamaño del lote. Partirlo en bloques evita el timeout
+  // sin tocar los triggers ni la configuración de la base: cada POST individual es chico y rápido.
+  const TAM_LOTE_CARGA = 2000;
+  let insertados = 0;
   try{
-    if(lote.length) await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:lote, prefer:'return=minimal,resolution=merge-duplicates'});
+    for(let i=0; i<lote.length; i+=TAM_LOTE_CARGA){
+      const bloque = lote.slice(i, i+TAM_LOTE_CARGA);
+      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
+      insertados += bloque.length;
+    }
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
       await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
     }
     await registrarCarga(file.name, 'skus', data.length, ok, error, errores);
-    toast(`Carga completa: ${lote.length} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
+    toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
     refrescarListaSkus();
     setState({loading:false, cargaPreview:null});
   }catch(e){
-    await registrarCarga(file.name, 'skus', data.length, 0, data.length, [{motivo:e.message}]);
+    // Con la carga partida en bloques, un bloque que falla a mitad de camino no invalida los
+    // anteriores que ya se guardaron — se informa cuántos SKU sí entraron antes del corte.
+    const filasFallidas = lote.length - insertados;
+    await registrarCarga(file.name, 'skus', data.length, insertados, error + filasFallidas, [...errores, {motivo:e.message}]);
     setState({loading:false});
-    toast(e.message,'err');
+    toast(insertados ? `Se cargaron ${insertados} de ${lote.length} SKU antes de fallar: ${e.message}` : e.message, 'err');
   }
 }
 
