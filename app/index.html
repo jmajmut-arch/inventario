@@ -2970,15 +2970,27 @@ async function iniciarEscaner(){
     Html5QrcodeSupportedFormats.UPC_E,
     Html5QrcodeSupportedFormats.ITF,
   ] : undefined;
-  const instancia = new Html5Qrcode('escaner-reader', formatos ? { formatsToSupport: formatos } : undefined);
+  // Reportado real (Joel, en terreno): la cámara abría pero nunca leía una barra clásica (1D).
+  // Dos causas conocidas de la librería en ese escenario, ambas corregidas acá:
+  // 1) useBarCodeDetectorIfSupported activa el decodificador NATIVO del navegador (BarcodeDetector)
+  //    cuando el dispositivo lo soporta (Chrome/Android en su mayoría) en vez de solo el decodificador
+  //    en JS puro de la librería — bastante más preciso leyendo barras 1D con cámara de celular.
+  // 2) El recuadro cuadrado fijo (260x260) obligaba a alejar el celular para que una barra ANCHA
+  //    entrara completa en el cuadro — a esa distancia las líneas quedan demasiado finas para
+  //    resolverse. Un recuadro ancho (proporcional al video, no fijo en px) dado como función dinámica
+  //    sigue siendo suficientemente alto para un QR chico (el otro formato soportado).
+  const instancia = new Html5Qrcode('escaner-reader', {
+    ...(formatos ? { formatsToSupport: formatos } : {}),
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+  });
   escanerInstancia = instancia;
   try{
-    // El recuadro debe ser lo bastante alto para un QR completo (es cuadrado) y lo bastante
-    // ancho para una barra 1D larga: solo se decodifica lo que cae dentro de este recuadro,
-    // así que uno angosto (pensado solo para barras) dejaba los QR cortados y sin leer.
     await instancia.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 260, height: 260 } },
+      { fps: 10, qrbox: (viewfinderWidth, viewfinderHeight) => {
+        const ancho = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.9);
+        return { width: ancho, height: Math.floor(ancho * 0.5) };
+      } },
       (codigoLeido) => onCodigoEscaneado(codigoLeido),
       () => { /* se llama en cada frame sin lectura; no requiere acción */ }
     );
