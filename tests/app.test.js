@@ -1762,7 +1762,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlOrden = ctx.renderDashboard();
   const idx = (texto) => htmlOrden.indexOf(texto);
   const idxAvanceGlobal = idx('Avance global');
-  const idxExactitud = idx('<h2 style="font-size:17px">Exactitud</h2>');
+  const idxExactitud = idx('<h2 style="font-size:17px">Exactitud ');
   const idxAdherencia = idx('Adherencia al plan');
   const idxValorizacion = idx('Valorización de diferencias');
   const idxProyeccion = idx('Proyección de término');
@@ -1791,6 +1791,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const vecesAdherenciaOperativo = htmlOrdenOperativo.split('id="dash-periodo"').length - 1;
   assert(vecesAdherenciaOperativo===1, 'en modo Operativo, la sección de Adherencia debe seguir apareciendo (una sola vez), obtuvo '+vecesAdherenciaOperativo+' apariciones');
   ctx.__appstate.dashboardModo = 'ejecutivo';
+
+  // ===== Ícono "i" con qué considera cada panel del Dashboard (a pedido de Joel: "incluye
+  // reconteos", "SKU planificados y no planificados", etc., sin tener que adivinar ni leer el
+  // código). campoConInfo() arma un <details> nativo -- se abre/cierra igual con tap en celular
+  // que con clic en computador, sin JS propio. =====
+  assert(ctx.campoConInfo('Texto de prueba').includes('<details class="info-dato">') && ctx.campoConInfo('Texto de prueba').includes('<summary') && ctx.campoConInfo('Texto de prueba').includes('Texto de prueba'), 'campoConInfo debe devolver un <details> con el ícono y el texto explicativo, obtuvo: '+ctx.campoConInfo('Texto de prueba'));
+  // Muchos paneles del Ejecutivo deben traer su ícono -- no solo uno o dos sueltos.
+  const cantidadInfoEjecutivo = (htmlOrden.match(/class="info-dato"/g)||[]).length;
+  assert(cantidadInfoEjecutivo>=10, 'la vista Ejecutiva debe traer el ícono de info en la mayoría de sus paneles, obtuvo solo '+cantidadInfoEjecutivo);
+  // Los dos ejemplos que dio Joel explícitamente: "incluye reconteos" (Conteos recientes) y
+  // "SKU planificados" (Adherencia al plan) deben estar entre las explicaciones mostradas.
+  assert(htmlOrden.includes('Incluye reconteos (no es SKU únicos)'), 'debe explicar que "Conteos recientes" incluye reconteos, obtuvo: '+htmlOrden.includes('Incluye reconteos'));
+  assert(htmlOrden.includes('SKU planificados en el período contra los que aún faltan por contar'), 'debe explicar qué considera "Adherencia al plan" (planificados vs. sin contar), obtuvo: '+htmlOrden.includes('SKU planificados en el período'));
+  // Modo Operativo también debe traer sus íconos (Diario/Semanal/Mensual/Materiales contados).
+  const cantidadInfoOperativo = (htmlOrdenOperativo.match(/class="info-dato"/g)||[]).length;
+  assert(cantidadInfoOperativo>=4, 'la vista Operativa debe traer el ícono de info en sus paneles, obtuvo solo '+cantidadInfoOperativo);
 
   // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
   // avance_total/avance_diario usan count()/count(distinct), que PostgREST devuelve como
