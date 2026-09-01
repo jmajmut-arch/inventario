@@ -3903,6 +3903,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // palabras se parten en dos líneas (<tspan>) y las columnas se ensanchan según la palabra
   // más larga, así ninguna etiqueta queda amontonada ni superpuesta con la de al lado.
   assert(htmlBuscarFueraPlan.includes('<tspan') && htmlBuscarFueraPlan.includes('>No<') && htmlBuscarFueraPlan.includes('>contado<'), 'la etiqueta "No contado" debe partirse en dos líneas para que se lea bien en el eje x, obtuvo: '+htmlBuscarFueraPlan);
+  // Reportado: las 4 barras se veían del mismo color. Cada estado tiene su propio color
+  // (mismo verde/ámbar que ya usan los badges "Cuadrado"/"Diferencia" en la tabla), para
+  // distinguirlas a simple vista sin tener que leer el eje x.
+  assert(htmlBuscarFueraPlan.includes('rx="4" fill="var(--ok)"') && htmlBuscarFueraPlan.includes('rx="4" fill="var(--warn)"') && htmlBuscarFueraPlan.includes('rx="4" fill="var(--steel)"') && htmlBuscarFueraPlan.includes('rx="4" fill="var(--text-faint)"'), 'cada barra del resumen debe tener un color de relleno distinto (gris/verde/ámbar/azul), obtuvo: '+htmlBuscarFueraPlan);
 
   // Sin ningún checkbox activo, no debe verse el gráfico aunque haya resultados.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloFueraDePlan:false};

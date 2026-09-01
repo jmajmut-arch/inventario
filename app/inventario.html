@@ -3117,8 +3117,11 @@ function agregarPorDia(diario, dias=14){
 // etiquetasLargas=true ensancha las columnas según la palabra más larga y parte en dos líneas
 // las etiquetas de más de una palabra (ej. "No contado" -> "No" / "contado") -- para categorías
 // de texto (ver renderBuscar), donde un solo día como "vie 21" nunca necesita este ancho extra.
+// color puede ser un string (mismo color para todas las barras, como hasta ahora) o una función
+// (d,i)=>string para pintar cada barra distinto según su dato (ej. por categoría/estado).
 function renderBarChart(datos, valueKey, color, labelFn=fmtDiaCorto, mostrarValor=false, etiquetasLargas=false){
   if(!datos.length) return `<div class="empty">Sin datos todavía.</div>`;
+  const colorDe = typeof color==='function' ? color : ()=>color;
   const max = Math.max(1, ...datos.map(d=>d[valueKey]||0));
   const etiquetas = datos.map(d=> String(labelFn(d.dia)));
   const lineasPorEtiqueta = etiquetas.map(t=> etiquetasLargas ? t.split(' ') : [t]);
@@ -3142,7 +3145,7 @@ function renderBarChart(datos, valueKey, color, labelFn=fmtDiaCorto, mostrarValo
       ? `<text x="${x+barW/2}" y="${baseline+13}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)"><tspan x="${x+barW/2}" dy="0">${esc(lineas[0])}</tspan><tspan x="${x+barW/2}" dy="11">${esc(lineas.slice(1).join(' '))}</tspan></text>`
       : `<text x="${x+barW/2}" y="${baseline+13}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">${esc(lineas[0])}</text>`;
     return `<g>
-      <rect x="${x}" y="${topeY}" width="${barW}" height="${Math.max(barH,val>0?2:0)}" rx="4" fill="${color}"><title>${esc(etiquetas[i])}: ${val}</title></rect>
+      <rect x="${x}" y="${topeY}" width="${barW}" height="${Math.max(barH,val>0?2:0)}" rx="4" fill="${colorDe(d,i)}"><title>${esc(etiquetas[i])}: ${val}</title></rect>
       ${mostrarValor && val>0? `<text x="${x+barW/2}" y="${topeY-5}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-dim)">${val}</text>` : ''}
       ${textoEje}
     </g>`;
@@ -3188,6 +3191,13 @@ function renderBarChartApilado(datos, valueKey, extraKey, colorBase, colorExtra,
     ${bars}
   </svg></div>`;
 }
+
+// Un color por barra en el gráfico de resumen de Buscar (ver renderBarChart) -- verde/ámbar
+// coinciden con badge-ok/badge-warn que ya usa estadoBadge para "Cuadrado"/"Diferencia";
+// "No contado" y "Pendiente" no tienen badge de color propio en la tabla (ambas son
+// badge-neutral), así que acá se distinguen con gris y azul para que las 4 barras se
+// diferencien a simple vista.
+const COLOR_RESUMEN_ESTADO_BUSQUEDA = { 'No contado':'var(--text-faint)', 'Cuadrado':'var(--ok)', 'Diferencia':'var(--warn)', 'Pendiente':'var(--steel)' };
 
 // Resumen por estado para el gráfico de Buscar (ver renderBuscar) -- misma lógica que
 // estadoBadge para decidir en qué grupo cae cada resultado, así el gráfico nunca contradice
@@ -4480,7 +4490,7 @@ function renderBuscar(){
     ${(b.soloConFotos || b.soloFueraDePlan || b.soloContadoHoy) && resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados filtrados'}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
-      ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', 'var(--steel)', d=>d, true, true)}
+      ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d, true, true)}
     </div>
     ` : ''}
     <div class="card">
