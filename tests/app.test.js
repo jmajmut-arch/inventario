@@ -479,6 +479,15 @@ const fakeFetchImpl = async (url, opts) => {
   if(path==='/rest/v1/skus' && opts && opts.method==='POST' && JSON.parse(opts.body)[0].sku_code==='SKU-DUP-EXISTE'){
     return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_key"'}) };
   }
+  // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
+  // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
+  if(path.startsWith('/rest/v1/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
+    const filas = [
+      {id:'id-libre-1', sku_code:'FIL-1001', descripcion:'Filtro de aceite', bodega:'Bodega Central', ubicacion:'Pasillo 2', storage_bin:'B-04', stock_sistema:12, unidad_medida:'UN'},
+      {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:'Bodega Central', ubicacion:null, storage_bin:null, stock_sistema:3, unidad_medida:'UN'},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   // Otras rutas usadas por cargarTodo/cargarPlanSemanal, /auth/v1/signup, etc. -> vacío.
   return { status: 200, ok: true, headers: { get: () => null }, text: async () => '[]', json: async () => ([]) };
 };
@@ -3334,6 +3343,56 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlConteoConSku = ctx.renderConteo();
   assert(!htmlConteoConSku.includes('id="btn-abrir-escaner"'), 'con un SKU ya elegido no debe verse el botón de escanear, obtuvo: '+htmlConteoConSku);
   ctx.__appstate.skuSeleccionado = null;
+
+  // Buscador libre de SKU en Contar ("Agregar algo fuera del plan"): ahora busca en el servidor
+  // (con debounce) en vez de filtrar state.skus (los primeros 500 SKU precargados) — antes un
+  // material real, pero fuera de esos 500, nunca aparecía en la búsqueda. Ver
+  // escribirBuscadorLibre/buscarSkusLibre.
+  ctx.__appstate.skuSearch = '';
+  ctx.__appstate.buscadorLibre = { resultados: [], buscando: false };
+  const htmlBuscadorVacio = ctx.renderConteo();
+  assert(htmlBuscadorVacio.includes('Escribe para buscar en el maestro de materiales.'), 'con el campo vacío debe invitar a escribir, obtuvo: '+htmlBuscadorVacio);
+
+  ctx.escribirBuscadorLibre('f');
+  assert(ctx.__appstate.skuSearch==='f', 'escribirBuscadorLibre debe reflejar el texto tecleado de inmediato, obtuvo: '+ctx.__appstate.skuSearch);
+  const htmlUnaLetra = ctx.renderConteo();
+  assert(htmlUnaLetra.includes('Sigue escribiendo (mínimo 2 letras)'), 'con una sola letra no debe buscar todavía, obtuvo: '+htmlUnaLetra);
+
+  calls.length = 0;
+  ctx.escribirBuscadorLibre('fil');
+  assert(ctx.__appstate.buscadorLibre.buscando===true, 'con 2+ letras debe marcar buscando:true de inmediato, sin esperar la respuesta del servidor, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
+  const htmlBuscando = ctx.renderConteo();
+  assert(htmlBuscando.includes('Buscando…'), 'mientras espera la respuesta del servidor debe mostrar "Buscando…", obtuvo: '+htmlBuscando);
+  assert(!calls.some(c=>c.url.includes('sku_code.ilike')), 'no debe disparar la consulta de inmediato: el debounce todavía no se cumplió, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  await new Promise(resolve=>setTimeout(resolve, 400));
+  const callBusquedaLibre = calls.find(c=>c.url.includes('sku_code.ilike.*fil*'));
+  assert(!!callBusquedaLibre && callBusquedaLibre.url.includes('/rest/v1/skus?activo=eq.true'), 'tras el debounce debe consultar /skus (maestro completo) con ilike sobre el texto escrito, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.buscadorLibre.resultados.length===2 && ctx.__appstate.buscadorLibre.resultados[0].sku_code==='FIL-1001', 'debe guardar los resultados que devuelve el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre.resultados));
+  assert(ctx.__appstate.buscadorLibre.buscando===false, 'tras responder debe apagar el indicador de "buscando", obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
+
+  const htmlConResultadosLibres = ctx.renderConteo();
+  assert(htmlConResultadosLibres.includes('FIL-1001') && htmlConResultadosLibres.includes('Filtro de aceite') && htmlConResultadosLibres.includes('data-pick-btn="id-libre-1"'), 'debe listar los resultados del servidor con opción de elegir, obtuvo: '+htmlConResultadosLibres);
+  // Bug real que esto corrige: FIL-1001 no está en state.skus (los 500 SKU precargados) y aun
+  // así debe aparecer, porque ahora la búsqueda es contra el servidor.
+  assert(!ctx.__appstate.skus.some(s=>s.sku_code==='FIL-1001'), 'FIL-1001 no debe estar en state.skus, para que el test sea representativo del bug real que se corrigió');
+
+  // Teclear varias veces seguidas, antes de que se cumpla el debounce de cada una, debe
+  // coalescer todo en UNA sola consulta al servidor (con el último texto escrito) — no una por
+  // tecla, que sería justo el "perjudicar el rendimiento" que se quería evitar al pasar la
+  // búsqueda del cliente al servidor.
+  calls.length = 0;
+  ctx.escribirBuscadorLibre('fi');
+  ctx.escribirBuscadorLibre('fil');
+  ctx.escribirBuscadorLibre('filx');
+  await new Promise(resolve=>setTimeout(resolve, 400));
+  const callsIlikeCoalescidas = calls.filter(c=>c.url.includes('sku_code.ilike'));
+  assert(callsIlikeCoalescidas.length===1 && callsIlikeCoalescidas[0].url.includes('*filx*'), 'teclear varias veces seguidas debe coalescer en una sola consulta con el último texto, no una por tecla, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Borrar el texto (menos de 2 letras) debe limpiar los resultados de inmediato, sin esperar
+  // al servidor.
+  ctx.escribirBuscadorLibre('');
+  assert(ctx.__appstate.buscadorLibre.resultados.length===0 && ctx.__appstate.buscadorLibre.buscando===false, 'con el campo vacío debe limpiar los resultados y el indicador de "buscando" de inmediato, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
 
   // renderEscanerModal: oculto por defecto, muestra el lector mientras no hay código, y el
   // buscador de asociación una vez que se leyó un código que no coincide con ningún SKU.

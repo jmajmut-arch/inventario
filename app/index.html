@@ -334,6 +334,11 @@ let state = {
   creandoCuentaAutoservicio: false, // spinner del formulario de alta autoservicio
   skus: [],
   skuSearch: '',
+  // Resultados del buscador libre de SKU en Contar ("Agregar algo fuera del plan"): antes
+  // filtraba en el cliente sobre `skus` (los primeros 500 SKU activos, orden alfabético) — con
+  // catálogos más grandes, un material real podía no aparecer nunca en la búsqueda. Ahora busca
+  // en el servidor (debounced, con tope de resultados) contra el maestro completo.
+  buscadorLibre: { resultados: [], buscando: false },
   skuSeleccionado: null,
   conteoOrigenPlan: false, // el SKU seleccionado viene del plan del día o de un reconteo (true) o del buscador libre (false, "fuera de plan")
   // "Lo encontré en otra ubicación": los campos de ubicación siempre muestran el valor del
@@ -960,6 +965,42 @@ async function cargarSkus(){
     const rows = await rest(`/skus?activo=eq.true&order=sku_code.asc&limit=500`);
     setState({skus: rows||[]});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Buscador libre de SKU en Contar ("Agregar algo fuera del plan"): busca en el servidor contra
+// el maestro completo (no solo los 500 SKU precargados en `state.skus`), con debounce para no
+// disparar una consulta por cada tecla, y un tope de resultados (8, igual que el resto de los
+// pickers de la app) para que la respuesta sea liviana. `peticionId` descarta respuestas que
+// lleguen fuera de orden (ej. si la red demora y la persona ya siguió escribiendo).
+let debounceBuscadorLibre = null;
+let buscadorLibrePeticionId = 0;
+
+function resetBuscadorLibre(){
+  clearTimeout(debounceBuscadorLibre);
+  buscadorLibrePeticionId++;
+  return { resultados: [], buscando: false };
+}
+
+function escribirBuscadorLibre(texto){
+  const q = texto.trim();
+  clearTimeout(debounceBuscadorLibre);
+  setState({skuSearch: texto, buscadorLibre: { resultados: q.length>=2? state.buscadorLibre.resultados : [], buscando: q.length>=2 }});
+  if(q.length < 2) { buscadorLibrePeticionId++; return; }
+  debounceBuscadorLibre = setTimeout(()=> buscarSkusLibre(q), 350);
+}
+
+async function buscarSkusLibre(texto){
+  const miPeticion = ++buscadorLibrePeticionId;
+  const t = sanearTextoFiltro(texto);
+  try{
+    const rows = t? await rest(`/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,stock_sistema,unidad_medida&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
+    if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
+    setState({buscadorLibre: { resultados: rows||[], buscando: false }});
+  }catch(e){
+    if(miPeticion !== buscadorLibrePeticionId) return;
+    setState({buscadorLibre: { resultados: [], buscando: false }});
+    toast(e.message,'err');
+  }
 }
 
 // Página del listado de SKUs (tabla "SKU activos"), con conteo exacto vía Prefer: count=exact
@@ -2690,7 +2731,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     }
 
     toast('Conteo registrado');
-    setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:''});
+    setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
     cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
@@ -2713,7 +2754,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
         ubicacion_distinta: !!ubicacionDistinta,
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
-      setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:''});
+      setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
       toast('Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return;
     }
@@ -4180,10 +4221,8 @@ function renderPlanDelDia(){
    RENDER — Toma de inventario
    ======================================================================= */
 function renderConteo(){
-  const q = state.skuSearch.trim().toLowerCase();
-  const resultados = q.length? state.skus.filter(s =>
-    s.sku_code.toLowerCase().includes(q) || (s.descripcion||'').toLowerCase().includes(q)
-  ).slice(0,8) : [];
+  const q = state.skuSearch.trim();
+  const resultados = state.buscadorLibre.resultados;
 
   return `
     <div class="section-head"><div><span class="eyebrow">Terreno · Bodega</span><h2>Tomar inventario</h2></div></div>
@@ -4199,7 +4238,9 @@ function renderConteo(){
           <button type="button" id="btn-abrir-escaner" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
         </div>
         <div style="margin-top:10px">
-          ${q.length===0? `<div class="hint">Escribe para buscar entre ${state.skus.length} SKU activos.</div>` :
+          ${q.length===0? `<div class="hint">Escribe para buscar en el maestro de materiales.</div>` :
+            q.length===1? `<div class="hint">Sigue escribiendo (mínimo 2 letras)…</div>` :
+            state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
             resultados.length? resultados.map(s=>`
               <div class="sku-pick" data-pick="${s.id}">
                 <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}</span></div>
@@ -5590,14 +5631,19 @@ function bind(){
     if(!state.contarPlan.cargado && !state.contarPlan.cargando) cargarPlanDeHoy(state.contarPlan.fecha);
     if(!state.skuSeleccionado){
       const search = document.getElementById('sku-search');
-      search.addEventListener('input', e=> setState({skuSearch: e.target.value}));
+      search.addEventListener('input', e=> escribirBuscadorLibre(e.target.value));
       if(!conteoBuscadorFueEnfocado){
         search.focus(); search.selectionStart = search.selectionEnd = search.value.length;
         conteoBuscadorFueEnfocado = true;
       }
       document.querySelectorAll('[data-pick-btn]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
-          const sku = state.skus.find(s=>s.id===btn.dataset.pickBtn);
+          // El resultado viene del buscador libre (servidor, ver escribirBuscadorLibre), no
+          // necesariamente está en state.skus (que solo trae los primeros 500 SKU activos) —
+          // state.skus queda de respaldo por si acaso, mismo patrón que data-pick-plan.
+          const sku = state.buscadorLibre.resultados.find(s=>s.id===btn.dataset.pickBtn)
+            || state.skus.find(s=>s.id===btn.dataset.pickBtn);
+          if(!sku) return;
           setState({skuSeleccionado: sku, conteoOrigenPlan:false, conteoOtraUbicacion:false});
         });
       });
@@ -5682,7 +5728,7 @@ function bind(){
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
           // Adherencia al plan, aunque su conteo original sí venía del plan del día.
-          conteoOrigenPlan:true, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'',
+          conteoOrigenPlan:true, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(),
         });
       });
     });
