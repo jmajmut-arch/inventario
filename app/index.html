@@ -351,7 +351,7 @@ let state = {
   // ver sus SKU).
   contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null },
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], adherenciaPorCiclo: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -373,9 +373,9 @@ let state = {
   dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 10 filas por página
   // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
   // actual (el marcado es_actual en state.ciclos), '__todos__' = comparar todos los
-  // períodos uno junto al otro, '__sin_periodo__' = conteos sin ciclo_id, o el id de un
-  // ciclo puntual. Puramente client-side: no dispara una nueva carga, solo recalcula sobre
-  // dash.adherenciaPorCiclo (que ya trae todos los períodos).
+  // períodos uno junto al otro, '__sin_periodo__' = entradas de plan sin ciclo_id, o el id de
+  // un ciclo puntual. Puramente client-side: no dispara una nueva carga, solo recalcula sobre
+  // dash.avancePlanPorCiclo (que ya trae todos los períodos).
   dashPeriodo: '',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
   superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
@@ -1731,7 +1731,7 @@ async function cargarDashboard(){
     // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario,
     // ver reconteo_pendiente.valor_diferencia_linea), no por magnitud en unidades — top 10
     // excedentes (mayor valor a favor) y top 10 pérdidas (mayor valor en contra), por separado.
-    const [total, diario, semanal, mensual, ranking, exactitudBodega, exactitudMensual, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, adherenciaPorCiclo] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, exactitudMensual, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, avancePlanPorCiclo] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
@@ -1742,13 +1742,13 @@ async function cargarDashboard(){
       rest(`/reconteo_pendiente?select=*&valor_diferencia_linea=gt.0&order=valor_diferencia_linea.desc&limit=10`),
       rest(`/reconteo_pendiente?select=*&valor_diferencia_linea=lt.0&order=valor_diferencia_linea.asc&limit=10`),
       rest(`/valorizacion_diferencias?order=bodega.asc`),
-      rest(`/adherencia_por_ciclo?order=bodega.asc`),
+      rest(`/avance_plan_por_ciclo?order=bodega.asc`),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
       ranking: ranking||[], exactitudBodega: exactitudBodega||[], exactitudMensual: exactitudMensual||[],
       topDiferenciasPositivas: topDiferenciasPositivas||[], topDiferenciasNegativas: topDiferenciasNegativas||[],
-      valorizacion: valorizacion||[], adherenciaPorCiclo: adherenciaPorCiclo||[],
+      valorizacion: valorizacion||[], avancePlanPorCiclo: avancePlanPorCiclo||[],
     }, dashDiarioPagina: 0});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -3487,27 +3487,27 @@ function opcionesPeriodoDash(){
   return opciones.join('');
 }
 
-// "Adherencia al plan": de todo lo contado en un período, qué porcentaje vino del plan
-// asignado (Planificación → "Plan del día" en Contar, o un reconteo pedido desde la pestaña
-// Reconteo) versus se agregó fuera de plan (buscador libre o escáner sin que el SKU esté en
-// el plan visible — ver #130). Un reconteo cuenta como "en plan" aunque no venga de la lista
-// del día: es trabajo que la propia app pidió para resolver una diferencia, no un conteo
-// libre (bug real reportado por Joel: un SKU recontado aparecía como "Fuera de plan" aunque
-// su conteo original sí venía del plan). Igual que el resto del dashboard, es sobre el
-// último conteo de cada SKU dentro de su período (no cada conteo histórico): si un SKU se
-// recontó varias veces, solo cuenta su estado más reciente, si no "Fuera de plan" queda
-// inflado con intentos ya corregidos. La bodega que se muestra es la del SKU (skus.bodega),
-// igual que en Exactitud/Avance/Valorización — no la que quedó registrada en el conteo (donde
-// físicamente estaba parado quien contó), que puede no coincidir y mostraba nombres de bodega
-// que no calzaban con el resto del dashboard. El selector de período es puramente client-side
-// sobre dash.adherenciaPorCiclo (ya trae todos los períodos agrupados por bodega): cambiar
-// de período solo recalcula esto, no dispara una nueva carga.
+// "Adherencia al plan": cobertura real contra el plan asignado — de todo el universo de SKU
+// que cubren las entradas de Planificación de un período (sin importar la fecha de cada
+// entrada, ver avance_plan_por_ciclo), cuántos ya se contaron. Antes medía otra cosa ("de lo
+// contado, qué % vino del plan") con un flag capturado en el momento del conteo
+// (conteos.fuera_de_plan) — frágil ante cualquier flujo nuevo que no lo setee bien (bug real
+// reportado por Joel: un reconteo aparecía como "Fuera de plan" aunque su conteo original sí
+// venía del plan). Se cambió a pedido de Joel: el denominador ahora es TODO lo planificado en
+// el período (crece cuando se agregan entradas al plan, no cuando se cuenta), no lo que ya se
+// contó — así "1 de 24" significa "se planificaron 24 SKU en este período, se contó 1", sin
+// importar por qué mecanismo se contó cada uno (plan, reconteo, buscador o escáner: si el SKU
+// está en el plan y tiene un conteo en el período, cuenta como avance). La bodega que se
+// muestra es la del SKU (skus.bodega), igual que en Exactitud/Avance/Valorización. El selector
+// de período es puramente client-side sobre dash.avancePlanPorCiclo (ya trae todos los
+// períodos agrupados por bodega): cambiar de período solo recalcula esto, no dispara una
+// nueva carga.
 function renderAdherenciaPlan(){
-  const filas = state.dash.adherenciaPorCiclo || [];
+  const filas = state.dash.avancePlanPorCiclo || [];
   const periodo = state.dashPeriodo;
   const cabecera = `
     <div class="section-head">
-      <div><span class="eyebrow">Cuánto de lo contado vino del plan asignado</span><h2 style="font-size:17px">Adherencia al plan</h2></div>
+      <div><span class="eyebrow">Cuánto del plan asignado ya se contó</span><h2 style="font-size:17px">Adherencia al plan</h2></div>
     </div>
     <div class="card" style="margin-bottom:14px">
       <label for="dash-periodo">Período</label>
@@ -3516,10 +3516,9 @@ function renderAdherenciaPlan(){
   `;
 
   const sumar = (rows) => rows.reduce((acc,r)=>({
-    total: acc.total + (Number(r.total_conteos)||0),
-    enPlan: acc.enPlan + (Number(r.en_plan)||0),
-    fueraPlan: acc.fueraPlan + (Number(r.fuera_de_plan)||0),
-  }), {total:0, enPlan:0, fueraPlan:0});
+    planificados: acc.planificados + (Number(r.total_planificados)||0),
+    contados: acc.contados + (Number(r.contados)||0),
+  }), {planificados:0, contados:0});
   const nombrePeriodo = (cicloId) => cicloId===null ? 'Sin período' : (((state.ciclos||[]).find(c=>c.id===cicloId)||{}).nombre || 'Período eliminado');
 
   if(periodo==='__todos__'){
@@ -3532,7 +3531,7 @@ function renderAdherenciaPlan(){
     const filasTabla = Array.from(porCiclo.entries()).map(([key, rows])=>{
       const cicloId = key==='__null__' ? null : key;
       const s = sumar(rows);
-      return {cicloId, nombre: nombrePeriodo(cicloId), ...s, pctAdherencia: s.total? s.enPlan/s.total*100 : 0};
+      return {cicloId, nombre: nombrePeriodo(cicloId), ...s, pctAvance: s.planificados? s.contados/s.planificados*100 : 0};
     }).sort((a,b)=>{
       if(a.cicloId===null) return 1;
       if(b.cicloId===null) return -1;
@@ -3544,15 +3543,15 @@ function renderAdherenciaPlan(){
     return cabecera + `
       <div class="card">
         ${filasTabla.length? `<div class="table-wrap"><table>
-          <thead><tr><th>Período</th><th class="num">Conteos</th><th class="num">En plan</th><th class="num">Fuera de plan</th><th class="num">Adherencia</th></tr></thead>
+          <thead><tr><th>Período</th><th class="num">Planificados</th><th class="num">Contados</th><th class="num">Pendientes</th><th class="num">Adherencia</th></tr></thead>
           <tbody>${filasTabla.map(f=>`<tr>
             <td>${esc(f.nombre)}</td>
-            <td class="num">${f.total}</td>
-            <td class="num">${f.enPlan}</td>
-            <td class="num">${f.fueraPlan? `<span class="badge badge-warn">${f.fueraPlan}</span>` : '0'}</td>
-            <td class="num mono">${pct(f.pctAdherencia)}%</td>
+            <td class="num">${f.planificados}</td>
+            <td class="num">${f.contados}</td>
+            <td class="num">${f.planificados-f.contados}</td>
+            <td class="num mono">${pct(f.pctAvance)}%</td>
           </tr>`).join('')}</tbody>
-        </table></div>` : `<div class="empty">Todavía no hay conteos registrados.</div>`}
+        </table></div>` : `<div class="empty">Todavía no hay planificación registrada.</div>`}
       </div>
     `;
   }
@@ -3561,30 +3560,30 @@ function renderAdherenciaPlan(){
   const cicloId = periodo==='' ? (cicloActual? cicloActual.id : null) : (periodo==='__sin_periodo__' ? null : periodo);
   const filasPeriodo = filas.filter(r=> (r.ciclo_id||null) === cicloId);
   const s = sumar(filasPeriodo);
-  const pctAdherencia = s.total? s.enPlan/s.total*100 : 0;
+  const pctAvance = s.planificados? s.contados/s.planificados*100 : 0;
   const porBodega = filasPeriodo
     .map(r=>({
       nombre: r.bodega||'Sin ubicación general',
-      pct: (Number(r.total_conteos)||0) ? (Number(r.en_plan)||0)/Number(r.total_conteos)*100 : 0,
-      sub: `${r.en_plan||0}/${r.total_conteos||0}`,
+      pct: (Number(r.total_planificados)||0) ? (Number(r.contados)||0)/Number(r.total_planificados)*100 : 0,
+      sub: `${r.contados||0}/${r.total_planificados||0}`,
     }))
-    .sort((a,b)=> a.pct-b.pct); // menor adherencia primero: dónde conviene reforzar el plan
+    .sort((a,b)=> a.pct-b.pct); // menor avance primero: dónde conviene reforzar el conteo
 
-  return cabecera + (s.total? `
+  return cabecera + (s.planificados? `
     <div class="kpi-grid" style="margin-bottom:14px">
       <div class="tag-card">
         <div class="kpi-label">Adherencia al plan</div>
-        <div class="kpi-value">${pct(pctAdherencia)}%</div>
-        <div class="kpi-sub">${s.enPlan.toLocaleString('es-CL')} de ${s.total.toLocaleString('es-CL')} conteos</div>
+        <div class="kpi-value">${pct(pctAvance)}%</div>
+        <div class="kpi-sub">${s.contados.toLocaleString('es-CL')} de ${s.planificados.toLocaleString('es-CL')} SKU planificados</div>
       </div>
       <div class="tag-card">
-        <div class="kpi-label">Fuera de plan</div>
-        <div class="kpi-value">${s.fueraPlan.toLocaleString('es-CL')}</div>
-        <div class="kpi-sub">buscador libre o escáner</div>
+        <div class="kpi-label">Pendientes</div>
+        <div class="kpi-value">${(s.planificados-s.contados).toLocaleString('es-CL')}</div>
+        <div class="kpi-sub">SKU del plan sin contar todavía</div>
       </div>
     </div>
     ${porBodega.length? `<div class="card">${renderExactitudBarList(porBodega)}</div>` : ''}
-  ` : `<div class="empty">Sin conteos registrados en este período.</div>`);
+  ` : `<div class="empty">Sin plan creado para este período.</div>`);
 }
 
 function renderDashboard(){
