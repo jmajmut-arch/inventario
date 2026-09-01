@@ -164,7 +164,7 @@ const fakeFetchImpl = async (url, opts) => {
     const total = 34;
     const filas = [];
     for(let i=offset; i<Math.min(offset+30, total); i++){
-      filas.push({sku_id:'sku-busq-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', fuera_de_plan:false, ciclo_id:null, ciclo_nombre:null, fotos:[]});
+      filas.push({sku_id:'sku-busq-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', fuera_de_plan:false, ciclo_id:null, ciclo_nombre:null, fotos:[], contado_por:'Persona '+(i%3)});
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -3592,6 +3592,43 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.retrocederPaginaBuscar();
   assert(calls.length===0, 'retrocederPaginaBuscar no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.busquedaPagina===0, 'debe volver a la página 1, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
+
+  // ===== Buscar: gráfico de torta "Quién contó" (a pedido de Joel) =====
+  // resumenQuienConto: solo cuenta filas con conteo_id (las "No contado" no tienen contador),
+  // ordena de mayor a menor y, más allá de las primeras 5 personas, agrupa el resto en "Otros".
+  const resumenPocos = ctx.resumenQuienConto([
+    {conteo_id:'c1', contado_por:'Ana'},
+    {conteo_id:'c2', contado_por:'Ana'},
+    {conteo_id:'c3', contado_por:'Beto'},
+    {conteo_id:null, contado_por:null}, // no contado: no debe sumar a nadie
+  ]);
+  assert(JSON.stringify(resumenPocos)===JSON.stringify([{nombre:'Ana', n:2}, {nombre:'Beto', n:1}]), 'con pocas personas, debe agrupar y ordenar de mayor a menor sin agregar "Otros", obtuvo: '+JSON.stringify(resumenPocos));
+
+  const filasSeisPersonas = ['Ana','Beto','Caro','Diego','Elena','Fede'].flatMap((nombre,i)=>
+    Array.from({length:6-i}, ()=>({conteo_id:'c-'+nombre, contado_por:nombre}))); // Ana:6, Beto:5, ..., Fede:1
+  const resumenSeis = ctx.resumenQuienConto(filasSeisPersonas);
+  assert(resumenSeis.length===6, 'con 6 personas, debe quedar el top 5 más un grupo "Otros", obtuvo: '+JSON.stringify(resumenSeis));
+  assert(resumenSeis[5].nombre==='Otros' && resumenSeis[5].n===1, 'la 6ta persona (Fede, con 1) debe caer agrupada en "Otros", obtuvo: '+JSON.stringify(resumenSeis));
+  assert(resumenSeis[0].nombre==='Ana' && resumenSeis[0].n===6, 'el orden debe ser de mayor a menor, obtuvo: '+JSON.stringify(resumenSeis));
+
+  // colorQuienConto: color fijo por posición (no cicla al azar), "Otros" cae en gris al quedar
+  // fuera del arreglo de 5 colores.
+  assert(ctx.colorQuienConto(null,0)==='var(--steel)' && ctx.colorQuienConto(null,4)==='var(--danger)', 'los primeros 5 lugares deben tener colores fijos y distintos, obtuvo: '+[ctx.colorQuienConto(null,0), ctx.colorQuienConto(null,4)]);
+  assert(ctx.colorQuienConto(null,5)==='var(--text-faint)', 'más allá del 5to lugar (Otros) debe caer en gris, obtuvo: '+ctx.colorQuienConto(null,5));
+
+  // Render: sin resultados contados, la tarjeta "Quién contó" no debe aparecer -- y con
+  // resultados contados, sí, con el nombre de cada persona en la leyenda.
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[{sku_code:'SKU-NC', descripcion:'X', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[]}], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  const htmlBuscarSinContados = ctx.renderBuscar();
+  assert(!htmlBuscarSinContados.includes('Quién contó'), 'sin ningún resultado contado, la tarjeta "Quién contó" no debe mostrarse, obtuvo: '+htmlBuscarSinContados);
+
+  ctx.__appstate.busqueda.resultados = [
+    {sku_code:'SKU-1', descripcion:'X', bodega:'Nave', conteo_id:'c-1', cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:null, fotos:[], contado_por:'Ana Torres'},
+    {sku_code:'SKU-2', descripcion:'Y', bodega:'Nave', conteo_id:'c-2', cantidad_contada:3, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:null, fotos:[], contado_por:'Diego Muñoz'},
+  ];
+  const htmlBuscarConContados = ctx.renderBuscar();
+  assert(htmlBuscarConContados.includes('Quién contó') && htmlBuscarConContados.includes('<svg') , 'con resultados contados, la tarjeta "Quién contó" debe mostrarse con su gráfico, obtuvo: '+htmlBuscarConContados);
+  assert(htmlBuscarConContados.includes('Ana Torres (1)') && htmlBuscarConContados.includes('Diego Muñoz (1)'), 'la leyenda debe mostrar el nombre de cada persona y cuántos contó, obtuvo: '+htmlBuscarConContados);
 
   // ===== Escáner de códigos: resolución código → SKU y asociación =====
   // (debe ir antes de handleLogout más abajo, que reasigna `state` por completo y deja
