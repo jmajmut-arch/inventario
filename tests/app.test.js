@@ -3668,6 +3668,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-c', 'tras asociar, ese SKU debe quedar seleccionado para continuar con el conteo, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
   assert(ctx.__appstate.escanerModal===null, 'tras asociar con éxito, el modal debe cerrarse');
 
+  // Bug real reportado (Joel, en terreno): la cámara del escáner abría pero nunca leía una barra
+  // clásica (1D). Dos correcciones en iniciarEscaner: (1) experimentalFeatures.useBarCodeDetectorIfSupported
+  // activa el decodificador NATIVO del navegador (más preciso con barras 1D que el decodificador en
+  // JS puro de la librería) cuando el dispositivo lo soporta; (2) el recuadro de lectura pasa de un
+  // cuadrado fijo (obligaba a alejar el celular para que una barra ancha entrara completa, dejando
+  // las líneas demasiado finas para leerse a esa distancia) a una función que da un rectángulo ANCHO
+  // proporcional al tamaño real del video.
+  let argsConstructorEscaner = null;
+  let argsStartEscaner = null;
+  ctx.Html5Qrcode = class {
+    constructor(elementId, config){ argsConstructorEscaner = config; }
+    start(cameraConfig, scanConfig){ argsStartEscaner = scanConfig; return Promise.resolve(); }
+    stop(){ return Promise.resolve(); }
+    clear(){}
+  };
+  ctx.Html5QrcodeSupportedFormats = { QR_CODE:0, EAN_13:1, EAN_8:2, CODE_128:3, CODE_39:4, CODE_93:5, UPC_A:6, UPC_E:7, ITF:8 };
+  ctx.__appstate.escanerModal = { codigo:null, error:null };
+  await ctx.iniciarEscaner();
+  assert(argsConstructorEscaner && argsConstructorEscaner.experimentalFeatures && argsConstructorEscaner.experimentalFeatures.useBarCodeDetectorIfSupported===true, 'debe activar el decodificador nativo del navegador cuando está disponible, obtuvo: '+JSON.stringify(argsConstructorEscaner));
+  assert(typeof argsStartEscaner.qrbox==='function', 'el recuadro de lectura debe ser una función (proporcional al tamaño real del video), no un tamaño fijo, obtuvo: '+JSON.stringify(argsStartEscaner && typeof argsStartEscaner.qrbox));
+  const recuadroEscaner = argsStartEscaner.qrbox(400, 600);
+  assert(recuadroEscaner.width===360 && recuadroEscaner.height===180, 'con un video de 400x600, el recuadro debe ser ancho (90% del lado menor de ancho, la mitad de eso de alto) para leer mejor barras 1D anchas, obtuvo: '+JSON.stringify(recuadroEscaner));
+  ctx.detenerEscaner();
+  delete ctx.Html5Qrcode;
+  delete ctx.Html5QrcodeSupportedFormats;
+
   // Bug real reportado por Sentry (JAVASCRIPT-5): "Cannot stop, scanner is not running or
   // paused." — html5-qrcode puede lanzar ese error de forma SÍNCRONA (antes de devolver
   // ninguna promesa) si alguien cierra el modal del escáner mientras la cámara todavía está
