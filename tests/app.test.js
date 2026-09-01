@@ -3623,12 +3623,44 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConteoConPlan.includes('Nave Mina · Interior Nave · A-02'), 'SKU-002 debe mostrar bodega · ubicación · storage bin bajo su descripción, obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('Nave Mina · Interior Nave · C-09'), 'SKU-999 (movido) debe mostrar su bodega · ubicación · storage bin ACTUAL (C-09), no el original, obtuvo: '+htmlConteoConPlan);
 
+  // Pedido real de Joel: desde Contar, poder imprimir/exportar a PDF el plan de trabajo del día
+  // elegido. El botón "Exportar PDF" debe verse junto al título "Plan del día" y habilitado
+  // porque hoy hay entradas planificadas.
+  assert(htmlConteoConPlan.includes('id="btn-exportar-plan-dia"') && !/id="btn-exportar-plan-dia"[^>]*disabled/.test(htmlConteoConPlan), 'con entradas planificadas hoy, el botón Exportar PDF de Plan del día debe verse habilitado, obtuvo: '+htmlConteoConPlan);
+
+  // imprimirPlanDelDia: mismo mecanismo que imprimirPlan (impresión del navegador sobre
+  // #print-plan), pero con TODAS las entradas de contarPlan.entradas (mp1..mp4), sin depender
+  // de qué bodega/ubicación tenga elegida la cascada en ese momento — el PDF trae el día
+  // completo del operador, no solo lo que esté mirando en pantalla.
+  ctx.__appstate.contarPlan = cpBase;
+  printEl.innerHTML = '';
+  printCalled = 0;
+  await ctx.imprimirPlanDelDia();
+  assert(printCalled===1, 'imprimirPlanDelDia debe llamar a window.print()');
+  assert(printEl.innerHTML.includes('Plan del día'), 'el PDF debe titularse "Plan del día", obtuvo: '+printEl.innerHTML);
+  assert(printEl.innerHTML.includes('Joel'), 'el PDF debe indicar el nombre de la cuenta logueada, obtuvo: '+printEl.innerHTML);
+  assert(printEl.innerHTML.includes('SKU-001') && printEl.innerHTML.includes('SKU-002'), 'el PDF debe listar los SKU de las entradas con bin (mp1 y mp2), obtuvo: '+printEl.innerHTML);
+  assert(printEl.innerHTML.includes('SKU-SUELTO'), 'el PDF debe incluir la entrada "SKU sin ubicación" (mp3), obtuvo: '+printEl.innerHTML);
+  assert(printEl.innerHTML.includes('SKU sin ubicación'), 'la entrada mp3 debe encabezarse como "SKU sin ubicación", igual que en Planificación, obtuvo: '+printEl.innerHTML);
+
   // Sin nada planificado para mí ese día: el bloque "Plan del día" muestra su estado vacío
   // (no un error ni una sección en blanco), y el buscador libre sigue disponible igual.
   ctx.__appstate.contarPlan = { cargado:true, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null };
   const htmlConteoSinPlan = ctx.renderConteo();
   assert(htmlConteoSinPlan.includes('Plan del día') && htmlConteoSinPlan.includes('Sin nada planificado para ti este día'), 'sin entradas para hoy, debe mostrarse el estado vacío del plan del día, obtuvo: '+htmlConteoSinPlan);
   assert(htmlConteoSinPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir funcionando igual sin plan, obtuvo: '+htmlConteoSinPlan);
+  assert(/id="btn-exportar-plan-dia"[^>]*disabled/.test(htmlConteoSinPlan), 'sin nada planificado hoy, el botón Exportar PDF debe quedar deshabilitado, obtuvo: '+htmlConteoSinPlan);
+
+  // imprimirPlanDelDia sin entradas: igual que imprimirPlan, debe llamar a print() con un aviso
+  // de día vacío en vez de tablas, sin pedir ningún SKU a la base.
+  printEl.innerHTML = '';
+  printCalled = 0;
+  calls.length = 0;
+  await ctx.imprimirPlanDelDia();
+  assert(printCalled===1, 'imprimirPlanDelDia debe llamar a print() incluso sin nada planificado');
+  assert(printEl.innerHTML.includes('Sin nada planificado para ti este día'), 'debe mostrar el mensaje de día vacío en el PDF, obtuvo: '+printEl.innerHTML);
+  assert(!printEl.innerHTML.includes('<table>'), 'no debe generar tablas si no hay entradas planificadas hoy');
+  assert(!calls.some(c=>c.url.includes('/skus_planificables?') || c.url.includes('/skus_disponibles_planificar?')), 'no debe consultar SKU si no hay entradas planificadas hoy, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // bind() real: tocar un SKU del checklist del plan debe seleccionarlo y marcar
   // conteoOrigenPlan=true (para que guardarConteo lo grabe como NO "fuera de plan").
