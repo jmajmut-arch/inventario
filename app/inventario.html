@@ -98,6 +98,17 @@ main{flex:1;max-width:720px;width:100%;margin:0 auto;padding:18px 16px 96px;}
 .section-head h2{font-size:22px;margin:0;}
 .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--amber);font-weight:600;margin-bottom:2px;display:block;}
 
+/* Ícono "i" junto al título de un panel del Dashboard: qué considera exactamente ese dato
+   (ver tituloConInfo/campoConInfo). <details> nativo, así que se abre/cierra igual con un tap
+   en el celular que con clic en el computador. */
+.info-dato{display:inline-block;position:relative;vertical-align:middle;margin-left:4px;}
+.info-dato summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:var(--text-faint);line-height:0;}
+.info-dato summary::-webkit-details-marker{display:none;}
+.info-dato summary svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.info-dato[open]>summary{color:var(--amber);}
+.info-dato-texto{position:absolute;z-index:5;top:100%;left:0;margin-top:4px;width:230px;max-width:70vw;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;box-shadow:0 4px 14px rgba(0,0,0,.35);
+  font-size:11.5px;line-height:1.4;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--text-dim);}
+
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
 .card + .card{margin-top:10px;}
 
@@ -3099,7 +3110,17 @@ const ICONS = {
   candado:'<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
   alerta:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
   ciclos:'<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h13l-3 4 3 4H5"/></svg>',
+  info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>',
 };
+
+// Ícono "i" junto al título/etiqueta de un panel del Dashboard: qué considera exactamente ese
+// dato (ventana de tiempo, si incluye reconteos, sobre qué universo de SKU, etc.) — a pedido de
+// Joel, para no tener que adivinar ni leer el código. <details> nativo (ver CSS .info-dato): se
+// abre/cierra igual con un tap en el celular que con clic en el computador, sin JS ni estado
+// propio que mantener. `esc()` en el texto porque puede incluir apóstrofes/símbolos.
+function campoConInfo(texto){
+  return `<details class="info-dato"><summary aria-label="Qué considera este dato">${ICONS.info}</summary><div class="info-dato-texto">${esc(texto)}</div></details>`;
+}
 
 /* =======================================================================
    RENDER — LOGIN
@@ -3709,18 +3730,18 @@ function renderInformeEjecutivo(){
   return `
     <div class="kpi-grid">
       <div class="tag-card">
-        <div class="kpi-label">Avance global</div>
+        <div class="kpi-label">Avance global ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos en todas las bodegas.')}</div>
         <div class="kpi-value">${pct(avanceGlobal)}%</div>
         <div class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</div>
       </div>
       <div class="tag-card">
-        <div class="kpi-label">Conteos recientes (ciclo actual)</div>
+        <div class="kpi-label">Conteos recientes (ciclo actual) ${campoConInfo('Incluye reconteos (no es SKU únicos). No cambia con el selector de período de Adherencia; para ver otros ciclos usa Buscar.')}</div>
         <div class="kpi-value">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</div>
         <div class="kpi-sub">incluye reconteos (no es SKU únicos) — no cambia con el selector de período de Adherencia, para ver otros ciclos usa Buscar</div>
       </div>
     </div>
 
-    <div class="section-head"><div><span class="eyebrow">Sobre el último conteo de cada SKU</span><h2 style="font-size:17px">Exactitud</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Sobre el último conteo de cada SKU</span><h2 style="font-size:17px">Exactitud ${campoConInfo('Sobre el último conteo de cada SKU, no cada conteo histórico — un reconteo que corrigió una diferencia no cuenta como error.')}</h2></div></div>
     <div class="kpi-grid" style="margin-bottom:14px">
       <div class="tag-card">
         <div class="kpi-label">De unidades</div>
@@ -3737,7 +3758,7 @@ function renderInformeEjecutivo(){
     ${renderAdherenciaPlan()}
 
     ${valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0? `
-      <div class="section-head"><div><span class="eyebrow">Con costo unitario cargado</span><h2 style="font-size:17px">Valorización de diferencias</h2></div></div>
+      <div class="section-head"><div><span class="eyebrow">Con costo unitario cargado</span><h2 style="font-size:17px">Valorización de diferencias ${campoConInfo("Solo SKU con costo unitario cargado. “Valor contado” es el stock según sistema, no lo efectivamente contado.")}</h2></div></div>
       <div class="kpi-grid" style="margin-bottom:14px">
         <div class="tag-card">
           <div class="kpi-label">Valor contado</div>
@@ -3762,13 +3783,13 @@ function renderInformeEjecutivo(){
       </div>
     ` : ''}
 
-    <div class="section-head"><div><span class="eyebrow">Al ritmo actual</span><h2 style="font-size:17px">Proyección de término</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Al ritmo actual</span><h2 style="font-size:17px">Proyección de término ${campoConInfo('Calculada al ritmo de conteo de los últimos 14 días.')}</h2></div></div>
     <div class="tag-card" style="margin-bottom:14px">
       <div class="kpi-value" style="font-size:22px">${proyeccion.titulo}</div>
       <div class="kpi-sub">${proyeccion.detalle}</div>
     </div>
 
-    <div class="section-head"><div><span class="eyebrow">De unidades, por mes calendario del conteo</span><h2 style="font-size:17px">Tendencia de exactitud</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">De unidades, por mes calendario del conteo</span><h2 style="font-size:17px">Tendencia de exactitud ${campoConInfo('De unidades, agrupada por mes calendario de la fecha de conteo (no por ciclo de inventario).')}</h2></div></div>
     <div class="tag-card" style="margin-bottom:14px">
       ${mesesDisponibles.length===0? `
         <div class="empty"><div class="glyph">◧</div>Vas a ver la tendencia acá apenas tengas conteos registrados.</div>
@@ -3794,40 +3815,40 @@ function renderInformeEjecutivo(){
     </div>
 
     ${rankingExactitud.length? `
-      <div class="section-head"><div><span class="eyebrow">Exactitud de unidades</span><h2 style="font-size:17px">Ranking por ubicación general</h2></div></div>
+      <div class="section-head"><div><span class="eyebrow">Exactitud de unidades</span><h2 style="font-size:17px">Ranking por ubicación general ${campoConInfo('Exactitud de unidades por bodega, peor primero.')}</h2></div></div>
       <div class="card">${renderExactitudBarList(rankingExactitud)}</div>
     ` : ''}
 
     ${topDiferenciasPositivas.length? `
-      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor a favor</span><h2 style="font-size:17px">Excedentes con más impacto</h2></div></div>
+      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor a favor</span><h2 style="font-size:17px">Excedentes con más impacto ${campoConInfo('Top 10 por valor total de la línea (diferencia × costo unitario), sobre el último conteo de cada SKU.')}</h2></div></div>
       <div class="card">${tablaTopDiferencias(topDiferenciasPositivas)}</div>
     ` : ''}
 
     ${topDiferenciasNegativas.length? `
-      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor en contra</span><h2 style="font-size:17px">Pérdidas con más impacto</h2></div></div>
+      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor en contra</span><h2 style="font-size:17px">Pérdidas con más impacto ${campoConInfo('Top 10 por valor total de la línea (diferencia × costo unitario), sobre el último conteo de cada SKU.')}</h2></div></div>
       <div class="card">${tablaTopDiferencias(topDiferenciasNegativas)}</div>
     ` : ''}
 
-    <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día ${campoConInfo('Últimos 14 días. Incluye conteos y reconteos, diferenciados por color.')}</h2></div></div>
     <div class="card">
       ${renderBarChartApilado(diarioAgg, 'contados', 'reconteos', 'var(--amber)', 'var(--steel)', 'reconteos', fmtDiaCorto)}
       ${diarioAgg.length? renderLeyendaColores([['var(--amber)','Conteos'], ['var(--steel)','Reconteos']]) : ''}
     </div>
 
-    <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias ${campoConInfo('Últimos 14 días, sobre el último conteo de cada SKU — un reconteo que corrigió una diferencia no se cuenta dos veces.')}</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>
 
     ${rankingResponsables.length? `
-      <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Ranking por responsable</h2></div></div>
+      <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Ranking por responsable ${campoConInfo('Conteos de los últimos 14 días, por responsable.')}</h2></div></div>
       <div class="card">${renderRankedBarList(rankingResponsables)}</div>
     ` : ''}
 
     ${pendientesBodega.length? `
-      <div class="section-head"><div><span class="eyebrow">Dónde falta contar</span><h2 style="font-size:17px">SKU pendientes por ubicación general</h2></div></div>
+      <div class="section-head"><div><span class="eyebrow">Dónde falta contar</span><h2 style="font-size:17px">SKU pendientes por ubicación general ${campoConInfo('SKU activos que todavía no tienen ningún conteo registrado.')}</h2></div></div>
       <div class="card">${renderRankedBarList(pendientesBodega)}</div>
     ` : ''}
 
-    <div class="section-head"><h2 style="font-size:17px">Avance por ubicación general</h2></div>
+    <div class="section-head"><h2 style="font-size:17px">Avance por ubicación general ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos de esa bodega.')}</h2></div>
     ${filasBodega}
   `;
 }
@@ -3869,7 +3890,7 @@ function renderAdherenciaPlan(){
   const periodo = state.dashPeriodo;
   const cabecera = `
     <div class="section-head">
-      <div><span class="eyebrow">Cuánto del plan asignado ya se contó</span><h2 style="font-size:17px">Adherencia al plan</h2></div>
+      <div><span class="eyebrow">Cuánto del plan asignado ya se contó</span><h2 style="font-size:17px">Adherencia al plan ${campoConInfo('SKU planificados en el período contra los que aún faltan por contar, sin importar cómo se contaron (plan, reconteo, buscador o escáner).')}</h2></div>
     </div>
     <div class="card" style="margin-bottom:14px">
       <label for="dash-periodo">Período</label>
@@ -3981,7 +4002,7 @@ function renderDashboard(){
   const diarioRows = state.dash.diario.slice(diarioPaginaActual*TAM_PAGINA_DASH_DIARIO, diarioPaginaActual*TAM_PAGINA_DASH_DIARIO + TAM_PAGINA_DASH_DIARIO);
 
   const vistaOperativa = `
-    <div class="section-head"><h2 style="font-size:17px">Diario</h2></div>
+    <div class="section-head"><h2 style="font-size:17px">Diario ${campoConInfo('SKU contados, con diferencia, reconteos y unidades por día calendario.')}</h2></div>
     <div class="card">
       ${periodTable(diarioRows,'Día','dia',fmtDiaTruncado)}
       ${state.dash.diario.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
@@ -3991,13 +4012,13 @@ function renderDashboard(){
       </div>` : ''}
     </div>
 
-    <div class="section-head"><h2 style="font-size:17px">Semanal</h2></div>
+    <div class="section-head"><h2 style="font-size:17px">Semanal ${campoConInfo('Igual que Diario, agrupado por semana (Semana N, Año).')}</h2></div>
     <div class="card">${periodTable(state.dash.semanal,'Semana','semana',fmtSemana)}</div>
 
-    <div class="section-head"><h2 style="font-size:17px">Mensual</h2></div>
+    <div class="section-head"><h2 style="font-size:17px">Mensual ${campoConInfo('Igual que Diario, agrupado por mes (Mes Año).')}</h2></div>
     <div class="card">${periodTable(state.dash.mensual,'Mes','mes',fmtMes)}</div>
 
-    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados (ciclo actual)</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados (ciclo actual) ${campoConInfo('Últimos conteos en tiempo real; no cambia con el selector de período de Adherencia — para filtrar conteos puntuales usa Buscar.')}</h2></div></div>
     <div class="card">
       ${state.ultimosConteos.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
