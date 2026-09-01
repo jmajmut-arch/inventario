@@ -180,6 +180,10 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/rpc/diferencias_recientes')){
+    const filas = [ {sin_diferencia:9, con_diferencia:1} ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/storage/v1/object/sign/')){
     const ruta = path.replace('/storage/v1/object/sign/fotos-inventario/', '');
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}), json: async()=>({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}) };
@@ -1460,6 +1464,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!rankingCall && rankingCall.opts.method==='POST' && JSON.parse(rankingCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC ranking_responsable con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking que devuelve el RPC en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
 
+  // cargarDashboard: "Diferencias" ahora viene de rpc/diferencias_recientes (último conteo de
+  // cada SKU, no cada conteo crudo) — mismo bug de fondo que "Fuera de plan": un SKU recontado
+  // no debe contar dos veces (una con diferencia, otra sin ella).
+  const diferenciasCall = calls.find(c=>c.url.includes('/rest/v1/rpc/diferencias_recientes'));
+  assert(!!diferenciasCall && diferenciasCall.opts.method==='POST' && JSON.parse(diferenciasCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC diferencias_recientes con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.diferenciasRecientes.length===1 && ctx.__appstate.dash.diferenciasRecientes[0].sin_diferencia===9, 'cargarDashboard debe dejar el resultado del RPC en state.dash.diferenciasRecientes, obtuvo: '+JSON.stringify(ctx.__appstate.dash.diferenciasRecientes));
+
   // cargarDashboard: exactitud de unidades/ubicación (vista exactitud_por_bodega) y top
   // materiales con diferencia (reconteo_pendiente ordenado por diferencia_abs desc).
   const exactitudCall = calls.find(c=>c.url.includes('/exactitud_por_bodega'));
@@ -1537,17 +1548,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
     diario: [{dia:'2026-08-10', skus_contados:'7', con_diferencia:'1', reconteos:'2'}], semanal: [], mensual: [],
     ranking: [{nombre:'Ana Torres', cantidad:9}, {nombre:'Beto', cantidad:4}],
+    // Bug real reportado por Joel: "en estricto rigor no tengo diferencias" — el conteo con
+    // diferencia (con_diferencia:'1' arriba) era un intento ya resuelto por un reconteo. La
+    // sección "Diferencias" no debe sumar eso: debe mostrar los valores YA deduplicados por
+    // SKU que trae diferenciasRecientes (mock: sin_diferencia:9, con_diferencia:1 — valores
+    // deliberadamente distintos a los de "diario" para probar que no se mezclan).
+    diferenciasRecientes: [{sin_diferencia:12, con_diferencia:0}],
   };
   const htmlDashProyeccion = ctx.renderDashboard();
   assert(htmlDashProyeccion.includes('Proyección de término'), 'la vista ejecutiva debe mostrar la sección de proyección, obtuvo: '+htmlDashProyeccion);
   assert(htmlDashProyeccion.includes('Ranking por responsable') && htmlDashProyeccion.includes('Ana Torres') && htmlDashProyeccion.includes('Beto'), 'la vista ejecutiva debe mostrar el ranking por responsable, obtuvo: '+htmlDashProyeccion);
   // El gráfico "Conteos por día" debe mostrar el valor sobre cada barra, no solo la fecha debajo.
   assert(htmlDashProyeccion.includes('font-weight="600" fill="var(--text-dim)">7</text>'), 'el gráfico de conteos por día debe mostrar el valor (7) encima de la barra, obtuvo: '+htmlDashProyeccion);
-  // Pedido de Joel: los reconteos del día se pintan con otro color (var(--accent)), apilados
-  // sobre los conteos originales (var(--amber)), con una leyenda debajo que distinga ambos.
-  assert(htmlDashProyeccion.includes('fill="var(--accent)"') && htmlDashProyeccion.includes('2 reconteos'), 'la barra del día debe incluir un segmento var(--accent) con los 2 reconteos, obtuvo: '+htmlDashProyeccion);
+  // Pedido de Joel: los reconteos del día se pintan con otro color (var(--steel) — var(--accent)
+  // no existía como token en la paleta de la app y quedaba invisible/negro, otro bug reportado),
+  // apilados sobre los conteos originales (var(--amber)), con una leyenda debajo que distinga ambos.
+  assert(htmlDashProyeccion.includes('fill="var(--steel)"') && htmlDashProyeccion.includes('2 reconteos'), 'la barra del día debe incluir un segmento var(--steel) con los 2 reconteos, obtuvo: '+htmlDashProyeccion);
   assert(htmlDashProyeccion.includes('fill="var(--amber)"') && htmlDashProyeccion.includes('5 conteos'), 'el resto de la barra (7-2=5) debe seguir en var(--amber) como conteos originales, obtuvo: '+htmlDashProyeccion);
   assert(htmlDashProyeccion.includes('Reconteos') && htmlDashProyeccion.match(/background:var\(--amber\)[^]*?Conteos/), 'debe mostrar una leyenda con las dos categorías (Conteos/Reconteos), obtuvo: '+htmlDashProyeccion);
+  // "Diferencias" debe venir de diferenciasRecientes (12/0), no de sumar el con_diferencia
+  // crudo de "diario" (que hubiera dado 6 sin diferencia / 1 con diferencia).
+  assert(htmlDashProyeccion.includes('12 · 100%') && htmlDashProyeccion.includes('0 · 0%'), 'la sección Diferencias debe mostrar los valores ya deduplicados por SKU (12 sin diferencia, 0 con diferencia), no los del gráfico de actividad diaria, obtuvo: '+htmlDashProyeccion);
 
   // Sin conteos recientes (ranking vacío), no debe mostrarse la sección de ranking (nada que mostrar).
   ctx.__appstate.dash = { ...ctx.__appstate.dash, ranking: [] };

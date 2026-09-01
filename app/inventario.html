@@ -351,7 +351,7 @@ let state = {
   // ver sus SKU).
   contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null },
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [], diferenciasRecientes: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -1731,7 +1731,7 @@ async function cargarDashboard(){
     // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario,
     // ver reconteo_pendiente.valor_diferencia_linea), no por magnitud en unidades — top 10
     // excedentes (mayor valor a favor) y top 10 pérdidas (mayor valor en contra), por separado.
-    const [total, diario, semanal, mensual, ranking, exactitudBodega, exactitudMensual, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, avancePlanPorCiclo] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, exactitudMensual, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, avancePlanPorCiclo, diferenciasRecientes] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
@@ -1743,12 +1743,13 @@ async function cargarDashboard(){
       rest(`/reconteo_pendiente?select=*&valor_diferencia_linea=lt.0&order=valor_diferencia_linea.asc&limit=10`),
       rest(`/valorizacion_diferencias?order=bodega.asc`),
       rest(`/avance_plan_por_ciclo?order=bodega.asc`),
+      rest(`/rpc/diferencias_recientes`, {method:'POST', body:{dias: VENTANA_PROYECCION_DIAS}}),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
       ranking: ranking||[], exactitudBodega: exactitudBodega||[], exactitudMensual: exactitudMensual||[],
       topDiferenciasPositivas: topDiferenciasPositivas||[], topDiferenciasNegativas: topDiferenciasNegativas||[],
-      valorizacion: valorizacion||[], avancePlanPorCiclo: avancePlanPorCiclo||[],
+      valorizacion: valorizacion||[], avancePlanPorCiclo: avancePlanPorCiclo||[], diferenciasRecientes: diferenciasRecientes||[],
     }, dashDiarioPagina: 0});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -3316,9 +3317,14 @@ function renderInformeEjecutivo(){
   `).join('') || `<div class="empty"><div class="glyph">◧</div>Aún no hay SKUs cargados para calcular avance.</div>`;
 
   const diarioAgg = agregarPorDia(state.dash.diario, VENTANA_PROYECCION_DIAS);
-  const totConDif = diarioAgg.reduce((s,d)=>s+d.diferencias,0);
-  const totContadosPeriodo = diarioAgg.reduce((s,d)=>s+d.contados,0);
-  const totSinDif = Math.max(0, totContadosPeriodo - totConDif);
+  // "Diferencias" NO se calcula sumando con_diferencia/sin_diferencia de cada conteo del
+  // período (eso contaba dos veces un SKU recontado: una vez por su intento original con
+  // diferencia, otra por el reconteo que la resolvió — bug real reportado por Joel, "en
+  // estricto rigor no tengo diferencias"). Viene de diferencias_recientes(), que ya toma el
+  // último conteo de cada SKU (mismo criterio que exactitud_por_bodega) acotado a la ventana.
+  const diferenciasRecientes = (state.dash.diferenciasRecientes||[])[0] || {sin_diferencia:0, con_diferencia:0};
+  const totSinDif = Number(diferenciasRecientes.sin_diferencia)||0;
+  const totConDif = Number(diferenciasRecientes.con_diferencia)||0;
   const proyeccion = proyeccionTermino(totUniverso, totContados, diarioAgg);
   const rankingResponsables = (state.dash.ranking||[]).slice(0,8);
 
@@ -3437,7 +3443,7 @@ function renderInformeEjecutivo(){
       ` : mesesDisponibles.length===1? `
         <div class="empty"><div class="glyph">◧</div>Por ahora solo hay conteos de ${esc(fmtMesTruncado(primerMes))}. La tendencia aparece cuando haya conteos de más de un mes.</div>
       ` : `
-        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--accent)', fmtMesTruncado, true)}
+        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--steel)', fmtMesTruncado, true)}
         <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
           ${mejorBodega? `<p style="font-size:13px;margin:0 0 4px">📈 <strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</p>` : ''}
           ${peorBodega && peorBodega.delta<0? `<p style="font-size:13px;margin:0;color:var(--text-dim)">📉 <strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</p>` : ''}
@@ -3504,8 +3510,8 @@ function renderInformeEjecutivo(){
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
     <div class="card">
-      ${renderBarChartApilado(diarioAgg, 'contados', 'reconteos', 'var(--amber)', 'var(--accent)', 'reconteos', fmtDiaCorto)}
-      ${diarioAgg.length? renderLeyendaColores([['var(--amber)','Conteos'], ['var(--accent)','Reconteos']]) : ''}
+      ${renderBarChartApilado(diarioAgg, 'contados', 'reconteos', 'var(--amber)', 'var(--steel)', 'reconteos', fmtDiaCorto)}
+      ${diarioAgg.length? renderLeyendaColores([['var(--amber)','Conteos'], ['var(--steel)','Reconteos']]) : ''}
     </div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
