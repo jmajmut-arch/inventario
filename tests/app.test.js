@@ -3545,9 +3545,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.dashMaterialesPagina===0, 'debe volver a la página 1, obtuvo: '+ctx.__appstate.dashMaterialesPagina);
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
-  // ===== Buscar: "Cargar más" respetando los filtros de texto y fotos (que se aplican en
+  // ===== Buscar: carga por tandas respetando los filtros de texto y fotos (que se aplican en
   // el cliente, no en la consulta) =====
-  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0};
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   calls.length = 0;
   await ctx.buscarConteos();
   assert(ctx.__appstate.busqueda.resultados.length===30 && ctx.__appstate.busqueda.hayMas===true, 'buscarConteos debe traer la primera página (30) y marcar hayMas, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
@@ -3557,8 +3557,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const busquedaCallMas = calls.find(c=>c.url.includes('/skus_busqueda?select='));
   assert(!!busquedaCallMas && busquedaCallMas.url.includes('offset=30'), 'buscarMasConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.resultados.length===34 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
-  const htmlBusquedaSinMas = ctx.renderBuscar();
-  assert(!htmlBusquedaSinMas.includes('id="btn-cargar-mas-busqueda"'), 'sin más páginas, el botón "Cargar más" de Buscar no debe mostrarse, obtuvo: '+htmlBusquedaSinMas);
+
+  // ===== Buscar pagina de a 15 con Anterior/Siguiente (a pedido de Joel, mismo caso que
+  // Materiales contados), reemplazando el botón "Cargar más". En este punto ya quedaron
+  // cargados 34 resultados (arriba), con hayMas=false: alcanza para 3 páginas de 15 sin pedir
+  // nada más al servidor.
+  ctx.__appstate.busqueda.busquedaPagina = 0;
+  const htmlBuscarPag1 = ctx.renderBuscar();
+  assert(/id="buscar-pagina-prev"[^>]*disabled/.test(htmlBuscarPag1), 'en la primera página de Buscar, Anterior debe estar deshabilitado, obtuvo: '+htmlBuscarPag1);
+  assert(htmlBuscarPag1.includes('id="buscar-pagina-next"') && !/id="buscar-pagina-next"[^>]*disabled/.test(htmlBuscarPag1), 'con 34 resultados ya cargados (3 páginas de 15), Siguiente debe estar habilitado en la página 1, obtuvo: '+htmlBuscarPag1);
+  assert(!htmlBuscarPag1.includes('id="btn-cargar-mas-busqueda"'), 'el botón "Cargar más" de Buscar ya no debe existir, reemplazado por Anterior/Siguiente, obtuvo: '+htmlBuscarPag1);
+  assert((htmlBuscarPag1.match(/<tr>\s*<td/g)||[]).length===15, 'la página 1 debe mostrar exactamente 15 filas, obtuvo: '+((htmlBuscarPag1.match(/<tr>\s*<td/g)||[]).length));
+
+  ctx.__appstate.busqueda.busquedaPagina = 2; // última página: solo quedan 34-30=4 filas
+  const htmlBuscarPag3 = ctx.renderBuscar();
+  assert(/id="buscar-pagina-next"[^>]*disabled/.test(htmlBuscarPag3), 'en la última página (sin más filas cargadas ni pendientes en el servidor), Siguiente debe estar deshabilitado, obtuvo: '+htmlBuscarPag3);
+  assert(!/id="buscar-pagina-prev"[^>]*disabled/.test(htmlBuscarPag3), 'en una página que no es la primera, Anterior debe estar habilitado, obtuvo: '+htmlBuscarPag3);
+  assert((htmlBuscarPag3.match(/<tr>\s*<td/g)||[]).length===4, 'la última página debe mostrar solo las 4 filas restantes, obtuvo: '+((htmlBuscarPag3.match(/<tr>\s*<td/g)||[]).length));
+
+  // avanzarPaginaBuscar: si la página pedida cae fuera de lo ya cargado pero el servidor todavía
+  // tiene más (hayMas=true), primero debe pedir la siguiente tanda antes de avanzar.
+  ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.slice(0, 15); // simula que solo se cargó la 1a tanda
+  ctx.__appstate.busqueda.hayMas = true;
+  ctx.__appstate.busqueda.paginaOffset = 15;
+  ctx.__appstate.busqueda.busquedaPagina = 0;
+  calls.length = 0;
+  await ctx.avanzarPaginaBuscar();
+  const busquedaCallPagina = calls.find(c=>c.url.includes('/skus_busqueda?select='));
+  assert(!!busquedaCallPagina && busquedaCallPagina.url.includes('offset=15'), 'avanzarPaginaBuscar debe pedir la siguiente tanda al servidor (offset=15) cuando la página pedida no está cargada todavía, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.busquedaPagina===1, 'debe avanzar a la página 2 después de traer los datos que faltaban, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
+
+  // retrocederPaginaBuscar: los datos ya están cargados, nunca debe pedir nada al servidor.
+  calls.length = 0;
+  ctx.retrocederPaginaBuscar();
+  assert(calls.length===0, 'retrocederPaginaBuscar no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.busquedaPagina===0, 'debe volver a la página 1, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
 
   // ===== Escáner de códigos: resolución código → SKU y asociación =====
   // (debe ir antes de handleLogout más abajo, que reasigna `state` por completo y deja
