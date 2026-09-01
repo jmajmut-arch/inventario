@@ -1090,7 +1090,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
 async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, excluirYaPlanificados}){
-  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida,stock_sistema&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1443,7 +1443,7 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s); });
   if(!original.size) return [];
   const codigos = [...original.keys()];
-  const actuales = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
+  const actuales = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida,stock_sistema&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
   return actuales.map(s=>{
     const o = original.get(s.sku_code);
     // Fotos guardadas antes de que existieran estas dos columnas (plan planificado antes de este
@@ -4068,7 +4068,7 @@ function renderConteo(){
       <div class="selected-sku">
         <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
         <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
-        <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Stock sistema: ${state.skuSeleccionado.stock_sistema!==null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Stock sistema: ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
       </div>
 
       <div class="card">
