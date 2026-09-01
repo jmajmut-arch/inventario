@@ -3898,6 +3898,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // mostrar un gráfico resumen por estado sobre los resultados ya filtrados.
   assert(htmlBuscarFueraPlan.includes('Resumen por estado') && htmlBuscarFueraPlan.includes('<svg'), 'con "Solo fuera de plan" marcado y resultados cargados, debe verse el gráfico resumen, obtuvo: '+htmlBuscarFueraPlan);
   assert(htmlBuscarFueraPlan.includes('Resultados filtrados'), 'sin más resultados por cargar, el gráfico debe indicar que es sobre todos los resultados filtrados, obtuvo: '+htmlBuscarFueraPlan);
+  // Reportado: en el eje x no se leían bien los textos -- "No contado" se cortaba porque las
+  // columnas del gráfico eran muy angostas. Con etiquetasLargas=true, las etiquetas de dos
+  // palabras se parten en dos líneas (<tspan>) y las columnas se ensanchan según la palabra
+  // más larga, así ninguna etiqueta queda amontonada ni superpuesta con la de al lado.
+  assert(htmlBuscarFueraPlan.includes('<tspan') && htmlBuscarFueraPlan.includes('>No<') && htmlBuscarFueraPlan.includes('>contado<'), 'la etiqueta "No contado" debe partirse en dos líneas para que se lea bien en el eje x, obtuvo: '+htmlBuscarFueraPlan);
 
   // Sin ningún checkbox activo, no debe verse el gráfico aunque haya resultados.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloFueraDePlan:false};
@@ -3917,7 +3922,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, hayMas:false};
 
   // resumenEstadoBusqueda: agrupa igual que estadoBadge decide qué badge mostrar por fila --
-  // un resultado con diferencia!=0 cae en "Con diferencia" aunque su columna estado diga
+  // un resultado con diferencia!=0 cae en "Diferencia" aunque su columna estado diga
   // "aprobado" (el mismo criterio que ya usa la tabla, para que el gráfico nunca la contradiga).
   const resumenMixto = ctx.resumenEstadoBusqueda([
     {conteo_id:null, estado:null, diferencia:null},
@@ -3926,7 +3931,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     {conteo_id:'c-3', estado:'pendiente_revision', diferencia:0},
   ]);
   const porGrupo = Object.fromEntries(resumenMixto.map(g=>[g.dia, g.n]));
-  assert(porGrupo['No contado']===1 && porGrupo['Cuadrado']===1 && porGrupo['Con diferencia']===1 && porGrupo['Pendiente']===1, 'resumenEstadoBusqueda debe agrupar cada resultado en el grupo correcto, obtuvo: '+JSON.stringify(porGrupo));
+  assert(porGrupo['No contado']===1 && porGrupo['Cuadrado']===1 && porGrupo['Diferencia']===1 && porGrupo['Pendiente']===1, 'resumenEstadoBusqueda debe agrupar cada resultado en el grupo correcto, obtuvo: '+JSON.stringify(porGrupo));
 
   // Buscar: filtro "Contado hoy" -- filtra fecha_conteo por el rango de HOY en hora local (mismo
   // patrón que exportarConteosExcel), sin importar en qué huso horario esté la persona. No se
