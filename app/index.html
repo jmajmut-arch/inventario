@@ -4118,7 +4118,10 @@ function renderPlanDelDia(){
   const activas = entradasActivasContar(cp);
   const bodegaElegida = !!cp.bodega;
   return `
-    <div class="section-head"><div><span class="eyebrow">Mi plan</span><h2>Plan del día</h2></div></div>
+    <div class="section-head">
+      <div><span class="eyebrow">Mi plan</span><h2>Plan del día</h2></div>
+      <button type="button" class="btn btn-secondary" id="btn-exportar-plan-dia" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${cp.cargando || !cp.entradas.length?'disabled':''}>${ICONS.download} Exportar PDF</button>
+    </div>
     <div class="card">
       <label for="contar-fecha">Día</label>
       <input type="date" id="contar-fecha" value="${cp.fecha}">
@@ -4443,6 +4446,49 @@ async function imprimirPlan(){
     toast(err.message,'err');
   }finally{
     if(btn){ btn.disabled = !p.entradas.length; btn.innerHTML = `${ICONS.download} Exportar PDF`; }
+  }
+}
+
+// "Plan del día" del operador (pestaña Contar): mismo mecanismo de exportar-a-PDF que
+// imprimirPlan() (impresión del navegador sobre #print-plan), pero acotado al día y a las
+// entradas que ya le corresponden a la cuenta logueada (state.contarPlan.entradas), sin
+// depender de qué bodega/ubicación tenga elegida en la cascada — el PDF trae todo su día.
+async function imprimirPlanDelDia(){
+  const cp = state.contarPlan;
+  const fechaLabel = new Date(cp.fecha+'T00:00:00').toLocaleDateString('es-CL',{weekday:'long', day:'2-digit', month:'long', year:'numeric'});
+  const nombre = (state.perfil && state.perfil.nombre) || '';
+  const meta = [nombre, fechaLabel, `Generado ${new Date().toLocaleString('es-CL')}`].filter(Boolean).join(' · ');
+
+  if(!cp.entradas.length){
+    document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-plan').innerHTML = `
+      <h1>Plan del día</h1>
+      <div class="print-meta">${esc(meta)}</div>
+      <p class="print-vacio">Sin nada planificado para ti este día.</p>
+    `;
+    window.print();
+    return;
+  }
+
+  const btn = document.getElementById('btn-exportar-plan-dia');
+  if(btn){ btn.disabled = true; btn.textContent = 'Generando…'; }
+  try{
+    let cuerpo = '';
+    for(const e of cp.entradas){
+      const skus = await skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin, excluidos:e.skus_excluidos, soloSinUbicacion:e.solo_sin_ubicacion});
+      cuerpo += encabezadoEntradaPlan(e) + tablaSkusEntradaPlan(skus);
+    }
+    document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-plan').innerHTML = `
+      <h1>Plan del día</h1>
+      <div class="print-meta">${esc(meta)}</div>
+      ${cuerpo}
+    `;
+    window.print();
+  }catch(err){
+    toast(err.message,'err');
+  }finally{
+    if(btn){ btn.disabled = !cp.entradas.length; btn.innerHTML = `${ICONS.download} Exportar PDF`; }
   }
 }
 
@@ -5541,6 +5587,8 @@ function bind(){
       if(btnEscanerPlan) btnEscanerPlan.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
       const fechaEl = document.getElementById('contar-fecha');
       if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value) cargarPlanDeHoy(e.target.value); });
+      const btnExportarPlanDia = document.getElementById('btn-exportar-plan-dia');
+      if(btnExportarPlanDia) btnExportarPlanDia.addEventListener('click', imprimirPlanDelDia);
       const cBodega = document.getElementById('contar-bodega');
       if(cBodega) cBodega.addEventListener('change', e=> elegirCascadaContar({bodega:e.target.value, ubicacion:''}));
       const cUbic = document.getElementById('contar-ubic');
