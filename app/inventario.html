@@ -379,6 +379,7 @@ let state = {
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
   ultimosConteosCicloId: null,
+  dashMaterialesPagina: 0, // página actual de "Materiales contados" (Dashboard operativo), 15 filas por página
   fotoModal: null,        // {urls:[...], index:0}
   skusPagina: { rows: [], page: 0, total: 0 },
   skusSeleccionados: [],
@@ -393,7 +394,7 @@ let state = {
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
-  dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 10 filas por página
+  dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 15 filas por página
   // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
   // actual (el marcado es_actual en state.ciclos), '__todos__' = comparar todos los
   // períodos uno junto al otro, '__sin_periodo__' = entradas de plan sin ciclo_id, o el id de
@@ -497,8 +498,15 @@ const TAM_PAGINA_LISTA = 30;
 // otras listas paginadas, así que conviene una tanda menor por carga.
 const TAM_PAGINA_AUDITORIA = 20;
 // Tabla "Diario" del Dashboard operativo: pagina client-side sobre las filas ya cargadas
-// (avance_diario trae hasta 60 de una vez, ver cargarDashboard), 10 a la vez.
-const TAM_PAGINA_DASH_DIARIO = 10;
+// (avance_diario trae hasta 60 de una vez, ver cargarDashboard), 15 a la vez (a pedido de Joel).
+const TAM_PAGINA_DASH_DIARIO = 15;
+// Tabla "Materiales contados" del Dashboard operativo: mismo tamaño de página (15) que Diario,
+// pero paginando sobre state.ultimosConteos -- que se carga del servidor de a TAM_PAGINA_LISTA
+// (30) por tanda (ver cargarUltimosConteos/cargarMasUltimosConteos), un tamaño de carga propio
+// que no conviene mezclar con el de despliegue: 30 alcanza para 2 páginas de 15 sin pedir más al
+// servidor, y cambiar TAM_PAGINA_LISTA afectaría de paso leads, Buscar y Reconteo (que la
+// comparten), algo que Joel no pidió acá.
+const TAM_PAGINA_DASH_MATERIALES = 15;
 // Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
 // que no tienen ni bodega ni ubicación específica (no aparecen en ubicaciones_generales).
 const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
@@ -1960,7 +1968,7 @@ async function cargarUltimosConteos(){
     const cicloId = await rest('/rpc/ciclo_actual', {method:'POST'});
     const filtroCiclo = cicloId ? `&ciclo_id=eq.${cicloId}` : '';
     const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}${filtroCiclo}`);
-    setState({ultimosConteos: rows||[], ultimosConteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, ultimosConteosCicloId: cicloId||null});
+    setState({ultimosConteos: rows||[], ultimosConteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, ultimosConteosCicloId: cicloId||null, dashMaterialesPagina: 0});
   }catch(e){ /* silencioso */ }
 }
 
@@ -1976,6 +1984,21 @@ async function cargarMasUltimosConteos(){
   }catch(e){ toast(e.message,'err'); }
   state.ultimosConteosCargandoMas = false;
   render();
+}
+
+// Paginado de "Materiales contados" (Dashboard operativo), 15 filas por página -- a diferencia
+// del resto de las tablas paginadas client-side, acá los datos pueden no estar completos
+// todavía: si la página pedida cae fuera de lo ya cargado, primero trae la siguiente tanda del
+// servidor (cargarMasUltimosConteos, de a TAM_PAGINA_LISTA) y recién ahí avanza la página.
+async function avanzarPaginaMateriales(){
+  const siguiente = (state.dashMaterialesPagina||0) + 1;
+  if(siguiente*TAM_PAGINA_DASH_MATERIALES >= state.ultimosConteos.length && state.ultimosConteosHayMas){
+    await cargarMasUltimosConteos();
+  }
+  setState({dashMaterialesPagina: siguiente});
+}
+function retrocederPaginaMateriales(){
+  setState({dashMaterialesPagina: Math.max(0, (state.dashMaterialesPagina||0)-1)});
 }
 
 // Quita caracteres que puedan romper la sintaxis de filtros de PostgREST (,()."*)
@@ -3994,12 +4017,19 @@ function renderDashboard(){
   const modo = (state.dashboardModo==='ejecutivo' && !ejecutivoIncluido) ? 'operativo' : state.dashboardModo;
   const vistaEjecutiva = renderInformeEjecutivo();
 
-  // Diario pagina de a 10 filas (ya vienen cargadas hasta 60 desde el servidor, ver
+  // Diario pagina de a 15 filas (ya vienen cargadas hasta 60 desde el servidor, ver
   // cargarDashboard): sin esto, una empresa con varias bodegas activas termina con decenas de
   // filas (una por día+bodega) en una sola tabla larga sin fin.
   const diarioTotalPaginas = Math.max(1, Math.ceil(state.dash.diario.length/TAM_PAGINA_DASH_DIARIO));
   const diarioPaginaActual = Math.min(state.dashDiarioPagina||0, diarioTotalPaginas-1);
   const diarioRows = state.dash.diario.slice(diarioPaginaActual*TAM_PAGINA_DASH_DIARIO, diarioPaginaActual*TAM_PAGINA_DASH_DIARIO + TAM_PAGINA_DASH_DIARIO);
+
+  // Materiales contados pagina de a 15 filas también, sobre lo ya traído del servidor
+  // (state.ultimosConteos, cargado de a TAM_PAGINA_LISTA por tanda) -- ver avanzarPaginaMateriales,
+  // que pide la siguiente tanda al servidor solo si hace falta para completar la página pedida.
+  const materialesPagina = Math.min(state.dashMaterialesPagina||0, Math.max(0, Math.ceil(state.ultimosConteos.length/TAM_PAGINA_DASH_MATERIALES)-1));
+  const materialesRows = state.ultimosConteos.slice(materialesPagina*TAM_PAGINA_DASH_MATERIALES, materialesPagina*TAM_PAGINA_DASH_MATERIALES + TAM_PAGINA_DASH_MATERIALES);
+  const materialesHaySiguiente = (materialesPagina+1)*TAM_PAGINA_DASH_MATERIALES < state.ultimosConteos.length || state.ultimosConteosHayMas;
 
   const vistaOperativa = `
     <div class="section-head"><h2 style="font-size:17px">Diario ${campoConInfo('SKU contados, con diferencia, reconteos y unidades por día calendario.')}</h2></div>
@@ -4022,7 +4052,7 @@ function renderDashboard(){
     <div class="card">
       ${state.ultimosConteos.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
-        <tbody>${state.ultimosConteos.map(c=>{
+        <tbody>${materialesRows.map(c=>{
           const skuCode = c.skus? c.skus.sku_code : '';
           const fotos = (c.conteo_fotos||[]).length;
           return `<tr>
@@ -4041,8 +4071,10 @@ function renderDashboard(){
         </tr>`;
         }).join('')}</tbody>
       </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
-      ${state.ultimosConteosHayMas? `<div style="text-align:center;margin-top:12px">
-        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-conteos" style="width:auto;padding:8px 16px" ${state.ultimosConteosCargandoMas?'disabled':''}>${state.ultimosConteosCargandoMas?'Cargando…':'Cargar más'}</button>
+      ${state.ultimosConteos.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
+        <button class="btn btn-secondary" id="dash-materiales-prev" style="width:auto;flex:none;padding:8px 14px" ${materialesPagina<=0?'disabled':''}>Anterior</button>
+        <span class="hint" style="margin:0">${state.ultimosConteosCargandoMas?'Cargando…':`pág. ${materialesPagina+1}`}</span>
+        <button class="btn btn-secondary" id="dash-materiales-next" style="width:auto;flex:none;padding:8px 14px" ${(!materialesHaySiguiente || state.ultimosConteosCargandoMas)?'disabled':''}>Siguiente</button>
       </div>` : ''}
     </div>
   `;
@@ -5798,12 +5830,14 @@ function bind(){
     });
     const selDashPeriodo = document.getElementById('dash-periodo');
     if(selDashPeriodo) selDashPeriodo.addEventListener('change', e=> setState({dashPeriodo: e.target.value}));
-    const btnCargarMasConteos = document.getElementById('btn-cargar-mas-conteos');
-    if(btnCargarMasConteos) btnCargarMasConteos.addEventListener('click', cargarMasUltimosConteos);
     const btnDashDiarioPrev = document.getElementById('dash-diario-prev');
     const btnDashDiarioNext = document.getElementById('dash-diario-next');
     if(btnDashDiarioPrev) btnDashDiarioPrev.addEventListener('click', ()=> setState({dashDiarioPagina: Math.max(0, (state.dashDiarioPagina||0)-1)}));
     if(btnDashDiarioNext) btnDashDiarioNext.addEventListener('click', ()=> setState({dashDiarioPagina: (state.dashDiarioPagina||0)+1}));
+    const btnDashMaterialesPrev = document.getElementById('dash-materiales-prev');
+    const btnDashMaterialesNext = document.getElementById('dash-materiales-next');
+    if(btnDashMaterialesPrev) btnDashMaterialesPrev.addEventListener('click', retrocederPaginaMateriales);
+    if(btnDashMaterialesNext) btnDashMaterialesNext.addEventListener('click', avanzarPaginaMateriales);
     const btnExportarInforme = document.getElementById('btn-exportar-informe');
     if(btnExportarInforme) btnExportarInforme.addEventListener('click', imprimirInformeCiclo);
   }
