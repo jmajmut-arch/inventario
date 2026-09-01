@@ -390,7 +390,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0 },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0 },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -507,6 +507,10 @@ const TAM_PAGINA_DASH_DIARIO = 15;
 // servidor, y cambiar TAM_PAGINA_LISTA afectaría de paso leads, Buscar y Reconteo (que la
 // comparten), algo que Joel no pidió acá.
 const TAM_PAGINA_DASH_MATERIALES = 15;
+// Tabla de resultados de "Buscar" (maestro de SKU): mismo criterio que Materiales contados --
+// se muestra de a 15, pero se sigue cargando del servidor de a TAM_PAGINA_LISTA (30) por tanda
+// (ver buscarConteos/buscarMasConteos), sin tocar esa constante compartida con leads y Reconteo.
+const TAM_PAGINA_BUSCAR = 15;
 // Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
 // que no tienen ni bodega ni ubicación específica (no aparecen en ubicaciones_generales).
 const BODEGA_SIN_UBICACION = '__sin_ubicacion__';
@@ -2050,7 +2054,7 @@ function irABuscarSku(skuCode){
     view: 'buscar',
     busqueda: {
       texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false,
-      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0,
+      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0,
     },
   });
   buscarConteos();
@@ -2060,7 +2064,7 @@ async function buscarConteos(){
   try{
     const rows = await rest(construirPathBusqueda(0)) || [];
     const resultados = filtrarResultadosBusqueda(rows);
-    setState({busqueda: {...state.busqueda, resultados, buscando:false, hayMas: rows.length===TAM_PAGINA_LISTA, paginaOffset: rows.length}});
+    setState({busqueda: {...state.busqueda, resultados, buscando:false, hayMas: rows.length===TAM_PAGINA_LISTA, paginaOffset: rows.length, busquedaPagina:0}});
   }catch(e){
     setState({busqueda: {...state.busqueda, buscando:false}});
     toast(e.message,'err');
@@ -2079,6 +2083,22 @@ async function buscarMasConteos(){
   }catch(e){ toast(e.message,'err'); }
   state.busqueda.buscandoMas = false;
   render();
+}
+
+// Paginado de "Buscar" (Maestro de SKU), 15 filas por página -- mismo patrón que
+// avanzarPaginaMateriales: "Solo con fotografías" filtra en el cliente después de traer cada
+// tanda, así que una sola tanda del servidor puede no alcanzar para completar la página pedida;
+// por eso el while, no un solo llamado, sigue pidiendo tandas mientras falten filas y el
+// servidor todavía tenga más (hayMas).
+async function avanzarPaginaBuscar(){
+  const siguiente = (state.busqueda.busquedaPagina||0) + 1;
+  while(siguiente*TAM_PAGINA_BUSCAR >= state.busqueda.resultados.length && state.busqueda.hayMas){
+    await buscarMasConteos();
+  }
+  setState({busqueda: {...state.busqueda, busquedaPagina: siguiente}});
+}
+function retrocederPaginaBuscar(){
+  setState({busqueda: {...state.busqueda, busquedaPagina: Math.max(0, (state.busqueda.busquedaPagina||0)-1)}});
 }
 
 // Exporta a Excel los conteos de una fecha o rango de fechas (vista conteos_exportables: un
@@ -4638,6 +4658,11 @@ function renderReconteo(){
 function renderBuscar(){
   const b = state.busqueda;
   const resultados = b.resultados;
+  // Igual que Materiales contados (Dashboard operativo): 15 filas por página sobre lo ya
+  // cargado del servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar.
+  const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(resultados.length/TAM_PAGINA_BUSCAR)-1));
+  const resultadosPagina = resultados.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
+  const busquedaHaySiguiente = (busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < resultados.length || b.hayMas;
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card">
@@ -4693,7 +4718,7 @@ function renderBuscar(){
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Batch</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
-        <tbody>${resultados.map(r=>{
+        <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
           return `<tr>
@@ -4715,8 +4740,10 @@ function renderBuscar(){
           </tr>`;
         }).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
-      ${b.hayMas? `<div style="text-align:center;margin-top:12px">
-        <button type="button" class="btn btn-secondary" id="btn-cargar-mas-busqueda" style="width:auto;padding:8px 16px" ${b.buscandoMas?'disabled':''}>${b.buscandoMas?'Cargando…':'Cargar más'}</button>
+      ${resultados.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
+        <button class="btn btn-secondary" id="buscar-pagina-prev" style="width:auto;flex:none;padding:8px 14px" ${busquedaPaginaActual<=0?'disabled':''}>Anterior</button>
+        <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`pág. ${busquedaPaginaActual+1}`}</span>
+        <button class="btn btn-secondary" id="buscar-pagina-next" style="width:auto;flex:none;padding:8px 14px" ${(!busquedaHaySiguiente || b.buscandoMas)?'disabled':''}>Siguiente</button>
       </div>` : ''}
     </div>
     ` : `<div class="card"><div class="empty"><div class="glyph">🔍</div>Elige tus filtros y presiona "Buscar" para ver los resultados.</div></div>`}
@@ -6070,6 +6097,7 @@ function bind(){
         soloContadoHoy: document.getElementById('b-contado-hoy').checked,
         buscando: true,
         yaBuscado: true,
+        busquedaPagina: 0,
       }});
       buscarConteos();
     });
@@ -6084,8 +6112,10 @@ function bind(){
         }catch(e){ toast(e.message,'err'); }
       });
     });
-    const btnCargarMasBusqueda = document.getElementById('btn-cargar-mas-busqueda');
-    if(btnCargarMasBusqueda) btnCargarMasBusqueda.addEventListener('click', buscarMasConteos);
+    const btnBuscarPaginaPrev = document.getElementById('buscar-pagina-prev');
+    const btnBuscarPaginaNext = document.getElementById('buscar-pagina-next');
+    if(btnBuscarPaginaPrev) btnBuscarPaginaPrev.addEventListener('click', retrocederPaginaBuscar);
+    if(btnBuscarPaginaNext) btnBuscarPaginaNext.addEventListener('click', avanzarPaginaBuscar);
   }
 
   if(state.view==='plan'){
