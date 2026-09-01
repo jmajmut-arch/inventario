@@ -3894,6 +3894,39 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(pathBuscarFueraPlan.includes('fuera_de_plan=eq.true'), 'con "Solo fuera de plan" marcado, la búsqueda debe filtrar por fuera_de_plan=eq.true, obtuvo: '+pathBuscarFueraPlan);
   const htmlBuscarFueraPlan = ctx.renderBuscar();
   assert(htmlBuscarFueraPlan.includes('id="b-solo-fuera-plan"') && htmlBuscarFueraPlan.includes('Fuera de plan'), 'debe mostrar el checkbox del filtro y el badge "Fuera de plan" en el resultado, obtuvo: '+htmlBuscarFueraPlan);
+  // Pedido de Joel: con cualquiera de los checkboxes (fotos/fuera de plan/contado hoy) activo,
+  // mostrar un gráfico resumen por estado sobre los resultados ya filtrados.
+  assert(htmlBuscarFueraPlan.includes('Resumen por estado') && htmlBuscarFueraPlan.includes('<svg'), 'con "Solo fuera de plan" marcado y resultados cargados, debe verse el gráfico resumen, obtuvo: '+htmlBuscarFueraPlan);
+  assert(htmlBuscarFueraPlan.includes('Resultados filtrados'), 'sin más resultados por cargar, el gráfico debe indicar que es sobre todos los resultados filtrados, obtuvo: '+htmlBuscarFueraPlan);
+
+  // Sin ningún checkbox activo, no debe verse el gráfico aunque haya resultados.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloFueraDePlan:false};
+  const htmlBuscarSinFlags = ctx.renderBuscar();
+  assert(!htmlBuscarSinFlags.includes('Resumen por estado'), 'sin ningún checkbox activo, no debe mostrarse el gráfico resumen, obtuvo: '+htmlBuscarSinFlags);
+
+  // Con un checkbox activo pero sin resultados, tampoco debe verse (no hay nada que resumir).
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloFueraDePlan:true, resultados:[]};
+  const htmlBuscarFlagSinResultados = ctx.renderBuscar();
+  assert(!htmlBuscarFlagSinResultados.includes('Resumen por estado'), 'con checkbox activo pero sin resultados, no debe mostrarse el gráfico resumen, obtuvo: '+htmlBuscarFlagSinResultados);
+
+  // Con más resultados por cargar (hayMas), el gráfico debe aclarar que es solo sobre los ya
+  // cargados, no sobre el total que calza con el filtro.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados:[{sku_code:'SKU-9', descripcion:'X', bodega:'Nave', conteo_id:'c-9', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, ciclo_nombre:null, fotos:[]}], hayMas:true};
+  const htmlBuscarHayMas = ctx.renderBuscar();
+  assert(htmlBuscarHayMas.includes('Primeros 1 cargados'), 'con hayMas=true, el gráfico debe aclarar que es sobre los resultados ya cargados, no el total, obtuvo: '+htmlBuscarHayMas);
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, hayMas:false};
+
+  // resumenEstadoBusqueda: agrupa igual que estadoBadge decide qué badge mostrar por fila --
+  // un resultado con diferencia!=0 cae en "Con diferencia" aunque su columna estado diga
+  // "aprobado" (el mismo criterio que ya usa la tabla, para que el gráfico nunca la contradiga).
+  const resumenMixto = ctx.resumenEstadoBusqueda([
+    {conteo_id:null, estado:null, diferencia:null},
+    {conteo_id:'c-1', estado:'aprobado', diferencia:0},
+    {conteo_id:'c-2', estado:'aprobado', diferencia:-3},
+    {conteo_id:'c-3', estado:'pendiente_revision', diferencia:0},
+  ]);
+  const porGrupo = Object.fromEntries(resumenMixto.map(g=>[g.dia, g.n]));
+  assert(porGrupo['No contado']===1 && porGrupo['Cuadrado']===1 && porGrupo['Con diferencia']===1 && porGrupo['Pendiente']===1, 'resumenEstadoBusqueda debe agrupar cada resultado en el grupo correcto, obtuvo: '+JSON.stringify(porGrupo));
 
   // Buscar: filtro "Contado hoy" -- filtra fecha_conteo por el rango de HOY en hora local (mismo
   // patrón que exportarConteosExcel), sin importar en qué huso horario esté la persona. No se
