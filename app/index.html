@@ -3176,6 +3176,20 @@ function renderBarChartApilado(datos, valueKey, extraKey, colorBase, colorExtra,
   </svg></div>`;
 }
 
+// Resumen por estado para el gráfico de Buscar (ver renderBuscar) -- misma lógica que
+// estadoBadge para decidir en qué grupo cae cada resultado, así el gráfico nunca contradice
+// las etiquetas que ya se ven fila por fila en la tabla.
+function resumenEstadoBusqueda(resultados){
+  const grupos = { 'No contado':0, 'Cuadrado':0, 'Con diferencia':0, 'Pendiente':0 };
+  resultados.forEach(r=>{
+    if(!r.conteo_id){ grupos['No contado']++; return; }
+    if(r.diferencia && Number(r.diferencia)!==0){ grupos['Con diferencia']++; return; }
+    if(r.estado==='pendiente_revision'){ grupos['Pendiente']++; return; }
+    grupos['Cuadrado']++;
+  });
+  return Object.entries(grupos).map(([dia,n])=>({dia, n}));
+}
+
 // Leyenda chica de colores para un gráfico apilado (ver renderBarChartApilado).
 function renderLeyendaColores(items){
   return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">${items.map(([color,label])=>`
@@ -4450,6 +4464,12 @@ function renderBuscar(){
 
     ${b.yaBuscado? `
     <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
+    ${(b.soloConFotos || b.soloFueraDePlan || b.soloContadoHoy) && resultados.length? `
+    <div class="card">
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados filtrados'}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
+      ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', 'var(--steel)', d=>d, true)}
+    </div>
+    ` : ''}
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
