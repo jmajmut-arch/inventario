@@ -361,7 +361,7 @@ let state = {
   // SKU pendientes de todos los bin de esa ubicación (antes exigía elegir el bin exacto, un paso
   // de más que no aportaba — y si una ubicación no tenía bin cargado, no había forma de llegar a
   // ver sus SKU).
-  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null },
+  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null, desdeCache: false },
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [], diferenciasRecientes: [] },
   ultimosConteos: [],
@@ -1563,15 +1563,61 @@ function perfilCargado(){
   return true;
 }
 
+// Caché local de "mi plan del día" (solo eso, no el universo completo de SKU de la empresa —
+// acá puede llegar a 50 mil+ filas, invivible para guardar en el dispositivo): permite que quien
+// cuenta siga viendo su plan y su checklist de SKU pendientes aunque se corte la señal justo al
+// abrir la app o al cambiar de bodega/ubicación, usando la última copia que se alcanzó a bajar
+// con conexión. Guardada por usuario (localStorage es por navegador/dispositivo, no por sesión)
+// para no mezclar el plan de una cuenta con el de otra en un equipo compartido.
+const PLAN_DIA_CACHE_KEY = 'plan_dia_cache';
+function claveSeleccionPlanDia(bodega, ubicacion){ return `${bodega||''}||${ubicacion||''}`; }
+function leerPlanDiaCache(usuarioId){
+  try{ return (JSON.parse(localStorage.getItem(PLAN_DIA_CACHE_KEY)||'{}'))[usuarioId] || null; }catch(e){ return null; }
+}
+function guardarPlanDiaCache(usuarioId, datos){
+  try{
+    const todo = JSON.parse(localStorage.getItem(PLAN_DIA_CACHE_KEY)||'{}');
+    todo[usuarioId] = datos;
+    localStorage.setItem(PLAN_DIA_CACHE_KEY, JSON.stringify(todo));
+  }catch(e){ /* localStorage no disponible (modo privado, etc.) */ }
+}
+// Al refrescar las entradas del día se conservan las selecciones (checklists por bodega/ubicación)
+// ya cacheadas para ESE mismo día — son válidas igual y perderlas de encima haría inútil el
+// respaldo si justo se corta la señal entre cargar las entradas y elegir la cascada.
+function guardarPlanDiaCacheBase(usuarioId, fecha, entradas){
+  const anterior = leerPlanDiaCache(usuarioId);
+  const selecciones = (anterior && anterior.fecha===fecha) ? anterior.selecciones : {};
+  guardarPlanDiaCache(usuarioId, {fecha, entradas, selecciones});
+}
+function guardarSeleccionPlanDiaCache(usuarioId, fecha, bodega, ubicacion, skus){
+  const actual = leerPlanDiaCache(usuarioId);
+  if(!actual || actual.fecha!==fecha) return; // sin base de ese día cacheada: nada que asociarle
+  const selecciones = {...(actual.selecciones||{}), [claveSeleccionPlanDia(bodega, ubicacion)]: skus};
+  guardarPlanDiaCache(usuarioId, {...actual, selecciones});
+}
+function leerSeleccionPlanDiaCache(usuarioId, fecha, bodega, ubicacion){
+  const actual = leerPlanDiaCache(usuarioId);
+  if(!actual || actual.fecha!==fecha) return null;
+  return (actual.selecciones && actual.selecciones[claveSeleccionPlanDia(bodega, ubicacion)]) || null;
+}
+
 // "Mi plan del día" en Contar: qué le corresponde hoy (o el día elegido) a la cuenta
 // logueada — responsable_id en plan_semanal ya es directamente el id de la cuenta.
 async function cargarPlanDeHoy(fecha){
   if(!state.perfil) return;
-  setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', skusPendientes:null}});
+  setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false}});
   try{
     const entradas = await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&responsable_id=eq.${state.perfil.id}&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || [];
-    setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas}});
+    setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas, desdeCache:false}});
+    guardarPlanDiaCacheBase(state.perfil.id, fecha, entradas);
   }catch(e){
+    if(pareceFalloDeRed(e)){
+      const cache = leerPlanDiaCache(state.perfil.id);
+      if(cache && cache.fecha===fecha){
+        setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas:cache.entradas||[], desdeCache:true}});
+        return;
+      }
+    }
     toast(e.message,'err');
     setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false}});
   }
@@ -1639,7 +1685,7 @@ function describirCambioPlan(s){
 }
 
 async function elegirCascadaContar(cambios){
-  const cp = {...state.contarPlan, ...cambios, skusPendientes:null};
+  const cp = {...state.contarPlan, ...cambios, skusPendientes:null, desdeCache:false};
   setState({contarPlan: cp});
   const activas = entradasActivasContar(cp);
   if(!activas.length) return;
@@ -1668,8 +1714,18 @@ async function elegirCascadaContar(cambios){
     }
 
     skus.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'') || a.sku_code.localeCompare(b.sku_code));
-    setState({contarPlan:{...state.contarPlan, skusPendientes: skus}});
-  }catch(e){ toast(e.message,'err'); }
+    setState({contarPlan:{...state.contarPlan, skusPendientes: skus, desdeCache:false}});
+    if(state.perfil) guardarSeleccionPlanDiaCache(state.perfil.id, cp.fecha, cp.bodega, cp.ubicacion, skus);
+  }catch(e){
+    if(pareceFalloDeRed(e) && state.perfil){
+      const cache = leerSeleccionPlanDiaCache(state.perfil.id, cp.fecha, cp.bodega, cp.ubicacion);
+      if(cache){
+        setState({contarPlan:{...state.contarPlan, skusPendientes: cache, desdeCache:true}});
+        return;
+      }
+    }
+    toast(e.message,'err');
+  }
 }
 
 async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, cicloId}){
@@ -4340,6 +4396,7 @@ function renderPlanDelDia(){
     <div class="card">
       <label for="contar-fecha">Día</label>
       <input type="date" id="contar-fecha" value="${cp.fecha}">
+      ${cp.desdeCache? `<div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:8px">${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')} Sin conexión: mostrando el plan guardado la última vez que hubo señal</div>` : ''}
       ${cp.cargando? `<div class="hint" style="margin-top:10px">Cargando…</div>` :
         !cp.entradas.length? `<div class="empty" style="padding:14px 8px;margin-top:10px">Sin nada planificado para ti este día.</div>` : `
         <div class="row2" style="margin-top:10px">

@@ -3743,6 +3743,35 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const callMiPlan = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
   assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('responsable_id=eq.resp-yo'), 'debe filtrar plan_semanal_detalle por fecha y por mi propio id de cuenta, obtuvo: '+JSON.stringify(callMiPlan));
 
+  // Modo offline para "Plan del día" (a pedido de Joel, acotado solo al plan asignado a la
+  // persona -- NO al universo completo de SKU de la empresa, que puede superar las 50 mil filas
+  // y sería impracticable de cachear en el dispositivo): cada carga exitosa de cargarPlanDeHoy se
+  // guarda en localStorage; si un pedido posterior falla por un corte de red real (no un error del
+  // servidor), debe restaurar las entradas de la última copia guardada para ESE MISMO día en vez
+  // de mostrar "Sin nada planificado", marcando contarPlan.desdeCache para poder avisarlo en pantalla.
+  const cacheTrasCargaOk = JSON.parse(ctx.localStorage.getItem('plan_dia_cache'))['resp-yo'];
+  assert(cacheTrasCargaOk && cacheTrasCargaOk.fecha==='2026-08-24' && cacheTrasCargaOk.entradas.length===4, 'una carga exitosa de cargarPlanDeHoy debe guardar sus entradas en localStorage (plan_dia_cache), obtuvo: '+ctx.localStorage.getItem('plan_dia_cache'));
+  const fetchOriginalPlanOffline = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/plan_semanal_detalle') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalPlanOffline(url, opts);
+  };
+  ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
+  await ctx.cargarPlanDeHoy('2026-08-24');
+  assert(ctx.__appstate.contarPlan.entradas.length===4 && ctx.__appstate.contarPlan.desdeCache===true, 'sin conexión, debe restaurar las 4 entradas cacheadas del mismo día y marcar desdeCache:true, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
+  const htmlPlanDesdeCache = ctx.renderPlanDelDia();
+  assert(htmlPlanDesdeCache.includes('Sin conexión') && htmlPlanDesdeCache.includes('última vez que hubo señal'), 'debe mostrar un aviso de que el plan viene de la caché offline, obtuvo: '+htmlPlanDesdeCache);
+  // Un día SIN copia cacheada (ninguna carga exitosa previa para esa fecha) no tiene de dónde
+  // recuperarse: debe seguir el comportamiento anterior (error + plan vacío), no inventar datos.
+  ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2099-01-01', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
+  await ctx.cargarPlanDeHoy('2099-01-01');
+  assert(ctx.__appstate.contarPlan.entradas.length===0 && ctx.__appstate.contarPlan.desdeCache===false, 'sin conexión y sin caché para ese día, debe quedar sin entradas y desdeCache:false, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
+  ctx.fetch = fetchOriginalPlanOffline;
+  // Vuelve a dejar el plan real cargado (2026-08-24) para el resto de los tests de esta sección.
+  ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
+  await ctx.cargarPlanDeHoy('2026-08-24');
+
   // Bug real reportado: al volver a la pestaña Contar, "Plan del día" se quedaba con lo que se
   // había cargado la primera vez (contarPlan.cargado ya en true), sin pedirlo de nuevo aunque la
   // planificación hubiera cambiado mientras tanto (editada desde Planificación, u otro día). El
@@ -3845,6 +3874,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // string literal "undefined" si algún día vuelve a faltar un dato en el objeto seleccionado.
   const skuSinMover = skusJuntos.find(s=>s.sku_code==='SKU-001');
   assert(skuSinMover.stock_sistema===20, 'el SKU pendiente debe traer su stock_sistema real (no undefined), obtuvo: '+JSON.stringify(skuSinMover));
+
+  // Modo offline: un elegirCascadaContar exitoso también cachea el checklist de SKU pendientes de
+  // ESA selección de bodega+ubicación (clave "bodega||ubicacion") en la misma caché de plan del
+  // día. Si cambiar de bodega/ubicación dispara elegirCascadaContar de nuevo y justo ahí se corta
+  // la señal (caso real en sitio minero), debe recuperar ese checklist ya visto en vez de dejar la
+  // pantalla vacía como si no hubiera nada pendiente.
+  const cacheSeleccionOk = JSON.parse(ctx.localStorage.getItem('plan_dia_cache'))['resp-yo'];
+  assert(cacheSeleccionOk && Array.isArray(cacheSeleccionOk.selecciones['Nave Mina||Interior Nave']) && cacheSeleccionOk.selecciones['Nave Mina||Interior Nave'].length===4, 'elegirCascadaContar debe cachear los SKU pendientes de esa selección, obtuvo: '+ctx.localStorage.getItem('plan_dia_cache'));
+  const fetchOriginalCascadaOffline = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/skus_planificables') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalCascadaOffline(url, opts);
+  };
+  await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
+  ctx.fetch = fetchOriginalCascadaOffline;
+  assert(ctx.__appstate.contarPlan.desdeCache===true && Array.isArray(ctx.__appstate.contarPlan.skusPendientes) && ctx.__appstate.contarPlan.skusPendientes.length===4, 'sin conexión, volver a elegir la misma bodega+ubicación debe restaurar los SKU pendientes cacheados y marcar desdeCache:true, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
+  // Una selección nunca vista con conexión ("SKU sin ubicación", jamás elegida en este test) no
+  // tiene de dónde recuperarse: debe seguir el comportamiento anterior (toast de error, sin
+  // inventar SKU).
+  const toastRootCascadaOffline = elements['toast-root'];
+  const toastsAntesCascadaOffline = toastRootCascadaOffline ? toastRootCascadaOffline.hijos.length : 0;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/skus_planificables') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalCascadaOffline(url, opts);
+  };
+  await ctx.elegirCascadaContar({bodega:'__sin_ubicacion__', ubicacion:''});
+  ctx.fetch = fetchOriginalCascadaOffline;
+  assert(ctx.__appstate.contarPlan.desdeCache===false, 'sin caché para una selección nunca vista, no debe marcar desdeCache:true, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
+  const nuevosToastsCascadaOffline = toastRootCascadaOffline.hijos.slice(toastsAntesCascadaOffline);
+  assert(nuevosToastsCascadaOffline.length>0, 'sin caché para esa selección, debe avisar el error como antes, obtuvo: '+JSON.stringify(nuevosToastsCascadaOffline));
+  // Deja el plan en el estado que esperan los tests siguientes (misma selección con datos reales).
+  await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
+
   ctx.__appstate.skuSeleccionado = skuSinMover;
   const htmlConSkuElegido = ctx.renderConteo();
   assert(htmlConSkuElegido.includes('Stock sistema (este batch): 20 UN') && !htmlConSkuElegido.includes('undefined'), 'la tarjeta del SKU elegido debe mostrar el stock real, nunca el texto "undefined", obtuvo: '+htmlConSkuElegido);
