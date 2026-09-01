@@ -325,6 +325,12 @@ let state = {
   debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
   empresaBloqueada: null,    // {motivo:'inactiva'|'morosa'|'pendiente_tarjeta'|'vencida', nombre} cuando la empresa del usuario está bloqueada
   authRecuperar: false,      // true muestra el formulario de "olvidé mi contraseña" en vez del login
+  // {email} muestra la pantalla "Ingresa tu código" en vez del login -- alternativa al link
+  // del correo (#access_token=...) para cuando el filtro de seguridad de una empresa grande
+  // (ver #117, BHP) abre y gasta el link de un solo uso antes de que la persona pueda hacer
+  // clic. El código de 6 dígitos viene en el mismo correo, pero no depende de ningún link que
+  // un escáner automático pueda seguir.
+  otpAcceso: null,
   invitandoPersona: false,   // spinner del botón "Enviar invitación" (panel super-admin o equipo de la empresa)
   iniciandoSuscripcionFlow: false, // spinner del botón "Suscribirme con tarjeta" en Configuraciones
   cancelandoSuscripcionFlow: false, // spinner del botón "Cancelar suscripción" en Configuraciones
@@ -916,8 +922,45 @@ async function solicitarRecuperacion(email){
       const data = await res.json().catch(()=>({}));
       throw new Error(data.error_description || data.msg || data.error || 'No se pudo enviar el correo');
     }
-    setState({loading:false, authRecuperar:false});
-    toast('Si el correo existe, te llegará un link para crear una contraseña nueva');
+    // Pasa directo a "Ingresa tu código" (con el correo ya escrito) en vez de solo volver al
+    // login -- ver ingresarConCodigo: escribir el código a mano no depende de que el link del
+    // correo sobreviva un escáner de seguridad corporativo.
+    setState({loading:false, authRecuperar:false, otpAcceso:{email}});
+    toast('Si el correo existe, te llegará un código de 6 dígitos');
+  }catch(e){
+    setState({loading:false});
+    toast(e.message,'err');
+  }
+}
+
+// Verifica un código OTP de 6 dígitos contra Supabase (POST /auth/v1/verify) para el `type`
+// dado. Devuelve la sesión si el código es válido para ese tipo, o null si no (para poder
+// probar el otro tipo sin mostrar un error prematuro -- ver ingresarConCodigo).
+async function verificarOtpIntento(email, token, type){
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+    method:'POST',
+    headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
+    body: JSON.stringify({email, token, type})
+  });
+  if(!res.ok) return null;
+  const data = await res.json();
+  if(!data.access_token) return null;
+  return { access_token: data.access_token, refresh_token: data.refresh_token, user: data.user };
+}
+
+// Alternativa al link del correo (#access_token=...&type=invite|recovery, ver
+// procesarLlegadaPorInvitacion): la persona escribe a mano el código de 6 dígitos que
+// Supabase manda en el mismo correo de invitación o de recuperar contraseña. No sabemos de
+// antemano cuál de los dos tipos es, así que se prueban en orden.
+async function ingresarConCodigo(email, codigo){
+  if(!email || !codigo) return;
+  setState({loading:true});
+  try{
+    const sesion = (await verificarOtpIntento(email, codigo, 'invite'))
+      || (await verificarOtpIntento(email, codigo, 'recovery'));
+    if(!sesion) throw new Error('El código no es válido o ya venció. Pide que te reenvíen la invitación o el correo de recuperación.');
+    state.session = sesion;
+    setState({loading:false, otpAcceso:null, debeCrearPassword:true});
   }catch(e){
     setState({loading:false});
     toast(e.message,'err');
@@ -928,7 +971,7 @@ async function solicitarRecuperacion(email){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]} };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]} };
 }
 
 function handleLogout(){
@@ -2937,6 +2980,7 @@ const ICONS = {
    RENDER — LOGIN
    ======================================================================= */
 function renderLogin(){
+  if(state.otpAcceso) return renderIngresarCodigo();
   if(state.authRecuperar) return renderRecuperarPassword();
   return `
   <div class="login-wrap">
@@ -2957,6 +3001,7 @@ function renderLogin(){
         </div>
       </form>
       <div class="login-toggle"><button type="button" id="btn-olvide-pass">¿Olvidaste tu contraseña?</button></div>
+      <div class="login-toggle"><button type="button" id="btn-tengo-codigo">¿Tienes un código de invitación o recuperación?</button></div>
       <div class="hint" style="text-align:center;margin-top:10px">¿No tienes cuenta? Pide que el administrador te invite.</div>
       <div class="login-toggle"><a href="../index.html">‹ Volver al sitio</a></div>
     </div>
@@ -2969,17 +3014,44 @@ function renderRecuperarPassword(){
     <div class="login-card">
       <div class="login-logo">IA</div>
       <h1 class="login-title">Recupera tu acceso</h1>
-      <div class="login-sub">Te enviaremos un link para crear una contraseña nueva</div>
+      <div class="login-sub">Te enviaremos un código de 6 dígitos para crear una contraseña nueva</div>
       <form id="recuperar-password-form">
         <label for="f-recuperar-email">Correo</label>
         <input type="email" id="f-recuperar-email" placeholder="nombre@empresa.cl" required>
         <div style="margin-top:20px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>
-            ${state.loading? '<span class="spinner"></span>' : 'Enviar link'}
+            ${state.loading? '<span class="spinner"></span>' : 'Enviar código'}
           </button>
         </div>
       </form>
       <div class="login-toggle"><button type="button" id="btn-volver-login">Volver a iniciar sesión</button></div>
+    </div>
+  </div>`;
+}
+
+// "Ingresa tu código": alternativa al link del correo (ver ingresarConCodigo) para cuando el
+// filtro de seguridad de una empresa grande abre y gasta el link antes de que la persona
+// pueda hacer clic. Mismo correo, pero escribiendo a mano el código de 6 dígitos.
+function renderIngresarCodigo(){
+  const o = state.otpAcceso;
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">IA</div>
+      <h1 class="login-title">Ingresa tu código</h1>
+      <div class="login-sub">Escribe el código de 6 dígitos que te llegó por correo (de invitación o de recuperar contraseña)</div>
+      <form id="otp-acceso-form">
+        <label for="f-otp-email">Correo</label>
+        <input type="email" id="f-otp-email" placeholder="nombre@empresa.cl" value="${esc(o.email||'')}" required>
+        <label for="f-otp-codigo">Código de 6 dígitos</label>
+        <input type="text" id="f-otp-codigo" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456" required>
+        <div style="margin-top:20px">
+          <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>
+            ${state.loading? '<span class="spinner"></span>' : 'Ingresar'}
+          </button>
+        </div>
+      </form>
+      <div class="login-toggle"><button type="button" id="btn-volver-login-otp">Volver a iniciar sesión</button></div>
     </div>
   </div>`;
 }
@@ -5316,6 +5388,16 @@ function bind(){
     return;
   }
   if(!state.session){
+    if(state.otpAcceso){
+      document.getElementById('otp-acceso-form').addEventListener('submit', e=>{
+        e.preventDefault();
+        const email = document.getElementById('f-otp-email').value.trim();
+        const codigo = document.getElementById('f-otp-codigo').value.trim();
+        ingresarConCodigo(email, codigo);
+      });
+      document.getElementById('btn-volver-login-otp').addEventListener('click', ()=> setState({otpAcceso:null}));
+      return;
+    }
     if(state.authRecuperar){
       document.getElementById('recuperar-password-form').addEventListener('submit', e=>{
         e.preventDefault();
@@ -5332,6 +5414,7 @@ function bind(){
       handleLogin(email, pass);
     });
     document.getElementById('btn-olvide-pass').addEventListener('click', ()=> setState({authRecuperar:true}));
+    document.getElementById('btn-tengo-codigo').addEventListener('click', ()=> setState({otpAcceso:{email:''}}));
     return;
   }
 
