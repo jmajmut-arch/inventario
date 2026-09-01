@@ -616,7 +616,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(generales.some(g=>g.bodega===null && g.cantidad_skus===8), 'debe incluir el grupo de SKU sin bodega asignada, obtuvo: '+JSON.stringify(generales));
 
   // cargarOpcionesCategoriasUnidades: sugerencias (datalist) de categoría/unidad de medida
-  // para "Cargar SKU", basadas en lo que la empresa ya usó.
+  // para "Agregar SKU a maestro de materiales", basadas en lo que la empresa ya usó.
   await ctx.cargarOpcionesCategoriasUnidades();
   assert(JSON.stringify(ctx.__appstate.opcionesCategorias)===JSON.stringify(['Repuestos','Seguridad']), 'cargarOpcionesCategoriasUnidades debe dejar las categorías en state.opcionesCategorias, obtuvo: '+JSON.stringify(ctx.__appstate.opcionesCategorias));
   assert(JSON.stringify(ctx.__appstate.opcionesUnidades)===JSON.stringify(['KG','UN']), 'cargarOpcionesCategoriasUnidades debe dejar las unidades en state.opcionesUnidades, obtuvo: '+JSON.stringify(ctx.__appstate.opcionesUnidades));
@@ -3359,7 +3359,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.escanerModal===null, 'tras elegir, el modal debe cerrarse');
   ctx.__appstate.skus = skusEscaner;
 
-  // onCodigoEscaneado con destino 'campo-sku' (botón de escanear en "Cargar SKU"): no hay
+  // onCodigoEscaneado con destino 'campo-sku' (botón de escanear en "Agregar SKU a maestro de
+  // materiales"): no hay
   // nada que resolver contra el maestro existente, así que llena directo el campo de código
   // del formulario de alta y cierra el modal, sin pasar por la pantalla de asociación.
   ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'campo-sku' };
