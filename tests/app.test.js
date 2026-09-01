@@ -2009,6 +2009,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const formInvitarEquipoHtml = htmlConfigAdmin.slice(htmlConfigAdmin.indexOf('id="form-invitar-equipo"'), htmlConfigAdmin.indexOf('</form>', htmlConfigAdmin.indexOf('id="form-invitar-equipo"')));
   assert(!formInvitarEquipoHtml.includes('Administrador'), 'el formulario de invitar equipo no debe ofrecer el rol Administrador, obtuvo: '+formInvitarEquipoHtml);
 
+  // Pedido de Joel: diferenciar el menú de Configuraciones con títulos más claros y organizados
+  // (antes "Plan y facturación", "Invitar equipo" y "Mi equipo" venían todos amontonados bajo un
+  // único encabezado "Empresa", sin secciones propias).
+  assert(htmlConfigAdmin.includes('<h2>Tu empresa</h2>'), 'el nombre de la empresa debe ir bajo el encabezado "Tu empresa" (no ambiguo con las "Empresas" de super-admin), obtuvo: '+htmlConfigAdmin);
+  assert(htmlConfigAdmin.includes('Plan y facturación</h2>'), 'debe existir un encabezado propio "Plan y facturación", obtuvo: '+htmlConfigAdmin);
+  assert(htmlConfigAdmin.includes('Invitar equipo</h2>'), 'debe existir un encabezado propio "Invitar equipo", obtuvo: '+htmlConfigAdmin);
+  assert(htmlConfigAdmin.includes('Mi equipo</h2>'), 'debe existir un encabezado propio "Mi equipo", obtuvo: '+htmlConfigAdmin);
+  assert(htmlConfigAdmin.indexOf('Invitar equipo</h2>') < htmlConfigAdmin.indexOf('id="form-invitar-equipo"'), 'el encabezado "Invitar equipo" debe ir antes de su formulario, obtuvo: '+htmlConfigAdmin);
+  assert(htmlConfigAdmin.indexOf('Mi equipo</h2>') < htmlConfigAdmin.indexOf('mi-equipo-nombre') || !htmlConfigAdmin.includes('mi-equipo-nombre'), 'el encabezado "Mi equipo" debe ir antes de la lista del equipo, obtuvo: '+htmlConfigAdmin);
+
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
   const htmlConfigOperador = ctx.renderConfiguraciones();
   assert(!htmlConfigOperador.includes('id="form-empresa-nombre"'), 'un operador (no admin) no debe poder editar el nombre de la empresa, obtuvo: '+htmlConfigOperador);
@@ -2033,6 +2043,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConfigSuperAdmin.includes('<option value="emp-1">Minera Andes</option>') && htmlConfigSuperAdmin.includes('<option value="emp-2">Minera Sur</option>'), 'el selector de empresa del formulario de invitación debe listar las empresas, obtuvo: '+htmlConfigSuperAdmin);
   assert(!htmlConfigSuperAdmin.includes('Supervisor'), 'ya no debe existir el rol Supervisor en ningún selector, obtuvo: '+htmlConfigSuperAdmin);
   assert(!htmlConfigSuperAdmin.includes('id="form-invitar-equipo"'), 'un super-admin ya tiene su propio panel para invitar; no debe duplicarse con el de "invitar a tu equipo", obtuvo: '+htmlConfigSuperAdmin);
+
+  // Pedido de Joel: diferenciar el menú de super-admin con títulos claros por sección (antes
+  // "Empresas", "Invitar persona", "Personas" y "Leads" venían todos amontonados bajo el único
+  // encabezado "Super-admin", sin ninguna separación entre ellos).
+  assert(htmlConfigSuperAdmin.includes('>Empresas</h2>'), 'debe existir un encabezado propio "Empresas" (crear/gestionar), obtuvo: '+htmlConfigSuperAdmin);
+  assert(htmlConfigSuperAdmin.includes('Invitar persona</h2>'), 'debe existir un encabezado propio "Invitar persona", obtuvo: '+htmlConfigSuperAdmin);
+  assert(htmlConfigSuperAdmin.includes('>Personas</h2>'), 'debe existir un encabezado propio "Personas", obtuvo: '+htmlConfigSuperAdmin);
+  assert(htmlConfigSuperAdmin.includes('>Leads</h2>'), 'debe existir un encabezado propio "Leads", obtuvo: '+htmlConfigSuperAdmin);
+  assert(htmlConfigSuperAdmin.indexOf('>Empresas</h2>') < htmlConfigSuperAdmin.indexOf('id="form-crear-empresa-sa"'), 'el encabezado "Empresas" debe ir antes de su formulario, obtuvo: '+htmlConfigSuperAdmin);
+  assert(htmlConfigSuperAdmin.indexOf('Invitar persona</h2>') < htmlConfigSuperAdmin.indexOf('id="form-invitar-persona-sa"'), 'el encabezado "Invitar persona" debe ir antes de su formulario, obtuvo: '+htmlConfigSuperAdmin);
+  assert(htmlConfigSuperAdmin.indexOf('>Personas</h2>') < htmlConfigSuperAdmin.indexOf('id="sa-personas-empresa"'), 'el encabezado "Personas" debe ir antes de su selector de empresa, obtuvo: '+htmlConfigSuperAdmin);
 
   // "Ciclos de conteo" (Períodos) ya no vive dentro de Configuraciones: es su propia pestaña
   // admin (renderCiclos/'ciclos'), sin depender de esAdmin — a diferencia de "invitar equipo" y
@@ -2230,6 +2251,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConResumen.includes('Empresas activas') && htmlConResumen.includes('Personas activas') && htmlConResumen.includes('SKU cargados'), 'debe mostrar las tarjetas KPI del resumen, obtuvo: '+htmlConResumen);
   assert(htmlConResumen.includes('150'), 'debe mostrar el total de SKU cargados sumando todas las empresas, obtuvo: '+htmlConResumen);
   assert(/Inactiva/.test(htmlConResumen), 'la fila de la empresa inactiva en el resumen debe marcarse como tal, obtuvo: '+htmlConResumen);
+  assert(htmlConResumen.includes('Resumen del negocio</h2>'), 'el resumen agregado debe ir bajo su propio encabezado "Resumen del negocio", obtuvo: '+htmlConResumen);
+  assert(htmlConResumen.indexOf('Resumen del negocio</h2>') < htmlConResumen.indexOf('Empresas activas'), 'el encabezado "Resumen del negocio" debe ir antes de las tarjetas KPI, obtuvo: '+htmlConResumen);
 
   // ===== Sesión persistente (localStorage + refresh de token) =====
 
