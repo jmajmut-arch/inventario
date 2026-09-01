@@ -62,9 +62,10 @@
   --ok:#00e676; --warn:#ffd400; --danger:#ff5252;
   --text:#ffffff; --text-dim:#d4d4d4; --text-faint:#8f8f8f; --radius:4px;
 }
-/* el toast de error/ok usa colores pastel fijos pensados para fondo oscuro; en el tema claro necesitan su propio contraste */
+/* el toast de error/ok/aviso usa colores pastel fijos pensados para fondo oscuro; en el tema claro necesitan su propio contraste */
 :root[data-tema="claro"] .toast.err{border-color:#e3b3ae;color:#8a2b20;background:#fdf1f0;}
 :root[data-tema="claro"] .toast.ok{border-color:#b7dcc3;color:#1f6b3d;background:#eef8f1;}
+:root[data-tema="claro"] .toast.warn{border-color:#e8d9a8;color:#8a6d1f;background:#fdf8ec;}
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;transition:background-color .2s ease,color .2s ease;}
@@ -157,6 +158,7 @@ textarea{resize:vertical;min-height:60px;}
 .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:11px 18px;border-radius:8px;font-size:13.5px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:88%;text-align:center;}
 .toast.err{border-color:#5a2f2c;color:#f3a6a0;}
 .toast.ok{border-color:#2c5a3d;color:#a3e0b8;}
+.toast.warn{border-color:#5a4a1f;color:#e8c25f;}
 
 .empty{text-align:center;padding:30px 10px;color:var(--text-faint);}
 .empty .glyph{font-size:28px;margin-bottom:8px;opacity:0.6;}
@@ -503,15 +505,39 @@ function setState(patch){ Object.assign(state, patch); render(); }
 // funciones de escaneo/apertura-cierre del modal más abajo.
 let escanerInstancia = null;
 
+// Si el buscador de SKU en Contar ya se enfocó para esta "entrada" a la pantalla de búsqueda.
+// Vive fuera de `state` (no debe disparar re-render): cada setState() en Contar reconstruye
+// toda la pantalla desde cero, y sin este flag el buscador volvía a robar el foco —y a abrir
+// el teclado del celular— en cada re-render, aunque la persona ya hubiera elegido bodega o
+// ubicación y estuviera mirando la lista de pendientes.
+let conteoBuscadorFueEnfocado = false;
+
 /* =======================================================================
    HELPERS DE RED — REST / AUTH / STORAGE de Supabase (sin SDK externo)
    ======================================================================= */
+// fetch() rechaza con un TypeError crudo en inglés ("Failed to fetch", "NetworkError...",
+// "Load failed" en Safari) cuando no hay conexión — antes de siquiera llegar a una respuesta
+// HTTP. Es justo el escenario más común en una bodega o mina con señal mala, así que es el
+// caso que más vale traducir: se atrapa acá, en la capa de red, para que cualquier catch(e)
+// más arriba en la app (hay decenas) le muestre a la persona algo entendible en vez del
+// error crudo del navegador. Sigue siendo un TypeError (no un Error genérico) a propósito:
+// pareceFalloDeRed(), más abajo, detecta "sin conexión de verdad" con instanceof TypeError
+// para encolar conteos/fotos/SKU offline en vez de mostrarlos como error — si esto lanzara
+// un Error normal, esa detección dejaría de funcionar en todos esos flujos.
+const MENSAJE_SIN_CONEXION = 'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.';
+
 async function authRequest(path, body){
-  const res = await fetch(`${SUPABASE_URL}/auth/v1${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
-    body: JSON.stringify(body)
-  });
+  let res;
+  try{
+    res = await fetch(`${SUPABASE_URL}/auth/v1${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify(body)
+    });
+  }catch(e){
+    if(pareceFalloDeRed(e)) throw new TypeError(MENSAJE_SIN_CONEXION);
+    throw e;
+  }
   const data = await res.json().catch(()=> ({}));
   if(!res.ok){ throw new Error(data.error_description || data.msg || data.error || 'Error de autenticación'); }
   return data;
@@ -528,12 +554,25 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
     if(prefer) headers['Prefer'] = prefer;
     return fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body?JSON.stringify(body):null });
   };
-  let res = await hacerLlamada();
+  let res;
+  try{
+    res = await hacerLlamada();
+  }catch(e){
+    if(pareceFalloDeRed(e)) throw new TypeError(MENSAJE_SIN_CONEXION);
+    throw e;
+  }
   // El access_token dura poco (~1h); si ya venció, refrescamos con el refresh_token
   // guardado y reintentamos una sola vez antes de mostrar el error.
   if(res.status===401 && state.session && state.session.refresh_token){
     const refrescada = await refrescarSesion();
-    if(refrescada) res = await hacerLlamada();
+    if(refrescada){
+      try{
+        res = await hacerLlamada();
+      }catch(e){
+        if(pareceFalloDeRed(e)) throw new TypeError(MENSAJE_SIN_CONEXION);
+        throw e;
+      }
+    }
     else{
       manejarSesionInvalida();
       throw new Error(MENSAJE_SESION_TERMINADA);
@@ -543,7 +582,7 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
   let data = null;
   if(text){ try{ data = JSON.parse(text); }catch(e){ /* respuesta no-JSON */ } }
   if(!res.ok){
-    throw new Error((data && data.message) || res.statusText || 'Error de base de datos');
+    throw new Error((data && data.message) || 'No se pudo completar la operación. Inténtalo de nuevo.');
   }
   return data;
 }
@@ -586,7 +625,7 @@ async function crearUrlFirmada(fotoUrlORuta){
 function toast(msg, type='ok'){
   const root = document.getElementById('toast-root');
   const el = document.createElement('div');
-  el.className = `toast ${type==='err'?'err':'ok'}`;
+  el.className = `toast ${type==='err'?'err':type==='warn'?'warn':'ok'}`;
   el.textContent = msg;
   root.appendChild(el);
   setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 2600);
@@ -2076,7 +2115,7 @@ async function crearSkuManual(payload){
     // SKU se guarda en este dispositivo y se sube solo al volver la señal.
     if(pareceFalloDeRed(e)){
       encolarAccionOffline('sku', {...payload, empresa_id: state.perfil.empresa_id});
-      toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
+      toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return true;
     }
     toast(esErrorCodigoSkuDuplicado(e) ? mensajeCodigoSkuDuplicado(payload.sku_code, payload.bodega) : e.message, 'err');
@@ -2658,7 +2697,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
       setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:''});
-      toast('Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'err');
+      toast('Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return;
     }
     setState({loading:false});
@@ -2684,6 +2723,16 @@ function resolverSkusPorCodigo(skus, codigo){
   const porCodigo = skus.filter(s=> (s.sku_code||'').toLowerCase() === cLower);
   if(porCodigo.length) return porCodigo;
   return skus.filter(s=> (s.codigo_barras||'').toLowerCase() === cLower);
+}
+
+// Un SKU escaneado se marca como "del plan" si está en la lista de pendientes que se ve ahora
+// mismo en la tarjeta Plan del día (bodega/ubicación ya elegidas ahí) — no en todo el plan del
+// día completo: recorrer cada bodega/ubicación planificada para saberlo costaría una consulta
+// por cada una y, sin storage bin, el universo de una sola puede ser de miles de SKU (ver
+// skusMovidosDeEntradas más arriba).
+function skuEstaEnPlanDelDia(skuCode){
+  const pendientes = state.contarPlan.skusPendientes;
+  return !!(pendientes && pendientes.some(s=>s.sku_code===skuCode));
 }
 
 async function iniciarEscaner(){
@@ -2765,7 +2814,7 @@ async function onCodigoEscaneado(codigo){
   }
   const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
   if(coincidencias.length===1){
-    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan:false, conteoOtraUbicacion:false});
+    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: skuEstaEnPlanDelDia(coincidencias[0].sku_code), conteoOtraUbicacion:false});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
   }else if(coincidencias.length>1){
     // El mismo código existe en más de una bodega (el código físico es el mismo sin
@@ -2781,7 +2830,7 @@ async function onCodigoEscaneado(codigo){
 function elegirSkuEscaneado(skuId){
   const sku = state.skus.find(s=>s.id===skuId);
   if(!sku) return;
-  setState({skuSeleccionado: sku, conteoOrigenPlan:false, conteoOtraUbicacion:false, escanerModal: null});
+  setState({skuSeleccionado: sku, conteoOrigenPlan: skuEstaEnPlanDelDia(sku.sku_code), conteoOtraUbicacion:false, escanerModal: null});
   toast(`SKU ${sku.sku_code} encontrado`);
 }
 
@@ -2795,7 +2844,7 @@ async function asociarCodigoBarras(skuId, codigo){
     await rest(`/skus?id=eq.${skuId}`, {method:'PATCH', body:{codigo_barras: codigo}, prefer:'return=minimal'});
     sku.codigo_barras = codigo;
     toast(`Código asociado a ${sku.sku_code}`);
-    setState({skuSeleccionado: sku, conteoOrigenPlan:false, conteoOtraUbicacion:false, escanerModal: null});
+    setState({skuSeleccionado: sku, conteoOrigenPlan: skuEstaEnPlanDelDia(sku.sku_code), conteoOtraUbicacion:false, escanerModal: null});
   }catch(e){
     toast(e.message,'err');
     setState({escanerModal: {...state.escanerModal, asociando:false}});
@@ -4005,7 +4054,10 @@ function renderPlanDelDia(){
         ${activas.length? `
           ${cp.skusPendientes===null? `<div class="hint" style="margin-top:10px">Cargando SKU pendientes…</div>` :
             cp.skusPendientes.length? `
-            <div class="hint" style="margin-top:10px">${cp.skusPendientes.length} SKU pendientes</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px">
+              <div class="hint" style="margin:0">${cp.skusPendientes.length} SKU pendientes</div>
+              <button type="button" id="btn-escanear-plan" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:36px;height:36px;flex:none" aria-label="Escanear código de un SKU planificado">${ICONS.escanear}</button>
+            </div>
             <ul class="plan-sku-lista" style="margin-top:6px">
               ${cp.skusPendientes.map(s=>`
                 <li>
@@ -4979,6 +5031,7 @@ function renderRegistroAutoservicio(){
 }
 
 function bind(){
+  if(!(state.view==='conteo' && !state.skuSeleccionado)) conteoBuscadorFueEnfocado = false;
   if(state.fotoModal){
     document.getElementById('foto-modal-close').addEventListener('click', ()=> setState({fotoModal:null}));
     document.getElementById('foto-modal-backdrop').addEventListener('click', e=>{
@@ -5380,7 +5433,10 @@ function bind(){
     if(!state.skuSeleccionado){
       const search = document.getElementById('sku-search');
       search.addEventListener('input', e=> setState({skuSearch: e.target.value}));
-      search.focus(); search.selectionStart = search.selectionEnd = search.value.length;
+      if(!conteoBuscadorFueEnfocado){
+        search.focus(); search.selectionStart = search.selectionEnd = search.value.length;
+        conteoBuscadorFueEnfocado = true;
+      }
       document.querySelectorAll('[data-pick-btn]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           const sku = state.skus.find(s=>s.id===btn.dataset.pickBtn);
@@ -5389,6 +5445,8 @@ function bind(){
       });
       const btnEscaner = document.getElementById('btn-abrir-escaner');
       if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
+      const btnEscanerPlan = document.getElementById('btn-escanear-plan');
+      if(btnEscanerPlan) btnEscanerPlan.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
       const fechaEl = document.getElementById('contar-fecha');
       if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value) cargarPlanDeHoy(e.target.value); });
       const cBodega = document.getElementById('contar-bodega');
@@ -5614,6 +5672,11 @@ function bind(){
       const chkTodosInicial = document.getElementById('p-bin-todos');
       const resumenBinInicial = document.getElementById('p-bin-resumen');
       if(!selBinInicial || !chkTodosInicial || !resumenBinInicial) return; // no estamos mostrando el formulario "Agregar"
+      // A diferencia del resto de las cargas de esta pantalla (opcionesBins/opcionesEspecificas,
+      // que ya tragan sus propios errores), skusDeUbicacion() más abajo pagina con fetch() crudo
+      // y no atrapa un corte de señal a mitad de camino — sin este try/catch, ese TypeError se
+      // escapaba sin capturar en vez de mostrar un aviso como en cualquier otra pantalla.
+      try{
       // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
       // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
       selBinInicial.innerHTML = '<option value="">Cargando…</option>';
@@ -5701,6 +5764,7 @@ function bind(){
         selBin.disabled = false;
         chkTodos.disabled = false;
       }
+      }catch(e){ toast(e.message,'err'); }
     }
     // Recarga las opciones de Ubicación específica (con su conteo pendiente/total) para la
     // bodega dada. Devuelve el valor que quedó elegido, para poder encadenar cargarBinsPara con
@@ -5829,7 +5893,10 @@ async function iniciarApp(){
     window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
   }
   // Al recuperar la señal, intentamos enviar los conteos que quedaron guardados sin conexión.
-  window.addEventListener('online', sincronizarColaOffline);
+  // .catch() explícito: sincronizarColaOffline() es async y el navegador no espera ni atrapa lo
+  // que devuelva un listener nativo — cualquier falla que en el futuro se le escape a su propio
+  // try/catch quedaría como promesa rechazada sin capturar en vez de un toast.
+  window.addEventListener('online', ()=> sincronizarColaOffline().catch(e=>toast(e.message,'err')));
   procesarRetornoFlow();
   procesarRegistroPlanDesdeUrl();
   await procesarLlegadaPorInvitacion();
