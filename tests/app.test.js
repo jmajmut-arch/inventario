@@ -1382,12 +1382,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Pedido del usuario: en el Dashboard operativo, Semanal debe mostrar el número de semana (no
   // la fecha cruda del lunes) y Mensual el nombre del mes (no la fecha cruda del día 1). Diario
-  // debe paginar de a 10 filas con botón Siguiente/Anterior, en vez de listar todo de una vez.
-  // Fechas en UTC 00:00 (igual que devuelve PostgREST desde columnas timestamptz truncadas) — el
-  // entorno de test corre en UTC, así que la fecha local coincide con la UTC.
+  // debe paginar de a 15 filas (a pedido de Joel) con botón Siguiente/Anterior, en vez de listar
+  // todo de una vez. Fechas en UTC 00:00 (igual que devuelve PostgREST desde columnas timestamptz
+  // truncadas) — el entorno de test corre en UTC, así que la fecha local coincide con la UTC.
   ctx.__appstate.dash = {
     ...ctx.__appstate.dash,
-    diario: Array.from({length:15}, (_,i)=>({
+    diario: Array.from({length:20}, (_,i)=>({
       dia: `2026-08-${String(24-i).padStart(2,'0')}T00:00:00+00:00`,
       bodega:'Nave Mina', skus_contados:5, con_diferencia:1, reconteos:2, total_unidades_contadas:20,
     })),
@@ -1400,12 +1400,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashPeriodos.includes('Agosto 2026'), 'Mensual debe mostrar el nombre del mes, no la fecha cruda del día 1, obtuvo: '+htmlDashPeriodos);
   // Pedido de Joel: Diario/Semanal/Mensual deben mostrar cuántos SKU se recontaron.
   assert((htmlDashPeriodos.match(/<th class="num">Reconteos<\/th>/g)||[]).length===3, 'las tres tablas (Diario/Semanal/Mensual) deben tener columna "Reconteos", obtuvo: '+htmlDashPeriodos);
-  assert(htmlDashPeriodos.includes('24 ago') && !htmlDashPeriodos.includes('10 ago'), 'Diario (página 1) debe mostrar los primeros 10 días (24 ago a 15 ago), no el día 11 (10 ago), obtuvo: '+htmlDashPeriodos);
-  assert(htmlDashPeriodos.includes('id="dash-diario-next"') && !/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodos), 'con 15 filas (2 páginas), el botón Siguiente debe estar habilitado, obtuvo: '+htmlDashPeriodos);
+  assert(htmlDashPeriodos.includes('24 ago') && !htmlDashPeriodos.includes('09 ago'), 'Diario (página 1) debe mostrar los primeros 15 días (24 ago a 10 ago), no el día 16 (9 ago), obtuvo: '+htmlDashPeriodos);
+  assert(htmlDashPeriodos.includes('id="dash-diario-next"') && !/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodos), 'con 20 filas (2 páginas de 15), el botón Siguiente debe estar habilitado, obtuvo: '+htmlDashPeriodos);
   assert(/id="dash-diario-prev"[^>]*disabled/.test(htmlDashPeriodos), 'en la primera página, el botón Anterior debe estar deshabilitado, obtuvo: '+htmlDashPeriodos);
   ctx.__appstate.dashDiarioPagina = 1;
   const htmlDashPeriodosPag2 = ctx.renderDashboard();
-  assert(htmlDashPeriodosPag2.includes('10 ago') && !htmlDashPeriodosPag2.includes('24 ago'), 'Diario (página 2) debe mostrar las 5 filas restantes (10 ago), no las de la página 1 (24 ago), obtuvo: '+htmlDashPeriodosPag2);
+  assert(htmlDashPeriodosPag2.includes('09 ago') && !htmlDashPeriodosPag2.includes('24 ago'), 'Diario (página 2) debe mostrar las 5 filas restantes (9 ago a 5 ago), no las de la página 1 (24 ago), obtuvo: '+htmlDashPeriodosPag2);
   assert(/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodosPag2), 'en la última página, el botón Siguiente debe estar deshabilitado, obtuvo: '+htmlDashPeriodosPag2);
   ctx.__appstate.dashDiarioPagina = 0;
 
@@ -3509,6 +3509,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!conteosCallMasConCiclo && conteosCallMasConCiclo.url.includes('ciclo_id=eq.ciclo-actual-xyz'), 'cargarMasUltimosConteos debe reusar el mismo filtro de ciclo que la primera página, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(!calls.some(c=>c.url.includes('/rpc/ciclo_actual')), 'cargarMasUltimosConteos no debe volver a pedir el ciclo actual (ya quedó guardado), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   cicloActualRpcRespuesta = null; // dejar el mock como estaba para el resto de los tests
+
+  // ===== Dashboard: "Materiales contados" pagina de a 15 con Anterior/Siguiente (a pedido de
+  // Joel), reemplazando el botón "Cargar más". avanzarPaginaMateriales reusa
+  // cargarMasUltimosConteos por debajo solo cuando la página pedida cae fuera de lo ya cargado.
+  // En este punto ya quedaron cargados 34 conteos (arriba), con ultimosConteosHayMas=false:
+  // alcanza para 3 páginas de 15 sin pedir nada más al servidor.
+  ctx.__appstate.dashboardModo = 'operativo';
+  ctx.__appstate.dashMaterialesPagina = 0;
+  const htmlMaterialesPag1 = ctx.renderDashboard();
+  assert(/id="dash-materiales-prev"[^>]*disabled/.test(htmlMaterialesPag1), 'en la primera página de Materiales contados, Anterior debe estar deshabilitado, obtuvo: '+htmlMaterialesPag1);
+  assert(htmlMaterialesPag1.includes('id="dash-materiales-next"') && !/id="dash-materiales-next"[^>]*disabled/.test(htmlMaterialesPag1), 'con 34 conteos ya cargados (3 páginas de 15), Siguiente debe estar habilitado en la página 1, obtuvo: '+htmlMaterialesPag1);
+  assert(!htmlMaterialesPag1.includes('id="btn-cargar-mas-conteos"'), 'el botón "Cargar más" ya no debe existir, reemplazado por Anterior/Siguiente, obtuvo: '+htmlMaterialesPag1);
+
+  ctx.__appstate.dashMaterialesPagina = 2; // última página: solo quedan 34-30=4 filas
+  const htmlMaterialesPag3 = ctx.renderDashboard();
+  assert(/id="dash-materiales-next"[^>]*disabled/.test(htmlMaterialesPag3), 'en la última página (sin más filas cargadas ni pendientes en el servidor), Siguiente debe estar deshabilitado, obtuvo: '+htmlMaterialesPag3);
+  assert(!/id="dash-materiales-prev"[^>]*disabled/.test(htmlMaterialesPag3), 'en una página que no es la primera, Anterior debe estar habilitado, obtuvo: '+htmlMaterialesPag3);
+
+  // avanzarPaginaMateriales: si la página pedida cae fuera de lo ya cargado pero el servidor
+  // todavía tiene más (hayMas=true), primero debe pedir la siguiente tanda antes de avanzar.
+  ctx.__appstate.ultimosConteos = ctx.__appstate.ultimosConteos.slice(0, 15); // simula que solo se cargó la 1a tanda
+  ctx.__appstate.ultimosConteosHayMas = true;
+  ctx.__appstate.dashMaterialesPagina = 0;
+  calls.length = 0;
+  await ctx.avanzarPaginaMateriales();
+  const conteosCallPagina = calls.find(c=>c.url.includes('/conteos?select='));
+  assert(!!conteosCallPagina && conteosCallPagina.url.includes('offset=15'), 'avanzarPaginaMateriales debe pedir la siguiente tanda al servidor (offset=15) cuando la página pedida no está cargada todavía, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dashMaterialesPagina===1, 'debe avanzar a la página 2 después de traer los datos que faltaban, obtuvo: '+ctx.__appstate.dashMaterialesPagina);
+
+  // retrocederPaginaMateriales: los datos ya están cargados, nunca debe pedir nada al servidor.
+  calls.length = 0;
+  ctx.retrocederPaginaMateriales();
+  assert(calls.length===0, 'retrocederPaginaMateriales no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dashMaterialesPagina===0, 'debe volver a la página 1, obtuvo: '+ctx.__appstate.dashMaterialesPagina);
+  ctx.__appstate.dashboardModo = 'ejecutivo';
 
   // ===== Buscar: "Cargar más" respetando los filtros de texto y fotos (que se aplican en
   // el cliente, no en la consulta) =====
