@@ -4729,7 +4729,9 @@ function renderSuperAdmin(){
   const skusTotal = resumen.reduce((s,r)=>s+Number(r.skus_total||0),0);
   return `
     <div class="section-head"><div><span class="eyebrow">Panel</span><h2>Super-admin</h2></div></div>
+    <div class="hint" style="margin-bottom:14px">Administra TODAS las empresas de InventIA (distinto de "Tu empresa" más abajo, que es solo la tuya).</div>
     ${resumen.length? `
+    <div class="section-head"><div><span class="eyebrow">Todas las empresas</span><h2 style="font-size:15px">Resumen del negocio</h2></div></div>
     <div class="kpi-grid" style="grid-template-columns:1fr 1fr 1fr">
       <div class="tag-card">
         <div class="kpi-label">Empresas activas</div>
@@ -4758,7 +4760,8 @@ function renderSuperAdmin(){
       `).join('')}
     </div>
     ` : ''}
-    <div class="card" style="margin-top:14px">
+    <div class="section-head"><div><span class="eyebrow">Cuentas de empresa</span><h2 style="font-size:15px">Empresas</h2></div></div>
+    <div class="card">
       <div class="hint" style="margin-bottom:10px">Crea, renombra o desactiva cuentas de empresa. Desactivar le corta el acceso a todo su equipo (se puede reactivar cuando quieras).</div>
       <form id="form-crear-empresa-sa">
         <label for="nueva-empresa-nombre">Nombre de la empresa</label>
@@ -4779,7 +4782,8 @@ function renderSuperAdmin(){
         </div>
       `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Aún no hay empresas creadas.</div>`}
     </div>
-    <div class="card" style="margin-top:14px">
+    <div class="section-head"><div><span class="eyebrow">Nueva cuenta</span><h2 style="font-size:15px">Invitar persona</h2></div></div>
+    <div class="card">
       <div class="hint" style="margin-bottom:10px">Invita a una persona a una empresa. Le llegará un correo para crear su contraseña.</div>
       <form id="form-invitar-persona-sa">
         <label for="invitar-nombre">Nombre completo</label>
@@ -4799,7 +4803,8 @@ function renderSuperAdmin(){
         <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${state.invitandoPersona?'disabled':''}>${state.invitandoPersona?'Enviando…':'Enviar invitación'}</button></div>
       </form>
     </div>
-    <div class="card" style="margin-top:14px">
+    <div class="section-head"><div><span class="eyebrow">Por empresa</span><h2 style="font-size:15px">Personas</h2></div></div>
+    <div class="card">
       <div class="hint" style="margin-bottom:10px">Edita el nombre, el rol o desactiva el acceso de una persona ya existente.</div>
       <label for="sa-personas-empresa">Empresa</label>
       <select id="sa-personas-empresa">
@@ -4823,7 +4828,8 @@ function renderSuperAdmin(){
       `).join('')}</div>
       ` : `<div class="empty" style="padding:14px 8px">Esta empresa aún no tiene personas.</div>`}
     </div>
-    <div class="card" style="margin-top:14px">
+    <div class="section-head"><div><span class="eyebrow">Landing</span><h2 style="font-size:15px">Leads</h2></div></div>
+    <div class="card">
       <div class="hint" style="margin-bottom:10px">Personas que pidieron la demo o escribieron desde el landing (${sa.leads.length}${sa.leadsHayMas?'+':''}).</div>
       ${sa.leads.length? sa.leads.map(l=>`
         <div class="plan-item" style="display:block;padding:10px 0">
@@ -4909,7 +4915,7 @@ function renderPlanYFacturacion(empresa){
   }
 
   return `
-    <div class="card" style="margin-top:14px">
+    <div class="card">
       <label>Plan actual</label>
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px;margin-bottom:8px">${esc(etiquetaPlan)}</div>
       ${esAutoservicio? `${estadoHtml}${botonHtml}` : `<div class="hint">Tu plan se coordina directo con nosotros. <a href="mailto:contacto@inventiapp.cl?subject=Plan%20InventIA">Escríbenos</a> para ajustarlo.</div>`}
@@ -4968,7 +4974,7 @@ function renderConfiguraciones(){
   return `
     ${esSuperAdmin? renderSuperAdmin() : ''}
     ${empresa? `
-    <div class="section-head"><div><span class="eyebrow">Cuenta</span><h2>Empresa</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Cuenta</span><h2>Tu empresa</h2></div></div>
     <div class="card">
       ${esAdmin? `
       <form id="form-empresa-nombre">
@@ -4981,9 +4987,11 @@ function renderConfiguraciones(){
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
     </div>
+    ${esAdmin && !esSuperAdmin? `<div class="section-head"><div><span class="eyebrow">Suscripción</span><h2 style="font-size:15px">Plan y facturación</h2></div></div>` : ''}
     ${esAdmin && !esSuperAdmin? renderPlanYFacturacion(empresa) : ''}
     ${esAdmin && !esSuperAdmin? `
-    <div class="card" style="margin-top:14px">
+    <div class="section-head"><div><span class="eyebrow">Nueva cuenta</span><h2 style="font-size:15px">Invitar equipo</h2></div></div>
+    <div class="card">
       <div class="hint" style="margin-bottom:10px">Invita a alguien de tu equipo a ${esc(empresa.nombre)} como operador/a. Le llegará un correo para crear su contraseña. (Solo un super-admin puede crear otras cuentas de administrador.)</div>
       <form id="form-invitar-equipo">
         <label for="equipo-nombre">Nombre completo</label>
@@ -4995,7 +5003,8 @@ function renderConfiguraciones(){
       </form>
       ${hintCupoOperadores(empresa)}
     </div>
-    <div class="card" style="margin-top:14px">
+    <div class="section-head"><div><span class="eyebrow">Tu empresa</span><h2 style="font-size:15px">Mi equipo</h2></div></div>
+    <div class="card">
       <div class="hint" style="margin-bottom:10px">Edita el nombre o desactiva el acceso de alguien de tu equipo. El rol de administrador solo lo asigna un super-admin.</div>
       ${state.equipo.cargando? `<div class="hint">Cargando…</div>` : state.equipo.personas.length? `
       <div>${state.equipo.personas.map(u=>`
