@@ -216,6 +216,21 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/auth/v1/recover')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{}', json: async()=>({}) };
   }
+  // ingresarConCodigo (pantalla "Ingresa tu código"): prueba primero type=invite y, si falla,
+  // type=recovery -- se simulan ambos casos con un código válido distinto por tipo, más un
+  // tercer código que nunca es válido para ninguno.
+  if(path.startsWith('/auth/v1/verify')){
+    const body = JSON.parse(opts.body);
+    if(body.email==='invitado-otp@test.com' && body.token==='654321' && body.type==='invite'){
+      const sesion = {access_token:'tok-otp-invite', refresh_token:'ref-otp-invite', user:{id:'user-otp-invite', email:body.email}};
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(sesion), json: async()=>sesion };
+    }
+    if(body.email==='recupera-otp@test.com' && body.token==='111222' && body.type==='recovery'){
+      const sesion = {access_token:'tok-otp-recovery', refresh_token:'ref-otp-recovery', user:{id:'user-otp-recovery', email:body.email}};
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(sesion), json: async()=>sesion };
+    }
+    return { status:403, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({error:'invalid_grant', error_description:'Token has expired or is invalid'}) };
+  }
   if(path.startsWith('/rest/v1/usuarios?auth_user_id=eq.')){
     const perfil = {id:'perfil-1', nombre:'Joel Restaurado', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Escondida', codigo_invitacion:'ABC12345'}};
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([perfil]) };
@@ -2338,14 +2353,58 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlRecuperar.includes('id="recuperar-password-form"') && htmlRecuperar.includes('id="f-recuperar-email"') && htmlRecuperar.includes('id="btn-volver-login"'), 'en modo recuperar debe mostrarse el formulario para pedir el link, obtuvo: '+htmlRecuperar);
   ctx.__appstate.authRecuperar = false;
 
-  // solicitarRecuperacion: dispara el correo vía /auth/v1/recover y vuelve al login.
+  // solicitarRecuperacion: dispara el correo vía /auth/v1/recover y pasa directo a "Ingresa tu
+  // código" (con el correo ya escrito), en vez de solo volver al login -- pedido real (Joel,
+  // BHP): el filtro de seguridad de una empresa grande abre y gasta el link de un solo uso del
+  // correo antes de que la persona pueda hacer clic, así que el código escrito a mano (ver
+  // ingresarConCodigo más abajo) es la vía que sí funciona ahí.
   calls.length = 0;
   ctx.__appstate.authRecuperar = true;
   await ctx.solicitarRecuperacion('alguien@test.com');
   const recoverCall = calls.find(c=>c.url.includes('/auth/v1/recover'));
   assert(!!recoverCall, 'solicitarRecuperacion debe llamar a /auth/v1/recover, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(JSON.parse(recoverCall.opts.body).email==='alguien@test.com', 'debe enviar el correo ingresado, obtuvo: '+recoverCall.opts.body);
-  assert(ctx.__appstate.authRecuperar===false, 'tras enviar el link, debe volver a la pantalla de login normal, obtuvo: '+ctx.__appstate.authRecuperar);
+  assert(ctx.__appstate.authRecuperar===false, 'tras enviar el código, debe salir de la pantalla de "olvidé mi contraseña", obtuvo: '+ctx.__appstate.authRecuperar);
+  assert(ctx.__appstate.otpAcceso && ctx.__appstate.otpAcceso.email==='alguien@test.com', 'debe pasar a "Ingresa tu código" con el correo ya escrito, obtuvo: '+JSON.stringify(ctx.__appstate.otpAcceso));
+  ctx.__appstate.otpAcceso = null;
+
+  // renderLogin: "Ingresa tu código" tiene prioridad sobre "olvidé mi contraseña" (mismo patrón
+  // que ya usa authRecuperar) y el login normal ofrece un link para llegar ahí directo, sin
+  // depender de haber pasado por "olvidé mi contraseña" primero -- así también sirve para
+  // canjear un código de invitación de un administrador.
+  ctx.__appstate.otpAcceso = {email:'nueva@empresa.cl'};
+  const htmlOtpAcceso = ctx.renderLogin();
+  assert(htmlOtpAcceso.includes('id="otp-acceso-form"') && htmlOtpAcceso.includes('id="f-otp-email"') && htmlOtpAcceso.includes('id="f-otp-codigo"'), 'debe mostrar el formulario de código con campos de correo y código, obtuvo: '+htmlOtpAcceso);
+  assert(htmlOtpAcceso.includes('value="nueva@empresa.cl"'), 'el campo de correo debe venir precargado, obtuvo: '+htmlOtpAcceso);
+  ctx.__appstate.otpAcceso = null;
+  const htmlLoginConLinkCodigo = ctx.renderLogin();
+  assert(htmlLoginConLinkCodigo.includes('id="btn-tengo-codigo"'), 'el login normal debe ofrecer un link para llegar a "Ingresa tu código", obtuvo: '+htmlLoginConLinkCodigo);
+
+  // ingresarConCodigo: prueba primero type=invite y, si no calza, type=recovery -- la persona
+  // no tiene por qué saber cuál de los dos es su código.
+  calls.length = 0;
+  await ctx.ingresarConCodigo('invitado-otp@test.com', '654321');
+  assert(ctx.__appstate.session && ctx.__appstate.session.access_token==='tok-otp-invite', 'un código de invitación válido debe armar la sesión con ese access_token, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  assert(ctx.__appstate.debeCrearPassword===true, 'tras validar el código, debe pedir crear contraseña (misma pantalla que el link del correo), obtuvo: '+ctx.__appstate.debeCrearPassword);
+  assert(ctx.__appstate.otpAcceso===null, 'debe salir de la pantalla de código tras validar, obtuvo: '+JSON.stringify(ctx.__appstate.otpAcceso));
+  const intentosInvite = calls.filter(c=>c.url.includes('/auth/v1/verify'));
+  assert(intentosInvite.length===1 && JSON.parse(intentosInvite[0].opts.body).type==='invite', 'un código de invitación válido debe resolverse en el primer intento (type=invite), sin necesitar el segundo, obtuvo: '+JSON.stringify(intentosInvite.map(c=>c.opts.body)));
+
+  ctx.__appstate.session = null; ctx.__appstate.debeCrearPassword = false;
+  calls.length = 0;
+  await ctx.ingresarConCodigo('recupera-otp@test.com', '111222');
+  assert(ctx.__appstate.session && ctx.__appstate.session.access_token==='tok-otp-recovery', 'un código de recuperación válido debe armar la sesión con ese access_token (tras fallar como invite), obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  assert(ctx.__appstate.debeCrearPassword===true, 'un código de recuperación válido también debe pedir crear contraseña, obtuvo: '+ctx.__appstate.debeCrearPassword);
+  const intentosRecovery = calls.filter(c=>c.url.includes('/auth/v1/verify'));
+  assert(intentosRecovery.length===2 && JSON.parse(intentosRecovery[0].opts.body).type==='invite' && JSON.parse(intentosRecovery[1].opts.body).type==='recovery', 'debe probar primero invite y, al fallar, recovery, obtuvo: '+JSON.stringify(intentosRecovery.map(c=>c.opts.body)));
+
+  ctx.__appstate.session = null; ctx.__appstate.debeCrearPassword = false;
+  const toastRootOtp = elements['toast-root'];
+  const toastsAntesOtp = toastRootOtp ? toastRootOtp.hijos.length : 0;
+  await ctx.ingresarConCodigo('nadie@test.com', '000000');
+  assert(!ctx.__appstate.session, 'un código inválido para ambos tipos no debe armar ninguna sesión, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  const nuevosToastsOtp = toastRootOtp.hijos.slice(toastsAntesOtp);
+  assert(nuevosToastsOtp.some(t=>t.className.includes('err')), 'un código inválido debe mostrar un error, obtuvo: '+JSON.stringify(nuevosToastsOtp.map(t=>t.textContent)));
 
   // actualizarNombreEmpresa: PATCH a /empresas y actualización optimista del estado local.
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
