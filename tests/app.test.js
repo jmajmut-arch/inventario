@@ -235,6 +235,12 @@ const fakeFetchImpl = async (url, opts) => {
       const sesion = {access_token:'tok-otp-recovery', refresh_token:'ref-otp-recovery', user:{id:'user-otp-recovery', email:body.email}};
       return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(sesion), json: async()=>sesion };
     }
+    // Bug real: Supabase no siempre manda 6 dígitos (llegó un código real de 8) -- se prueba acá
+    // con uno de 8 para confirmar que ingresarConCodigo lo manda completo, sin cortarlo.
+    if(body.email==='recupera-8digitos@test.com' && body.token==='37470939' && body.type==='recovery'){
+      const sesion = {access_token:'tok-otp-8digitos', refresh_token:'ref-otp-8digitos', user:{id:'user-otp-8digitos', email:body.email}};
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(sesion), json: async()=>sesion };
+    }
     return { status:403, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({error:'invalid_grant', error_description:'Token has expired or is invalid'}) };
   }
   if(path.startsWith('/rest/v1/usuarios?auth_user_id=eq.')){
@@ -2394,6 +2400,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlOtpAcceso = ctx.renderLogin();
   assert(htmlOtpAcceso.includes('id="otp-acceso-form"') && htmlOtpAcceso.includes('id="f-otp-email"') && htmlOtpAcceso.includes('id="f-otp-codigo"'), 'debe mostrar el formulario de código con campos de correo y código, obtuvo: '+htmlOtpAcceso);
   assert(htmlOtpAcceso.includes('value="nueva@empresa.cl"'), 'el campo de correo debe venir precargado, obtuvo: '+htmlOtpAcceso);
+  // Bug real reportado (Joel/Nasib, proyecto BHP): el código que Supabase manda por correo no
+  // siempre son 6 dígitos (llegó uno de 8) -- con maxlength="6" el navegador cortaba el código
+  // a la mitad y el login nunca podía coincidir. El campo ya no debe asumir un largo fijo, ni
+  // en el texto ni en el maxlength.
+  assert(!/maxlength="[0-6]"/.test(htmlOtpAcceso), 'el campo de código no debe limitarse a 6 caracteres o menos, obtuvo: '+htmlOtpAcceso);
+  assert(!htmlOtpAcceso.includes('6 dígitos') && !htmlOtpAcceso.includes('Código de 6'), 'el texto ya no debe prometer un largo fijo de 6 dígitos, obtuvo: '+htmlOtpAcceso);
   ctx.__appstate.otpAcceso = null;
   const htmlLoginConLinkCodigo = ctx.renderLogin();
   assert(htmlLoginConLinkCodigo.includes('id="btn-tengo-codigo"'), 'el login normal debe ofrecer un link para llegar a "Ingresa tu código", obtuvo: '+htmlLoginConLinkCodigo);
@@ -2415,6 +2427,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.debeCrearPassword===true, 'un código de recuperación válido también debe pedir crear contraseña, obtuvo: '+ctx.__appstate.debeCrearPassword);
   const intentosRecovery = calls.filter(c=>c.url.includes('/auth/v1/verify'));
   assert(intentosRecovery.length===2 && JSON.parse(intentosRecovery[0].opts.body).type==='invite' && JSON.parse(intentosRecovery[1].opts.body).type==='recovery', 'debe probar primero invite y, al fallar, recovery, obtuvo: '+JSON.stringify(intentosRecovery.map(c=>c.opts.body)));
+
+  // Regresión real (Joel/Nasib, BHP): un código de 8 dígitos debe mandarse completo, sin
+  // truncarlo a 6 -- cubre el bug de maxlength="6" que impedía escribirlo completo en el input.
+  ctx.__appstate.session = null; ctx.__appstate.debeCrearPassword = false;
+  calls.length = 0;
+  await ctx.ingresarConCodigo('recupera-8digitos@test.com', '37470939');
+  assert(ctx.__appstate.session && ctx.__appstate.session.access_token==='tok-otp-8digitos', 'un código de 8 dígitos válido debe armar la sesión igual que uno de 6, obtuvo: '+JSON.stringify(ctx.__appstate.session));
 
   ctx.__appstate.session = null; ctx.__appstate.debeCrearPassword = false;
   const toastRootOtp = elements['toast-root'];
