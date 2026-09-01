@@ -2034,11 +2034,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlConfigSuperAdmin.includes('Supervisor'), 'ya no debe existir el rol Supervisor en ningún selector, obtuvo: '+htmlConfigSuperAdmin);
   assert(!htmlConfigSuperAdmin.includes('id="form-invitar-equipo"'), 'un super-admin ya tiene su propio panel para invitar; no debe duplicarse con el de "invitar a tu equipo", obtuvo: '+htmlConfigSuperAdmin);
 
-  // Un super-admin que también es admin de su propia empresa (ej. la cuenta de prueba interna)
-  // sí debe poder crear y gestionar ciclos de conteo para esa empresa — antes quedaba oculto
-  // por error junto con "invitar equipo" y "plan y facturación", que si son exclusivos del
-  // admin normal (no super-admin).
-  assert(htmlConfigSuperAdmin.includes('id="form-crear-ciclo"'), 'un super-admin que también es admin de empresa debe ver "Ciclos de conteo", obtuvo: '+htmlConfigSuperAdmin);
+  // "Ciclos de conteo" (Períodos) ya no vive dentro de Configuraciones: es su propia pestaña
+  // admin (renderCiclos/'ciclos'), sin depender de esAdmin — a diferencia de "invitar equipo" y
+  // "plan y facturación", que siguen siendo exclusivos del admin normal dentro de Configuraciones.
+  assert(!htmlConfigSuperAdmin.includes('id="form-crear-ciclo"'), 'Configuraciones ya no debe incluir el formulario de crear ciclo (se movió a su propia pestaña), obtuvo: '+htmlConfigSuperAdmin);
+  assert(ctx.renderCiclos().includes('id="form-crear-ciclo"'), 'renderCiclos() debe mostrar el formulario para crear ciclos, obtuvo: '+ctx.renderCiclos());
 
   // crearEmpresaSuperAdmin: POST a /empresas con solo el nombre (el código se genera solo en la BD).
   calls.length = 0;
@@ -2187,13 +2187,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Restaurar el perfil de super-admin para los tests siguientes de este mismo bloque.
   ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
 
-  // bind() en 'config': un super-admin que también es admin de su empresa (ver #125) debe
-  // poder crear un ciclo de verdad, no solo verlo — antes el binding de form-crear-ciclo
-  // seguía adentro del `if(...&& !es_super_admin)` de "invitar/editar equipo" aunque la
-  // tarjeta de Ciclos ya se mostrara afuera de esa condición: el formulario aparecía pero
-  // el submit no tenía ningún listener, así que el navegador lo mandaba como un GET normal
-  // (recarga completa de la página, de vuelta al dashboard) en vez de llamar a crearCiclo.
-  ctx.__appstate.view = 'config';
+  // bind() en 'ciclos' (Períodos, ahora su propia pestaña separada de Configuraciones): un
+  // super-admin que también es admin de su empresa (ver #125) debe poder crear un ciclo de
+  // verdad, no solo verlo.
+  ctx.__appstate.view = 'ciclos';
   // elements[] es un registro global sin reset entre pruebas: si no se limpia acá, un
   // listener pegado de una vinculación anterior (con otro perfil) taparía el bug real.
   delete elements['form-crear-ciclo'];
@@ -2777,9 +2774,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarCiclos();
   assert(calls.some(c=>c.url.includes('/ciclos_conteo?select=')), 'cargarCiclos debe pedir /ciclos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.ciclos.length===2 && ctx.__appstate.ciclos[0].nombre==='T1 2027', 'debe guardar los ciclos devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.ciclos));
-  const htmlConfigConCiclos = ctx.renderConfiguraciones();
-  assert(htmlConfigConCiclos.includes('T1 2027') && htmlConfigConCiclos.includes('T4 2026'), 'Configuraciones debe listar los ciclos existentes, obtuvo: '+htmlConfigConCiclos);
-  assert(htmlConfigConCiclos.includes('data-marcar-ciclo-actual="ciclo-2"') && !htmlConfigConCiclos.includes('data-marcar-ciclo-actual="ciclo-1"'), 'solo el ciclo que no es el actual debe ofrecer el botón de "marcar como actual" (ciclo-1 ya lo es), obtuvo: '+htmlConfigConCiclos);
+  const htmlCiclos = ctx.renderCiclos();
+  assert(htmlCiclos.includes('T1 2027') && htmlCiclos.includes('T4 2026'), 'Períodos (renderCiclos) debe listar los ciclos existentes, obtuvo: '+htmlCiclos);
+  assert(htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-2"') && !htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-1"'), 'solo el ciclo que no es el actual debe ofrecer el botón de "marcar como actual" (ciclo-1 ya lo es), obtuvo: '+htmlCiclos);
 
   calls.length = 0;
   await ctx.crearCiclo('T2 2027');
@@ -3919,6 +3916,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.vistaInicialParaPerfil()==='dashboard', 'un admin debe arrancar en el Dashboard, obtuvo: '+ctx.vistaInicialParaPerfil());
   const htmlTabAdminDashboard = ctx.tabBtn('dashboard', 'Dashboard');
   assert(!htmlTabAdminDashboard.includes('tab-bloqueada') && !htmlTabAdminDashboard.includes('tab-candado'), 'el tab Dashboard de un admin NO debe mostrar candado, obtuvo: '+htmlTabAdminDashboard);
+
+  // Pedido de Joel: el ícono de SKUs que estaba abajo (pestaña de la barra inferior) pasa a un
+  // ícono arriba (junto a Buscar en la barra superior), y en su lugar en la barra inferior va
+  // "Períodos" (crear/gestionar ciclos de conteo), sacado de Configuraciones — ver renderCiclos.
+  ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(ctx.vistaBloqueadaParaRol('ciclos')===true, 'un operador debe tener bloqueada la vista Períodos (ciclos), igual que Dashboard/Plan/Carga');
+  const htmlTabOperadorCiclos = ctx.tabBtn('ciclos', 'Períodos');
+  assert(htmlTabOperadorCiclos.includes('tab-bloqueada') && htmlTabOperadorCiclos.includes('tab-candado'), 'el tab Períodos de un operador debe mostrar el candado, obtuvo: '+htmlTabOperadorCiclos);
+  ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(ctx.vistaBloqueadaParaRol('ciclos')===false, 'un admin NO debe tener bloqueada la vista Períodos');
+  assert(ctx.viewTitle('ciclos')==='Períodos de conteo', 'el título de la vista ciclos debe ser "Períodos de conteo", obtuvo: '+ctx.viewTitle('ciclos'));
+
+  ctx.__appstate.view = 'dashboard';
+  ctx.__appstate.dash = { total: [], diario: [], semanal: [], mensual: [] };
+  ctx.__appstate.ultimosConteos = [];
+  const shellHtmlTabs = ctx.renderShell();
+  assert(shellHtmlTabs.includes('id="btn-ir-skus"'), 'la barra superior debe tener un ícono para ir a SKUs, obtuvo: '+shellHtmlTabs.slice(0,900));
+  assert(shellHtmlTabs.includes('data-tab="ciclos"') && !shellHtmlTabs.includes('data-tab="skus"'), 'la barra inferior debe tener el tab "ciclos" (Períodos) en vez de "skus", obtuvo: '+shellHtmlTabs.slice(shellHtmlTabs.indexOf('tabbar')-10, shellHtmlTabs.indexOf('tabbar')+400));
+  ctx.bind();
+  const btnIrSkus = elements['btn-ir-skus'];
+  assert(!!btnIrSkus, 'bind() debe haber consultado #btn-ir-skus');
+  btnIrSkus.dispatch('click');
+  assert(ctx.__appstate.view==='skus', 'tocar el ícono de SKUs de la barra superior debe navegar a la vista skus, obtuvo: '+ctx.__appstate.view);
 
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);

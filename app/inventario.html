@@ -487,7 +487,7 @@ const BODEGA_VACIA = '__bodega_vacia__';
 // Pestañas de la barra inferior a las que un operador (rol !== admin, sin ser super-admin) no
 // tiene acceso — a pedido: se muestran igual (con un candado) en vez de ocultarlas o dejarlas
 // entrar, para que quede claro que la función existe pero es solo para administradores.
-const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga'];
+const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos'];
 function vistaBloqueadaParaRol(view){
   if(!VISTAS_SOLO_ADMIN.includes(view)) return false;
   if(!state.perfil) return false;
@@ -2889,6 +2889,7 @@ const ICONS = {
   escanear:'<svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 011-1h3"/><path d="M20 8V5a1 1 0 00-1-1h-3"/><path d="M4 16v3a1 1 0 001 1h3"/><path d="M20 16v3a1 1 0 01-1 1h-3"/><path d="M3 12h18"/><path d="M8 9v6"/><path d="M12 9v6"/><path d="M16 9v6"/></svg>',
   candado:'<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
   alerta:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+  ciclos:'<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h13l-3 4 3 4H5"/></svg>',
 };
 
 /* =======================================================================
@@ -4937,6 +4938,29 @@ function hintCupoOperadores(empresa){
   return `<div class="hint" style="margin-top:8px;font-size:11px">${esc(texto)}</div>`;
 }
 
+// "Períodos" (ciclos de conteo) ahora es su propia pestaña admin (VISTAS_SOLO_ADMIN), separada
+// de Configuraciones a pedido de Joel — el SKU que ocupaba ese lugar en la barra inferior pasó
+// a un ícono arriba (junto a Buscar). Antes vivía como una tarjeta dentro de Configuraciones.
+function renderCiclos(){
+  return `
+    <div class="section-head"><div><span class="eyebrow">Empresa</span><h2>Períodos de conteo</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Ciclos de conteo (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</div>
+      <form id="form-crear-ciclo">
+        <label for="ciclo-nombre">Nombre del ciclo</label>
+        <input type="text" id="ciclo-nombre" placeholder="Ej. T1 2027" required>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear ciclo</button></div>
+      </form>
+      ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=>`
+        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <div class="plan-item-ubic" style="font-weight:500;flex:1">${esc(c.nombre)}</div>
+          ${c.es_actual? `<span class="badge badge-ok">Actual</span>` : `<button type="button" class="btn btn-secondary" data-marcar-ciclo-actual="${esc(c.id)}" style="width:auto;padding:6px 12px;font-size:12px">Marcar como actual</button>`}
+        </div>
+      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay ciclos creados. Mientras no crees uno, los conteos se guardan sin período asignado.</div>`}
+    </div>
+  `;
+}
+
 function renderConfiguraciones(){
   const empresa = state.perfil && state.perfil.empresas;
   const esAdmin = state.perfil && state.perfil.rol === 'admin';
@@ -4988,22 +5012,6 @@ function renderConfiguraciones(){
       ` : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie más en tu equipo.</div>`}
     </div>
     ` : ''}
-    ${esAdmin? `
-    <div class="card" style="margin-top:14px">
-      <div class="hint" style="margin-bottom:10px">Ciclos de conteo (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</div>
-      <form id="form-crear-ciclo">
-        <label for="ciclo-nombre">Nombre del ciclo</label>
-        <input type="text" id="ciclo-nombre" placeholder="Ej. T1 2027" required>
-        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear ciclo</button></div>
-      </form>
-      ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=>`
-        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
-          <div class="plan-item-ubic" style="font-weight:500;flex:1">${esc(c.nombre)}</div>
-          ${c.es_actual? `<span class="badge badge-ok">Actual</span>` : `<button type="button" class="btn btn-secondary" data-marcar-ciclo-actual="${esc(c.id)}" style="width:auto;padding:6px 12px;font-size:12px">Marcar como actual</button>`}
-        </div>
-      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay ciclos creados. Mientras no crees uno, los conteos se guardan sin período asignado.</div>`}
-    </div>
-    ` : ''}
     ` : ''}
     <div class="section-head"><div><span class="eyebrow">Apariencia</span><h2>Configuraciones</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Elige el diseño visual de la aplicación. La elección se guarda en este dispositivo.</div>
@@ -5030,7 +5038,7 @@ function renderConfiguraciones(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo'}[v];
 }
 
 function renderShell(){
@@ -5043,6 +5051,7 @@ function renderShell(){
     config: renderConfiguraciones,
     buscar: renderBuscar,
     plan: renderPlanificacion,
+    ciclos: renderCiclos,
   }[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
@@ -5057,6 +5066,7 @@ function renderShell(){
         <div class="user-chip">
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
+          <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs">${ICONS.skus.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel">${ICONS.download.replace('style="width:15px;height:15px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
           <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
@@ -5076,7 +5086,7 @@ function renderShell(){
     <nav class="tabbar">
       ${tabBtn('dashboard','Dashboard')}
       ${tabBtn('carga','Carga')}
-      ${tabBtn('skus','SKUs')}
+      ${tabBtn('ciclos','Períodos')}
       ${tabBtn('plan','Plan')}
       ${tabBtn('conteo','Contar')}
       ${tabBtn('reconteo','Reconteo')}
@@ -5278,6 +5288,7 @@ function bind(){
   document.getElementById('btn-logout').addEventListener('click', ()=>{ detenerEscaner(); handleLogout(); });
   document.getElementById('btn-config').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'config'}); });
   document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
+  document.getElementById('btn-ir-skus').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'skus'}); });
   document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=> setState({exportarModal:true}));
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
@@ -5346,19 +5357,6 @@ function bind(){
         });
       });
     }
-    // "Ciclos de conteo" lo ve cualquier esAdmin (incluye super-admin que administra su propia
-    // empresa, ver #125) — a diferencia del bloque de arriba (invitar/editar equipo), que sigue
-    // siendo exclusivo del admin normal. Por eso estos bindings van fuera de ese if.
-    const formCrearCiclo = document.getElementById('form-crear-ciclo');
-    if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
-      e.preventDefault();
-      const input = document.getElementById('ciclo-nombre');
-      crearCiclo(input.value.trim());
-      input.value = '';
-    });
-    document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
-      btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
-    });
     const selectAuditoriaTabla = document.getElementById('auditoria-filtro-tabla');
     if(selectAuditoriaTabla){
       if(!state.auditoria.cargado){ state.auditoria.cargado = true; cargarAuditoria(''); }
@@ -5423,6 +5421,19 @@ function bind(){
       const btnCargarMasLeadsSa = document.getElementById('btn-cargar-mas-leads-sa');
       if(btnCargarMasLeadsSa) btnCargarMasLeadsSa.addEventListener('click', cargarMasLeadsSuperAdmin);
     }
+  }
+
+  if(state.view==='ciclos'){
+    const formCrearCiclo = document.getElementById('form-crear-ciclo');
+    if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
+      e.preventDefault();
+      const input = document.getElementById('ciclo-nombre');
+      crearCiclo(input.value.trim());
+      input.value = '';
+    });
+    document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
+      btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
+    });
   }
 
   if(state.view==='dashboard'){
