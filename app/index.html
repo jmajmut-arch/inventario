@@ -3413,6 +3413,58 @@ function renderLeyendaColores(items){
     </span>`).join('')}</div>`;
 }
 
+// Gráfico de torta genérico: colorFn(d,i) decide el color de cada porción, labelFn(d) el texto
+// del tooltip. Cuando una sola porción cubre el 100% se dibuja como círculo completo -- un arco
+// SVG no puede describir 360° con un solo path (inicio y fin coinciden).
+function renderPieChart(datos, valueKey, colorFn, labelFn){
+  const total = datos.reduce((s,d)=>s+(d[valueKey]||0), 0);
+  if(!total) return `<div class="empty">Sin datos todavía.</div>`;
+  const cx=50, cy=50, r=42;
+  const puntoEnCirculo = (anguloDeg)=>{
+    const rad = anguloDeg*Math.PI/180;
+    return [cx+r*Math.cos(rad), cy+r*Math.sin(rad)];
+  };
+  let anguloAcum = -90; // arranca arriba (como un reloj en las 12), sentido horario
+  const segmentos = datos.filter(d=>(d[valueKey]||0)>0).map((d,i)=>{
+    const val = d[valueKey]||0;
+    const frac = val/total;
+    const pct = Math.round(frac*100);
+    const titulo = `${esc(labelFn(d))}: ${val} (${pct}%)`;
+    if(frac>0.999) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${colorFn(d,i)}"><title>${titulo}</title></circle>`;
+    const inicio = anguloAcum;
+    anguloAcum += frac*360;
+    const [x1,y1] = puntoEnCirculo(inicio);
+    const [x2,y2] = puntoEnCirculo(anguloAcum);
+    const grandeArco = (anguloAcum-inicio)>180 ? 1 : 0;
+    return `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${grandeArco} 1 ${x2},${y2} Z" fill="${colorFn(d,i)}" stroke="var(--surface)" stroke-width="2"><title>${titulo}</title></path>`;
+  }).join('');
+  return `<svg viewBox="0 0 100 100" width="140" height="140" style="display:block;margin:0 auto">${segmentos}</svg>`;
+}
+
+// Colores fijos por posición (no por persona, para no ciclar al azar) -- mismo criterio que
+// COLOR_RESUMEN_ESTADO_BUSQUEDA. Más allá de la 5ta persona, resumenQuienConto agrupa el resto
+// en "Otros", que cae naturalmente en este gris al quedar fuera del arreglo de 5 colores.
+const COLOR_QUIEN_CONTO = ['var(--steel)','var(--amber)','var(--ok)','var(--warn)','var(--danger)'];
+function colorQuienConto(d,i){ return COLOR_QUIEN_CONTO[i] || 'var(--text-faint)'; }
+
+// Resumen "quién contó" para el gráfico de torta de Buscar (ver renderBuscar) -- solo sobre
+// filas ya contadas (con conteo_id); un SKU "No contado" no tiene contador que atribuirle.
+// Ordena de mayor a menor y agrupa todo lo que exceda las primeras 5 personas en "Otros", para
+// no terminar con una torta de decenas de porciones ilegibles en una empresa con mucha gente.
+function resumenQuienConto(resultados){
+  const map = new Map();
+  resultados.forEach(r=>{
+    if(!r.conteo_id) return;
+    const nombre = r.contado_por || 'Sin asignar';
+    map.set(nombre, (map.get(nombre)||0)+1);
+  });
+  const ordenado = Array.from(map.entries()).map(([nombre,n])=>({nombre,n})).sort((a,b)=>b.n-a.n);
+  const TOPE = 5;
+  if(ordenado.length<=TOPE) return ordenado;
+  const otros = ordenado.slice(TOPE).reduce((s,d)=>s+d.n, 0);
+  return [...ordenado.slice(0,TOPE), {nombre:'Otros', n:otros}];
+}
+
 function abrevDiaSemana(iso){
   const d = new Date(iso+'T00:00:00');
   const s = d.toLocaleDateString('es-CL',{weekday:'short'}).replace('.','');
@@ -4663,6 +4715,7 @@ function renderBuscar(){
   const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(resultados.length/TAM_PAGINA_BUSCAR)-1));
   const resultadosPagina = resultados.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
   const busquedaHaySiguiente = (busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < resultados.length || b.hayMas;
+  const quienConto = resumenQuienConto(resultados);
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card">
@@ -4713,6 +4766,13 @@ function renderBuscar(){
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados filtrados'}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
       ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d, true, true)}
+    </div>
+    ` : ''}
+    ${quienConto.length? `
+    <div class="card">
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados cargados'}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros".')}</h2></div></div>
+      ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre)}
+      ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n})`]))}
     </div>
     ` : ''}
     <div class="card">
