@@ -1417,22 +1417,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // ===== Dashboard ejecutivo: proyección de término + ranking por responsable =====
 
   // proyeccionTermino: sin SKU cargados.
-  const proySinSkus = ctx.proyeccionTermino(0, 0, 0);
+  const proySinSkus = ctx.proyeccionTermino(0, 0, []);
   assert(proySinSkus.titulo==='—', 'sin SKU cargados no debe intentar proyectar nada, obtuvo: '+JSON.stringify(proySinSkus));
 
   // proyeccionTermino: inventario ya completo.
-  const proyCompleto = ctx.proyeccionTermino(100, 100, 5);
+  const proyCompleto = ctx.proyeccionTermino(100, 100, [{dia:ctx.fechaISO(new Date()), contados:5}]);
   assert(proyCompleto.titulo==='¡Inventario completo!', 'sin pendientes debe avisar que está completo, obtuvo: '+JSON.stringify(proyCompleto));
 
   // proyeccionTermino: hay pendientes pero nada contado en la ventana -> no se puede estimar ritmo.
-  const proySinRitmo = ctx.proyeccionTermino(100, 50, 0);
+  const proySinRitmo = ctx.proyeccionTermino(100, 50, []);
   assert(proySinRitmo.titulo==='Sin proyección', 'sin conteos recientes no debe inventarse una fecha, obtuvo: '+JSON.stringify(proySinRitmo));
 
-  // proyeccionTermino: caso normal — 100 pendientes, ritmo de 10 SKU/día (140 contados en la
-  // ventana de 14 días = 10/día) -> 100/10 = 10 días más.
-  const proyNormal = ctx.proyeccionTermino(200, 100, 140);
+  // proyeccionTermino: caso normal — 100 pendientes, ritmo de 10 SKU/día (140 contados repartidos
+  // en los últimos 14 días -> 10/día) -> 100/10 = 10 días más. El primer día con datos es hace
+  // 13 días (14 días transcurridos hasta hoy inclusive), así que sí llena toda la ventana.
+  const diarioNormal = [
+    {dia: ctx.fechaISO(ctx.sumarDias(new Date(), -13)), contados:70},
+    {dia: ctx.fechaISO(new Date()), contados:70},
+  ];
+  const proyNormal = ctx.proyeccionTermino(200, 100, diarioNormal);
   assert(proyNormal.detalle.includes('10 días más') && proyNormal.detalle.includes('100 pendientes'), 'debe calcular los días restantes como pendientes/ritmo, obtuvo: '+JSON.stringify(proyNormal));
   assert(proyNormal.titulo!=='—' && proyNormal.titulo!=='Sin proyección' && proyNormal.titulo!=='¡Inventario completo!', 'el caso normal debe mostrar una fecha proyectada, obtuvo: '+JSON.stringify(proyNormal));
+
+  // Bug real reportado por Joel: si el ciclo recién empezó (ej. 2 días atrás), dividir por los
+  // 14 días fijos de la ventana infla artificialmente los días restantes con "días muertos" que
+  // nunca existieron. Mismos 100 contados pero solo en los últimos 2 días -> ritmo 50/día, no
+  // 100/14=7.1/día.
+  const diarioReciente = [
+    {dia: ctx.fechaISO(ctx.sumarDias(new Date(), -1)), contados:50},
+    {dia: ctx.fechaISO(new Date()), contados:50},
+  ];
+  const proyReciente = ctx.proyeccionTermino(200, 100, diarioReciente);
+  assert(proyReciente.detalle.includes('2 días más') && proyReciente.detalle.includes('50.0 SKU/día'), 'con datos de solo 2 días, el ritmo debe calcularse sobre esos 2 días (50/día), no sobre la ventana fija de 14, obtuvo: '+JSON.stringify(proyReciente));
 
   // cargarDashboard: el ranking por responsable ahora se calcula en SQL (rpc/ranking_responsable,
   // ver ranking_responsable_en_sql), no trayendo filas crudas y agrupando en JS — evita el límite

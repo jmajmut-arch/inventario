@@ -3080,21 +3080,29 @@ function resumenPendientesPorBodega(t){
     .sort((a,b)=> b.cantidad-a.cantidad);
 }
 
-// Fecha estimada de término si se mantiene el ritmo promedio de los últimos
-// VENTANA_PROYECCION_DIAS días (contados en ese período / cantidad de días de la ventana,
-// incluidos los días sin actividad — así el promedio ya refleja fines de semana o pausas
-// reales en vez de asumir que se trabaja todos los días).
-function proyeccionTermino(totUniverso, totContados, contadosEnVentana){
+// Fecha estimada de término si se mantiene el ritmo promedio reciente (contados en la ventana
+// / días REALMENTE transcurridos desde el primer conteo de esa ventana, incluidos los días sin
+// actividad en el medio — así el promedio ya refleja fines de semana o pausas reales). Bug real
+// reportado por Joel: antes se dividía siempre por los VENTANA_PROYECCION_DIAS (14) fijos,
+// aunque el ciclo recién hubiera empezado hace 2 días — eso dividía por 12 días que nunca
+// existieron y disparaba el ritmo diario hacia abajo (proyección "pésima", días restantes
+// inflados). Ahora el denominador es min(14, días desde el primer día CON conteos dentro de la
+// ventana hasta hoy) — nunca más días de los que realmente pudieron contarse.
+function proyeccionTermino(totUniverso, totContados, diarioAgg){
   const pendientes = Math.max(0, totUniverso - totContados);
   if(totUniverso===0) return {titulo:'—', detalle:'Aún no hay SKU cargados.'};
   if(pendientes===0) return {titulo:'¡Inventario completo!', detalle:'No quedan SKU pendientes por contar.'};
-  const ritmoDiario = contadosEnVentana / VENTANA_PROYECCION_DIAS;
-  if(ritmoDiario<=0) return {titulo:'Sin proyección', detalle:`Sin conteos en los últimos ${VENTANA_PROYECCION_DIAS} días para estimar un ritmo.`};
+  const contadosEnVentana = diarioAgg.reduce((s,d)=>s+d.contados,0);
+  if(!diarioAgg.length || contadosEnVentana<=0) return {titulo:'Sin proyección', detalle:`Sin conteos en los últimos ${VENTANA_PROYECCION_DIAS} días para estimar un ritmo.`};
+  const primerDia = new Date(diarioAgg[0].dia+'T00:00:00');
+  const hoy = new Date(fechaISO(new Date())+'T00:00:00');
+  const diasTranscurridos = Math.min(VENTANA_PROYECCION_DIAS, Math.round((hoy-primerDia)/86400000)+1);
+  const ritmoDiario = contadosEnVentana / diasTranscurridos;
   const diasRestantes = Math.ceil(pendientes/ritmoDiario);
   const fechaProyectada = fechaISO(sumarDias(new Date(), diasRestantes));
   return {
     titulo: fmtFecha(fechaProyectada),
-    detalle: `${diasRestantes} día${diasRestantes===1?'':'s'} más, a un ritmo de ${ritmoDiario.toFixed(1)} SKU/día (${pendientes.toLocaleString('es-CL')} pendientes)`,
+    detalle: `${diasRestantes} día${diasRestantes===1?'':'s'} más, a un ritmo de ${ritmoDiario.toFixed(1)} SKU/día (${pendientes.toLocaleString('es-CL')} pendientes, ${contadosEnVentana} contados en los últimos ${diasTranscurridos} día${diasTranscurridos===1?'':'s'})`,
   };
 }
 
@@ -3266,7 +3274,7 @@ function renderInformeEjecutivo(){
   const totConDif = diarioAgg.reduce((s,d)=>s+d.diferencias,0);
   const totContadosPeriodo = diarioAgg.reduce((s,d)=>s+d.contados,0);
   const totSinDif = Math.max(0, totContadosPeriodo - totConDif);
-  const proyeccion = proyeccionTermino(totUniverso, totContados, totContadosPeriodo);
+  const proyeccion = proyeccionTermino(totUniverso, totContados, diarioAgg);
   const rankingResponsables = (state.dash.ranking||[]).slice(0,8);
 
   // Exactitud: sobre el último conteo de cada SKU (no sobre cada conteo histórico), qué
