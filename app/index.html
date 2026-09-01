@@ -1027,25 +1027,48 @@ function resetBuscadorLibre(){
   return { resultados: [], buscando: false };
 }
 
-// Bug real reportado (Joel): cada tecleo en "Agregar algo fuera del plan" dispara un setState()
-// que reconstruye toda la pantalla por innerHTML -- el <input> viejo (con el foco) se destruye
-// y el nuevo nace sin foco, así que se perdía el cursor a la primera letra escrita. Se guarda el
-// foco/cursor de ANTES del setState (setState es síncrono acá) y se restaura después, sin tocar
-// conteoBuscadorFueEnfocado: ese flag sigue evitando robar el foco en renders de fondo que no
-// tienen que ver con este campo (ver su comentario), esto solo restaura lo que el propio tecleo
-// acaba de destruir.
+// Bug real reportado (Joel, en iPad y en computador): cada tecleo en "Agregar algo fuera del
+// plan" disparaba un setState() que reconstruye TODA la pantalla por innerHTML -- el <input> se
+// destruye y nace uno nuevo sin foco. Restaurar el foco por código después ayuda en escritorio,
+// pero en iOS Safari el teclado en pantalla se cierra apenas el elemento se destruye y no
+// siempre vuelve a abrirse solo porque se llame .focus() después (necesita estar atado al mismo
+// gesto del usuario). La solución de fondo es que el <input> nunca se destruya mientras se
+// escribe: acá NO se llama a setState() -- se actualiza el estado directo y se repinta a mano
+// SOLO el contenedor de resultados (#buscador-libre-resultados, ver renderResultadosBuscadorLibre),
+// dejando el <input> intacto en todo momento.
 function escribirBuscadorLibre(texto){
   const q = texto.trim();
   clearTimeout(debounceBuscadorLibre);
-  const habiaFoco = document.activeElement && document.activeElement.id==='sku-search';
-  const cursor = habiaFoco ? document.activeElement.selectionStart : null;
-  setState({skuSearch: texto, buscadorLibre: { resultados: q.length>=2? state.buscadorLibre.resultados : [], buscando: q.length>=2 }});
-  if(habiaFoco){
-    const el = document.getElementById('sku-search');
-    if(el){ el.focus(); el.selectionStart = el.selectionEnd = cursor; }
-  }
+  state.skuSearch = texto;
+  state.buscadorLibre = { resultados: q.length>=2? state.buscadorLibre.resultados : [], buscando: q.length>=2 };
+  actualizarResultadosBuscadorLibreEnPantalla();
   if(q.length < 2) { buscadorLibrePeticionId++; return; }
   debounceBuscadorLibre = setTimeout(()=> buscarSkusLibre(q), 350);
+}
+
+// Repinta solo #buscador-libre-resultados con el estado actual, sin tocar el resto de la
+// pantalla (ni el <input> de búsqueda) -- ver escribirBuscadorLibre. Si el contenedor no está en
+// pantalla (por ejemplo, ya se eligió un SKU y cambió la vista mientras la búsqueda seguía en
+// vuelo), no hace nada: no hay nada que pintar ni foco que proteger.
+function actualizarResultadosBuscadorLibreEnPantalla(){
+  const cont = document.getElementById('buscador-libre-resultados');
+  if(!cont) return;
+  cont.innerHTML = renderResultadosBuscadorLibre();
+  bindBuscadorLibreResultados();
+}
+
+function bindBuscadorLibreResultados(){
+  document.querySelectorAll('[data-pick-btn]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      // El resultado viene del buscador libre (servidor, ver escribirBuscadorLibre), no
+      // necesariamente está en state.skus (que solo trae los primeros 500 SKU activos) —
+      // state.skus queda de respaldo por si acaso, mismo patrón que data-pick-plan.
+      const sku = state.buscadorLibre.resultados.find(s=>s.id===btn.dataset.pickBtn)
+        || state.skus.find(s=>s.id===btn.dataset.pickBtn);
+      if(!sku) return;
+      setState({skuSeleccionado: sku, conteoOrigenPlan:false, conteoOtraUbicacion:false});
+    });
+  });
 }
 
 async function buscarSkusLibre(texto){
@@ -1054,10 +1077,12 @@ async function buscarSkusLibre(texto){
   try{
     const rows = t? await rest(`/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
-    setState({buscadorLibre: { resultados: rows||[], buscando: false }});
+    state.buscadorLibre = { resultados: rows||[], buscando: false };
+    actualizarResultadosBuscadorLibreEnPantalla();
   }catch(e){
     if(miPeticion !== buscadorLibrePeticionId) return;
-    setState({buscadorLibre: { resultados: [], buscando: false }});
+    state.buscadorLibre = { resultados: [], buscando: false };
+    actualizarResultadosBuscadorLibreEnPantalla();
     toast(e.message,'err');
   }
 }
@@ -4368,10 +4393,25 @@ function renderPlanDelDia(){
 /* =======================================================================
    RENDER — Toma de inventario
    ======================================================================= */
-function renderConteo(){
+// Solo el bloque de hint/resultados del buscador libre (ver escribirBuscadorLibre y
+// actualizarResultadosBuscadorLibreEnPantalla): se extrae aparte para poder repintar SOLO esto
+// mientras se escribe, sin tocar el <input> de arriba -- ver el comentario de
+// actualizarResultadosBuscadorLibreEnPantalla para el porqué.
+function renderResultadosBuscadorLibre(){
   const q = state.skuSearch.trim();
   const resultados = state.buscadorLibre.resultados;
+  return q.length===0? `<div class="hint">Escribe para buscar en el maestro de materiales.</div>` :
+    q.length===1? `<div class="hint">Sigue escribiendo (mínimo 2 letras)…</div>` :
+    state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
+    resultados.length? resultados.map(s=>`
+      <div class="sku-pick" data-pick="${s.id}">
+        <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+        <button data-pick-btn="${s.id}">Elegir</button>
+      </div>`).join('') :
+    `<div class="hint">No se encontraron coincidencias.</div>`;
+}
 
+function renderConteo(){
   return `
     <div class="section-head"><div><span class="eyebrow">Terreno · Bodega</span><h2>Tomar inventario</h2></div></div>
 
@@ -4385,17 +4425,7 @@ function renderConteo(){
           <input type="text" id="sku-search" style="flex:1" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(state.skuSearch)}" autocomplete="off">
           <button type="button" id="btn-abrir-escaner" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
         </div>
-        <div style="margin-top:10px">
-          ${q.length===0? `<div class="hint">Escribe para buscar en el maestro de materiales.</div>` :
-            q.length===1? `<div class="hint">Sigue escribiendo (mínimo 2 letras)…</div>` :
-            state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
-            resultados.length? resultados.map(s=>`
-              <div class="sku-pick" data-pick="${s.id}">
-                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
-                <button data-pick-btn="${s.id}">Elegir</button>
-              </div>`).join('') :
-            `<div class="hint">No se encontraron coincidencias.</div>`}
-        </div>
+        <div id="buscador-libre-resultados" style="margin-top:10px">${renderResultadosBuscadorLibre()}</div>
       </div>
     ` : `
       <button type="button" id="btn-quitar-sku" aria-label="Volver a la lista de SKU" style="display:flex;align-items:center;gap:4px;background:none;border:none;color:var(--amber);font-weight:600;font-size:13px;padding:6px 0;margin-bottom:6px">‹ Volver</button>
@@ -5805,17 +5835,7 @@ function bind(){
         search.focus(); search.selectionStart = search.selectionEnd = search.value.length;
         conteoBuscadorFueEnfocado = true;
       }
-      document.querySelectorAll('[data-pick-btn]').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-          // El resultado viene del buscador libre (servidor, ver escribirBuscadorLibre), no
-          // necesariamente está en state.skus (que solo trae los primeros 500 SKU activos) —
-          // state.skus queda de respaldo por si acaso, mismo patrón que data-pick-plan.
-          const sku = state.buscadorLibre.resultados.find(s=>s.id===btn.dataset.pickBtn)
-            || state.skus.find(s=>s.id===btn.dataset.pickBtn);
-          if(!sku) return;
-          setState({skuSeleccionado: sku, conteoOrigenPlan:false, conteoOtraUbicacion:false});
-        });
-      });
+      bindBuscadorLibreResultados();
       const btnEscaner = document.getElementById('btn-abrir-escaner');
       if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
       const btnEscanerPlan = document.getElementById('btn-escanear-plan');
