@@ -4326,7 +4326,8 @@ function renderConteo(){
       <div class="selected-sku">
         <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
         <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
-        <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Stock sistema: ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Storage bin: ${esc(state.skuSeleccionado.storage_bin||'—')}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema: ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
       </div>
 
       <div class="card">
@@ -5806,7 +5807,7 @@ function bind(){
         if(!r) return;
         setState({
           view:'conteo',
-          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, stock_sistema:r.stock_sistema },
+          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, stock_sistema:r.stock_sistema },
           // conteoOrigenPlan:true (no false): recontar una diferencia es trabajo pedido por la
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
