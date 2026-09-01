@@ -1128,7 +1128,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
 async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, excluirYaPlanificados}){
-  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1481,7 +1481,7 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s); });
   if(!original.size) return [];
   const codigos = [...original.keys()];
-  const actuales = await rest(`/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
+  const actuales = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
   return actuales.map(s=>{
     const o = original.get(s.sku_code);
     // Fotos guardadas antes de que existieran estas dos columnas (plan planificado antes de este
@@ -5445,7 +5445,13 @@ function bind(){
       if(cUbic) cUbic.addEventListener('change', e=> elegirCascadaContar({ubicacion:e.target.value}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
-          const sku = state.skus.find(s=>s.sku_code===btn.dataset.pickPlan);
+          // state.skus solo trae los primeros 500 SKU (orden alfabético) — con catálogos
+          // grandes, el SKU planificado clickeado puede no estar ahí y el click no hacía nada
+          // (bug real: "no me permite seleccionar un SKU", visto en Sentry como Rage Click).
+          // contarPlan.skusPendientes sí trae el SKU completo, porque es la misma consulta que
+          // arma esta lista, así que se busca primero ahí; state.skus queda de respaldo.
+          const sku = (state.contarPlan.skusPendientes||[]).find(s=>s.sku_code===btn.dataset.pickPlan)
+            || state.skus.find(s=>s.sku_code===btn.dataset.pickPlan);
           if(!sku) return;
           setState({skuSeleccionado: sku, conteoOrigenPlan:true, conteoOtraUbicacion:false});
         });

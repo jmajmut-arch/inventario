@@ -381,14 +381,14 @@ const fakeFetchImpl = async (url, opts) => {
   // excluirYaPlanificados:true) — en estos fixtures no hay overlap real, así que basta con
   // responder lo mismo para ambas vistas.
   if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=is.null') && !path.includes('ubicacion=eq.')){
-    const filas = [{sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}];
+    const filas = [{id:'id-sku-suelto', sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}];
     return {
       status: 200, ok: true,
       headers: { get: (h) => h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null },
       text: async () => JSON.stringify(filas),
     };
   }
-  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
+  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
     // "Piso" (bodega=is.null) no tiene ningún storage_bin cargado -> cargarBinsPara cae al
     // listado de SKU puntuales (ver "sin bin, elegir SKU" más abajo en este archivo).
     // SKU-P3 ya está cubierto por OTRA entrada de plan vigente: skus_disponibles_planificar (la
@@ -399,13 +399,13 @@ const fakeFetchImpl = async (url, opts) => {
     // la lista de exclusión.
     const filas = path.startsWith('/rest/v1/skus_disponibles_planificar')
       ? [
-          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
-          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {id:'id-p1', sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {id:'id-p2', sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
         ]
       : [
-          {sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
-          {sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
-          {sku_code:'SKU-P3', descripcion:'Repuesto Piso 3 (ya en otra entrada)', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {id:'id-p1', sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {id:'id-p2', sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+          {id:'id-p3', sku_code:'SKU-P3', descripcion:'Repuesto Piso 3 (ya en otra entrada)', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
         ];
     return {
       status: 200, ok: true,
@@ -423,17 +423,17 @@ const fakeFetchImpl = async (url, opts) => {
   // carga masiva lo reasignó a otra bodega+ubicación completa (Bodega Norte/Pasillo 5): sin la
   // foto original de bodega/ubicación, desaparecería en silencio porque ya no calza con ninguna
   // entrada activa de esta cascada.
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida') && path.includes('sku_code=in.(')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida') && path.includes('sku_code=in.(')){
     const codigos = decodeURIComponent((path.match(/sku_code=in\.\(([^)]*)\)/)||[])[1]||'').split(',');
     const disponibles = {
-      'SKU-999': {sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'},
-      'SKU-002': {sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'},
-      'SKU-777': {sku_code:'SKU-777', descripcion:'Retén hidráulico', bodega:'Bodega Norte', ubicacion:'Pasillo 5', storage_bin:'N-03', unidad_medida:'UN'},
+      'SKU-999': {id:'id-999', sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'},
+      'SKU-002': {id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'},
+      'SKU-777': {id:'id-777', sku_code:'SKU-777', descripcion:'Retén hidráulico', bodega:'Bodega Norte', ubicacion:'Pasillo 5', storage_bin:'N-03', unidad_medida:'UN'},
       // SKU-555 nunca se movió (mismo bin, misma bodega, misma ubicación de siempre) — su foto es
       // "legacy" (ver snapshots.mp1 más abajo): se guardó antes de que existieran
       // bodega_original/ubicacion_original, así que esas dos vienen en null aunque el SKU jamás
       // cambió de bodega/ubicación en la vida real.
-      'SKU-555': {sku_code:'SKU-555', descripcion:'Filtro de aire', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'},
+      'SKU-555': {id:'id-555', sku_code:'SKU-555', descripcion:'Filtro de aire', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'},
     };
     const filas = codigos.map(c=>disponibles[c]).filter(Boolean);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
@@ -455,12 +455,12 @@ const fakeFetchImpl = async (url, opts) => {
     const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
   }
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
     const filas = binFiltro==='A-01'
-      ? [{sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'}]
+      ? [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'}]
       : binFiltro==='A-02'
-        ? [{sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'}]
+        ? [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'}]
         : [];
     return {
       status: 200,
@@ -1195,7 +1195,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.plan.semanaInicio = '2026-08-10';
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
-  const skusCallE1 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=sku_code') && c.url.includes('storage_bin=eq.A-01'));
+  const skusCallE1 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=id,sku_code') && c.url.includes('storage_bin=eq.A-01'));
   assert(!!skusCallE1, 'cargarPlanSemanal debe consultar /skus_planificables (detalle) para cada entrada automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(Array.isArray(ctx.__appstate.plan.detalle.e1) && ctx.__appstate.plan.detalle.e1[0].sku_code==='SKU-001', 'debe quedar cargado el detalle real de SKU (código/descripción) para A-01, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle.e1));
 
@@ -1206,9 +1206,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // La entrada e2 tiene SKU-002 excluido (skus_excluidos en la vista): tanto el conteo como el detalle
   // deben pedirse con el filtro sku_code=not.in.(...) para no volver a mostrarlo.
-  const skusCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=sku_code') && c.url.includes('storage_bin=eq.A-02'));
+  const skusCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=id,sku_code') && c.url.includes('storage_bin=eq.A-02'));
   assert(!!skusCallE2 && skusCallE2.url.includes('sku_code=not.in.(SKU-002)'), 'la consulta de detalle para e2 debe excluir SKU-002, obtuvo: '+JSON.stringify(skusCallE2));
-  const universoCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true') && !c.url.includes('select=sku_code') && c.url.includes('storage_bin=eq.A-02'));
+  const universoCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true') && !c.url.includes('select=id,sku_code') && c.url.includes('storage_bin=eq.A-02'));
   assert(!!universoCallE2 && universoCallE2.url.includes('sku_code=not.in.(SKU-002)'), 'la consulta de conteo (universo) para e2 debe excluir SKU-002, obtuvo: '+JSON.stringify(universoCallE2));
 
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.
@@ -3491,6 +3491,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
   const skusJuntos = ctx.__appstate.contarPlan.skusPendientes;
   assert(Array.isArray(skusJuntos) && skusJuntos.length===4 && skusJuntos.some(s=>s.sku_code==='SKU-001') && skusJuntos.some(s=>s.sku_code==='SKU-002'), 'elegirCascadaContar debe juntar los SKU pendientes de todos los bin de la ubicación (SKU-001 de A-01 y SKU-002 de A-02) más los SKU recuperados, obtuvo: '+JSON.stringify(skusJuntos));
+  // Bug real (Sentry, Rage Click): tocar un SKU del plan del día no hacía nada con catálogos
+  // grandes porque el click buscaba el SKU en state.skus (solo trae los primeros 500) en vez de
+  // en contarPlan.skusPendientes. Para que ese fallback funcione hace falta el id de cada fila
+  // acá (antes el select de skusDeUbicacion/skusMovidosDeEntradas no lo traía).
+  assert(skusJuntos.every(s=>!!s.id), 'cada SKU pendiente del plan del día debe traer su id (lo necesita guardarConteo para sku_id), obtuvo: '+JSON.stringify(skusJuntos));
   const skuMovido = skusJuntos.find(s=>s.sku_code==='SKU-999');
   assert(!!skuMovido && skuMovido.storage_bin==='C-09' && skuMovido.binOriginal==='A-01' && !skuMovido.cambioBodega && !skuMovido.cambioUbicacion, 'SKU-999 debe aparecer marcado como movido de bin (no de bodega/ubicación), con su bin actual (C-09) y el bin con el que se planificó (A-01), obtuvo: '+JSON.stringify(skuMovido));
   assert(!skusJuntos.find(s=>s.sku_code==='SKU-002').binOriginal, 'SKU-002 sigue cubierto por el bin activo A-02: no debe llevar marca de "movido" aunque su snapshot original haya sido A-01, obtuvo: '+JSON.stringify(skusJuntos.find(s=>s.sku_code==='SKU-002')));
