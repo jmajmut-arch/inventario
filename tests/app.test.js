@@ -458,9 +458,9 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
     const filas = binFiltro==='A-01'
-      ? [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'}]
+      ? [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20}]
       : binFiltro==='A-02'
-        ? [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'}]
+        ? [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8}]
         : [];
     return {
       status: 200,
@@ -3510,6 +3510,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // en contarPlan.skusPendientes. Para que ese fallback funcione hace falta el id de cada fila
   // acá (antes el select de skusDeUbicacion/skusMovidosDeEntradas no lo traía).
   assert(skusJuntos.every(s=>!!s.id), 'cada SKU pendiente del plan del día debe traer su id (lo necesita guardarConteo para sku_id), obtuvo: '+JSON.stringify(skusJuntos));
+  // Reportado real (screenshot): al recontar/tocar un SKU del plan del día, la tarjeta mostraba
+  // "Stock sistema: undefined EA" — skusDeUbicacion/skusMovidosDeEntradas nunca habían traído
+  // stock_sistema en su select (solo se agregó id al arreglar el bug de arriba). Se agrega acá
+  // también, y renderConteo se endurece a !=null (en vez de !==null) para no volver a mostrar el
+  // string literal "undefined" si algún día vuelve a faltar un dato en el objeto seleccionado.
+  const skuSinMover = skusJuntos.find(s=>s.sku_code==='SKU-001');
+  assert(skuSinMover.stock_sistema===20, 'el SKU pendiente debe traer su stock_sistema real (no undefined), obtuvo: '+JSON.stringify(skuSinMover));
+  ctx.__appstate.skuSeleccionado = skuSinMover;
+  const htmlConSkuElegido = ctx.renderConteo();
+  assert(htmlConSkuElegido.includes('Stock sistema: 20 UN') && !htmlConSkuElegido.includes('undefined'), 'la tarjeta del SKU elegido debe mostrar el stock real, nunca el texto "undefined", obtuvo: '+htmlConSkuElegido);
+  ctx.__appstate.skuSeleccionado = null;
   const skuMovido = skusJuntos.find(s=>s.sku_code==='SKU-999');
   assert(!!skuMovido && skuMovido.storage_bin==='C-09' && skuMovido.binOriginal==='A-01' && !skuMovido.cambioBodega && !skuMovido.cambioUbicacion, 'SKU-999 debe aparecer marcado como movido de bin (no de bodega/ubicación), con su bin actual (C-09) y el bin con el que se planificó (A-01), obtuvo: '+JSON.stringify(skuMovido));
   assert(!skusJuntos.find(s=>s.sku_code==='SKU-002').binOriginal, 'SKU-002 sigue cubierto por el bin activo A-02: no debe llevar marca de "movido" aunque su snapshot original haya sido A-01, obtuvo: '+JSON.stringify(skusJuntos.find(s=>s.sku_code==='SKU-002')));
