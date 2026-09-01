@@ -3773,6 +3773,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(vecesEnfocado===1, 'el buscador de SKU debe enfocarse una sola vez al entrar a Contar, no en cada re-render posterior, obtuvo '+vecesEnfocado+' llamadas a focus()');
   buscadorEl.focus = focusOriginal;
 
+  // Bug real reportado (Joel): "al cargar un SKU fuera de plan pierdo el foco en el text box" --
+  // cada tecleo dispara un setState() que reconstruye el <input> desde cero, así que se perdía
+  // el foco a la primera letra escrita. escribirBuscadorLibre debe restaurar foco + cursor
+  // cuando el campo tenía el foco justo antes de tecleаr (sin depender del flag de "primera vez"
+  // de arriba, que sigue protegiendo los renders de fondo no relacionados).
+  let vecesEnfocadoTecleo = 0;
+  buscadorEl.focus = ()=> vecesEnfocadoTecleo++;
+  buscadorEl.selectionStart = 3;
+  documentMock.activeElement = buscadorEl;
+  ctx.escribirBuscadorLibre('ACE');
+  assert(vecesEnfocadoTecleo===1, 'al escribir con el campo ya enfocado, debe restaurar el foco tras el setState del tecleo, obtuvo '+vecesEnfocadoTecleo+' llamadas a focus()');
+  assert(buscadorEl.selectionStart===3, 'debe restaurar la posición del cursor guardada antes del setState, obtuvo '+buscadorEl.selectionStart);
+
+  // Si el campo NO tenía el foco (ej. la persona está mirando la lista de pendientes o llenando
+  // otro campo), no debe robárselo -- mismo caso que ya cubre el bloque de arriba.
+  vecesEnfocadoTecleo = 0;
+  documentMock.activeElement = null;
+  ctx.escribirBuscadorLibre('ACER');
+  assert(vecesEnfocadoTecleo===0, 'si el campo no tenía el foco, escribirBuscadorLibre no debe forzarlo, obtuvo '+vecesEnfocadoTecleo+' llamadas a focus()');
+  documentMock.activeElement = null;
+  buscadorEl.focus = focusOriginal;
+
   // entradasActivasContar: resuelve las entradas que calzan con bodega+ubicación (sin filtro de
   // storage bin — se sacó a pedido: la persona solo elige bodega y ubicación, y se juntan los SKU
   // de todos los bin de esa ubicación en vez de obligar a elegir uno por uno), o la de "SKU sin

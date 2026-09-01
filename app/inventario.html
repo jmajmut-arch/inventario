@@ -1027,10 +1027,23 @@ function resetBuscadorLibre(){
   return { resultados: [], buscando: false };
 }
 
+// Bug real reportado (Joel): cada tecleo en "Agregar algo fuera del plan" dispara un setState()
+// que reconstruye toda la pantalla por innerHTML -- el <input> viejo (con el foco) se destruye
+// y el nuevo nace sin foco, así que se perdía el cursor a la primera letra escrita. Se guarda el
+// foco/cursor de ANTES del setState (setState es síncrono acá) y se restaura después, sin tocar
+// conteoBuscadorFueEnfocado: ese flag sigue evitando robar el foco en renders de fondo que no
+// tienen que ver con este campo (ver su comentario), esto solo restaura lo que el propio tecleo
+// acaba de destruir.
 function escribirBuscadorLibre(texto){
   const q = texto.trim();
   clearTimeout(debounceBuscadorLibre);
+  const habiaFoco = document.activeElement && document.activeElement.id==='sku-search';
+  const cursor = habiaFoco ? document.activeElement.selectionStart : null;
   setState({skuSearch: texto, buscadorLibre: { resultados: q.length>=2? state.buscadorLibre.resultados : [], buscando: q.length>=2 }});
+  if(habiaFoco){
+    const el = document.getElementById('sku-search');
+    if(el){ el.focus(); el.selectionStart = el.selectionEnd = cursor; }
+  }
   if(q.length < 2) { buscadorLibrePeticionId++; return; }
   debounceBuscadorLibre = setTimeout(()=> buscarSkusLibre(q), 350);
 }
