@@ -6,7 +6,7 @@ if(!m) throw new Error('No se encontró el bloque <script>');
 let script = m[1];
 // Evitar que se ejecute el arranque real de la app al final del script.
 script = script.replace(/\nasync function iniciarApp\(\)\{[\s\S]*?\niniciarApp\(\);\s*$/, '\n');
-script += '\nvar __appstate = state;\nvar __TypeError = TypeError;\nfunction __resyncAppState(){ __appstate = state; return __appstate; }\n';
+script += '\nvar __appstate = state;\nvar __TypeError = TypeError;\nfunction __resyncAppState(){ __appstate = state; return __appstate; }\nvar __CAMPOS_SKU = CAMPOS_SKU;\n';
 
 // Assert real: a diferencia de console.assert(), esta SI hace fallar el proceso
 // (exit code != 0) si alguna aserción no se cumple, para que sirva como gate en CI.
@@ -98,6 +98,12 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
       {unidad_medida:'KG', cantidad_skus:15},
       {unidad_medida:'UN', cantidad_skus:300},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/batches_sku')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {batch:'L-001', cantidad_skus:5},
+      {batch:'L-002', cantidad_skus:2},
     ]) };
   }
   if(path.startsWith('/rest/v1/ubicaciones_especificas')){
@@ -407,7 +413,7 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
-  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
+  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
     // "Piso" (bodega=is.null) no tiene ningún storage_bin cargado -> cargarBinsPara cae al
     // listado de SKU puntuales (ver "sin bin, elegir SKU" más abajo en este archivo).
     // SKU-P3 ya está cubierto por OTRA entrada de plan vigente: skus_disponibles_planificar (la
@@ -442,7 +448,7 @@ const fakeFetchImpl = async (url, opts) => {
   // carga masiva lo reasignó a otra bodega+ubicación completa (Bodega Norte/Pasillo 5): sin la
   // foto original de bodega/ubicación, desaparecería en silencio porque ya no calza con ninguna
   // entrada activa de esta cascada.
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida') && path.includes('sku_code=in.(')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('sku_code=in.(')){
     const codigos = decodeURIComponent((path.match(/sku_code=in\.\(([^)]*)\)/)||[])[1]||'').split(',');
     const disponibles = {
       'SKU-999': {id:'id-999', sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'},
@@ -474,13 +480,20 @@ const fakeFetchImpl = async (url, opts) => {
     const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
   }
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
     const filas = binFiltro==='A-01'
       ? [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20}]
       : binFiltro==='A-02'
         ? [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8}]
-        : [];
+        // Mismo sku_code, dos filas (una por batch): reproduce el pedido de Joel de mostrar el
+        // SOH desglosado por batch en Contar -- ambas deben sobrevivir al armar el plan del día.
+        : binFiltro==='BX-01'
+          ? [
+              {id:'id-batch-a', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'A', unidad_medida:'LT', stock_sistema:5},
+              {id:'id-batch-b', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'B', unidad_medida:'LT', stock_sistema:9},
+            ]
+          : [];
     return {
       status: 200,
       ok: true,
@@ -492,11 +505,11 @@ const fakeFetchImpl = async (url, opts) => {
   // crearSkuManual / procesarUnItemOffline lo traducen a un mensaje claro en vez del error
   // crudo de Postgres — ver esErrorCodigoSkuDuplicado.
   if(path==='/rest/v1/skus' && opts && opts.method==='POST' && JSON.parse(opts.body)[0].sku_code==='SKU-DUP-EXISTE'){
-    return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_key"'}) };
+    return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_key"'}) };
   }
   // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
   // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
-  if(path.startsWith('/rest/v1/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
+  if(path.startsWith('/rest/v1/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
     const filas = [
       {id:'id-libre-1', sku_code:'FIL-1001', descripcion:'Filtro de aceite', bodega:'Bodega Central', ubicacion:'Pasillo 2', storage_bin:'B-04', stock_sistema:12, unidad_medida:'UN'},
       {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:'Bodega Central', ubicacion:null, storage_bin:null, stock_sistema:3, unidad_medida:'UN'},
@@ -644,6 +657,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarOpcionesCategoriasUnidades();
   assert(JSON.stringify(ctx.__appstate.opcionesCategorias)===JSON.stringify(['Repuestos','Seguridad']), 'cargarOpcionesCategoriasUnidades debe dejar las categorías en state.opcionesCategorias, obtuvo: '+JSON.stringify(ctx.__appstate.opcionesCategorias));
   assert(JSON.stringify(ctx.__appstate.opcionesUnidades)===JSON.stringify(['KG','UN']), 'cargarOpcionesCategoriasUnidades debe dejar las unidades en state.opcionesUnidades, obtuvo: '+JSON.stringify(ctx.__appstate.opcionesUnidades));
+  assert(JSON.stringify(ctx.__appstate.opcionesBatches)===JSON.stringify(['L-001','L-002']), 'cargarOpcionesCategoriasUnidades debe dejar los batches en state.opcionesBatches, obtuvo: '+JSON.stringify(ctx.__appstate.opcionesBatches));
 
   // renderSkus: los campos de categoría/unidad/bodega/ubicación/bin deben tener datalist
   // con las sugerencias cargadas, sin dejar de ser texto libre (se puede cargar un valor
@@ -651,6 +665,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.skuFormOpciones = { ubicaciones: [{ubicacion:'Interior Nave'}], bins: [{storage_bin:'A-01'}] };
   const htmlSkus = ctx.renderSkus();
   assert(htmlSkus.includes('id="s-cat" list="dl-categorias"') && htmlSkus.includes('<option value="Repuestos">') && htmlSkus.includes('<option value="Seguridad">'), 'el campo categoría debe tener datalist con las categorías sugeridas, obtuvo: '+htmlSkus);
+  assert(htmlSkus.includes('for="s-cat">Categoría<') && !htmlSkus.includes('for="s-cat">Batch<'), 'el campo categoria debe etiquetarse "Categoría", ya no "Batch" (ese nombre ahora es del campo batch real), obtuvo: '+htmlSkus);
+  // Pedido de Joel: agregar el batch también -- campo propio en el alta manual, separado de
+  // categoria, con su propio datalist de sugerencias.
+  assert(htmlSkus.includes('for="s-batch">Batch<') && htmlSkus.includes('id="s-batch" list="dl-batches"') && htmlSkus.includes('<option value="L-001">') && htmlSkus.includes('<option value="L-002">'), 'debe existir un campo Batch propio con datalist de sugerencias, obtuvo: '+htmlSkus);
   assert(htmlSkus.includes('id="s-um" list="dl-unidades"') && htmlSkus.includes('<option value="KG">') && htmlSkus.includes('<option value="UN">'), 'el campo unidad de medida debe tener datalist con las unidades sugeridas, obtuvo: '+htmlSkus);
   assert(htmlSkus.includes('id="s-bodega" list="dl-sku-bodegas"') && htmlSkus.includes('<option value="Nave Mina">') && htmlSkus.includes('<option value="Nave Planta">'), 'el campo bodega debe tener datalist con las bodegas ya usadas, obtuvo: '+htmlSkus);
   assert(htmlSkus.includes('id="s-ubic" list="dl-sku-ubicaciones"') && htmlSkus.includes('<datalist id="dl-sku-ubicaciones"><option value="Interior Nave">'), 'el campo ubicación debe tener datalist con las ubicaciones de la bodega elegida, obtuvo: '+htmlSkus);
@@ -2437,6 +2455,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(toastsDup.length===1 && /ya existe/i.test(toastsDup[0].textContent) && toastsDup[0].textContent.includes('SKU-DUP-EXISTE'), 'debe avisar con un mensaje claro de "código ya existe", no el error crudo de Postgres, obtuvo: '+JSON.stringify(toastsDup.map(t=>t.textContent)));
   assert(!/duplicate key|constraint/i.test(toastsDup[0].textContent), 'el mensaje no debe filtrar el error crudo de la base de datos, obtuvo: '+toastsDup[0].textContent);
 
+  // El mismo código+bodega puede repetirse con un batch distinto (ambos válidos); el mensaje
+  // de "ya existe" debe aclarar CON QUÉ batch choca, para no confundir al que está cargando.
+  const toastsAntesDupBatch = toastRootDup.hijos.length;
+  await ctx.crearSkuManual({sku_code:'SKU-DUP-EXISTE', descripcion:'Sillas', bodega:'Nave Mina', batch:'L-009', activo:true});
+  const toastsDupBatch = toastRootDup.hijos.slice(toastsAntesDupBatch);
+  assert(toastsDupBatch.length===1 && toastsDupBatch[0].textContent.includes('con batch L-009'), 'el mensaje de duplicado debe mencionar el batch cuando el payload trae uno, obtuvo: '+JSON.stringify(toastsDupBatch.map(t=>t.textContent)));
+
   // crearSkuManual dispara refrescarListaSkus() sin esperarlo (fire-and-forget): hay que dejar
   // que esa cadena de promesas termine aquí, o su llamada a /ultimo_conteo_por_sku se cuela
   // más adelante y contamina el conteo de llamadas del siguiente bloque (perfil no cargado).
@@ -2457,11 +2482,45 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.confirmarCargaMasiva();
   const postCarga = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   assert(!!postCarga, 'confirmarCargaMasiva debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key'), 'la carga masiva debe hacer upsert por (empresa_id, sku_code, bodega_key), obtuvo: '+postCarga.url);
+  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key,batch_key'), 'la carga masiva debe hacer upsert por (empresa_id, sku_code, bodega_key, batch_key), obtuvo: '+postCarga.url);
   const filasCarga = JSON.parse(postCarga.opts.body);
   assert(filasCarga.length===2, 'dos filas del mismo código en bodegas distintas deben llegar ambas al upsert, no deduplicarse a una sola, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.costo_unitario===1500) && filasCarga.some(f=>f.bodega==='Planta' && f.costo_unitario===null), 'la carga masiva debe mapear costo_unitario cuando viene en el archivo, y dejarlo null cuando la celda viene vacía, obtuvo: '+JSON.stringify(filasCarga));
+
+  // ===== Carga masiva: el mismo sku_code+bodega en dos batches distintos tampoco debe
+  // deduplicarse (a pedido de Joel: "en Contar, mostrar el SOH por los diferentes tipos de
+  // batch") -- pero el mismo código+bodega+batch repetido dos veces sí se queda con el último.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales-batch.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', descripcion:'Desc', bodega:'Bodega', batch:'Batch', stock_sistema:'Stock', costo_unitario:'Costo' },
+    data: [
+      { Codigo:'SKU-LOTE', Desc:'Aceite', Bodega:'Nave', Batch:'L-001', Stock:'40', Costo:'900' },
+      { Codigo:'SKU-LOTE', Desc:'Aceite', Bodega:'Nave', Batch:'L-002', Stock:'10', Costo:'900' },
+      { Codigo:'SKU-LOTE', Desc:'Aceite', Bodega:'Nave', Batch:'L-002', Stock:'12', Costo:'900' },
+    ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postCargaBatch = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filasCargaBatch = JSON.parse(postCargaBatch.opts.body);
+  assert(filasCargaBatch.length===2, 'dos batches distintos del mismo código+bodega deben llegar ambos al upsert (no colapsarse en uno), obtuvo: '+JSON.stringify(filasCargaBatch));
+  assert(filasCargaBatch.some(f=>f.batch==='L-001' && f.stock_sistema===40), 'debe conservar el SOH del batch L-001, obtuvo: '+JSON.stringify(filasCargaBatch));
+  const filaL002 = filasCargaBatch.find(f=>f.batch==='L-002');
+  assert(!!filaL002 && filaL002.stock_sistema===12, 'con el mismo código+bodega+batch repetido dos veces, debe quedarse con la última fila (stock 12, no 10), obtuvo: '+JSON.stringify(filaL002));
+
+  // CAMPOS_SKU: "Batch" es su propio campo (columna batch, separada de categoria), y un
+  // encabezado literal "Batch" en el archivo debe mapear a `batch`, no a `categoria` -- antes
+  // "Batch" era un alias de categoria, y los datos reales mostraron que ese campo en la
+  // práctica guarda el nombre de planta, no un lote.
+  const campoBatch = ctx.__CAMPOS_SKU.find(c=>c.campo==='batch');
+  const campoCategoria = ctx.__CAMPOS_SKU.find(c=>c.campo==='categoria');
+  assert(!!campoBatch && campoBatch.etiqueta==='Batch', 'debe existir un campo `batch` propio, etiquetado "Batch", obtuvo: '+JSON.stringify(campoBatch));
+  assert(!!campoCategoria && campoCategoria.etiqueta==='Categoría', 'categoria debe quedar etiquetado "Categoría" (ya no "Batch"), obtuvo: '+JSON.stringify(campoCategoria));
+  assert(!campoCategoria.alias.includes('batch') && !campoCategoria.alias.includes('lote'), 'categoria no debe quedarse con alias que en realidad describen un lote/batch, obtuvo: '+JSON.stringify(campoCategoria.alias));
+  const mapeoBatch = ctx.detectarMapeo(['Material','Batch'], ctx.__CAMPOS_SKU);
+  assert(mapeoBatch.batch==='Batch' && mapeoBatch.categoria===undefined, 'un encabezado "Batch" en el archivo debe mapear al campo batch, no a categoria, obtuvo: '+JSON.stringify(mapeoBatch));
 
   // Un costo o stock negativo (típico de notas de crédito/ajustes en exportaciones de SAP)
   // viola el check constraint de la tabla — antes, esa UNA fila hacía fallar el INSERT masivo
@@ -2955,6 +3014,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
   const htmlBuscarConCiclos = ctx.renderBuscar();
   assert(htmlBuscarConCiclos.includes('id="b-ciclo"') && htmlBuscarConCiclos.includes('Sin ciclo asignado') && htmlBuscarConCiclos.includes('T1 2027'), 'Buscar debe ofrecer el filtro de ciclo con la opción "Sin ciclo asignado" y los ciclos reales, obtuvo: '+htmlBuscarConCiclos);
+
+  // Pedido de Joel: mostrar el batch también -- la tabla de resultados de Buscar debe traer su
+  // propia columna Batch, para distinguir dos filas del mismo sku_code que solo difieren en lote.
+  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', soloConFotos:false, buscando:false, yaBuscado:true, resultados: [
+    { sku_code:'SKU-LOTE', batch:'L-001', descripcion:'Aceite', bodega:'Nave', conteo_id:'c3', cantidad_contada:40, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T20:00:00Z', ciclo_nombre:null, fotos:[] },
+    { sku_code:'SKU-LOTE', batch:null, descripcion:'Aceite', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, ciclo_nombre:null, fotos:[] },
+  ]};
+  const htmlBuscarConBatch = ctx.renderBuscar();
+  assert(htmlBuscarConBatch.includes('<th>Batch</th>'), 'la tabla de resultados debe tener su propia columna Batch, obtuvo: '+htmlBuscarConBatch);
+  assert(htmlBuscarConBatch.includes('<td class="mono">L-001</td>'), 'debe mostrar el batch de la fila que lo trae, obtuvo: '+htmlBuscarConBatch);
+  assert((htmlBuscarConBatch.match(/<td class="mono">—<\/td>/g)||[]).length>=1, 'una fila sin batch debe mostrar el guion, no vacío ni "null", obtuvo: '+htmlBuscarConBatch);
 
   // fueCapturadoOffline: distingue una captura offline (fechas separadas por horas) de una
   // online normal (mismo instante), con un margen de un minuto para no marcar falsos positivos.
@@ -3729,7 +3799,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(skuSinMover.stock_sistema===20, 'el SKU pendiente debe traer su stock_sistema real (no undefined), obtuvo: '+JSON.stringify(skuSinMover));
   ctx.__appstate.skuSeleccionado = skuSinMover;
   const htmlConSkuElegido = ctx.renderConteo();
-  assert(htmlConSkuElegido.includes('Stock sistema: 20 UN') && !htmlConSkuElegido.includes('undefined'), 'la tarjeta del SKU elegido debe mostrar el stock real, nunca el texto "undefined", obtuvo: '+htmlConSkuElegido);
+  assert(htmlConSkuElegido.includes('Stock sistema (este batch): 20 UN') && !htmlConSkuElegido.includes('undefined'), 'la tarjeta del SKU elegido debe mostrar el stock real, nunca el texto "undefined", obtuvo: '+htmlConSkuElegido);
   // Pedido de Joel: al seleccionar un SKU en Tomar inventario, mostrar su storage bin.
   assert(htmlConSkuElegido.includes('Storage bin: A-01'), 'la tarjeta del SKU elegido debe mostrar el storage bin, obtuvo: '+htmlConSkuElegido);
   ctx.__appstate.skuSeleccionado = {...skuSinMover, storage_bin:null};
@@ -3755,10 +3825,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlConteoConPlan = ctx.renderConteo();
   assert(htmlConteoConPlan.includes('id="contar-fecha" value="2026-08-24"'), 'debe mostrar el selector de día con la fecha actual del plan, obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('<option value="__sin_ubicacion__"') && htmlConteoConPlan.includes('SKU sin ubicación'), 'el selector de bodega/patio debe ofrecer "SKU sin ubicación" porque hay una entrada suelta hoy, obtuvo: '+htmlConteoConPlan);
-  assert(htmlConteoConPlan.includes('data-pick-plan="SKU-001"') && htmlConteoConPlan.includes('data-pick-plan="SKU-002"'), 'debe listar ambos SKU pendientes resueltos para tocar y contar, obtuvo: '+htmlConteoConPlan);
-  assert(htmlConteoConPlan.includes('data-pick-plan="SKU-999"') && htmlConteoConPlan.includes('Cambió de bin') && htmlConteoConPlan.includes('se planificó en A-01') && htmlConteoConPlan.includes('ahora está en C-09'), 'el SKU movido de bin debe seguir listado (no perderse) con una advertencia mostrando el bin original y el actual, obtuvo: '+htmlConteoConPlan);
-  assert(!(htmlConteoConPlan.match(/data-pick-plan="SKU-002"[\s\S]*?<\/li>/)||[''])[0].includes('Cambió de bin'), 'SKU-002 sigue cubierto por su bin activo: no debe llevar la advertencia de "movido", obtuvo: '+htmlConteoConPlan);
-  assert(htmlConteoConPlan.includes('data-pick-plan="SKU-777"') && htmlConteoConPlan.includes('Cambió de ubicación') && htmlConteoConPlan.includes('se planificó en Nave Mina · Interior Nave') && htmlConteoConPlan.includes('ahora está en Bodega Norte · Pasillo 5'), 'el SKU reasignado a otra bodega+ubicación debe seguir listado con una advertencia de cambio de ubicación (no la de "Cambió de bin"), obtuvo: '+htmlConteoConPlan);
+  // data-pick-plan lleva el id de la fila (no el sku_code): un mismo código puede tener más de
+  // una fila pendiente (una por batch), y buscar por código en el handler siempre encontraría
+  // solo la primera — ver el fix real en elegirCascadaContar/data-pick-plan.
+  assert(htmlConteoConPlan.includes('data-pick-plan="id-001"') && htmlConteoConPlan.includes('data-pick-plan="id-002"'), 'debe listar ambos SKU pendientes resueltos para tocar y contar, obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('data-pick-plan="id-999"') && htmlConteoConPlan.includes('Cambió de bin') && htmlConteoConPlan.includes('se planificó en A-01') && htmlConteoConPlan.includes('ahora está en C-09'), 'el SKU movido de bin debe seguir listado (no perderse) con una advertencia mostrando el bin original y el actual, obtuvo: '+htmlConteoConPlan);
+  assert(!(htmlConteoConPlan.match(/data-pick-plan="id-002"[\s\S]*?<\/li>/)||[''])[0].includes('Cambió de bin'), 'SKU-002 sigue cubierto por su bin activo: no debe llevar la advertencia de "movido", obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('data-pick-plan="id-777"') && htmlConteoConPlan.includes('Cambió de ubicación') && htmlConteoConPlan.includes('se planificó en Nave Mina · Interior Nave') && htmlConteoConPlan.includes('ahora está en Bodega Norte · Pasillo 5'), 'el SKU reasignado a otra bodega+ubicación debe seguir listado con una advertencia de cambio de ubicación (no la de "Cambió de bin"), obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir disponible, ahora bajo su propio título, obtuvo: '+htmlConteoConPlan);
 
   // Pedido real: cada SKU pendiente del plan del día debe mostrar su ubicación general,
@@ -3806,12 +3879,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!printEl.innerHTML.includes('<table>'), 'no debe generar tablas si no hay entradas planificadas hoy');
   assert(!calls.some(c=>c.url.includes('/skus_planificables?') || c.url.includes('/skus_disponibles_planificar?')), 'no debe consultar SKU si no hay entradas planificadas hoy, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+  // Regresión real: elegirCascadaContar deduplicaba por sku_code, así que un mismo código con
+  // dos filas pendientes (una por batch) perdía la segunda -- solo la primera quedaba
+  // seleccionable, dejando el resto de los batches invisibles/inseleccionables en Contar. El fix
+  // dedupe por id (ver comentario en elegirCascadaContar); esta prueba cubre justo ese caso.
+  ctx.__appstate.contarPlan = {
+    cargado: true, cargando: false, fecha: '2026-08-24',
+    entradas: [{id:'mp-batch', fecha:'2026-08-24', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', solo_sin_ubicacion:false, responsable_id:'resp-yo', skus_excluidos:[]}],
+    bodega: '', ubicacion: '', skusPendientes: null,
+  };
+  await ctx.elegirCascadaContar({bodega:'Bodega Batch Test', ubicacion:'Zona X'});
+  const pendientesDosBatch = ctx.__appstate.contarPlan.skusPendientes;
+  assert(pendientesDosBatch.length===2, 'las dos filas del mismo sku_code (un batch cada una) deben sobrevivir juntas en el plan del día, no colapsarse en una, obtuvo: '+JSON.stringify(pendientesDosBatch));
+  assert(pendientesDosBatch.every(s=>s.sku_code==='SKU-DOSBATCH') && new Set(pendientesDosBatch.map(s=>s.id)).size===2, 'ambas filas deben compartir el código pero tener id distinto, obtuvo: '+JSON.stringify(pendientesDosBatch));
+  assert(pendientesDosBatch.some(s=>s.batch==='A' && s.stock_sistema===5) && pendientesDosBatch.some(s=>s.batch==='B' && s.stock_sistema===9), 'cada fila debe traer su propio batch y su propio SOH, obtuvo: '+JSON.stringify(pendientesDosBatch));
+
   // bind() real: tocar un SKU del checklist del plan debe seleccionarlo y marcar
   // conteoOrigenPlan=true (para que guardarConteo lo grabe como NO "fuera de plan").
-  ctx.__appstate.contarPlan = {...cpBase, bodega:'Nave Mina', ubicacion:'Interior Nave', skusPendientes:[{sku_code:'SKU-001', descripcion:'Perno M8', storage_bin:'A-01', unidad_medida:'UN'}]};
+  ctx.__appstate.contarPlan = {...cpBase, bodega:'Nave Mina', ubicacion:'Interior Nave', skusPendientes:[{id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', storage_bin:'A-01', unidad_medida:'UN'}]};
   ctx.__appstate.skus = [{id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'}];
   ctx.bind();
-  const btnPickPlan = elements['[data-pick-plan="SKU-001"]'] || null;
+  const btnPickPlan = elements['[data-pick-plan="sku-001-id"]'] || null;
   // El mock de document.getElementById no soporta selectores por atributo; se dispara el
   // listener registrado directamente sobre el botón mockeado por su id real, que en este caso
   // bind() ubica vía querySelectorAll — se simula invocando el handler ya registrado en el
@@ -4022,7 +4110,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlExportarForm.includes('value="2026-08-20"'), 'los campos de fecha deben reflejar el estado actual, obtuvo: '+htmlExportarForm);
   ctx.__appstate.exportarModal = false;
   conteosExportablesFixture = [
-    { conteo_id:'ce-1', sku_code:'SKU-EXP1', descripcion:'Perno M8', categoria:'Repuestos', unidad_medida:'UN', codigo_barras:'7801234567890', bodega_maestro:'Nave Mina', ubicacion_maestro:'Interior Nave', storage_bin:'A-01', stock_sistema:10, costo_unitario:500, bodega_contada:'Nave Mina', ubicacion_contada:'Interior Nave', ubicacion_distinta:false, cantidad_contada:8, diferencia:-2, valor_diferencia:-1000, estado:'con_diferencia', fuera_de_plan:false, observacion:'Faltante', fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', responsable:'Ana Torres', ciclo_nombre:'T1 2027' },
+    { conteo_id:'ce-1', sku_code:'SKU-EXP1', descripcion:'Perno M8', categoria:'Repuestos', batch:'L-2026-045', unidad_medida:'UN', codigo_barras:'7801234567890', bodega_maestro:'Nave Mina', ubicacion_maestro:'Interior Nave', storage_bin:'A-01', stock_sistema:10, costo_unitario:500, bodega_contada:'Nave Mina', ubicacion_contada:'Interior Nave', ubicacion_distinta:false, cantidad_contada:8, diferencia:-2, valor_diferencia:-1000, estado:'con_diferencia', fuera_de_plan:false, observacion:'Faltante', fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', responsable:'Ana Torres', ciclo_nombre:'T1 2027' },
   ];
   xlsxEscrituras.length = 0;
   calls.length = 0;
@@ -4033,7 +4121,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(xlsxEscrituras.length===1, 'debe generar un archivo Excel, obtuvo: '+xlsxEscrituras.length);
   assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-20.xlsx', 'con la misma fecha en "Desde" y "Hasta", el archivo debe nombrarse con un solo día, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
   const filaExportada = xlsxEscrituras[0].libro.hojas['Conteos'][0];
-  assert(filaExportada['SKU']==='SKU-EXP1' && filaExportada['Descripción']==='Perno M8' && filaExportada['Batch']==='Repuestos', 'debe incluir los campos básicos del maestro, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['SKU']==='SKU-EXP1' && filaExportada['Descripción']==='Perno M8' && filaExportada['Batch']==='L-2026-045' && filaExportada['Categoría']==='Repuestos', 'debe incluir los campos básicos del maestro (Batch real, no la Categoría), obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Cantidad contada']===8 && filaExportada['Diferencia']===-2 && filaExportada['Valor diferencia']===-1000, 'debe incluir el resultado del conteo y su valorización, obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Responsable']==='Ana Torres' && filaExportada['Ciclo']==='T1 2027', 'debe incluir el responsable y el ciclo, obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Ubicación distinta']==='No' && filaExportada['Fuera de plan']==='No', 'los booleanos deben mostrarse como Sí/No, legibles para el ERP, obtuvo: '+JSON.stringify(filaExportada));

@@ -400,6 +400,7 @@ let state = {
   equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
   ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
   opcionesCategorias: [], // valores de categoría ya usados por la empresa (sugerencia en "Cargar SKU")
+  opcionesBatches: [], // valores de batch/lote ya usados por la empresa (idem)
   opcionesUnidades: [],   // valores de unidad de medida ya usados por la empresa (idem)
   skuFormOpciones: { ubicaciones: [], bins: [] }, // sugerencias de ubicación/bin en "Cargar SKU", en cascada según la bodega/ubicación tipeada
 };
@@ -1036,7 +1037,7 @@ async function buscarSkusLibre(texto){
   const miPeticion = ++buscadorLibrePeticionId;
   const t = sanearTextoFiltro(texto);
   try{
-    const rows = t? await rest(`/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,stock_sistema,unidad_medida&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
+    const rows = t? await rest(`/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
     setState({buscadorLibre: { resultados: rows||[], buscando: false }});
   }catch(e){
@@ -1214,7 +1215,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
 async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, excluirYaPlanificados}){
-  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida,stock_sistema&order=storage_bin.asc,sku_code.asc`;
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1567,7 +1568,7 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s); });
   if(!original.size) return [];
   const codigos = [...original.keys()];
-  const actuales = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida,stock_sistema&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
+  const actuales = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
   return actuales.map(s=>{
     const o = original.get(s.sku_code);
     // Fotos guardadas antes de que existieran estas dos columnas (plan planificado antes de este
@@ -1605,13 +1606,15 @@ async function elegirCascadaContar(cambios){
   try{
     // Cada entrada puede tener su propio storage_bin y su propia lista de exclusiones (una fila
     // por bin) — se piden por separado, respetando cada una, y se juntan sin duplicar SKU (puede
-    // repetirse si dos entradas de distinto bin comparten alguno).
+    // repetirse si dos entradas de distinto bin comparten alguno). Se deduplica por id, no por
+    // sku_code: un mismo código puede tener más de una fila pendiente (una por batch), y
+    // deduplicar por código dejaría solo la primera, ocultando el resto de los batches.
     const listas = await Promise.all(activas.map(e=>
       skusDeUbicacion({bodega:e.bodega, ubicacion:e.ubicacion, storage_bin:e.storage_bin, excluidos:e.skus_excluidos, soloSinUbicacion:e.solo_sin_ubicacion})
     ));
     const vistos = new Set();
     const skus = [];
-    listas.flat().forEach(s=>{ if(!vistos.has(s.sku_code)){ vistos.add(s.sku_code); skus.push(s); } });
+    listas.flat().forEach(s=>{ if(!vistos.has(s.id)){ vistos.add(s.id); skus.push(s); } });
 
     // Solo entradas CON bin específico: el universo de SKU a snapshotear queda acotado a lo que
     // hay en ese bin (chico), a diferencia de una entrada sin bin (bodega+ubicación completa),
@@ -1621,7 +1624,7 @@ async function elegirCascadaContar(cambios){
       const binesActivos = new Set(activas.map(e=>e.storage_bin).filter(Boolean));
       const excluidos = new Set(activas.flatMap(e=>e.skus_excluidos||[]));
       const movidos = await skusMovidosDeEntradas(entradasConBin, binesActivos);
-      movidos.forEach(s=>{ if(!vistos.has(s.sku_code) && !excluidos.has(s.sku_code)){ vistos.add(s.sku_code); skus.push(s); } });
+      movidos.forEach(s=>{ if(!vistos.has(s.id) && !excluidos.has(s.sku_code)){ vistos.add(s.id); skus.push(s); } });
     }
 
     skus.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'') || a.sku_code.localeCompare(b.sku_code));
@@ -1767,13 +1770,15 @@ async function cargarConteoSinUbicacion(){
 // cargar un SKU nuevo y evitar variantes del mismo valor por typo (ej. "Repuesto" vs "Repuestos").
 async function cargarOpcionesCategoriasUnidades(){
   try{
-    const [categorias, unidades] = await Promise.all([
+    const [categorias, unidades, batches] = await Promise.all([
       rest('/categorias_sku?order=categoria.asc'),
       rest('/unidades_medida_sku?order=unidad_medida.asc'),
+      rest('/batches_sku?order=batch.asc'),
     ]);
     setState({
       opcionesCategorias: (categorias||[]).map(c=>c.categoria),
       opcionesUnidades: (unidades||[]).map(u=>u.unidad_medida),
+      opcionesBatches: (batches||[]).map(b=>b.batch),
     });
   }catch(e){ /* la sugerencia es un plus, no bloquea el formulario si falla */ }
 }
@@ -1992,7 +1997,8 @@ async function exportarConteosExcel(){
     const filasExcel = filas.map(f=>({
       'SKU': f.sku_code,
       'Descripción': f.descripcion,
-      'Batch': f.categoria,
+      'Batch': f.batch,
+      'Categoría': f.categoria,
       'Unidad de medida': f.unidad_medida,
       'Código de barras': f.codigo_barras,
       'Bodega (maestro)': f.bodega_maestro,
@@ -2113,9 +2119,13 @@ async function leerArchivoMasivo(file){
    ======================================================================= */
 // Orden y etiquetas a pedido de Joel (coincide con el flujo real de revisión de un maestro
 // SAP): Material, Descripción, Ubicación general, Ubicación específica, Storage bin, Batch,
-// Stock sistema, Costo unitario, Unidad de medida al final. "Batch" reemplaza a "Categoria" en
-// todos lados (no solo acá) — mismo campo `categoria` de siempre, solo cambia cómo se llama y
-// qué encabezados de columna detecta (new/dañado/reparado/scrap es el tipo de dato esperado).
+// Stock sistema, Costo unitario, Unidad de medida al final, Categoría al final de todo.
+// "Batch" es su propio campo (columna `batch`), separado de `categoria`: antes "Batch" era un
+// alias de categoria, pero los datos reales de Escondida mostraron que ese campo en la práctica
+// guarda el nombre de planta ("Escondida Mine"/"Escondida Caleta Coloso NB"), no un lote/batch —
+// mezclar ambos conceptos en una sola columna habría hecho invisible el batch real de cada SKU
+// (ver conversación con Joel: quiere SOH desglosado por batch en Contar). `categoria` se relabeló
+// "Categoría" y perdió los alias que en realidad describían un lote (batch/lote/condición).
 // bodega/ubicacion/storage_bin/costo_unitario son obligatorios (no solo sku_code/stock_sistema):
 // sin ellos, Exactitud de ubicación, Valorización y el aviso de cambio de ubicación en Plan del
 // día quedan cojos — se prefiere exigir la columna en la carga a que fallen en silencio después.
@@ -2130,14 +2140,16 @@ const CAMPOS_SKU = [
     alias:['ubicacion especifica','storage location','ubicacion','location','rack'] },
   { campo:'storage_bin', obligatorio:true, etiqueta:'Storage bin',
     alias:['storage bin','bin','posicion','slot'] },
-  { campo:'categoria', obligatorio:false, etiqueta:'Batch',
-    alias:['batch','batch status','lote','estado material','material status','condicion','categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
+  { campo:'batch', obligatorio:false, etiqueta:'Batch',
+    alias:['batch','batch number','batch id','batch status','lote','n de lote','n lote','numero de lote','estado material','material status','condicion','lot','lot number'] },
   { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
     alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
   { campo:'costo_unitario', obligatorio:true, etiqueta:'Costo unitario',
     alias:['costo unitario','costo_unitario','precio unitario','moving average price','standard price','unit cost','unit price','valor unitario','costo','precio'] },
   { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
     alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
+  { campo:'categoria', obligatorio:false, etiqueta:'Categoría',
+    alias:['categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
 ];
 
 function normalizarTexto(s){
@@ -2191,17 +2203,17 @@ function detectarMapeo(headers, campos){
 /* =======================================================================
    ACCIONES — SKUs
    ======================================================================= */
-// Detecta el rechazo del índice único (empresa_id, sku_code, bodega_key) para mostrar un
-// mensaje claro en vez del error crudo de Postgres. A propósito ya NO se resuelve con un
-// upsert: hacerlo pisaba en silencio los datos de un SKU existente si alguien reusaba su
+// Detecta el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key) para
+// mostrar un mensaje claro en vez del error crudo de Postgres. A propósito ya NO se resuelve
+// con un upsert: hacerlo pisaba en silencio los datos de un SKU existente si alguien reusaba su
 // código para un material distinto (bug real: "123456" con "Filtro" quedó sobrescrito por
 // "Sillas" al cargar de nuevo el mismo código sin bodega). Para actualizar un SKU ya
 // cargado se usa la carga masiva, que sí actualiza los que ya existen a propósito.
 function esErrorCodigoSkuDuplicado(e){
-  return /skus_empresa_id_sku_code_bodega_key/i.test((e && e.message) || '');
+  return /skus_empresa_id_sku_code_bodega_batch_key/i.test((e && e.message) || '');
 }
-function mensajeCodigoSkuDuplicado(skuCode, bodega){
-  return `El código ${skuCode} ya existe${bodega? ` en ${bodega}` : ' sin bodega asignada'}. Para actualizarlo, usa la carga masiva.`;
+function mensajeCodigoSkuDuplicado(skuCode, bodega, batch){
+  return `El código ${skuCode} ya existe${bodega? ` en ${bodega}` : ' sin bodega asignada'}${batch? ` con batch ${batch}` : ''}. Para actualizarlo, usa la carga masiva.`;
 }
 async function crearSkuManual(payload){
   if(!perfilCargado()) return false;
@@ -2219,7 +2231,7 @@ async function crearSkuManual(payload){
       toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return true;
     }
-    toast(esErrorCodigoSkuDuplicado(e) ? mensajeCodigoSkuDuplicado(payload.sku_code, payload.bodega) : e.message, 'err');
+    toast(esErrorCodigoSkuDuplicado(e) ? mensajeCodigoSkuDuplicado(payload.sku_code, payload.bodega, payload.batch) : e.message, 'err');
     return false;
   }
 }
@@ -2290,10 +2302,12 @@ async function confirmarCargaMasiva(){
   const resumenErrores = new Map();
   const anotarError = (motivo) => { error++; resumenErrores.set(motivo, (resumenErrores.get(motivo)||0)+1); };
   // Un mismo sku_code puede vivir en más de una bodega (cada bodega es su propia fila, con
-  // su propio stock/ubicación), así que la clave de deduplicado es código+bodega, no solo
-  // el código: si el archivo trae dos filas del mismo código en bodegas distintas, ambas
-  // deben llegar al upsert. Si trae dos filas del mismo código EN LA MISMA bodega, ahí sí
-  // nos quedamos con la última (no hay forma de saber cuál es la correcta).
+  // su propio stock/ubicación) y, dentro de la misma bodega, en más de un batch (mismo
+  // material, distinto lote, distinto SOH) — la clave de deduplicado es código+bodega+batch,
+  // no solo el código: si el archivo trae dos filas del mismo código en bodegas o batches
+  // distintos, todas deben llegar al upsert. Si trae dos filas del mismo código EN LA MISMA
+  // bodega Y el MISMO batch, ahí sí nos quedamos con la última (no hay forma de saber cuál es
+  // la correcta).
   const porCodigoYBodega = new Map();
   data.forEach((row,idx)=>{
     const sku_code = valor(row,'sku_code');
@@ -2302,6 +2316,7 @@ async function confirmarCargaMasiva(){
     const stockRaw = valor(row,'stock_sistema');
     const costoRaw = valor(row,'costo_unitario');
     const bodega = valor(row,'bodega') || null;
+    const batch = valor(row,'batch') || null;
     // Un valor negativo (típico de notas de crédito/ajustes en exportaciones de SAP) viola el
     // check constraint de la tabla — sin este filtro, esa UNA fila hace fallar el INSERT masivo
     // completo (todo el archivo, no solo esa fila), porque se manda como un solo lote. Se guarda
@@ -2316,11 +2331,12 @@ async function confirmarCargaMasiva(){
       anotarError('Costo en negativo');
       costo_unitario = null;
     }
-    porCodigoYBodega.set(JSON.stringify([sku_code, bodega]), {
+    porCodigoYBodega.set(JSON.stringify([sku_code, bodega, batch]), {
       sku_code,
       empresa_id: state.perfil.empresa_id,
       descripcion: valor(row,'descripcion') || null,
       categoria: valor(row,'categoria') || null,
+      batch,
       unidad_medida: valor(row,'unidad_medida') || null,
       ubicacion: valor(row,'ubicacion') || null,
       storage_bin: valor(row,'storage_bin') || null,
@@ -2345,7 +2361,7 @@ async function confirmarCargaMasiva(){
   try{
     for(let i=0; i<lote.length; i+=TAM_LOTE_CARGA){
       const bloque = lote.slice(i, i+TAM_LOTE_CARGA);
-      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
+      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key,batch_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
       insertados += bloque.length;
       setState({cargaMasivaProgreso: {actual:insertados, total:lote.length}});
     }
@@ -2522,6 +2538,7 @@ async function procesarUnItemOffline(item){
         sku_code: item.sku_code,
         descripcion: item.descripcion,
         categoria: item.categoria,
+        batch: item.batch,
         unidad_medida: item.unidad_medida,
         bodega: item.bodega,
         ubicacion: item.ubicacion,
@@ -2560,7 +2577,7 @@ async function procesarUnItemOffline(item){
     return {ok:true};
   }catch(e){
     if(pareceFalloDeRed(e)) return {ok:false, red:true};
-    if(item.tipo==='sku' && esErrorCodigoSkuDuplicado(e)) return {ok:false, red:false, mensaje:mensajeCodigoSkuDuplicado(item.sku_code, item.bodega)};
+    if(item.tipo==='sku' && esErrorCodigoSkuDuplicado(e)) return {ok:false, red:false, mensaje:mensajeCodigoSkuDuplicado(item.sku_code, item.bodega, item.batch)};
     return {ok:false, red:false, mensaje:e.message};
   }
 }
@@ -2733,7 +2750,7 @@ function alternarOtraUbicacionConteo(marcado){
 // en "Cargar SKU" implica un render() completo, que si no se hace con cuidado borraría lo
 // que la persona ya tipeó en los otros campos del formulario (descripción, categoría, etc.).
 function conservandoCamposSku(fn){
-  const ids = ['s-code', 's-desc', 's-cat', 's-um', 's-bodega', 's-ubic', 's-bin', 's-stock', 's-costo'];
+  const ids = ['s-code', 's-desc', 's-cat', 's-batch', 's-um', 's-bodega', 's-ubic', 's-bin', 's-stock', 's-costo'];
   const valores = {};
   ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
   fn();
@@ -2918,9 +2935,9 @@ async function onCodigoEscaneado(codigo){
     setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: skuEstaEnPlanDelDia(coincidencias[0].sku_code), conteoOtraUbicacion:false});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
   }else if(coincidencias.length>1){
-    // El mismo código existe en más de una bodega (el código físico es el mismo sin
-    // importar dónde esté guardado el material): no hay forma de saber cuál es sin
-    // preguntar.
+    // El mismo código existe en más de una bodega o batch (el código físico es el mismo sin
+    // importar dónde esté guardado el material o a qué batch pertenezca): no hay forma de
+    // saber cuál es sin preguntar.
     setState({escanerModal: { codigo, opciones: coincidencias, destino }});
   }else{
     setState({escanerModal: { codigo, buscarAsociar:'', asociando:false, destino }});
@@ -3419,7 +3436,7 @@ function renderEscanerModal(){
   const resultados = q.length? state.skus.filter(s =>
     s.sku_code.toLowerCase().includes(q) || (s.descripcion||'').toLowerCase().includes(q)
   ).slice(0,8) : [];
-  const titulo = m.opciones? 'En más de una bodega' : m.codigo? 'Código no encontrado' : 'Escanear código';
+  const titulo = m.opciones? 'Más de una coincidencia' : m.codigo? 'Código no encontrado' : 'Escanear código';
   return `<div class="foto-modal-backdrop" id="escaner-modal-backdrop">
     <div class="card" style="width:min(92vw,440px);max-height:88vh;overflow-y:auto;margin-bottom:0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -3427,11 +3444,11 @@ function renderEscanerModal(){
         <button id="escaner-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
       ${m.opciones? `
-        <div class="hint">Este código existe en más de una bodega. Elige cuál estás contando:</div>
+        <div class="hint">Este código existe en más de una bodega o batch. Elige cuál estás contando:</div>
         <div style="margin-top:10px">
           ${m.opciones.map(s=>`
             <div class="sku-pick" data-escaner-elegir="${s.id}">
-              <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'Sin ubicación general')}</span></div>
+              <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'Sin ubicación general')}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
               <button data-escaner-elegir-btn="${s.id}">Elegir</button>
             </div>`).join('')}
         </div>
@@ -4019,24 +4036,27 @@ function renderSkus(){
         <label for="s-desc">Descripción</label>
         <input type="text" id="s-desc" placeholder="Ej. Filtro hidraulico 3 pulgadas">
         <div class="row2">
-          <div><label for="s-cat">Batch</label><input type="text" id="s-cat" list="dl-categorias" autocomplete="off" placeholder="New, dañado, reparado, scrap"></div>
-          <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" list="dl-unidades" autocomplete="off" placeholder="UN, KG, LT..."></div>
-        </div>
-        <div class="row2">
           <div><label for="s-bodega">Ubicación general</label><input type="text" id="s-bodega" list="dl-sku-bodegas" autocomplete="off" placeholder="Bodega Central"></div>
           <div><label for="s-ubic">Ubicación específica</label><input type="text" id="s-ubic" list="dl-sku-ubicaciones" autocomplete="off" placeholder="Pasillo 3"></div>
         </div>
-        <label for="s-bin">Storage bin</label>
-        <input type="text" id="s-bin" list="dl-sku-bins" autocomplete="off" placeholder="Ej. A-12-03">
+        <div class="row2">
+          <div><label for="s-bin">Storage bin</label><input type="text" id="s-bin" list="dl-sku-bins" autocomplete="off" placeholder="Ej. A-12-03"></div>
+          <div><label for="s-batch">Batch</label><input type="text" id="s-batch" list="dl-batches" autocomplete="off" placeholder="Ej. L-2026-045"></div>
+        </div>
         <div class="row2">
           <div><label for="s-stock">Stock según sistema</label><input type="number" id="s-stock" step="0.01" min="0" placeholder="0"></div>
           <div><label for="s-costo">Costo unitario</label><input type="number" id="s-costo" step="0.01" min="0" placeholder="$0"></div>
+        </div>
+        <div class="row2">
+          <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" list="dl-unidades" autocomplete="off" placeholder="UN, KG, LT..."></div>
+          <div><label for="s-cat">Categoría</label><input type="text" id="s-cat" list="dl-categorias" autocomplete="off" placeholder="Ej. planta, familia de material"></div>
         </div>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar SKU'}</button>
         </div>
       </form>
       <datalist id="dl-categorias">${state.opcionesCategorias.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+      <datalist id="dl-batches">${state.opcionesBatches.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
       <datalist id="dl-unidades">${state.opcionesUnidades.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
       <datalist id="dl-sku-bodegas">${(state.plan.generales||[]).map(g=>`<option value="${esc(g.bodega)}">`).join('')}</datalist>
       <datalist id="dl-sku-ubicaciones">${state.skuFormOpciones.ubicaciones.map(u=>`<option value="${esc(u.ubicacion)}">`).join('')}</datalist>
@@ -4088,7 +4108,7 @@ function renderTablaSkus(){
       </div>
       <div class="hint" style="margin-bottom:10px">🟢 Último conteo cuadrado · 🟡 Diferencia positiva (sobrante) · 🔴 Diferencia negativa (faltante)</div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th class="num">Stock</th></tr></thead>
+        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th><th class="num">Stock</th></tr></thead>
         <tbody>${sp.rows.map(s=>{
           return `<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
@@ -4098,6 +4118,7 @@ function renderTablaSkus(){
           <td>${esc(s.bodega||'—')}</td>
           <td>${esc(s.ubicacion||'—')}</td>
           <td class="mono">${esc(s.storage_bin||'—')}</td>
+          <td class="mono">${esc(s.batch||'—')}</td>
           <td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>
         </tr>`;
         }).join('')}</tbody>
@@ -4304,10 +4325,10 @@ function renderPlanDelDia(){
             <ul class="plan-sku-lista" style="margin-top:6px">
               ${cp.skusPendientes.map(s=>`
                 <li>
-                  <button type="button" data-pick-plan="${esc(s.sku_code)}" style="width:100%;text-align:left;background:none;border:none;padding:8px 0;cursor:pointer;color:inherit">
+                  <button type="button" data-pick-plan="${esc(s.id)}" style="width:100%;text-align:left;background:none;border:none;padding:8px 0;cursor:pointer;color:inherit">
                     <span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}
-                    ${[s.bodega, s.ubicacion, s.storage_bin].filter(Boolean).length? `
-                      <div class="hint" style="margin-top:2px">${esc([s.bodega, s.ubicacion, s.storage_bin].filter(Boolean).join(' · '))}</div>
+                    ${[s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).length? `
+                      <div class="hint" style="margin-top:2px">${esc([s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).join(' · '))}</div>
                     ` : ''}
                     ${s.cambioBodega || s.cambioUbicacion || s.cambioBin? `
                       <div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:5px">
@@ -4352,7 +4373,7 @@ function renderConteo(){
             state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
             resultados.length? resultados.map(s=>`
               <div class="sku-pick" data-pick="${s.id}">
-                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}</span></div>
+                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
                 <button data-pick-btn="${s.id}">Elegir</button>
               </div>`).join('') :
             `<div class="hint">No se encontraron coincidencias.</div>`}
@@ -4364,7 +4385,8 @@ function renderConteo(){
         <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
         <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Storage bin: ${esc(state.skuSeleccionado.storage_bin||'—')}</div>
-        <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema: ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Batch: ${esc(state.skuSeleccionado.batch||'—')}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
       </div>
 
       <div class="card">
@@ -4495,12 +4517,13 @@ function renderBuscar(){
     ` : ''}
     <div class="card">
       ${resultados.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Batch</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
         <tbody>${resultados.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
           return `<tr>
             <td class="mono">${esc(r.sku_code)}</td>
+            <td class="mono">${esc(r.batch||'—')}</td>
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
             <td class="num">${contado? r.cantidad_contada : '—'}</td>
@@ -5663,6 +5686,7 @@ function bind(){
         sku_code: document.getElementById('s-code').value.trim(),
         descripcion: document.getElementById('s-desc').value.trim() || null,
         categoria: document.getElementById('s-cat').value.trim() || null,
+        batch: document.getElementById('s-batch').value.trim() || null,
         unidad_medida: document.getElementById('s-um').value.trim() || null,
         bodega: document.getElementById('s-bodega').value.trim() || null,
         ubicacion: document.getElementById('s-ubic').value.trim() || null,
@@ -5788,13 +5812,16 @@ function bind(){
       if(cUbic) cUbic.addEventListener('change', e=> elegirCascadaContar({ubicacion:e.target.value}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
-          // state.skus solo trae los primeros 500 SKU (orden alfabético) — con catálogos
-          // grandes, el SKU planificado clickeado puede no estar ahí y el click no hacía nada
-          // (bug real: "no me permite seleccionar un SKU", visto en Sentry como Rage Click).
-          // contarPlan.skusPendientes sí trae el SKU completo, porque es la misma consulta que
-          // arma esta lista, así que se busca primero ahí; state.skus queda de respaldo.
-          const sku = (state.contarPlan.skusPendientes||[]).find(s=>s.sku_code===btn.dataset.pickPlan)
-            || state.skus.find(s=>s.sku_code===btn.dataset.pickPlan);
+          // Se busca por id, no por sku_code: un mismo código puede tener varias filas
+          // pendientes en la lista (una por batch), y buscar por código siempre encontraría
+          // la primera, dejando el resto de los batches inseleccionables desde acá. state.skus
+          // solo trae los primeros 500 SKU (orden alfabético) — con catálogos grandes, el SKU
+          // planificado clickeado puede no estar ahí y el click no hacía nada (bug real: "no me
+          // permite seleccionar un SKU", visto en Sentry como Rage Click). contarPlan.skusPendientes
+          // sí trae el SKU completo, porque es la misma consulta que arma esta lista, así que se
+          // busca primero ahí; state.skus queda de respaldo.
+          const sku = (state.contarPlan.skusPendientes||[]).find(s=>s.id===btn.dataset.pickPlan)
+            || state.skus.find(s=>s.id===btn.dataset.pickPlan);
           if(!sku) return;
           setState({skuSeleccionado: sku, conteoOrigenPlan:true, conteoOtraUbicacion:false});
         });
@@ -5850,7 +5877,7 @@ function bind(){
         if(!r) return;
         setState({
           view:'conteo',
-          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, stock_sistema:r.stock_sistema },
+          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema },
           // conteoOrigenPlan:true (no false): recontar una diferencia es trabajo pedido por la
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
