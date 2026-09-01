@@ -5672,6 +5672,11 @@ function bind(){
       const chkTodosInicial = document.getElementById('p-bin-todos');
       const resumenBinInicial = document.getElementById('p-bin-resumen');
       if(!selBinInicial || !chkTodosInicial || !resumenBinInicial) return; // no estamos mostrando el formulario "Agregar"
+      // A diferencia del resto de las cargas de esta pantalla (opcionesBins/opcionesEspecificas,
+      // que ya tragan sus propios errores), skusDeUbicacion() más abajo pagina con fetch() crudo
+      // y no atrapa un corte de señal a mitad de camino — sin este try/catch, ese TypeError se
+      // escapaba sin capturar en vez de mostrar un aviso como en cualquier otra pantalla.
+      try{
       // "Todas" (ubicacion vacío) también debe mostrar los storage bin — de toda la bodega,
       // no solo de una ubicación específica — igual que ya pasa al elegir una en particular.
       selBinInicial.innerHTML = '<option value="">Cargando…</option>';
@@ -5759,6 +5764,7 @@ function bind(){
         selBin.disabled = false;
         chkTodos.disabled = false;
       }
+      }catch(e){ toast(e.message,'err'); }
     }
     // Recarga las opciones de Ubicación específica (con su conteo pendiente/total) para la
     // bodega dada. Devuelve el valor que quedó elegido, para poder encadenar cargarBinsPara con
@@ -5887,7 +5893,10 @@ async function iniciarApp(){
     window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
   }
   // Al recuperar la señal, intentamos enviar los conteos que quedaron guardados sin conexión.
-  window.addEventListener('online', sincronizarColaOffline);
+  // .catch() explícito: sincronizarColaOffline() es async y el navegador no espera ni atrapa lo
+  // que devuelva un listener nativo — cualquier falla que en el futuro se le escape a su propio
+  // try/catch quedaría como promesa rechazada sin capturar en vez de un toast.
+  window.addEventListener('online', ()=> sincronizarColaOffline().catch(e=>toast(e.message,'err')));
   procesarRetornoFlow();
   procesarRegistroPlanDesdeUrl();
   await procesarLlegadaPorInvitacion();
