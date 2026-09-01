@@ -158,7 +158,7 @@ const fakeFetchImpl = async (url, opts) => {
     const total = 34;
     const filas = [];
     for(let i=offset; i<Math.min(offset+30, total); i++){
-      filas.push({sku_id:'sku-busq-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', fuera_de_plan:false, ciclo_id:null, ciclo_nombre:null, foto_urls:[]});
+      filas.push({sku_id:'sku-busq-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', fuera_de_plan:false, ciclo_id:null, ciclo_nombre:null, fotos:[]});
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -2806,8 +2806,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // renderBuscar: debe indicar "Capturado ... sin conexión" solo en la fila que de verdad
   // se capturó offline (fechas separadas), no en un conteo online normal (fechas iguales).
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', soloConFotos:false, buscando:false, yaBuscado:true, resultados: [
-    { sku_code:'SKU-A', descripcion:'', bodega:'Nave', conteo_id:'c1', cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T08:00:00Z', ciclo_nombre:null, foto_urls:[] },
-    { sku_code:'SKU-B', descripcion:'', bodega:'Nave', conteo_id:'c2', cantidad_contada:2, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-11T09:00:00Z', capturado_en:'2026-08-11T09:00:00Z', ciclo_nombre:null, foto_urls:[] },
+    { sku_code:'SKU-A', descripcion:'', bodega:'Nave', conteo_id:'c1', cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T08:00:00Z', ciclo_nombre:null, fotos:[] },
+    { sku_code:'SKU-B', descripcion:'', bodega:'Nave', conteo_id:'c2', cantidad_contada:2, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-11T09:00:00Z', capturado_en:'2026-08-11T09:00:00Z', ciclo_nombre:null, fotos:[] },
   ]};
   const htmlBuscar = ctx.renderBuscar();
   const filaOffline = htmlBuscar.slice(htmlBuscar.indexOf('SKU-A'), htmlBuscar.indexOf('SKU-B'));
@@ -3135,16 +3135,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlReconteoSinMas = ctx.renderReconteo();
   assert(!htmlReconteoSinMas.includes('id="btn-cargar-mas-reconteo"'), 'sin más páginas, el botón "Cargar más" no debe mostrarse, obtuvo: '+htmlReconteoSinMas);
 
-  // ===== Reconteo: ícono para ver la foto del último conteo =====
+  // ===== Reconteo: ícono para ver las fotos, sumadas de TODOS los conteos del SKU (no solo el
+  // último) — pedido de Joel: las fotos de un reconteo deben sumarse a las del conteo original,
+  // pudiendo distinguir cuál es cuál (reconteo_pendiente.fotos trae numero_conteo por foto: 1 =
+  // conteo original, 2+ = reconteo N-1).
   ctx.__appstate.reconteos = [
-    { id:'rf1', sku_code:'SKU-FOTO', descripcion:'Con foto', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', ultima_foto_url:'emp-1/SKU-FOTO/foto.jpg' },
-    { id:'rf2', sku_code:'SKU-SIN-FOTO', descripcion:'Sin foto', stock_sistema:5, ultima_cantidad_contada:3, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', ultima_foto_url:null },
+    { id:'rf1', sku_code:'SKU-FOTO', descripcion:'Con foto', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado',
+      fotos:[
+        {foto_url:'emp-1/SKU-FOTO/original.jpg', numero_conteo:1, fecha_conteo:'2026-08-05T10:00:00Z'},
+        {foto_url:'emp-1/SKU-FOTO/reconteo.jpg', numero_conteo:2, fecha_conteo:'2026-08-10T10:00:00Z'},
+      ] },
+    { id:'rf2', sku_code:'SKU-SIN-FOTO', descripcion:'Sin foto', stock_sistema:5, ultima_cantidad_contada:3, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', fotos:[] },
   ];
   ctx.__appstate.reconteosHayMas = false;
   const htmlReconteoFotos = ctx.renderReconteo();
   assert(htmlReconteoFotos.includes('<th class="num">Foto</th>'), 'debe mostrar la columna "Foto" en la tabla de reconteo, obtuvo: '+htmlReconteoFotos);
-  assert(htmlReconteoFotos.includes(`data-ver-fotos="${ctx.esc(JSON.stringify(['emp-1/SKU-FOTO/foto.jpg']))}"`), 'una fila con última foto debe mostrar el botón para verla con la ruta correcta, obtuvo: '+htmlReconteoFotos);
+  assert(htmlReconteoFotos.includes(`data-ver-fotos="${ctx.esc(JSON.stringify([
+    {foto_url:'emp-1/SKU-FOTO/original.jpg', numero_conteo:1, fecha_conteo:'2026-08-05T10:00:00Z'},
+    {foto_url:'emp-1/SKU-FOTO/reconteo.jpg', numero_conteo:2, fecha_conteo:'2026-08-10T10:00:00Z'},
+  ]))}"`), 'una fila con fotos del conteo y del reconteo debe pasar ambas al botón de verlas, obtuvo: '+htmlReconteoFotos);
+  assert(/data-ver-fotos="[^"]*original\.jpg[^"]*"[^>]*>[\s\S]*? 2<\/button>/.test(htmlReconteoFotos), 'con 2 fotos (conteo + reconteo), el botón debe mostrar el total (2), obtuvo: '+htmlReconteoFotos);
   assert(htmlReconteoFotos.includes('icon-btn disabled'), 'una fila sin foto registrada debe mostrar el ícono deshabilitado, obtuvo: '+htmlReconteoFotos);
+
+  // etiquetaNumeroConteo: 1 es el conteo original, 2+ son reconteos (numerados desde 1).
+  assert(ctx.etiquetaNumeroConteo(1)==='Conteo' && ctx.etiquetaNumeroConteo(2)==='Reconteo 1' && ctx.etiquetaNumeroConteo(3)==='Reconteo 2', 'etiquetaNumeroConteo debe distinguir el conteo original de cada reconteo, obtuvo: '+JSON.stringify([ctx.etiquetaNumeroConteo(1), ctx.etiquetaNumeroConteo(2), ctx.etiquetaNumeroConteo(3)]));
 
   // ===== Dashboard: "Materiales contados" con "Cargar más" =====
   calls.length = 0;
@@ -3617,7 +3631,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.conteoOtraUbicacion = false;
 
   // Buscar: filtro "Solo fuera de plan" y badge de origen por resultado.
-  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:true, resultados:[{sku_code:'SKU-9', descripcion:'X', bodega:'Nave', conteo_id:'c-9', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, ciclo_nombre:null, foto_urls:[]}], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
+  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:true, resultados:[{sku_code:'SKU-9', descripcion:'X', bodega:'Nave', conteo_id:'c-9', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, ciclo_nombre:null, fotos:[]}], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
   const pathBuscarFueraPlan = ctx.construirPathBusqueda(0);
   assert(pathBuscarFueraPlan.includes('fuera_de_plan=eq.true'), 'con "Solo fuera de plan" marcado, la búsqueda debe filtrar por fuera_de_plan=eq.true, obtuvo: '+pathBuscarFueraPlan);
   const htmlBuscarFueraPlan = ctx.renderBuscar();
@@ -3678,8 +3692,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlTrasBuscarReal.includes('resultado') && htmlTrasBuscarReal.includes('table-wrap'), 'tras enviar el formulario, la tabla de resultados debe mostrarse (no el mensaje de "aún no has buscado"), obtuvo: '+htmlTrasBuscarReal);
 
   ctx.__appstate.busqueda.resultados = [
-    {sku_code:'SKU-NC', descripcion:'Nunca contado', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, foto_urls:[]},
-    {sku_code:'SKU-C', descripcion:'Ya contado', bodega:'Nave', conteo_id:'c-1', cantidad_contada:7, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', foto_urls:['foto.jpg']},
+    {sku_code:'SKU-NC', descripcion:'Nunca contado', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[]},
+    {sku_code:'SKU-C', descripcion:'Ya contado', bodega:'Nave', conteo_id:'c-1', cantidad_contada:7, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', fotos:[{foto_url:'foto.jpg', numero_conteo:1, fecha_conteo:'2026-08-20T10:00:00Z'}]},
   ];
   ctx.__appstate.busqueda.yaBuscado = true;
   const htmlBuscarMixto = ctx.renderBuscar();
