@@ -1341,15 +1341,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ...ctx.__appstate.dash,
     diario: Array.from({length:15}, (_,i)=>({
       dia: `2026-08-${String(24-i).padStart(2,'0')}T00:00:00+00:00`,
-      bodega:'Nave Mina', skus_contados:5, con_diferencia:1, total_unidades_contadas:20,
+      bodega:'Nave Mina', skus_contados:5, con_diferencia:1, reconteos:2, total_unidades_contadas:20,
     })),
-    semanal: [{semana:'2026-08-17T00:00:00+00:00', bodega:'Nave Mina', skus_contados:20, con_diferencia:3, total_unidades_contadas:150}],
-    mensual: [{mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:80, con_diferencia:5, total_unidades_contadas:600}],
+    semanal: [{semana:'2026-08-17T00:00:00+00:00', bodega:'Nave Mina', skus_contados:20, con_diferencia:3, reconteos:4, total_unidades_contadas:150}],
+    mensual: [{mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:80, con_diferencia:5, reconteos:9, total_unidades_contadas:600}],
   };
   ctx.__appstate.dashDiarioPagina = 0;
   const htmlDashPeriodos = ctx.renderDashboard();
   assert(htmlDashPeriodos.includes('Semana 34 (2026)'), 'Semanal debe mostrar el número de semana ISO, no la fecha cruda del lunes (17 ago 2026 = semana 34), obtuvo: '+htmlDashPeriodos);
   assert(htmlDashPeriodos.includes('Agosto 2026'), 'Mensual debe mostrar el nombre del mes, no la fecha cruda del día 1, obtuvo: '+htmlDashPeriodos);
+  // Pedido de Joel: Diario/Semanal/Mensual deben mostrar cuántos SKU se recontaron.
+  assert((htmlDashPeriodos.match(/<th class="num">Reconteos<\/th>/g)||[]).length===3, 'las tres tablas (Diario/Semanal/Mensual) deben tener columna "Reconteos", obtuvo: '+htmlDashPeriodos);
   assert(htmlDashPeriodos.includes('24 ago') && !htmlDashPeriodos.includes('10 ago'), 'Diario (página 1) debe mostrar los primeros 10 días (24 ago a 15 ago), no el día 11 (10 ago), obtuvo: '+htmlDashPeriodos);
   assert(htmlDashPeriodos.includes('id="dash-diario-next"') && !/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodos), 'con 15 filas (2 páginas), el botón Siguiente debe estar habilitado, obtuvo: '+htmlDashPeriodos);
   assert(/id="dash-diario-prev"[^>]*disabled/.test(htmlDashPeriodos), 'en la primera página, el botón Anterior debe estar deshabilitado, obtuvo: '+htmlDashPeriodos);
@@ -1358,6 +1360,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashPeriodosPag2.includes('10 ago') && !htmlDashPeriodosPag2.includes('24 ago'), 'Diario (página 2) debe mostrar las 5 filas restantes (10 ago), no las de la página 1 (24 ago), obtuvo: '+htmlDashPeriodosPag2);
   assert(/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodosPag2), 'en la última página, el botón Siguiente debe estar deshabilitado, obtuvo: '+htmlDashPeriodosPag2);
   ctx.__appstate.dashDiarioPagina = 0;
+
+  // Pedido de Joel: en "Materiales contados" (Dashboard operativo), mostrar cuántas fotos tiene
+  // cada línea (siempre el número, no solo cuando hay más de una) y poder saltar a Buscar desde
+  // el código del SKU, para ver el historial completo de ese material.
+  ctx.__appstate.ultimosConteos = [
+    {id:'mc-1', skus:{sku_code:'SKU-FOTO-1'}, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', conteo_fotos:[{foto_url:'a.jpg'}]},
+    {id:'mc-2', skus:{sku_code:'SKU-SIN-FOTO'}, cantidad_contada:3, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:05:00Z', capturado_en:'2026-08-20T10:05:00Z', conteo_fotos:[]},
+  ];
+  const htmlMaterialesContados = ctx.renderDashboard();
+  assert(htmlMaterialesContados.includes('data-buscar-sku="SKU-FOTO-1"') && htmlMaterialesContados.includes('data-buscar-sku="SKU-SIN-FOTO"'), 'el código de cada línea debe ser un botón data-buscar-sku para saltar a Buscar, obtuvo: '+htmlMaterialesContados);
+  assert(/data-ver-fotos="[^"]*a\.jpg[^"]*"[^>]*>[\s\S]*? 1<\/button>/.test(htmlMaterialesContados), 'con 1 sola foto, el botón debe mostrar igual el número (1), no solo el ícono, obtuvo: '+htmlMaterialesContados);
+  assert(htmlMaterialesContados.includes('icon-btn disabled" aria-hidden="true">') && htmlMaterialesContados.includes('</svg> 0</span>'), 'sin fotos, debe mostrar el ícono deshabilitado con "0", no solo el ícono solo, obtuvo: '+htmlMaterialesContados);
+
+  // irABuscarSku: navega a Buscar, precarga el texto con el SKU elegido y limpia cualquier otro
+  // filtro que hubiera quedado de una búsqueda anterior (si no, ese SKU podría no aparecer).
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, bodega:'Nave Vieja', estado:'con_diferencia', soloConFotos:true};
+  calls.length = 0;
+  ctx.irABuscarSku('SKU-FOTO-1');
+  assert(ctx.__appstate.view==='buscar', 'irABuscarSku debe navegar a la vista Buscar, obtuvo: '+ctx.__appstate.view);
+  assert(ctx.__appstate.busqueda.texto==='SKU-FOTO-1', 'irABuscarSku debe precargar el texto de búsqueda con el SKU elegido, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
+  assert(!ctx.__appstate.busqueda.bodega && !ctx.__appstate.busqueda.estado && !ctx.__appstate.busqueda.soloConFotos, 'irABuscarSku debe limpiar los demás filtros de una búsqueda anterior, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
+  await new Promise(resolve=>setTimeout(resolve, 20));
+  assert(calls.some(c=>c.url.includes('/rest/v1/skus_busqueda') && c.url.includes('sku_code.ilike.*SKU-FOTO-1*')), 'irABuscarSku debe disparar la búsqueda con el SKU elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Bug real reportado: con el navegador en una zona horaria detrás de UTC (Chile, que es
   // donde vive la empresa que usa esta app), "Mensual" mostraba "Julio" para datos de agosto.

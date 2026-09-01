@@ -199,6 +199,7 @@ textarea{resize:vertical;min-height:60px;}
 .selected-sku{background:var(--surface-2);border:1px solid var(--amber-dim);border-radius:8px;padding:12px;margin-bottom:6px;}
 .selected-sku .code{font-family:'IBM Plex Mono';font-weight:700;font-size:15px;color:var(--amber);}
 
+.link-btn{background:none;border:none;padding:0;color:var(--amber);font:inherit;font-family:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer;}
 .icon-btn{background:none;border:none;padding:4px;color:var(--amber);display:inline-flex;align-items:center;justify-content:center;line-height:0;}
 .icon-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
 .icon-btn.disabled{color:var(--text-faint);opacity:.35;}
@@ -1819,6 +1820,21 @@ function construirPathBusqueda(offset){
 function filtrarResultadosBusqueda(rows){
   if(!state.busqueda.soloConFotos) return rows;
   return rows.filter(r=> (r.fotos||[]).length>0);
+}
+
+// Salto directo a Buscar con un SKU puntual precargado — usado desde "Materiales contados"
+// (Dashboard operativo) para ver el historial completo de un material sin tener que copiar el
+// código y escribirlo a mano. Limpia el resto de los filtros: si quedaran de una búsqueda
+// anterior (ubicación, estado, ciclo, checkboxes), el material buscado podría no aparecer.
+function irABuscarSku(skuCode){
+  setState({
+    view: 'buscar',
+    busqueda: {
+      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false,
+      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0,
+    },
+  });
+  buscarConteos();
 }
 
 async function buscarConteos(){
@@ -3655,13 +3671,15 @@ function renderDashboard(){
     // mostraría "—" en cada línea — se saca entera y el resumen queda en una sola línea limpia
     // por período, en vez de una columna vacía sin aportar nada.
     const hayBodega = rows.some(r=>r.bodega);
+    // Pedido de Joel: cuántos SKU se recontaron en cada período, junto al resto de columnas.
     return `<div class="table-wrap"><table>
-      <thead><tr><th>${keyLabel}</th>${hayBodega?'<th>Ubic. general</th>':''}<th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Unid. contadas</th></tr></thead>
+      <thead><tr><th>${keyLabel}</th>${hayBodega?'<th>Ubic. general</th>':''}<th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Reconteos</th><th class="num">Unid. contadas</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td class="mono">${formatKey(r[keyField])}</td>
         ${hayBodega?`<td>${esc(r.bodega||'—')}</td>`:''}
         <td class="num">${r.skus_contados||0}</td>
         <td class="num">${r.con_diferencia? `<span class="badge badge-warn">${r.con_diferencia}</span>` : '0'}</td>
+        <td class="num">${Number(r.reconteos)||0}</td>
         <td class="num">${r.total_unidades_contadas!==null? Number(r.total_unidades_contadas).toLocaleString('es-CL') : '—'}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
@@ -3699,18 +3717,24 @@ function renderDashboard(){
     <div class="card">
       ${state.ultimosConteos.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
-        <tbody>${state.ultimosConteos.map(c=>`<tr>
-          <td class="mono">${esc(c.skus? c.skus.sku_code : '—')}</td>
+        <tbody>${state.ultimosConteos.map(c=>{
+          const skuCode = c.skus? c.skus.sku_code : '';
+          const fotos = (c.conteo_fotos||[]).length;
+          return `<tr>
+          <td class="mono">${skuCode
+            ? `<button class="link-btn" data-buscar-sku="${esc(skuCode)}" title="Buscar este material">${esc(skuCode)}</button>`
+            : '—'}</td>
           <td class="num">${c.cantidad_contada}</td>
           <td>${estadoBadge(c.estado, c.diferencia)}</td>
           <td class="mono" style="font-size:11.5px">
             ${fmtFechaHora(c.fecha_conteo)}
             ${fueCapturadoOffline(c.capturado_en, c.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(c.capturado_en)} · sin conexión</div>` : ''}
           </td>
-          <td class="num">${(c.conteo_fotos&&c.conteo_fotos.length)
-            ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(c.conteo_fotos.map(f=>f.foto_url)))}" aria-label="Ver fotos">${ICONS.camera}${c.conteo_fotos.length>1?` ${c.conteo_fotos.length}`:''}</button>`
-            : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
-        </tr>`).join('')}</tbody>
+          <td class="num">${fotos
+            ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(c.conteo_fotos.map(f=>f.foto_url)))}" aria-label="Ver fotos">${ICONS.camera} ${fotos}</button>`
+            : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera} 0</span>`}</td>
+        </tr>`;
+        }).join('')}</tbody>
       </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
       ${state.ultimosConteosHayMas? `<div style="text-align:center;margin-top:12px">
         <button type="button" class="btn btn-secondary" id="btn-cargar-mas-conteos" style="width:auto;padding:8px 16px" ${state.ultimosConteosCargandoMas?'disabled':''}>${state.ultimosConteosCargandoMas?'Cargando…':'Cargar más'}</button>
@@ -5365,6 +5389,9 @@ function bind(){
           setState({fotoModal:{urls, index:0}});
         }catch(e){ toast(e.message,'err'); }
       });
+    });
+    document.querySelectorAll('[data-buscar-sku]').forEach(btn=>{
+      btn.addEventListener('click', ()=> irABuscarSku(btn.dataset.buscarSku));
     });
     document.querySelectorAll('[data-dash-modo]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({dashboardModo: btn.dataset.dashModo}));
