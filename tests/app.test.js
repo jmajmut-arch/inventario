@@ -1535,7 +1535,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // renderDashboard: la vista ejecutiva debe mostrar la proyección de término y el ranking por responsable.
   ctx.__appstate.dash = {
     total: [{bodega:'Nave Mina', skus_universo:200, skus_contados:60, porcentaje_avance:30}],
-    diario: [{dia:'2026-08-10', skus_contados:'7', con_diferencia:'1'}], semanal: [], mensual: [],
+    diario: [{dia:'2026-08-10', skus_contados:'7', con_diferencia:'1', reconteos:'2'}], semanal: [], mensual: [],
     ranking: [{nombre:'Ana Torres', cantidad:9}, {nombre:'Beto', cantidad:4}],
   };
   const htmlDashProyeccion = ctx.renderDashboard();
@@ -1543,6 +1543,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashProyeccion.includes('Ranking por responsable') && htmlDashProyeccion.includes('Ana Torres') && htmlDashProyeccion.includes('Beto'), 'la vista ejecutiva debe mostrar el ranking por responsable, obtuvo: '+htmlDashProyeccion);
   // El gráfico "Conteos por día" debe mostrar el valor sobre cada barra, no solo la fecha debajo.
   assert(htmlDashProyeccion.includes('font-weight="600" fill="var(--text-dim)">7</text>'), 'el gráfico de conteos por día debe mostrar el valor (7) encima de la barra, obtuvo: '+htmlDashProyeccion);
+  // Pedido de Joel: los reconteos del día se pintan con otro color (var(--accent)), apilados
+  // sobre los conteos originales (var(--amber)), con una leyenda debajo que distinga ambos.
+  assert(htmlDashProyeccion.includes('fill="var(--accent)"') && htmlDashProyeccion.includes('2 reconteos'), 'la barra del día debe incluir un segmento var(--accent) con los 2 reconteos, obtuvo: '+htmlDashProyeccion);
+  assert(htmlDashProyeccion.includes('fill="var(--amber)"') && htmlDashProyeccion.includes('5 conteos'), 'el resto de la barra (7-2=5) debe seguir en var(--amber) como conteos originales, obtuvo: '+htmlDashProyeccion);
+  assert(htmlDashProyeccion.includes('Reconteos') && htmlDashProyeccion.match(/background:var\(--amber\)[^]*?Conteos/), 'debe mostrar una leyenda con las dos categorías (Conteos/Reconteos), obtuvo: '+htmlDashProyeccion);
 
   // Sin conteos recientes (ranking vacío), no debe mostrarse la sección de ranking (nada que mostrar).
   ctx.__appstate.dash = { ...ctx.__appstate.dash, ranking: [] };
@@ -1646,8 +1651,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       { bodega:'Bodega Planta Chancado', skus_universo:'11', skus_contados:'9', porcentaje_avance:'81.8' },
     ],
     diario: [
-      { dia:'2026-08-18', bodega:'Bodega Central Rajo', skus_contados:'2', con_diferencia:'1', total_unidades_contadas:'30' },
-      { dia:'2026-08-18', bodega:'Bodega Planta Chancado', skus_contados:'3', con_diferencia:'1', total_unidades_contadas:'42' },
+      { dia:'2026-08-18', bodega:'Bodega Central Rajo', skus_contados:'2', con_diferencia:'1', reconteos:'1', total_unidades_contadas:'30' },
+      { dia:'2026-08-18', bodega:'Bodega Planta Chancado', skus_contados:'3', con_diferencia:'1', reconteos:'0', total_unidades_contadas:'42' },
     ],
     semanal: [], mensual: [], ranking: [],
   };
@@ -1656,7 +1661,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlDashStrings.includes('01311') && !htmlDashStrings.includes('0139'), 'no debe quedar rastro de concatenación de texto en vez de suma numérica, obtuvo: '+htmlDashStrings);
 
   const diarioAggStrings = ctx.agregarPorDia(ctx.__appstate.dash.diario, 14);
-  assert(diarioAggStrings.length===1 && diarioAggStrings[0].contados===5 && diarioAggStrings[0].diferencias===2, 'agregarPorDia debe sumar numéricamente aunque los campos vengan como string, obtuvo: '+JSON.stringify(diarioAggStrings));
+  assert(diarioAggStrings.length===1 && diarioAggStrings[0].contados===5 && diarioAggStrings[0].diferencias===2 && diarioAggStrings[0].reconteos===1, 'agregarPorDia debe sumar numéricamente aunque los campos vengan como string (incluido reconteos), obtuvo: '+JSON.stringify(diarioAggStrings));
 
   // ===== Planes: gating de funcionalidades según el plan de la empresa =====
 

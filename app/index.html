@@ -2971,12 +2971,13 @@ function agregarPorDia(diario, dias=14){
   diario.forEach(r=>{
     const key = (r.dia||'').slice(0,10);
     if(!key) return;
-    const cur = map.get(key) || { dia:key, contados:0, diferencias:0 };
-    // skus_contados/con_diferencia vienen de count() en la vista SQL: PostgREST serializa
-    // bigint como string (para no perder precisión), así que sin Number() esto concatena
-    // texto en vez de sumar ("0"+"3" -> "03") y arruina el gráfico y la proyección.
+    const cur = map.get(key) || { dia:key, contados:0, diferencias:0, reconteos:0 };
+    // skus_contados/con_diferencia/reconteos vienen de count() en la vista SQL: PostgREST
+    // serializa bigint como string (para no perder precisión), así que sin Number() esto
+    // concatena texto en vez de sumar ("0"+"3" -> "03") y arruina el gráfico y la proyección.
     cur.contados += Number(r.skus_contados)||0;
     cur.diferencias += Number(r.con_diferencia)||0;
+    cur.reconteos += Number(r.reconteos)||0;
     map.set(key, cur);
   });
   return Array.from(map.values()).sort((a,b)=> a.dia.localeCompare(b.dia)).slice(-dias);
@@ -3006,6 +3007,50 @@ function renderBarChart(datos, valueKey, color, labelFn=fmtDiaCorto, mostrarValo
     <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"/>
     ${bars}
   </svg></div>`;
+}
+
+// Igual que renderBarChart, pero cada barra se parte en dos segmentos apilados: la base
+// (colorBase) con los conteos originales y, arriba, un segmento con colorExtra para los
+// reconteos del día — a pedido de Joel, para distinguir a simple vista cuánto del trabajo
+// diario fue contar SKU nuevos vs. resolver diferencias ya detectadas.
+function renderBarChartApilado(datos, valueKey, extraKey, colorBase, colorExtra, labelExtra, labelFn=fmtDiaCorto){
+  if(!datos.length) return `<div class="empty">Sin datos todavía.</div>`;
+  const max = Math.max(1, ...datos.map(d=>d[valueKey]||0));
+  const barW = 24, gap = 12, padTop = 26, padBottom = 20;
+  const plotH = 90;
+  const w = datos.length*(barW+gap)+gap;
+  const h = plotH + padTop + padBottom;
+  const baseline = padTop + plotH;
+  const bars = datos.map((d,i)=>{
+    const val = d[valueKey]||0;
+    const extra = Math.min(val, d[extraKey]||0);
+    const base = val - extra;
+    const barH = Math.round((val/max)*plotH);
+    const extraH = val>0 ? Math.round((extra/val)*barH) : 0;
+    const baseH = Math.max(0, barH-extraH);
+    const x = gap + i*(barW+gap);
+    const yBase = baseline - baseH;
+    const yExtra = yBase - extraH;
+    const topeY = Math.max(Math.min(yBase,yExtra), padTop);
+    return `<g>
+      ${baseH>0? `<rect x="${x}" y="${yBase}" width="${barW}" height="${baseH}" fill="${colorBase}"><title>${esc(labelFn(d.dia))}: ${base} conteos</title></rect>` : ''}
+      ${extraH>0? `<rect x="${x}" y="${yExtra}" width="${barW}" height="${extraH}" rx="${baseH>0?0:4}" fill="${colorExtra}"><title>${esc(labelFn(d.dia))}: ${extra} ${labelExtra}</title></rect>` : ''}
+      ${val>0? `<text x="${x+barW/2}" y="${topeY-5}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-dim)">${val}</text>` : ''}
+      <text x="${x+barW/2}" y="${baseline+13}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">${esc(labelFn(d.dia))}</text>
+    </g>`;
+  }).join('');
+  return `<div class="table-wrap"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block">
+    <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"/>
+    ${bars}
+  </svg></div>`;
+}
+
+// Leyenda chica de colores para un gráfico apilado (ver renderBarChartApilado).
+function renderLeyendaColores(items){
+  return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">${items.map(([color,label])=>`
+    <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim)">
+      <span style="width:9px;height:9px;border-radius:2px;background:${color};display:inline-block;flex-shrink:0"></span>${esc(label)}
+    </span>`).join('')}</div>`;
 }
 
 function abrevDiaSemana(iso){
@@ -3458,7 +3503,10 @@ function renderInformeEjecutivo(){
     </div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
-    <div class="card">${renderBarChart(diarioAgg, 'contados', 'var(--amber)', fmtDiaCorto, true)}</div>
+    <div class="card">
+      ${renderBarChartApilado(diarioAgg, 'contados', 'reconteos', 'var(--amber)', 'var(--accent)', 'reconteos', fmtDiaCorto)}
+      ${diarioAgg.length? renderLeyendaColores([['var(--amber)','Conteos'], ['var(--accent)','Reconteos']]) : ''}
+    </div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}</div>
