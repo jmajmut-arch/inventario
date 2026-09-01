@@ -3730,6 +3730,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.skuSeleccionado = skuSinMover;
   const htmlConSkuElegido = ctx.renderConteo();
   assert(htmlConSkuElegido.includes('Stock sistema: 20 UN') && !htmlConSkuElegido.includes('undefined'), 'la tarjeta del SKU elegido debe mostrar el stock real, nunca el texto "undefined", obtuvo: '+htmlConSkuElegido);
+  // Pedido de Joel: al seleccionar un SKU en Tomar inventario, mostrar su storage bin.
+  assert(htmlConSkuElegido.includes('Storage bin: A-01'), 'la tarjeta del SKU elegido debe mostrar el storage bin, obtuvo: '+htmlConSkuElegido);
+  ctx.__appstate.skuSeleccionado = {...skuSinMover, storage_bin:null};
+  const htmlSkuSinBin = ctx.renderConteo();
+  assert(htmlSkuSinBin.includes('Storage bin: —'), 'sin storage bin cargado, debe mostrar un guion en vez de dejarlo en blanco o mostrar "null", obtuvo: '+htmlSkuSinBin);
   ctx.__appstate.skuSeleccionado = null;
   const skuMovido = skusJuntos.find(s=>s.sku_code==='SKU-999');
   assert(!!skuMovido && skuMovido.storage_bin==='C-09' && skuMovido.binOriginal==='A-01' && !skuMovido.cambioBodega && !skuMovido.cambioUbicacion, 'SKU-999 debe aparecer marcado como movido de bin (no de bodega/ubicación), con su bin actual (C-09) y el bin con el que se planificó (A-01), obtuvo: '+JSON.stringify(skuMovido));
