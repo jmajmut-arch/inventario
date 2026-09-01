@@ -3703,6 +3703,9 @@ function renderInformeEjecutivo(){
   const valorExcedentes = valorizBodega.reduce((s,r)=>s+(Number(r.valor_excedentes)||0),0);
   const valorNeto = valorPerdidas + valorExcedentes;
 
+  // Orden pedido por Joel: avance global, exactitud, adherencia, valorización y proyección
+  // primero (el resumen ejecutivo de un vistazo); el resto (detalle/tendencia de cada uno,
+  // rankings y actividad reciente) queda abajo, agrupado cerca del resumen del que es detalle.
   return `
     <div class="kpi-grid">
       <div class="tag-card">
@@ -3731,30 +3734,7 @@ function renderInformeEjecutivo(){
       </div>
     </div>
 
-    <div class="section-head"><div><span class="eyebrow">De unidades, por mes calendario del conteo</span><h2 style="font-size:17px">Tendencia de exactitud</h2></div></div>
-    <div class="tag-card" style="margin-bottom:14px">
-      ${mesesDisponibles.length===0? `
-        <div class="empty"><div class="glyph">◧</div>Vas a ver la tendencia acá apenas tengas conteos registrados.</div>
-      ` : mesesDisponibles.length===1? `
-        <div class="empty"><div class="glyph">◧</div>Por ahora solo hay conteos de ${esc(fmtMesTruncado(primerMes))}. La tendencia aparece cuando haya conteos de más de un mes.</div>
-      ` : `
-        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--steel)', fmtMesTruncado, true)}
-        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
-          ${mejorBodega? `<p style="font-size:13px;margin:0 0 4px">📈 <strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</p>` : ''}
-          ${peorBodega && peorBodega.delta<0? `<p style="font-size:13px;margin:0;color:var(--text-dim)">📉 <strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</p>` : ''}
-        </div>
-        ${comparacionBodegas.length>1? `
-          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
-            ${comparacionBodegas.map(b=>`
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-                <span style="font-size:12.5px;color:var(--text-dim)">${esc(b.nombre)}</span>
-                <span class="mono" style="font-size:12.5px;color:${b.delta>=0?'var(--ok)':'var(--danger)'}">${pct(b.inicio)}% → ${pct(b.fin)}% (${b.delta>=0?'+':''}${pct(b.delta)} pts)</span>
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
-      `}
-    </div>
+    ${renderAdherenciaPlan()}
 
     ${valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0? `
       <div class="section-head"><div><span class="eyebrow">Con costo unitario cargado</span><h2 style="font-size:17px">Valorización de diferencias</h2></div></div>
@@ -3782,6 +3762,37 @@ function renderInformeEjecutivo(){
       </div>
     ` : ''}
 
+    <div class="section-head"><div><span class="eyebrow">Al ritmo actual</span><h2 style="font-size:17px">Proyección de término</h2></div></div>
+    <div class="tag-card" style="margin-bottom:14px">
+      <div class="kpi-value" style="font-size:22px">${proyeccion.titulo}</div>
+      <div class="kpi-sub">${proyeccion.detalle}</div>
+    </div>
+
+    <div class="section-head"><div><span class="eyebrow">De unidades, por mes calendario del conteo</span><h2 style="font-size:17px">Tendencia de exactitud</h2></div></div>
+    <div class="tag-card" style="margin-bottom:14px">
+      ${mesesDisponibles.length===0? `
+        <div class="empty"><div class="glyph">◧</div>Vas a ver la tendencia acá apenas tengas conteos registrados.</div>
+      ` : mesesDisponibles.length===1? `
+        <div class="empty"><div class="glyph">◧</div>Por ahora solo hay conteos de ${esc(fmtMesTruncado(primerMes))}. La tendencia aparece cuando haya conteos de más de un mes.</div>
+      ` : `
+        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--steel)', fmtMesTruncado, true)}
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+          ${mejorBodega? `<p style="font-size:13px;margin:0 0 4px">📈 <strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</p>` : ''}
+          ${peorBodega && peorBodega.delta<0? `<p style="font-size:13px;margin:0;color:var(--text-dim)">📉 <strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</p>` : ''}
+        </div>
+        ${comparacionBodegas.length>1? `
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+            ${comparacionBodegas.map(b=>`
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                <span style="font-size:12.5px;color:var(--text-dim)">${esc(b.nombre)}</span>
+                <span class="mono" style="font-size:12.5px;color:${b.delta>=0?'var(--ok)':'var(--danger)'}">${pct(b.inicio)}% → ${pct(b.fin)}% (${b.delta>=0?'+':''}${pct(b.delta)} pts)</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      `}
+    </div>
+
     ${rankingExactitud.length? `
       <div class="section-head"><div><span class="eyebrow">Exactitud de unidades</span><h2 style="font-size:17px">Ranking por ubicación general</h2></div></div>
       <div class="card">${renderExactitudBarList(rankingExactitud)}</div>
@@ -3796,12 +3807,6 @@ function renderInformeEjecutivo(){
       <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor en contra</span><h2 style="font-size:17px">Pérdidas con más impacto</h2></div></div>
       <div class="card">${tablaTopDiferencias(topDiferenciasNegativas)}</div>
     ` : ''}
-
-    <div class="section-head"><div><span class="eyebrow">Al ritmo actual</span><h2 style="font-size:17px">Proyección de término</h2></div></div>
-    <div class="tag-card" style="margin-bottom:14px">
-      <div class="kpi-value" style="font-size:22px">${proyeccion.titulo}</div>
-      <div class="kpi-sub">${proyeccion.detalle}</div>
-    </div>
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día</h2></div></div>
     <div class="card">
@@ -4030,7 +4035,7 @@ function renderDashboard(){
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
-    ${renderAdherenciaPlan()}
+    ${modo==='operativo'? renderAdherenciaPlan() : ''}
     ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
   `;
 }
