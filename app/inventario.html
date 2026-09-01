@@ -208,6 +208,7 @@ textarea{resize:vertical;min-height:60px;}
 .foto-modal-nav-prev{left:6px;}
 .foto-modal-nav-next{right:6px;}
 .foto-modal-contador{position:absolute;bottom:-30px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--text-dim);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:3px 10px;white-space:nowrap;}
+.foto-modal-etiqueta{position:absolute;top:-14px;left:14px;font-size:11.5px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:3px 10px;white-space:nowrap;}
 
 .foto-preview-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;}
 .foto-preview-item{position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--line);aspect-ratio:1;background:var(--surface-2);}
@@ -1089,7 +1090,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
 async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, excluirYaPlanificados}){
-  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1442,7 +1443,7 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s); });
   if(!original.size) return [];
   const codigos = [...original.keys()];
-  const actuales = await rest(`/skus_planificables?activo=eq.true&select=sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
+  const actuales = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,unidad_medida&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
   return actuales.map(s=>{
     const o = original.get(s.sku_code);
     // Fotos guardadas antes de que existieran estas dos columnas (plan planificado antes de este
@@ -1773,11 +1774,11 @@ function construirPathBusqueda(offset){
   return path;
 }
 
-// "Solo con fotografías" no es una columna propia (foto_urls es un array agregado), así que
+// "Solo con fotografías" no es una columna propia (fotos es un array agregado), así que
 // se filtra en el cliente después de traer cada página.
 function filtrarResultadosBusqueda(rows){
   if(!state.busqueda.soloConFotos) return rows;
-  return rows.filter(r=> (r.foto_urls||[]).length>0);
+  return rows.filter(r=> (r.fotos||[]).length>0);
 }
 
 async function buscarConteos(){
@@ -3068,14 +3069,16 @@ function renderDiffChart(sinDif, conDif){
 
 function renderFotoModal(){
   if(!state.fotoModal) return '';
-  const { urls, index } = state.fotoModal;
+  const { urls, labels, index } = state.fotoModal;
   const varias = urls.length > 1;
+  const etiqueta = labels && labels[index];
   return `<div class="foto-modal-backdrop" id="foto-modal-backdrop">
     <div class="foto-modal-card">
       <button id="foto-modal-close" class="foto-modal-close" aria-label="Cerrar">${ICONS.x}</button>
       ${varias? `<button id="foto-modal-prev" class="foto-modal-nav foto-modal-nav-prev" aria-label="Foto anterior">‹</button>` : ''}
       <img src="${esc(urls[index])}" alt="Respaldo fotográfico">
       ${varias? `<button id="foto-modal-next" class="foto-modal-nav foto-modal-nav-next" aria-label="Foto siguiente">›</button>` : ''}
+      ${etiqueta? `<div class="foto-modal-etiqueta">${esc(etiqueta)}</div>` : ''}
       ${varias? `<div class="foto-modal-contador">${index+1} / ${urls.length}</div>` : ''}
     </div>
   </div>`;
@@ -3626,6 +3629,13 @@ function causaProbableBadge(causa){
   return `<span class="badge ${CAUSA_PROBABLE_BADGE[causa]||'badge-neutral'}">${esc(causa)}</span>`;
 }
 
+// Las fotos de un SKU se agregan desde TODOS sus conteos (reconteo_pendiente / skus_busqueda),
+// cada una con el número de conteo al que pertenece (1 = el conteo original, 2+ = reconteos) —
+// esta etiqueta es lo que permite distinguirlas en el visor, a pedido de Joel.
+function etiquetaNumeroConteo(numero){
+  return numero<=1 ? 'Conteo' : `Reconteo ${numero-1}`;
+}
+
 function estadoBadge(estado, diferencia){
   if(diferencia && Number(diferencia)!==0) return `<span class="badge badge-warn">Diferencia ${diferencia>0?'+':''}${diferencia}</span>`;
   if(estado==='pendiente_revision') return `<span class="badge badge-neutral">Pendiente</span>`;
@@ -4116,8 +4126,8 @@ function renderReconteo(){
           <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
           <td>${causaProbableBadge(r.causa_probable)}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
-          <td class="num">${r.ultima_foto_url
-            ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify([r.ultima_foto_url]))}" aria-label="Ver foto">${ICONS.camera}</button>`
+          <td class="num">${(r.fotos||[]).length
+            ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(r.fotos))}" aria-label="Ver fotos">${ICONS.camera}${r.fotos.length>1?` ${r.fotos.length}`:''}</button>`
             : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
           <td class="num"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button></td>
         </tr>`).join('')}</tbody>
@@ -4185,7 +4195,7 @@ function renderBuscar(){
       ${resultados.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
         <tbody>${resultados.map(r=>{
-          const urls = r.foto_urls||[];
+          const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
           return `<tr>
             <td class="mono">${esc(r.sku_code)}</td>
@@ -4199,8 +4209,8 @@ function renderBuscar(){
               ${contado && fueCapturadoOffline(r.capturado_en, r.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(r.capturado_en)} · sin conexión</div>` : ''}
             </td>
             <td style="font-size:12px;color:var(--text-dim)">${esc(r.ciclo_nombre || '—')}</td>
-            <td class="num">${urls.length
-              ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(urls))}" aria-label="Ver fotos">${ICONS.camera}${urls.length>1?` ${urls.length}`:''}</button>`
+            <td class="num">${fotos.length
+              ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`
               : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
           </tr>`;
         }).join('')}</tbody>
@@ -4977,12 +4987,12 @@ function bind(){
     const btnPrevFoto = document.getElementById('foto-modal-prev');
     const btnNextFoto = document.getElementById('foto-modal-next');
     if(btnPrevFoto) btnPrevFoto.addEventListener('click', ()=>{
-      const {urls, index} = state.fotoModal;
-      setState({fotoModal:{urls, index:(index-1+urls.length)%urls.length}});
+      const {urls, labels, index} = state.fotoModal;
+      setState({fotoModal:{urls, labels, index:(index-1+urls.length)%urls.length}});
     });
     if(btnNextFoto) btnNextFoto.addEventListener('click', ()=>{
-      const {urls, index} = state.fotoModal;
-      setState({fotoModal:{urls, index:(index+1)%urls.length}});
+      const {urls, labels, index} = state.fotoModal;
+      setState({fotoModal:{urls, labels, index:(index+1)%urls.length}});
     });
   }
   if(state.offlineModal){
@@ -5387,7 +5397,13 @@ function bind(){
       if(cUbic) cUbic.addEventListener('change', e=> elegirCascadaContar({ubicacion:e.target.value}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
-          const sku = state.skus.find(s=>s.sku_code===btn.dataset.pickPlan);
+          // state.skus solo trae los primeros 500 SKU (orden alfabético) — con catálogos
+          // grandes, el SKU planificado clickeado puede no estar ahí y el click no hacía nada
+          // (bug real: "no me permite seleccionar un SKU", visto en Sentry como Rage Click).
+          // contarPlan.skusPendientes sí trae el SKU completo, porque es la misma consulta que
+          // arma esta lista, así que se busca primero ahí; state.skus queda de respaldo.
+          const sku = (state.contarPlan.skusPendientes||[]).find(s=>s.sku_code===btn.dataset.pickPlan)
+            || state.skus.find(s=>s.sku_code===btn.dataset.pickPlan);
           if(!sku) return;
           setState({skuSeleccionado: sku, conteoOrigenPlan:true, conteoOtraUbicacion:false});
         });
@@ -5428,11 +5444,12 @@ function bind(){
     if(btnCargarMasReconteo) btnCargarMasReconteo.addEventListener('click', cargarMasReconteos);
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
-        const rutas = JSON.parse(btn.dataset.verFotos);
-        if(!rutas.length) return;
+        const fotos = JSON.parse(btn.dataset.verFotos);
+        if(!fotos.length) return;
         try{
-          const urls = await Promise.all(rutas.map(crearUrlFirmada));
-          setState({fotoModal:{urls, index:0}});
+          const urls = await Promise.all(fotos.map(f=>crearUrlFirmada(f.foto_url)));
+          const labels = fotos.map(f=>etiquetaNumeroConteo(f.numero_conteo));
+          setState({fotoModal:{urls, labels, index:0}});
         }catch(e){ toast(e.message,'err'); }
       });
     });
@@ -5469,11 +5486,12 @@ function bind(){
     });
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
-        const rutas = JSON.parse(btn.dataset.verFotos);
-        if(!rutas.length) return;
+        const fotos = JSON.parse(btn.dataset.verFotos);
+        if(!fotos.length) return;
         try{
-          const urls = await Promise.all(rutas.map(crearUrlFirmada));
-          setState({fotoModal:{urls, index:0}});
+          const urls = await Promise.all(fotos.map(f=>crearUrlFirmada(f.foto_url)));
+          const labels = fotos.map(f=>etiquetaNumeroConteo(f.numero_conteo));
+          setState({fotoModal:{urls, labels, index:0}});
         }catch(e){ toast(e.message,'err'); }
       });
     });
