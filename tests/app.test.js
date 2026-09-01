@@ -1734,6 +1734,64 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSinMeses = ctx.renderDashboard();
   assert(htmlSinMeses.includes('Vas a ver la tendencia acá'), 'sin conteos todavía, debe mostrar el mensaje de que la tendencia aparecerá más adelante, obtuvo: '+htmlSinMeses);
 
+  // ===== Orden de la vista Ejecutiva del Dashboard (a pedido de Joel): primero el resumen de un
+  // vistazo -- Avance global, Exactitud, Adherencia al plan, Valorización, Proyección, en ese
+  // orden exacto -- y recién después el detalle/tendencia de cada uno y la actividad reciente,
+  // en el orden que yo definí. Antes "Adherencia al plan" vivía SIEMPRE arriba de todo (tanto en
+  // Ejecutivo como en Operativo), separada de renderInformeEjecutivo(); ahora en Ejecutivo se
+  // integra en este orden, y en Operativo sigue igual que antes (arriba de todo, sin cambios).
+  ctx.__appstate.dashboardModo = 'ejecutivo';
+  ctx.__appstate.dashPeriodo = '';
+  ctx.__appstate.ciclos = [{id:'ciclo-orden', nombre:'T1 2027', es_actual:true}];
+  ctx.__appstate.dash = {
+    total: [{bodega:'Nave Mina', skus_universo:100, skus_contados:50, porcentaje_avance:50}],
+    diario: [{dia:'2026-08-10', skus_contados:'7', con_diferencia:'1', reconteos:'2'}],
+    semanal: [], mensual: [],
+    ranking: [{nombre:'Ana Torres', cantidad:9}],
+    diferenciasRecientes: [{sin_diferencia:9, con_diferencia:1}],
+    exactitudBodega: [{bodega:'Nave Mina', skus_contados:20, sin_diferencia:16, con_diferencia:4, ubicacion_correcta:18}],
+    exactitudMensual: [
+      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:6, con_diferencia:4, ubicacion_correcta:10},
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+    ],
+    topDiferenciasPositivas: [{sku_code:'SKU-TOP-POS', descripcion:'Cable eléctrico', stock_sistema:10, ultima_cantidad_contada:40, ultima_diferencia:30, causa_probable:'Sin patrón detectado', valor_diferencia_linea:150000}],
+    topDiferenciasNegativas: [{sku_code:'SKU-TOP-NEG', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, causa_probable:'Ubicación distinta y recurrente', valor_diferencia_linea:-300000}],
+    valorizacion: [{bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000}],
+    avancePlanPorCiclo: [{ciclo_id:'ciclo-orden', bodega:'Nave Mina', total_planificados:8, contados:6}],
+  };
+  const htmlOrden = ctx.renderDashboard();
+  const idx = (texto) => htmlOrden.indexOf(texto);
+  const idxAvanceGlobal = idx('Avance global');
+  const idxExactitud = idx('<h2 style="font-size:17px">Exactitud</h2>');
+  const idxAdherencia = idx('Adherencia al plan');
+  const idxValorizacion = idx('Valorización de diferencias');
+  const idxProyeccion = idx('Proyección de término');
+  const idxTendencia = idx('Tendencia de exactitud');
+  const idxRankingUbicacion = idx('Ranking por ubicación general');
+  const idxTopExcedentes = idx('Excedentes con más impacto');
+  const idxTopPerdidas = idx('Pérdidas con más impacto');
+  const idxConteosPorDia = idx('Conteos por día');
+  const idxRankingResponsable = idx('Ranking por responsable');
+  assert(idxAvanceGlobal>=0 && idxExactitud>idxAvanceGlobal && idxAdherencia>idxExactitud && idxValorizacion>idxAdherencia && idxProyeccion>idxValorizacion,
+    'la vista Ejecutiva debe mostrar primero, en este orden exacto: Avance global, Exactitud, Adherencia al plan, Valorización, Proyección -- obtuvo índices: '+JSON.stringify({idxAvanceGlobal,idxExactitud,idxAdherencia,idxValorizacion,idxProyeccion}));
+  assert(idxTendencia>idxProyeccion && idxRankingUbicacion>idxTendencia && idxTopExcedentes>idxRankingUbicacion && idxTopPerdidas>idxTopExcedentes && idxConteosPorDia>idxTopPerdidas && idxRankingResponsable>idxConteosPorDia,
+    'el resto de las secciones (detalle/tendencia y actividad reciente) debe quedar después del resumen de arriba, en el orden definido, obtuvo índices: '+JSON.stringify({idxTendencia,idxRankingUbicacion,idxTopExcedentes,idxTopPerdidas,idxConteosPorDia,idxRankingResponsable}));
+  // "id=dash-periodo" (el selector de período de Adherencia) es único por render de
+  // renderAdherenciaPlan() -- a diferencia del texto "Adherencia al plan", que aparece dos veces
+  // DENTRO de un mismo render legítimo (el título de la sección y, además, como kpi-label de la
+  // tarjeta de un período puntual) -- así que es el marcador correcto para detectar si la
+  // sección completa quedó duplicada por accidente.
+  const vecesAdherenciaEjecutivo = htmlOrden.split('id="dash-periodo"').length - 1;
+  assert(vecesAdherenciaEjecutivo===1, 'en modo Ejecutivo, la sección de Adherencia no debe duplicarse (antes se renderizaba aparte Y podía quedar de nuevo si se integraba mal), obtuvo '+vecesAdherenciaEjecutivo+' apariciones');
+
+  // En modo Operativo, "Adherencia al plan" sigue apareciendo arriba de todo (fuera de
+  // renderInformeEjecutivo, que ni se usa en este modo), sin duplicarse ni desaparecer.
+  ctx.__appstate.dashboardModo = 'operativo';
+  const htmlOrdenOperativo = ctx.renderDashboard();
+  const vecesAdherenciaOperativo = htmlOrdenOperativo.split('id="dash-periodo"').length - 1;
+  assert(vecesAdherenciaOperativo===1, 'en modo Operativo, la sección de Adherencia debe seguir apareciendo (una sola vez), obtuvo '+vecesAdherenciaOperativo+' apariciones');
+  ctx.__appstate.dashboardModo = 'ejecutivo';
+
   // ===== Regresión: PostgREST serializa bigint (count()) como string, no como número =====
   // avance_total/avance_diario usan count()/count(distinct), que PostgREST devuelve como
   // string en el JSON (para no perder precisión). Si el código suma esos campos con "+"
