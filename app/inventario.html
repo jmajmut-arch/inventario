@@ -334,7 +334,7 @@ let state = {
   skus: [],
   skuSearch: '',
   skuSeleccionado: null,
-  conteoOrigenPlan: false, // el SKU seleccionado viene del plan del día (true) o del buscador libre (false, "fuera de plan")
+  conteoOrigenPlan: false, // el SKU seleccionado viene del plan del día o de un reconteo (true) o del buscador libre (false, "fuera de plan")
   // "Lo encontré en otra ubicación": los campos de ubicación siempre muestran el valor del
   // maestro, fijos (nadie tiene que escribir dónde lo encontró) — marcar este check solo
   // manda el flag conteos.ubicacion_distinta=true, que alimenta directo la causa probable
@@ -3488,8 +3488,12 @@ function opcionesPeriodoDash(){
 }
 
 // "Adherencia al plan": de todo lo contado en un período, qué porcentaje vino del plan
-// asignado (Planificación → "Plan del día" en Contar) versus se agregó fuera de plan
-// (buscador libre o escáner — ver #130). Igual que el resto del dashboard, es sobre el
+// asignado (Planificación → "Plan del día" en Contar, o un reconteo pedido desde la pestaña
+// Reconteo) versus se agregó fuera de plan (buscador libre o escáner sin que el SKU esté en
+// el plan visible — ver #130). Un reconteo cuenta como "en plan" aunque no venga de la lista
+// del día: es trabajo que la propia app pidió para resolver una diferencia, no un conteo
+// libre (bug real reportado por Joel: un SKU recontado aparecía como "Fuera de plan" aunque
+// su conteo original sí venía del plan). Igual que el resto del dashboard, es sobre el
 // último conteo de cada SKU dentro de su período (no cada conteo histórico): si un SKU se
 // recontó varias veces, solo cuenta su estado más reciente, si no "Fuera de plan" queda
 // inflado con intentos ya corregidos. La bodega que se muestra es la del SKU (skus.bodega),
@@ -5518,7 +5522,11 @@ function bind(){
         setState({
           view:'conteo',
           skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, stock_sistema:r.stock_sistema },
-          conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'',
+          // conteoOrigenPlan:true (no false): recontar una diferencia es trabajo pedido por la
+          // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
+          // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
+          // Adherencia al plan, aunque su conteo original sí venía del plan del día.
+          conteoOrigenPlan:true, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'',
         });
       });
     });
