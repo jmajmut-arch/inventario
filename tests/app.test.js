@@ -1788,6 +1788,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSinMeses = ctx.renderDashboard();
   assert(htmlSinMeses.includes('Vas a ver la tendencia acá'), 'sin conteos todavía, debe mostrar el mensaje de que la tendencia aparecerá más adelante, obtuvo: '+htmlSinMeses);
 
+  // renderBarChart: la etiqueta y el tooltip de cada barra deben redondear a 1 decimal -- a pedido
+  // de Joel, que vio "52.9411764705" sin redondear en Tendencia de exactitud (9/17*100, un
+  // decimal periódico). El alto de la barra sigue calculado con el valor exacto, solo se redondea
+  // lo que se MUESTRA. Un conteo entero (ej. "Conteos por día") no se ve afectado: redondear un
+  // entero a 1 decimal da el mismo entero (sin ".0" de sobra).
+  ctx.__appstate.dash = {
+    ...ctx.__appstate.dash,
+    exactitudMensual: [
+      {mes:'2026-08-01T00:00:00+00:00', bodega:'B501', skus_contados:17, sin_diferencia:17, con_diferencia:0, ubicacion_correcta:17},
+      {mes:'2026-09-01T00:00:00+00:00', bodega:'B501', skus_contados:17, sin_diferencia:9, con_diferencia:8, ubicacion_correcta:17},
+    ],
+  };
+  const htmlTendenciaDecimal = ctx.renderDashboard();
+  assert(htmlTendenciaDecimal.includes('52.9') && !htmlTendenciaDecimal.includes('52.9411764705'), 'la barra de Sep 26 (9/17=52.9411764705...%) debe mostrarse redondeada a "52.9", no con todos los decimales, obtuvo: '+htmlTendenciaDecimal);
+  assert(/>100<\/text>/.test(htmlTendenciaDecimal) && !htmlTendenciaDecimal.includes('100.0<'), 'la barra de Ago 26 (100%, un entero) debe mostrarse como "100", no "100.0", obtuvo: '+htmlTendenciaDecimal);
+
   // ===== Orden de la vista Ejecutiva del Dashboard (a pedido de Joel): primero el resumen de un
   // vistazo -- Avance global, Exactitud, Adherencia al plan, Valorización, Proyección, en ese
   // orden exacto -- y recién después el detalle/tendencia de cada uno y la actividad reciente,
