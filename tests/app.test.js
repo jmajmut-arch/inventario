@@ -3119,11 +3119,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.claseAbcBadge(null).includes('Sin clasificar'), 'sin clase (SKU sin costo_unitario cargado) debe mostrar "Sin clasificar", no inventarle una clase, obtuvo: '+ctx.claseAbcBadge(null));
   assert(ctx.criticoBadge().includes('Crítico') && ctx.criticoBadge().includes('badge-danger'), 'el badge de crítico debe destacarse en rojo, obtuvo: '+ctx.criticoBadge());
 
-  // parsearBooleanoCarga: interpreta la columna opcional "Crítico" de la carga masiva.
-  ['Si','sí','S','x','X','true','TRUE','1','yes'].forEach(v=>{
-    assert(ctx.parsearBooleanoCarga(v)===true, `"${v}" debe interpretarse como crítico, obtuvo: `+ctx.parsearBooleanoCarga(v));
+  // parsearBooleanoCarga: interpreta la columna opcional "Crítico" de la carga masiva -- a pedido
+  // de Joel, cualquier celda NO vacía cuenta (una marca real de SAP/Excel rara vez es un "Sí"
+  // textual: puede ser una X, la palabra "Alta", lo que sea), salvo una negación explícita.
+  ['Si','sí','S','x','X','true','TRUE','1','yes','Alta','Crítico','cualquier cosa'].forEach(v=>{
+    assert(ctx.parsearBooleanoCarga(v)===true, `"${v}" (no vacío, no es una negación) debe interpretarse como crítico, obtuvo: `+ctx.parsearBooleanoCarga(v));
   });
-  ['No','no','','0','false','tal vez', undefined, null].forEach(v=>{
+  ['No','no','NO','','  ','0','false','FALSO', undefined, null].forEach(v=>{
     assert(ctx.parsearBooleanoCarga(v)===false, `"${v}" debe interpretarse como NO crítico, obtuvo: `+ctx.parsearBooleanoCarga(v));
   });
 
