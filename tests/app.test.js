@@ -160,8 +160,8 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Buscar: skus_busqueda (un renglón por SKU, contado o no) — 34 filas en total en el fixture
   // por defecto; honra el "limit=" real del pedido (30 para "cargar más", TOPE_CARGA_TOTAL_BUSQUEDA
-  // para la carga inicial) y devuelve Content-Range como PostgREST real, para poder probar
-  // buscarConteos/incluirTotal sin duplicar la lógica de paginación acá.
+  // para la carga inicial) -- el total real que pide buscarConteos en paralelo (RPC
+  // contar_busqueda_skus) tiene su propio mock más abajo, usando este mismo fixture.
   if(path.startsWith('/rest/v1/skus_busqueda?select=')){
     const offsetMatch = path.match(/offset=(\d+)/);
     const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
@@ -178,6 +178,13 @@ const fakeFetchImpl = async (url, opts) => {
       filas.push({sku_id:'sku-busq-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', fuera_de_plan:false, ciclo_id:null, ciclo_nombre:null, fotos:[], contado_por:'Persona '+(i%3)});
     }
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `${offset}-${Math.max(offset+filas.length-1,offset)}/${total}` : null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Total real de Buscar (ver buscarConteos): un count(*) aparte, en paralelo al pedido de filas
+  // de arriba -- mismo "total" que ese mock (skusBusquedaFixture.length o 34 por defecto), sin
+  // aplicar los filtros de la query (igual de simplificado que el mock de skus_busqueda de arriba).
+  if(path.startsWith('/rest/v1/rpc/contar_busqueda_skus')){
+    const total = skusBusquedaFixture ? skusBusquedaFixture.length : 34;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(total) };
   }
   if(path.startsWith('/rest/v1/conteos?select=')){
     const offsetMatch = path.match(/offset=(\d+)/);
@@ -3837,8 +3844,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
   // ===== Buscar: carga inicial hasta TOPE_CARGA_TOTAL_BUSQUEDA de una vez, con el total real
-  // (count=exact/Content-Range) -- ver buscarConteos. Con más de mil filas (un caso ancho, sin
-  // filtro), no alcanza a traer todo de una: sigue paginando con "Siguiente"/buscarMasConteos. =====
+  // pedido en paralelo al RPC contar_busqueda_skus -- ver buscarConteos. Con más de mil filas (un
+  // caso ancho, sin filtro), no alcanza a traer todo de una: sigue paginando con
+  // "Siguiente"/buscarMasConteos. =====
   const filaBusquedaGenerica = (i) => ({sku_id:'sku-ancho-'+i, sku_code:'SKU-ANCHO-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_id:null, ciclo_nombre:null, fotos:[], batch:null, contado_por:null, critico:false, clase_abc:null});
   skusBusquedaFixture = Array.from({length:1005}, (_,i)=>filaBusquedaGenerica(i));
   ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
@@ -3846,7 +3854,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.buscarConteos();
   const busquedaCallInicial = calls.find(c=>c.url.includes('/skus_busqueda?select='));
   assert(!!busquedaCallInicial && busquedaCallInicial.url.includes(`limit=${1000}`), 'la carga inicial debe pedir hasta TOPE_CARGA_TOTAL_BUSQUEDA, no solo TAM_PAGINA_LISTA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===true, 'con más filas que el tope, debe cargar hasta el tope y saber el total real (1005) vía Content-Range, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
+  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===true, 'con más filas que el tope, debe cargar hasta el tope y saber el total real (1005) vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
   assert(ctx.__appstate.busqueda.paginaOffset===1000, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
   calls.length = 0;
   await ctx.buscarMasConteos();
@@ -4725,8 +4733,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlBuscarHayMas.includes('>1+ resultado<'), 'con hayMas=true y total desconocido, el título debe llevar un "+" (no parecer el total), obtuvo: '+htmlBuscarHayMas);
   assert(htmlBuscarHayMas.includes('Mostrando los primeros'), 'con hayMas=true, debe explicar cómo ver el resto (paginar o exportar), obtuvo: '+htmlBuscarHayMas);
 
-  // Con el total real conocido (el caso normal desde que buscarConteos pide count=exact): el
-  // título debe mostrar el total exacto, no "N+", y el aviso debe decir de cuántos en total.
+  // Con el total real conocido (el caso normal desde que buscarConteos pide el RPC
+  // contar_busqueda_skus en paralelo): el título debe mostrar el total exacto, no "N+", y el
+  // aviso debe decir de cuántos en total.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, total:744};
   const htmlBuscarTotalConocido = ctx.renderBuscar();
   assert(htmlBuscarTotalConocido.includes('>744 resultados<'), 'con el total real conocido, el título debe mostrar el total exacto, obtuvo: '+htmlBuscarTotalConocido);
@@ -4807,6 +4816,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlBuscarClaseAbc = ctx.renderBuscar();
   assert(htmlBuscarClaseAbc.includes('id="b-clase-abc"') && htmlBuscarClaseAbc.includes('Clase ABC'), 'debe mostrar el selector de Clase ABC, obtuvo: '+htmlBuscarClaseAbc);
   ctx.__appstate.busqueda.claseAbc = '';
+
+  // ===== Buscar: el RPC contar_busqueda_skus (total real, pedido en paralelo a las filas -- ver
+  // buscarConteos) debe recibir EXACTAMENTE los mismos filtros que construirPathBusqueda usa para
+  // pedir las filas. En particular las fechas: deben viajar como el instante (timestamptz) que el
+  // cliente ya calculó a partir de la medianoche LOCAL, no como una fecha simple -- si el RPC
+  // hiciera el cast fecha->timestamptz del lado de la base, usaría el timezone de la SESIÓN de la
+  // base, no el del usuario, y el total mostrado podría no calzar con las filas de la tabla. =====
+  ctx.__appstate.busqueda = {
+    texto:'rodamiento', bodega:'Nave', estado:'aprobado', ciclo:'ciclo-9', soloConFotos:false,
+    soloFueraDePlan:true, soloCriticos:true, claseAbc:'A', fechaDesde:'2026-08-20', fechaHasta:'2026-08-25',
+    resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0,
+  };
+  calls.length = 0;
+  await ctx.buscarConteos();
+  const pathConFiltros = ctx.construirPathBusqueda(0);
+  const desdeEsperado = (pathConFiltros.match(/fecha_conteo=gte\.([^&]+)/)||[])[1];
+  const hastaEsperado = (pathConFiltros.match(/fecha_conteo=lt\.([^&]+)/)||[])[1];
+  const rpcCall = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
+  assert(!!rpcCall, 'buscarConteos debe pedir el total en paralelo vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const rpcBody = rpcCall && JSON.parse(rpcCall.opts.body);
+  assert(rpcBody && rpcBody.p_texto==='rodamiento' && rpcBody.p_bodega==='Nave' && rpcBody.p_estado==='aprobado' && rpcBody.p_ciclo==='ciclo-9' && rpcBody.p_solo_fuera_de_plan===true && rpcBody.p_solo_criticos===true && rpcBody.p_clase_abc==='A', 'el RPC debe recibir los mismos filtros de texto/bodega/estado/ciclo/checkboxes/clase que la búsqueda de filas, obtuvo: '+JSON.stringify(rpcBody));
+  assert(rpcBody && !!desdeEsperado && !!hastaEsperado && rpcBody.p_fecha_desde===desdeEsperado && rpcBody.p_fecha_hasta===hastaEsperado, 'las fechas del RPC deben ser el mismo instante (timestamptz) que fecha_conteo=gte./lt. en la búsqueda de filas, obtuvo: '+JSON.stringify({rpc:{desde:rpcBody&&rpcBody.p_fecha_desde,hasta:rpcBody&&rpcBody.p_fecha_hasta}, path:{desde:desdeEsperado,hasta:hastaEsperado}}));
 
   // ===== Buscar: ordenar la tabla haciendo clic en un encabezado (ciclo de 3 estados: asc ->
   // desc -> orden por defecto), pide de nuevo al servidor desde el principio. =====
