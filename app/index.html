@@ -391,7 +391,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -495,6 +495,15 @@ const VENTANA_PROYECCION_DIAS = 14;
 // Tamaño de página para las listas largas que cargan de a poco con botón "Cargar más"
 // (Reconteo, Búsqueda, Leads), en vez de traer todo de una sola vez.
 const TAM_PAGINA_LISTA = 30;
+// Buscar: si el total que calza con el filtro cabe bajo este tope, se trae completo de una sola
+// vez (en vez de a TAM_PAGINA_LISTA por tanda) -- así el gráfico y el conteo de arriba muestran
+// el total real, no solo lo primero cargado. Medido con EXPLAIN ANALYZE (ver PR): la vista
+// skus_busqueda ya tiene que materializar y ordenar TODO lo que calza con el filtro antes de
+// aplicar cualquier límite (el ORDER BY por fecha de conteo no es indexable), así que devolver
+// 1.000 filas en vez de 30 no le agrega costo real al motor -- solo más datos para transferir.
+// Por eso el tope: cubre holgado un filtro típico (cientos de SKU), sin arriesgarse a mandar
+// una búsqueda sin filtro (decenas de miles de SKU) entera por la red.
+const TOPE_CARGA_TOTAL_BUSQUEDA = 1000;
 // Trazabilidad usa una página más chica: la tabla de auditoría es más densa de leer que las
 // otras listas paginadas, así que conviene una tanda menor por carga.
 const TAM_PAGINA_AUDITORIA = 20;
@@ -580,7 +589,7 @@ async function authRequest(path, body){
   return data;
 }
 
-async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={} } = {}){
+async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={}, incluirTotal=false } = {}){
   const hacerLlamada = () => {
     const headers = {
       'apikey': SUPABASE_ANON_KEY,
@@ -620,6 +629,15 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
   if(text){ try{ data = JSON.parse(text); }catch(e){ /* respuesta no-JSON */ } }
   if(!res.ok){
     throw new Error((data && data.message) || 'No se pudo completar la operación. Inténtalo de nuevo.');
+  }
+  // incluirTotal (opt-in, no cambia el contrato para el resto de los llamadores): junto con
+  // prefer:'count=exact', PostgREST devuelve el total real que calza con el filtro en el header
+  // Content-Range ("0-29/744"), aparte de las filas de esta página -- lo usa Buscar para mostrar
+  // el total real en vez de solo "lo cargado hasta ahora".
+  if(incluirTotal){
+    const range = res.headers.get('content-range');
+    const total = range && range.includes('/') && range.split('/')[1]!=='*' ? Number(range.split('/')[1]) : null;
+    return { data, total };
   }
   return data;
 }
@@ -2065,8 +2083,8 @@ function construirOrdenBusqueda(){
   }
   return 'fecha_conteo.desc.nullslast,sku_code.asc';
 }
-function construirPathBusqueda(offset){
-  let path = `/skus_busqueda?select=*&order=${construirOrdenBusqueda()}&limit=${TAM_PAGINA_LISTA}&offset=${offset}`;
+function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
+  let path = `/skus_busqueda?select=*&order=${construirOrdenBusqueda()}&limit=${limit}&offset=${offset}`;
   const texto = sanearTextoFiltro(state.busqueda.texto);
   // Además de código/descripción, también busca por batch y storage bin -- alguien que escribe
   // un lote o una ubicación física puntual en el buscador libre espera encontrarlo igual.
@@ -2120,11 +2138,18 @@ function irABuscarSku(skuCode){
   buscarConteos();
 }
 
+// Pide de entrada hasta TOPE_CARGA_TOTAL_BUSQUEDA filas (no solo TAM_PAGINA_LISTA) junto con el
+// total real (count=exact/Content-Range) -- ver esa constante para por qué esto no le agrega
+// costo real al motor. Si el total cabe bajo el tope, queda TODO cargado de una: el conteo de
+// arriba y los gráficos (que se calculan sobre `resultados`) ya reflejan el total real, no solo
+// lo primero cargado. Si el total supera el tope (una búsqueda ancha, sin filtro), se sigue
+// paginando de a TAM_PAGINA_LISTA con "Siguiente"/buscarMasConteos, como antes.
 async function buscarConteos(){
   try{
-    const rows = await rest(construirPathBusqueda(0)) || [];
+    const { data, total } = await rest(construirPathBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA), { prefer:'count=exact', incluirTotal:true });
+    const rows = data || [];
     const resultados = filtrarResultadosBusqueda(rows);
-    setState({busqueda: {...state.busqueda, resultados, buscando:false, hayMas: rows.length===TAM_PAGINA_LISTA, paginaOffset: rows.length, busquedaPagina:0}});
+    setState({busqueda: {...state.busqueda, resultados, total, buscando:false, hayMas: total!=null ? rows.length<total : rows.length===TOPE_CARGA_TOTAL_BUSQUEDA, paginaOffset: rows.length, busquedaPagina:0}});
   }catch(e){
     setState({busqueda: {...state.busqueda, buscando:false}});
     toast(e.message,'err');
@@ -2138,8 +2163,8 @@ async function buscarMasConteos(){
   try{
     const rows = await rest(construirPathBusqueda(state.busqueda.paginaOffset)) || [];
     state.busqueda.resultados = state.busqueda.resultados.concat(filtrarResultadosBusqueda(rows));
-    state.busqueda.hayMas = rows.length===TAM_PAGINA_LISTA;
     state.busqueda.paginaOffset += rows.length;
+    state.busqueda.hayMas = state.busqueda.total!=null ? state.busqueda.paginaOffset<state.busqueda.total : rows.length===TAM_PAGINA_LISTA;
   }catch(e){ toast(e.message,'err'); }
   state.busqueda.buscandoMas = false;
   render();
@@ -4989,6 +5014,19 @@ function renderBuscar(){
   const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(resultados.length/TAM_PAGINA_BUSCAR)-1));
   const resultadosPagina = resultadosFiltrados || resultados.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
   const busquedaHaySiguiente = !resultadosFiltrados && ((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < resultados.length || b.hayMas);
+  // Total real que calza con el filtro (ver buscarConteos/TOPE_CARGA_TOTAL_BUSQUEDA) -- cuando se
+  // conoce, se usa en vez de "lo cargado hasta ahora" en el título, los gráficos y arriba de la
+  // tabla, para que se entienda la dimensión real de los resultados (a pedido de Joel). Si "Solo
+  // con fotografías" está activo Y todavía falta cargar del servidor, el total no se puede saber
+  // con certeza (ese filtro se aplica en el cliente sobre lo ya cargado -- no sabemos cuántas de
+  // las filas que faltan tendrán foto), así que en ese caso se degrada a "lo cargado hasta ahora".
+  const totalConocido = !b.hayMas || (b.total!=null && !b.soloConFotos);
+  const totalReal = totalConocido ? (b.hayMas ? b.total : resultados.length) : resultados.length;
+  const alcanceBusqueda = (etiquetaCompleto) => !totalConocido
+    ? `Primeros ${resultados.length} cargados`
+    : (resultados.length<totalReal ? `Primeros ${resultados.length} de ${totalReal}` : etiquetaCompleto);
+  const desdeTabla = busquedaPaginaActual*TAM_PAGINA_BUSCAR + 1;
+  const hastaTabla = Math.min((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR, resultados.length);
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card">
@@ -5046,18 +5084,18 @@ function renderBuscar(){
     </div>
 
     ${b.yaBuscado? `
-    <div class="section-head"><div><h2 style="font-size:15px">${resultados.length}${b.hayMas?'+':''} resultado${resultados.length===1?'':'s'}</h2>${b.hayMas?`<div class="hint" style="margin-top:2px">Hay más -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
+    <div class="section-head"><div><h2 style="font-size:15px">${totalConocido?totalReal:`${resultados.length}+`} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
       ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
     </div>
     ${(b.soloConFotos || b.soloFueraDePlan || b.soloCriticos || b.claseAbc || b.fechaDesde || b.fechaHasta) && resultados.length? `
     <div class="card">
-      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados filtrados'}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados filtrados')}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
       ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d, true, true)}
     </div>
     ` : ''}
     ${quienConto.length? `
     <div class="card">
-      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados cargados'}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una porción o su nombre en la leyenda para filtrar la tabla de abajo por esa persona.')}</h2></div></div>
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una porción o su nombre en la leyenda para filtrar la tabla de abajo por esa persona.')}</h2></div></div>
       ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre, {clave:d=>d.nombre, activo:b.filtroContadoPor})}
       ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n})`, d.nombre]), b.filtroContadoPor)}
     </div>
@@ -5069,6 +5107,7 @@ function renderBuscar(){
     </div>
     ` : ''}
     <div class="card">
+      ${(resultados.length && !resultadosFiltrados)? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalReal}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
         <thead><tr>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
@@ -5096,7 +5135,7 @@ function renderBuscar(){
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
       ${(resultados.length && !resultadosFiltrados)? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
         <button class="btn btn-secondary" id="buscar-pagina-prev" style="width:auto;flex:none;padding:8px 14px" ${busquedaPaginaActual<=0?'disabled':''}>Anterior</button>
-        <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`pág. ${busquedaPaginaActual+1}`}</span>
+        <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`${desdeTabla}–${hastaTabla} de ${totalReal} · pág. ${busquedaPaginaActual+1}`}</span>
         <button class="btn btn-secondary" id="buscar-pagina-next" style="width:auto;flex:none;padding:8px 14px" ${(!busquedaHaySiguiente || b.buscandoMas)?'disabled':''}>Siguiente</button>
       </div>` : ''}
     </div>
