@@ -4698,7 +4698,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados:[{sku_code:'SKU-9', descripcion:'X', bodega:'Nave', conteo_id:'c-9', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, ciclo_nombre:null, fotos:[]}], hayMas:true};
   const htmlBuscarHayMas = ctx.renderBuscar();
   assert(htmlBuscarHayMas.includes('Primeros 1 cargados'), 'con hayMas=true, el gráfico debe aclarar que es sobre los resultados ya cargados, no el total, obtuvo: '+htmlBuscarHayMas);
+  // Regresión real reportada (Joel): con hayMas=true, el titulo "N resultados" mostraba un
+  // número fijo (30, el tamaño de página) que parecía ser el total, sin dejar claro que había
+  // muchos más -- confundía como si la búsqueda solo pudiera traer 30 en total.
+  assert(htmlBuscarHayMas.includes('>1+ resultado<'), 'con hayMas=true, el título debe llevar un "+" (no parecer el total), obtuvo: '+htmlBuscarHayMas);
+  assert(htmlBuscarHayMas.includes('Hay más'), 'con hayMas=true, debe explicar cómo ver el resto (paginar o exportar), obtuvo: '+htmlBuscarHayMas);
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, hayMas:false};
+  const htmlBuscarSinHayMas = ctx.renderBuscar();
+  assert(htmlBuscarSinHayMas.includes('>1 resultado<') && !htmlBuscarSinHayMas.includes('>1+ resultado<'), 'sin hayMas, el título no debe llevar "+" (ya es el total real), obtuvo: '+htmlBuscarSinHayMas);
 
   // resumenEstadoBusqueda: agrupa igual que estadoBadge decide qué badge mostrar por fila --
   // un resultado con diferencia!=0 cae en "Diferencia" aunque su columna estado diga

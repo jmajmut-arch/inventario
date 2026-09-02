@@ -5046,7 +5046,7 @@ function renderBuscar(){
     </div>
 
     ${b.yaBuscado? `
-    <div class="section-head"><div><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
+    <div class="section-head"><div><h2 style="font-size:15px">${resultados.length}${b.hayMas?'+':''} resultado${resultados.length===1?'':'s'}</h2>${b.hayMas?`<div class="hint" style="margin-top:2px">Hay más -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
       ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
     </div>
     ${(b.soloConFotos || b.soloFueraDePlan || b.soloCriticos || b.claseAbc || b.fechaDesde || b.fechaHasta) && resultados.length? `
