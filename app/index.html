@@ -391,7 +391,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, fechaDesde:'', fechaHasta:'', resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -2053,10 +2053,24 @@ function sanearTextoFiltro(s){
 // embebido, si existe) — antes buscaba solo en /conteos, así que un SKU nunca contado era
 // invisible acá. "Contado"/"no contado" son valores especiales de Estado que no son columnas
 // reales: se traducen a filtrar por si hay o no conteo_id.
+// Columnas de skus_busqueda por las que se puede ordenar la tabla (clic en el encabezado) --
+// "Fotos" queda afuera porque es un arreglo agregado, PostgREST no puede ordenar por su tamaño
+// con un simple "order=".
+const ORDEN_COLUMNAS_BUSQUEDA = new Set(['sku_code','batch','descripcion','bodega','cantidad_contada','estado','fuera_de_plan','fecha_conteo','ciclo_nombre','clase_abc']);
+function construirOrdenBusqueda(){
+  const o = state.busqueda.orden;
+  if(o && o.campo && ORDEN_COLUMNAS_BUSQUEDA.has(o.campo)){
+    const base = `${o.campo}.${o.dir}.nullslast`;
+    return o.campo==='sku_code' ? base : `${base},sku_code.asc`;
+  }
+  return 'fecha_conteo.desc.nullslast,sku_code.asc';
+}
 function construirPathBusqueda(offset){
-  let path = `/skus_busqueda?select=*&order=fecha_conteo.desc.nullslast,sku_code.asc&limit=${TAM_PAGINA_LISTA}&offset=${offset}`;
+  let path = `/skus_busqueda?select=*&order=${construirOrdenBusqueda()}&limit=${TAM_PAGINA_LISTA}&offset=${offset}`;
   const texto = sanearTextoFiltro(state.busqueda.texto);
-  if(texto) path += `&or=(sku_code.ilike.*${encodeURIComponent(texto)}*,descripcion.ilike.*${encodeURIComponent(texto)}*)`;
+  // Además de código/descripción, también busca por batch y storage bin -- alguien que escribe
+  // un lote o una ubicación física puntual en el buscador libre espera encontrarlo igual.
+  if(texto) path += `&or=(sku_code.ilike.*${encodeURIComponent(texto)}*,descripcion.ilike.*${encodeURIComponent(texto)}*,batch.ilike.*${encodeURIComponent(texto)}*,storage_bin.ilike.*${encodeURIComponent(texto)}*)`;
   const bodega = sanearTextoFiltro(state.busqueda.bodega);
   if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
   if(state.busqueda.estado === 'no_contado') path += `&conteo_id=is.null`;
@@ -2064,6 +2078,9 @@ function construirPathBusqueda(offset){
   if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null&conteo_id=not.is.null`;
   else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
   if(state.busqueda.soloFueraDePlan) path += `&fuera_de_plan=eq.true`;
+  if(state.busqueda.soloCriticos) path += `&critico=eq.true`;
+  if(state.busqueda.claseAbc === '__sin_clasificar__') path += `&clase_abc=is.null`;
+  else if(state.busqueda.claseAbc) path += `&clase_abc=eq.${encodeURIComponent(state.busqueda.claseAbc)}`;
   // Rango de fechas de conteo (reemplaza al viejo "Contado hoy" fijo -- a pedido de Joel, ahora
   // se elige el rango): mismo patrón que exportarConteosExcel, se arma el instante real a partir
   // de la medianoche LOCAL de cada fecha (no un string con "Z" a la fuerza), para que el rango
@@ -2096,7 +2113,7 @@ function irABuscarSku(skuCode){
   setState({
     view: 'buscar',
     busqueda: {
-      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, fechaDesde:'', fechaHasta:'',
+      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null,
     },
   });
@@ -2142,6 +2159,20 @@ async function avanzarPaginaBuscar(){
 }
 function retrocederPaginaBuscar(){
   setState({busqueda: {...state.busqueda, busquedaPagina: Math.max(0, (state.busqueda.busquedaPagina||0)-1)}});
+}
+
+// Ordenar la tabla haciendo clic en un encabezado: ciclo de 3 estados por columna (asc -> desc ->
+// sin ordenar/vuelve al orden por defecto), igual que la mayoría de las tablas ordenables. Es un
+// cambio de ORDEN, no de filtro, pero de todas formas hay que volver a pedirle al servidor desde
+// el principio (offset 0): el orden se aplica en la base, no sobre lo ya cargado en el cliente.
+async function toggleOrdenBusqueda(campo){
+  const actual = state.busqueda.orden;
+  let orden;
+  if(!actual || actual.campo!==campo) orden = {campo, dir:'asc'};
+  else if(actual.dir==='asc') orden = {campo, dir:'desc'};
+  else orden = null;
+  setState({busqueda: {...state.busqueda, orden, resultados:[], hayMas:false, buscando:true, busquedaPagina:0, paginaOffset:0}});
+  await buscarConteos();
 }
 
 // Filtro de la tabla de resultados al hacer clic en una porción/leyenda de "Quién contó" (ver
@@ -4932,6 +4963,14 @@ function renderReconteo(){
 /* =======================================================================
    RENDER — Buscar (todo el maestro de SKU: contados y no contados, con fotografías)
    ======================================================================= */
+// Encabezado ordenable de la tabla de Buscar (ver toggleOrdenBusqueda): muestra una flecha
+// cuando esa columna es la que ordena ahora mismo (▲ ascendente, ▼ descendente).
+function thOrdenBuscar(campo, etiqueta, claseExtra){
+  const activo = state.busqueda.orden && state.busqueda.orden.campo===campo;
+  const flecha = activo ? (state.busqueda.orden.dir==='asc'?' ▲':' ▼') : '';
+  return `<th${claseExtra?` class="${claseExtra}"`:''}><button type="button" class="th-orden" data-orden-campo="${campo}" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;white-space:nowrap" aria-label="Ordenar por ${esc(etiqueta)}">${esc(etiqueta)}${flecha}</button></th>`;
+}
+
 function renderBuscar(){
   const b = state.busqueda;
   const resultados = b.resultados;
@@ -4976,6 +5015,14 @@ function renderBuscar(){
           ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${b.ciclo===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
         </select>
         ` : ''}
+        <label for="b-clase-abc">Clase ABC</label>
+        <select id="b-clase-abc">
+          <option value="">Todas</option>
+          <option value="A" ${b.claseAbc==='A'?'selected':''}>Clase A</option>
+          <option value="B" ${b.claseAbc==='B'?'selected':''}>Clase B</option>
+          <option value="C" ${b.claseAbc==='C'?'selected':''}>Clase C</option>
+          <option value="__sin_clasificar__" ${b.claseAbc==='__sin_clasificar__'?'selected':''}>Sin clasificar</option>
+        </select>
         <div class="row2" style="margin-top:12px">
           <div><label for="b-fecha-desde">Contado desde</label><input type="date" id="b-fecha-desde" value="${esc(b.fechaDesde)}"></div>
           <div><label for="b-fecha-hasta">Contado hasta</label><input type="date" id="b-fecha-hasta" value="${esc(b.fechaHasta)}"></div>
@@ -4988,6 +5035,10 @@ function renderBuscar(){
           <input type="checkbox" id="b-solo-fuera-plan" ${b.soloFueraDePlan?'checked':''}>
           Solo fuera de plan
         </label>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
+          <input type="checkbox" id="b-solo-criticos" ${b.soloCriticos?'checked':''}>
+          Solo críticos
+        </label>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
         </div>
@@ -4998,7 +5049,7 @@ function renderBuscar(){
     <div class="section-head"><div><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
       ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
     </div>
-    ${(b.soloConFotos || b.soloFueraDePlan || b.fechaDesde || b.fechaHasta) && resultados.length? `
+    ${(b.soloConFotos || b.soloFueraDePlan || b.soloCriticos || b.claseAbc || b.fechaDesde || b.fechaHasta) && resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados filtrados'}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
       ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d, true, true)}
@@ -5019,7 +5070,7 @@ function renderBuscar(){
     ` : ''}
     <div class="card">
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Batch</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th><th>Clase</th></tr></thead>
+        <thead><tr>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
@@ -6409,6 +6460,8 @@ function bind(){
         ciclo: selCiclo ? selCiclo.value : '',
         soloConFotos: document.getElementById('b-solo-fotos').checked,
         soloFueraDePlan: document.getElementById('b-solo-fuera-plan').checked,
+        soloCriticos: document.getElementById('b-solo-criticos').checked,
+        claseAbc: document.getElementById('b-clase-abc').value,
         fechaDesde: document.getElementById('b-fecha-desde').value,
         fechaHasta: document.getElementById('b-fecha-hasta').value,
         buscando: true,
@@ -6433,6 +6486,10 @@ function bind(){
     const btnBuscarPaginaNext = document.getElementById('buscar-pagina-next');
     if(btnBuscarPaginaPrev) btnBuscarPaginaPrev.addEventListener('click', retrocederPaginaBuscar);
     if(btnBuscarPaginaNext) btnBuscarPaginaNext.addEventListener('click', avanzarPaginaBuscar);
+    // Encabezados ordenables de la tabla (ver toggleOrdenBusqueda/thOrdenBuscar).
+    document.querySelectorAll('[data-orden-campo]').forEach(btn=>{
+      btn.addEventListener('click', ()=> toggleOrdenBusqueda(btn.dataset.ordenCampo));
+    });
     // Porciones del gráfico "Quién contó" + su leyenda (ver renderPieChart/renderLeyendaColores):
     // un clic (o Enter/Espacio sobre la leyenda) filtra la tabla de resultados por esa persona.
     document.querySelectorAll('[data-porcion-clave]').forEach(el=>{

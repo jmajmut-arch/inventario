@@ -3308,7 +3308,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     { sku_code:'SKU-LOTE', batch:null, descripcion:'Aceite', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, ciclo_nombre:null, fotos:[] },
   ]};
   const htmlBuscarConBatch = ctx.renderBuscar();
-  assert(htmlBuscarConBatch.includes('<th>Batch</th>'), 'la tabla de resultados debe tener su propia columna Batch, obtuvo: '+htmlBuscarConBatch);
+  assert(htmlBuscarConBatch.includes('data-orden-campo="batch"') && htmlBuscarConBatch.includes('>Batch<'), 'la tabla de resultados debe tener su propia columna Batch (ordenable), obtuvo: '+htmlBuscarConBatch);
   assert(htmlBuscarConBatch.includes('<td class="mono">L-001</td>'), 'debe mostrar el batch de la fila que lo trae, obtuvo: '+htmlBuscarConBatch);
   assert((htmlBuscarConBatch.match(/<td class="mono">—<\/td>/g)||[]).length>=1, 'una fila sin batch debe mostrar el guion, no vacío ni "null", obtuvo: '+htmlBuscarConBatch);
 
@@ -4739,7 +4739,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlBuscarSinBuscar.includes('0 resultado') && !htmlBuscarSinBuscar.includes('table-wrap'), 'antes de buscar no debe mostrarse un conteo de "0 resultados" ni la tabla, obtuvo: '+htmlBuscarSinBuscar);
   assert(htmlBuscarSinBuscar.includes('presiona &quot;Buscar&quot;') || htmlBuscarSinBuscar.includes('presiona "Buscar"'), 'antes de buscar debe invitar a usar el formulario, obtuvo: '+htmlBuscarSinBuscar);
   const pathBuscarTexto = ctx.construirPathBusqueda(0);
-  assert(pathBuscarTexto.includes('or=(sku_code.ilike.*filtro*,descripcion.ilike.*filtro*)'), 'el texto debe buscarse en el servidor (sku_code o descripción), no solo filtrarse en el cliente, obtuvo: '+pathBuscarTexto);
+  assert(pathBuscarTexto.includes('or=(sku_code.ilike.*filtro*,descripcion.ilike.*filtro*,batch.ilike.*filtro*,storage_bin.ilike.*filtro*)'), 'el texto debe buscarse en el servidor por código, descripción, batch y storage bin (no solo filtrarse en el cliente), obtuvo: '+pathBuscarTexto);
 
   ctx.__appstate.busqueda.estado = 'no_contado';
   const pathBuscarNoContado = ctx.construirPathBusqueda(0);
@@ -4750,6 +4750,60 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const pathBuscarSinCiclo = ctx.construirPathBusqueda(0);
   assert(pathBuscarSinCiclo.includes('ciclo_id=is.null') && pathBuscarSinCiclo.includes('conteo_id=not.is.null'), '"Sin ciclo asignado" debe exigir que sí haya un conteo (si no, mostraría todos los SKU nunca contados como si fueran de ese grupo), obtuvo: '+pathBuscarSinCiclo);
   ctx.__appstate.busqueda.ciclo = '';
+
+  // ===== Buscar: filtro "Solo críticos" y filtro por Clase ABC (a pedido de Joel, junto con las
+  // otras 3 mejoras de esta sesión: rango de fechas ya cubierto arriba, texto que busca también
+  // por batch/storage bin ya cubierto arriba, y ordenar por encabezado más abajo). =====
+  assert(!ctx.construirPathBusqueda(0).includes('critico='), 'sin "Solo críticos" marcado, no debe filtrar por critico, obtuvo: '+ctx.construirPathBusqueda(0));
+  ctx.__appstate.busqueda.soloCriticos = true;
+  const pathBuscarCriticos = ctx.construirPathBusqueda(0);
+  assert(pathBuscarCriticos.includes('critico=eq.true'), 'con "Solo críticos" marcado, debe filtrar por critico=eq.true, obtuvo: '+pathBuscarCriticos);
+  const htmlBuscarCriticos = ctx.renderBuscar();
+  assert(htmlBuscarCriticos.includes('id="b-solo-criticos"') && htmlBuscarCriticos.includes('Solo críticos'), 'debe mostrar el checkbox de "Solo críticos", obtuvo: '+htmlBuscarCriticos);
+  ctx.__appstate.busqueda.soloCriticos = false;
+
+  ctx.__appstate.busqueda.claseAbc = 'B';
+  const pathBuscarClaseB = ctx.construirPathBusqueda(0);
+  assert(pathBuscarClaseB.includes('clase_abc=eq.B'), 'con Clase B elegida, debe filtrar por clase_abc=eq.B, obtuvo: '+pathBuscarClaseB);
+  ctx.__appstate.busqueda.claseAbc = '__sin_clasificar__';
+  const pathBuscarSinClasificar = ctx.construirPathBusqueda(0);
+  assert(pathBuscarSinClasificar.includes('clase_abc=is.null'), '"Sin clasificar" debe filtrar por clase_abc=is.null, obtuvo: '+pathBuscarSinClasificar);
+  const htmlBuscarClaseAbc = ctx.renderBuscar();
+  assert(htmlBuscarClaseAbc.includes('id="b-clase-abc"') && htmlBuscarClaseAbc.includes('Clase ABC'), 'debe mostrar el selector de Clase ABC, obtuvo: '+htmlBuscarClaseAbc);
+  ctx.__appstate.busqueda.claseAbc = '';
+
+  // ===== Buscar: ordenar la tabla haciendo clic en un encabezado (ciclo de 3 estados: asc ->
+  // desc -> orden por defecto), pide de nuevo al servidor desde el principio. =====
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, orden:null, yaBuscado:true, resultados:[
+    {sku_code:'SKU-ORD', batch:null, descripcion:'X', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[]},
+  ]};
+  assert(ctx.construirPathBusqueda(0).includes('order=fecha_conteo.desc.nullslast,sku_code.asc'), 'sin orden elegido, debe usar el orden por defecto (fecha desc, código asc), obtuvo: '+ctx.construirPathBusqueda(0));
+  const htmlBuscarSinOrden = ctx.renderBuscar();
+  assert(htmlBuscarSinOrden.includes('data-orden-campo="sku_code"') && htmlBuscarSinOrden.includes('data-orden-campo="descripcion"') && htmlBuscarSinOrden.includes('data-orden-campo="clase_abc"'), 'los encabezados ordenables deben tener su data-orden-campo, obtuvo: '+htmlBuscarSinOrden);
+  assert(!/data-orden-campo="[^"]*"[^<]*▲/.test(htmlBuscarSinOrden) && !/data-orden-campo="[^"]*"[^<]*▼/.test(htmlBuscarSinOrden), 'sin orden elegido, ningún encabezado debe mostrar flecha, obtuvo: '+htmlBuscarSinOrden);
+
+  calls.length = 0;
+  await ctx.toggleOrdenBusqueda('descripcion');
+  assert(JSON.stringify(ctx.__appstate.busqueda.orden)===JSON.stringify({campo:'descripcion', dir:'asc'}), 'el primer clic en un encabezado debe ordenar ascendente por esa columna, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.orden));
+  assert(calls.some(c=>c.url.includes('/skus_busqueda') && c.url.includes('order=descripcion.asc.nullslast,sku_code.asc')), 'debe volver a pedir al servidor con el nuevo orden, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.busquedaPagina===0, 'cambiar el orden debe reiniciar la paginación, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
+  const htmlOrdenAsc = ctx.renderBuscar();
+  assert(/data-orden-campo="descripcion"[^<]*▲/.test(htmlOrdenAsc), 'con orden ascendente por descripción, su encabezado debe mostrar ▲, obtuvo: '+htmlOrdenAsc);
+
+  calls.length = 0;
+  await ctx.toggleOrdenBusqueda('descripcion');
+  assert(JSON.stringify(ctx.__appstate.busqueda.orden)===JSON.stringify({campo:'descripcion', dir:'desc'}), 'un segundo clic en el mismo encabezado debe invertir a descendente, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.orden));
+  assert(calls.some(c=>c.url.includes('order=descripcion.desc.nullslast,sku_code.asc')), 'debe volver a pedir al servidor con el orden invertido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  calls.length = 0;
+  await ctx.toggleOrdenBusqueda('descripcion');
+  assert(ctx.__appstate.busqueda.orden===null, 'un tercer clic en el mismo encabezado debe volver al orden por defecto, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.orden));
+  assert(calls.some(c=>c.url.includes('order=fecha_conteo.desc.nullslast,sku_code.asc')), 'al volver al orden por defecto debe pedirlo así al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Ordenar por SKU (la columna que ya es el desempate por defecto) no debe duplicar "sku_code.asc".
+  await ctx.toggleOrdenBusqueda('sku_code');
+  assert(ctx.construirPathBusqueda(0).includes('order=sku_code.asc.nullslast') && !ctx.construirPathBusqueda(0).includes('sku_code.asc.nullslast,sku_code.asc'), 'ordenar por SKU no debe duplicar el desempate, obtuvo: '+ctx.construirPathBusqueda(0));
+  ctx.__appstate.busqueda.orden = null;
 
   // Regresión real reportada: tras el cambio anterior, enviar el formulario "Buscar" traía los
   // resultados (buscarConteos sí llegaba a pedirlos) pero la pantalla seguía mostrando el mensaje
@@ -4785,7 +4839,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Pedido: la descripción del SKU debe verse como columna propia en la tabla de resultados,
   // no solo como subtítulo chico debajo del código.
-  assert(htmlBuscarMixto.includes('<th>Descripción</th>'), 'la tabla de resultados debe tener una columna "Descripción", obtuvo: '+htmlBuscarMixto);
+  assert(htmlBuscarMixto.includes('data-orden-campo="descripcion"') && htmlBuscarMixto.includes('>Descripción<'), 'la tabla de resultados debe tener una columna "Descripción" (ordenable), obtuvo: '+htmlBuscarMixto);
   assert(filaNoContada.includes('Nunca contado') && filaContada.includes('Ya contado'), 'cada fila debe mostrar la descripción del SKU en su propia celda, obtuvo: '+htmlBuscarMixto);
 
   // ===== Exportar resultados de Buscar a Excel (Joel: "en Buscar, es posible exportar los
