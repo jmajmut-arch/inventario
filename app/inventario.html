@@ -727,7 +727,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -1410,6 +1410,34 @@ async function actualizarNombreEmpresa(nombre){
     toast('Nombre de la empresa actualizado');
     render();
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Conteo ciego: mientras está activo, un operador no ve el stock del sistema en Contar, Buscar,
+// Reconteo ni el maestro de SKU -- evita que "ajuste" su conteo al número que ya vio (sesgo de
+// confirmación). El admin lo prende/apaga cuando quiera desde Configuraciones; no afecta datos
+// ya guardados, solo qué se muestra en pantalla. Un admin siempre ve el stock, sin importar esto.
+async function actualizarConteoCiego(activo){
+  if(!state.perfil || !state.perfil.empresa_id) return;
+  try{
+    await rest(`/empresas?id=eq.${state.perfil.empresa_id}`, {method:'PATCH', body:{conteo_ciego_habilitado:activo}, prefer:'return=minimal'});
+    state.perfil.empresas.conteo_ciego_habilitado = activo;
+    toast(activo? 'Conteo ciego activado' : 'Conteo ciego desactivado');
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
+function ocultarStockOperador(){
+  return !!(state.perfil && state.perfil.rol==='operador' && state.perfil.empresas && state.perfil.empresas.conteo_ciego_habilitado);
+}
+
+// Umbral para el aviso de "valor atípico" en conteo ciego (ver guardarConteo): como el operador
+// no ve el stock del sistema, esto reemplaza ese chequeo de cordura sin revelar el número real --
+// solo avisa que el valor ingresado se aleja mucho de lo esperado, nunca cuánto es lo esperado.
+const UMBRAL_CONTEO_ATIPICO_PCT = 0.5;
+const UMBRAL_CONTEO_ATIPICO_ABS = 5;
+function esConteoAtipico(cantidad, stockSistema){
+  if(stockSistema===null || stockSistema===undefined) return false;
+  const umbral = Math.max(UMBRAL_CONTEO_ATIPICO_ABS, Math.abs(stockSistema)*UMBRAL_CONTEO_ATIPICO_PCT);
+  return Math.abs(Number(cantidad) - Number(stockSistema)) > umbral;
 }
 
 /* =======================================================================
@@ -2911,6 +2939,13 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad)) || Number(cantidad) < 0){ toast('Ingresa una cantidad contada válida','err'); return; }
   if(!perfilCargado()) return;
+  // Con conteo ciego, la persona no ve el stock del sistema -- este es el reemplazo del chequeo
+  // de cordura que antes hacía ella misma al ver un número muy distinto al que tenía en pantalla.
+  // Nunca revela cuál es el valor esperado, solo que el ingresado se aleja mucho de lo habitual.
+  if(ocultarStockOperador() && esConteoAtipico(cantidad, state.skuSeleccionado.stock_sistema)){
+    const unidad = state.skuSeleccionado.unidad_medida||'';
+    if(!confirm(`¿Confirmas ${cantidad} ${unidad}? Este valor es bastante distinto de lo habitual para este material.`)) return;
+  }
   // Momento real en que la persona capturó el conteo (no cuándo termina de guardarse) —
   // fundamental para auditoría cuando se guarda sin conexión y se sincroniza horas después.
   const capturadoEn = new Date().toISOString();
@@ -4183,8 +4218,13 @@ function etiquetaNumeroConteo(numero){
   return numero<=1 ? 'Conteo' : `Reconteo ${numero-1}`;
 }
 
-function estadoBadge(estado, diferencia){
-  if(diferencia && Number(diferencia)!==0) return `<span class="badge badge-warn">Diferencia ${diferencia>0?'+':''}${diferencia}</span>`;
+// ocultarMagnitud (conteo ciego para operadores, ver ocultarStockOperador): muestra que hubo
+// diferencia sin decir cuánta -- el monto, combinado con "Contado", deja calcular el stock del
+// sistema (justo lo que el conteo ciego busca esconder).
+function estadoBadge(estado, diferencia, ocultarMagnitud){
+  if(diferencia && Number(diferencia)!==0) return ocultarMagnitud
+    ? `<span class="badge badge-warn">Con diferencia</span>`
+    : `<span class="badge badge-warn">Diferencia ${diferencia>0?'+':''}${diferencia}</span>`;
   if(estado==='pendiente_revision') return `<span class="badge badge-neutral">Pendiente</span>`;
   // El valor en base (y en el dropdown de filtro) sigue siendo "aprobado" -- eso no se toca,
   // solo el texto que ve la persona: "Cuadrado" describe mejor un conteo sin diferencia que
@@ -4349,7 +4389,7 @@ function renderTablaSkus(){
       </div>
       <div class="hint" style="margin-bottom:10px">🟢 Último conteo cuadrado · 🟡 Diferencia positiva (sobrante) · 🔴 Diferencia negativa (faltante)</div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th><th class="num">Stock</th></tr></thead>
+        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th>${ocultarStockOperador()?'':'<th class="num">Stock</th>'}</tr></thead>
         <tbody>${sp.rows.map(s=>{
           return `<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
@@ -4360,7 +4400,7 @@ function renderTablaSkus(){
           <td>${esc(s.ubicacion||'—')}</td>
           <td class="mono">${esc(s.storage_bin||'—')}</td>
           <td class="mono">${esc(s.batch||'—')}</td>
-          <td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>
+          ${ocultarStockOperador()?'':`<td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>`}
         </tr>`;
         }).join('')}</tbody>
       </table></div>
@@ -4633,7 +4673,7 @@ function renderConteo(){
         <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Storage bin: ${esc(state.skuSeleccionado.storage_bin||'—')}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Batch: ${esc(state.skuSeleccionado.batch||'—')}</div>
-        <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>
+        ${ocultarStockOperador()? '' : `<div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>`}
       </div>
 
       <div class="card">
@@ -4678,17 +4718,23 @@ function renderConteo(){
    ======================================================================= */
 function renderReconteo(){
   const rows = state.reconteos;
+  // Conteo ciego (ver ocultarStockOperador): sin la columna "Sistema" no alcanza con solo
+  // quitarla -- "Contado" + "Diferencia" numérica igual la delatan (sistema = contado - diferencia),
+  // así que la diferencia también se neutraliza a una etiqueta sin monto.
+  const ocultarSistema = ocultarStockOperador();
   return `
     <div class="section-head"><div><span class="eyebrow">${rows.length}${state.reconteosHayMas?'+':''}</span><h2>Reconteo</h2></div></div>
     <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo no cuadra con el stock de sistema. Recuenta para corregir o confirmar la diferencia.</div>
     <div class="card">
       ${rows.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
+        <thead><tr><th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
-          <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
+          ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>`}
           <td class="num">${r.ultima_cantidad_contada}</td>
-          <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
+          <td class="num">${ocultarSistema
+            ? `<span class="badge badge-warn">Con diferencia</span>`
+            : `<span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span>`}</td>
           <td>${causaProbableBadge(r.causa_probable)}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
           <td class="num">${(r.fotos||[]).length
@@ -4787,7 +4833,7 @@ function renderBuscar(){
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
             <td class="num">${contado? r.cantidad_contada : '—'}</td>
-            <td>${contado? estadoBadge(r.estado, r.diferencia) : `<span class="badge badge-neutral">No contado</span>`}</td>
+            <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}</td>
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>
             <td class="mono" style="font-size:11.5px">
               ${contado? fmtFechaHora(r.fecha_conteo) : '—'}
@@ -5429,6 +5475,15 @@ function renderConfiguraciones(){
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
     </div>
+    ${esAdmin && !esSuperAdmin? `
+    <div class="section-head"><div><span class="eyebrow">Exactitud</span><h2 style="font-size:15px">Conteo ciego ${campoConInfo('Mientras está activo, los operadores no ven el stock del sistema en Contar, Buscar, Reconteo ni el maestro de SKU -- evita que ajusten su conteo al número que ya vieron. Lo puedes prender y apagar cuando quieras; no borra ni cambia ningún dato ya guardado.')}</h2></div></div>
+    <div class="card">
+      <label style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
+        <input type="checkbox" id="chk-conteo-ciego" ${empresa.conteo_ciego_habilitado?'checked':''}>
+        <span>Ocultar el stock del sistema a los operadores mientras cuentan</span>
+      </label>
+    </div>
+    ` : ''}
     ${esAdmin && !esSuperAdmin? `<div class="section-head"><div><span class="eyebrow">Suscripción</span><h2 style="font-size:15px">Plan y facturación</h2></div></div>` : ''}
     ${esAdmin && !esSuperAdmin? renderPlanYFacturacion(empresa) : ''}
     ${esAdmin && !esSuperAdmin? `
@@ -5785,6 +5840,8 @@ function bind(){
       e.preventDefault();
       actualizarNombreEmpresa(document.getElementById('empresa-nombre-input').value.trim());
     });
+    const chkConteoCiego = document.getElementById('chk-conteo-ciego');
+    if(chkConteoCiego) chkConteoCiego.addEventListener('change', e=> actualizarConteoCiego(e.target.checked));
     document.querySelectorAll('[data-suscribir-flow]').forEach(btn=>{
       btn.addEventListener('click', ()=> iniciarSuscripcionFlow(btn.dataset.suscribirFlow));
     });
