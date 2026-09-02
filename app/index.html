@@ -391,7 +391,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -2144,6 +2144,68 @@ function retrocederPaginaBuscar(){
 // renderBuscar). Un segundo clic sobre la misma persona quita el filtro (toggle).
 function toggleFiltroContadoPor(nombre){
   setState({busqueda: {...state.busqueda, filtroContadoPor: state.busqueda.filtroContadoPor===nombre? null : nombre}});
+}
+
+// Exporta a Excel TODO lo que matchea los filtros actuales de Buscar, no solo lo ya cargado en
+// pantalla -- pagina de a TAM_PAGINA_LISTA vía construirPathBusqueda (mismo path que usa la
+// búsqueda), igual que buscarMasConteos, hasta agotar el servidor. Si hay un filtro de "Quién
+// contó" activo (drill-down del gráfico), ese sí es solo sobre lo ya cargado -- ver su propio
+// aviso en pantalla ("Primeros N cargados") -- así que ahí se exporta esa misma selección en vez
+// de pedir todo de nuevo.
+async function exportarBusquedaExcel(){
+  const b = state.busqueda;
+  setState({busqueda: {...state.busqueda, exportando:true}});
+  try{
+    let filas;
+    if(b.filtroContadoPor){
+      const quienConto = resumenQuienConto(b.resultados);
+      const nombresFiltro = nombresParaFiltroContador(quienConto, b.filtroContadoPor);
+      filas = b.resultados.filter(r=> r.conteo_id && nombresFiltro.includes(r.contado_por || 'Sin asignar'));
+    }else{
+      filas = [];
+      let offset = 0, hayMas = true;
+      while(hayMas){
+        const rows = await rest(construirPathBusqueda(offset)) || [];
+        filas = filas.concat(filtrarResultadosBusqueda(rows));
+        hayMas = rows.length === TAM_PAGINA_LISTA;
+        offset += rows.length;
+      }
+    }
+    if(!filas.length){
+      toast('No hay resultados para exportar','err');
+      setState({busqueda: {...state.busqueda, exportando:false}});
+      return;
+    }
+    const filasExcel = filas.map(r=>{
+      const contado = !!r.conteo_id;
+      const tieneDiferencia = contado && r.diferencia && Number(r.diferencia)!==0;
+      const estadoTexto = !contado ? 'No contado'
+        : tieneDiferencia ? `Con diferencia ${r.diferencia>0?'+':''}${r.diferencia}`
+        : r.estado==='pendiente_revision' ? 'Pendiente'
+        : r.estado==='aprobado' ? 'Cuadrado' : (r.estado || 'ok');
+      return {
+        'SKU': r.sku_code,
+        'Crítico': r.critico ? 'Sí' : 'No',
+        'Batch': r.batch,
+        'Descripción': r.descripcion,
+        'Ubicación general': r.bodega,
+        'Cantidad contada': contado ? r.cantidad_contada : '',
+        'Estado': estadoTexto,
+        'Origen': contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '',
+        'Fecha de conteo': contado ? fmtFechaHora(r.fecha_conteo) : '',
+        'Capturado sin conexión': contado && fueCapturadoOffline(r.capturado_en, r.fecha_conteo) ? fmtFechaHora(r.capturado_en) : '',
+        'Ciclo': r.ciclo_nombre || '',
+        'Fotos': (r.fotos||[]).length,
+        'Clase ABC': r.clase_abc || '',
+      };
+    });
+    const hoja = XLSX.utils.json_to_sheet(filasExcel);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Buscar');
+    XLSX.writeFile(libro, `buscar_${fechaISO(new Date())}.xlsx`);
+    toast(`${filas.length} resultado${filas.length===1?'':'s'} exportado${filas.length===1?'':'s'}`);
+  }catch(e){ toast(e.message,'err'); }
+  setState({busqueda: {...state.busqueda, exportando:false}});
 }
 
 // Exporta a Excel los conteos de una fecha o rango de fechas (vista conteos_exportables: un
@@ -4929,7 +4991,9 @@ function renderBuscar(){
     </div>
 
     ${b.yaBuscado? `
-    <div class="section-head"><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
+    <div class="section-head"><div><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
+      ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
+    </div>
     ${(b.soloConFotos || b.soloFueraDePlan || b.soloContadoHoy) && resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados filtrados'}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
@@ -6374,6 +6438,8 @@ function bind(){
     });
     const btnQuitarFiltroContador = document.getElementById('btn-quitar-filtro-contador');
     if(btnQuitarFiltroContador) btnQuitarFiltroContador.addEventListener('click', ()=> setState({busqueda:{...state.busqueda, filtroContadoPor:null}}));
+    const btnExportarBuscar = document.getElementById('btn-exportar-buscar');
+    if(btnExportarBuscar) btnExportarBuscar.addEventListener('click', exportarBusquedaExcel);
   }
 
   if(state.view==='plan'){

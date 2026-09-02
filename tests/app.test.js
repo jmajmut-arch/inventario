@@ -23,6 +23,7 @@ let tengoOtraSesionActivaRespuesta = false;
 let cicloActualRpcRespuesta = null;
 let autoservicioRespuesta = { error: null };
 let conteosExportablesFixture = [];
+let skusBusquedaFixture = null;
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
@@ -159,6 +160,9 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Buscar: skus_busqueda (un renglón por SKU, contado o no) — paginación de 30 + 4.
   if(path.startsWith('/rest/v1/skus_busqueda?select=')){
+    if(skusBusquedaFixture){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(skusBusquedaFixture) };
+    }
     const offsetMatch = path.match(/offset=(\d+)/);
     const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
     const total = 34;
@@ -3974,6 +3978,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length===3, 'filtrando por Ana la tabla debe mostrar solo sus 3 filas, obtuvo: '+((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length));
   assert(!htmlFiltradoAna.includes('id="buscar-pagina-prev"'), 'con el filtro activo no deben verse los controles de paginación, obtuvo: '+htmlFiltradoAna);
 
+  // Exportar con el filtro "Quién contó" activo: es un drill-down sobre lo ya cargado (ver
+  // renderBuscar más arriba), así que debe exportar esa misma selección sin volver a pedirle
+  // nada al servidor -- no tendría sentido re-consultar "todo" cuando la persona ya achicó la
+  // vista a una sola persona.
+  xlsxEscrituras.length = 0;
+  const callsAntesFiltro = calls.length;
+  await ctx.exportarBusquedaExcel();
+  assert(calls.length===callsAntesFiltro, 'con el filtro de "Quién contó" activo, exportar no debe pedir nada más al servidor, obtuvo '+(calls.length-callsAntesFiltro)+' llamadas nuevas');
+  assert(xlsxEscrituras.length===1 && xlsxEscrituras[0].libro.hojas['Buscar'].length===3, 'debe exportar solo las 3 filas de Ana (la selección activa), obtuvo: '+JSON.stringify(xlsxEscrituras[0] && xlsxEscrituras[0].libro.hojas['Buscar']));
+
   // Filtrando por "Otros" debe agrupar a Fede y Gaby (los dos que quedaron fuera del top 5).
   ctx.__appstate.busqueda.filtroContadoPor = 'Otros';
   const htmlFiltradoOtros = ctx.renderBuscar();
@@ -4768,6 +4782,57 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // no solo como subtítulo chico debajo del código.
   assert(htmlBuscarMixto.includes('<th>Descripción</th>'), 'la tabla de resultados debe tener una columna "Descripción", obtuvo: '+htmlBuscarMixto);
   assert(filaNoContada.includes('Nunca contado') && filaContada.includes('Ya contado'), 'cada fila debe mostrar la descripción del SKU en su propia celda, obtuvo: '+htmlBuscarMixto);
+
+  // ===== Exportar resultados de Buscar a Excel (Joel: "en Buscar, es posible exportar los
+  // resultados?") — a diferencia de "Exportar conteos" (que exporta un rango de fechas desde su
+  // propio modal), esto exporta TODO lo que matchea los filtros actuales de la búsqueda, no solo
+  // la página visible: pagina por el servidor con el mismo path que usa la búsqueda
+  // (construirPathBusqueda) hasta agotarlo. =====
+  assert(htmlBuscarMixto.includes('id="btn-exportar-buscar"') && htmlBuscarMixto.includes('Exportar a Excel'), 'con resultados, debe verse el botón de exportar, obtuvo: '+htmlBuscarMixto);
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados:[], yaBuscado:true};
+  const htmlBuscarSinResultados = ctx.renderBuscar();
+  assert(!htmlBuscarSinResultados.includes('id="btn-exportar-buscar"'), 'sin resultados no debe verse el botón de exportar (no hay nada que exportar), obtuvo: '+htmlBuscarSinResultados);
+
+  // Sin resultados en el servidor: debe avisar con un toast y no trabar el botón en "Exportando…".
+  skusBusquedaFixture = [];
+  xlsxEscrituras.length = 0;
+  await ctx.exportarBusquedaExcel();
+  assert(xlsxEscrituras.length===0, 'sin resultados no debe generarse ningún archivo');
+  assert(ctx.__appstate.busqueda.exportando===false, 'sin resultados, "exportando" debe quedar en false (no debe trabarse el botón), obtuvo: '+ctx.__appstate.busqueda.exportando);
+
+  // Mapeo de columnas: un SKU crítico y contado con diferencia, uno pendiente de revisión, uno
+  // cuadrado capturado offline, y uno nunca contado -- cada uno debe traducirse a las columnas
+  // legibles que espera alguien mirando la planilla, no a los nombres crudos de la base.
+  skusBusquedaFixture = [
+    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A'},
+    {sku_id:'sku-exp-2', sku_code:'SKU-EXP-2', descripcion:'Perno', bodega:'Nave Mina', batch:null, critico:false, conteo_id:'c-2', cantidad_contada:5, estado:'pendiente_revision', diferencia:0, fecha_conteo:'2026-08-20T15:00:00Z', capturado_en:'2026-08-20T15:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', fotos:[], clase_abc:'B'},
+    {sku_id:'sku-exp-3', sku_code:'SKU-EXP-3', descripcion:'Filtro', bodega:'Nave Planta', batch:null, critico:false, conteo_id:'c-3', cantidad_contada:10, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-21T09:10:00Z', capturado_en:'2026-08-21T02:00:00Z', fuera_de_plan:false, ciclo_nombre:null, fotos:[], clase_abc:null},
+    {sku_id:'sku-exp-4', sku_code:'SKU-EXP-4', descripcion:'Nunca contado', bodega:'Nave Mina', batch:null, critico:false, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[], clase_abc:null},
+  ];
+  xlsxEscrituras.length = 0;
+  await ctx.exportarBusquedaExcel();
+  assert(xlsxEscrituras.length===1 && xlsxEscrituras[0].nombreArchivo===`buscar_${ctx.fechaISO(new Date())}.xlsx`, 'debe generar un único archivo con nombre "buscar_<fecha>.xlsx", obtuvo: '+JSON.stringify(xlsxEscrituras));
+  const filasBuscarExp = xlsxEscrituras[0].libro.hojas['Buscar'];
+  const filaCritica = filasBuscarExp.find(f=>f['SKU']==='SKU-EXP-1');
+  assert(filaCritica['Crítico']==='Sí' && filaCritica['Estado']==='Con diferencia -2' && filaCritica['Origen']==='Fuera de plan' && filaCritica['Fotos']===2 && filaCritica['Clase ABC']==='A' && filaCritica['Batch']==='L-01', 'un SKU crítico con diferencia y fuera de plan debe mapearse así, obtuvo: '+JSON.stringify(filaCritica));
+  const filaPendiente = filasBuscarExp.find(f=>f['SKU']==='SKU-EXP-2');
+  assert(filaPendiente['Crítico']==='No' && filaPendiente['Estado']==='Pendiente' && filaPendiente['Origen']==='Plan', 'un SKU pendiente de revisión y dentro de plan debe mapearse así, obtuvo: '+JSON.stringify(filaPendiente));
+  const filaCuadradaOffline = filasBuscarExp.find(f=>f['SKU']==='SKU-EXP-3');
+  assert(filaCuadradaOffline['Estado']==='Cuadrado' && filaCuadradaOffline['Capturado sin conexión']!=='', 'un SKU cuadrado capturado antes de la fecha de conteo debe marcarse como offline, obtuvo: '+JSON.stringify(filaCuadradaOffline));
+  const filaNuncaContadaExp = filasBuscarExp.find(f=>f['SKU']==='SKU-EXP-4');
+  assert(filaNuncaContadaExp['Estado']==='No contado' && filaNuncaContadaExp['Cantidad contada']==='' && filaNuncaContadaExp['Origen']==='' && filaNuncaContadaExp['Ciclo']==='' && filaNuncaContadaExp['Clase ABC']==='', 'un SKU nunca contado debe exportar sus campos de conteo vacíos, no null/undefined, obtuvo: '+JSON.stringify(filaNuncaContadaExp));
+
+  // Debe traer TODO lo que matchea (paginando), no solo la primera tanda -- se reusa el mock
+  // genérico de skus_busqueda (34 filas en total, de a 30), sin fixture fija.
+  skusBusquedaFixture = null;
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, texto:'', bodega:'', estado:'', ciclo:''};
+  xlsxEscrituras.length = 0;
+  calls.length = 0;
+  await ctx.exportarBusquedaExcel();
+  const llamadasBusquedaExport = calls.filter(c=>c.url.includes('/skus_busqueda?select='));
+  assert(llamadasBusquedaExport.length===2, 'con 34 filas en total (30+4) debe paginar en dos llamadas al servidor, obtuvo: '+llamadasBusquedaExport.length);
+  assert(xlsxEscrituras.length===1 && xlsxEscrituras[0].libro.hojas['Buscar'].length===34, 'debe exportar las 34 filas completas, no solo la primera tanda, obtuvo: '+(xlsxEscrituras[0] && xlsxEscrituras[0].libro.hojas['Buscar'].length));
+  skusBusquedaFixture = null;
 
   // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
   // por fecha_conteo, paginada, mapeada a columnas en español y escrita con XLSX (mockeado
