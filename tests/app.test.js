@@ -4712,18 +4712,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const porGrupo = Object.fromEntries(resumenMixto.map(g=>[g.dia, g.n]));
   assert(porGrupo['No contado']===1 && porGrupo['Cuadrado']===1 && porGrupo['Diferencia']===1 && porGrupo['Pendiente']===1, 'resumenEstadoBusqueda debe agrupar cada resultado en el grupo correcto, obtuvo: '+JSON.stringify(porGrupo));
 
-  // Buscar: filtro "Contado hoy" -- filtra fecha_conteo por el rango de HOY en hora local (mismo
-  // patrón que exportarConteosExcel), sin importar en qué huso horario esté la persona. No se
-  // fija el instante exacto (depende del huso horario de donde corra el test, igual que en
-  // producción), solo que arma el rango gte/lt y que no aparece cuando el filtro está apagado.
-  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
-  const pathBuscarSinContadoHoy = ctx.construirPathBusqueda(0);
-  assert(!pathBuscarSinContadoHoy.includes('fecha_conteo='), 'sin "Contado hoy" marcado, la búsqueda no debe filtrar por fecha_conteo, obtuvo: '+pathBuscarSinContadoHoy);
-  ctx.__appstate.busqueda = { ...ctx.__appstate.busqueda, soloContadoHoy:true };
-  const pathBuscarContadoHoy = ctx.construirPathBusqueda(0);
-  assert(pathBuscarContadoHoy.includes('fecha_conteo=gte.') && pathBuscarContadoHoy.includes('fecha_conteo=lt.'), 'con "Contado hoy" marcado, la búsqueda debe filtrar por rango de fecha_conteo, obtuvo: '+pathBuscarContadoHoy);
-  const htmlBuscarContadoHoy = ctx.renderBuscar();
-  assert(htmlBuscarContadoHoy.includes('id="b-contado-hoy"') && htmlBuscarContadoHoy.includes('Contado hoy'), 'debe mostrar el checkbox del filtro "Contado hoy", obtuvo: '+htmlBuscarContadoHoy);
+  // Buscar: filtro por rango de fecha de conteo (reemplaza al viejo "Contado hoy" fijo -- a
+  // pedido de Joel, ahora se elige el rango con "Contado desde"/"Contado hasta"), mismo patrón
+  // que exportarConteosExcel: arma el instante real a partir de la medianoche LOCAL de cada
+  // fecha, sin importar el huso horario. Cada extremo es independiente (se puede filtrar solo
+  // desde, solo hasta, o ambos), y no aparece nada cuando los dos están vacíos.
+  ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, fechaDesde:'', fechaHasta:'', resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
+  const pathBuscarSinFechas = ctx.construirPathBusqueda(0);
+  assert(!pathBuscarSinFechas.includes('fecha_conteo='), 'sin fechas elegidas, la búsqueda no debe filtrar por fecha_conteo, obtuvo: '+pathBuscarSinFechas);
+  ctx.__appstate.busqueda = { ...ctx.__appstate.busqueda, fechaDesde:'2026-08-20' };
+  const pathBuscarSoloDesde = ctx.construirPathBusqueda(0);
+  assert(pathBuscarSoloDesde.includes('fecha_conteo=gte.') && !pathBuscarSoloDesde.includes('fecha_conteo=lt.'), 'con solo "Contado desde", debe filtrar únicamente el extremo inferior, obtuvo: '+pathBuscarSoloDesde);
+  ctx.__appstate.busqueda = { ...ctx.__appstate.busqueda, fechaHasta:'2026-08-25' };
+  const pathBuscarAmbasFechas = ctx.construirPathBusqueda(0);
+  assert(pathBuscarAmbasFechas.includes('fecha_conteo=gte.') && pathBuscarAmbasFechas.includes('fecha_conteo=lt.'), 'con ambas fechas, la búsqueda debe filtrar el rango completo, obtuvo: '+pathBuscarAmbasFechas);
+  const htmlBuscarFechas = ctx.renderBuscar();
+  assert(htmlBuscarFechas.includes('id="b-fecha-desde"') && htmlBuscarFechas.includes('id="b-fecha-hasta"') && htmlBuscarFechas.includes('Contado desde') && htmlBuscarFechas.includes('Contado hasta'), 'debe mostrar los campos de rango de fecha, obtuvo: '+htmlBuscarFechas);
+  assert(!htmlBuscarFechas.includes('Contado hoy') && !htmlBuscarFechas.includes('id="b-contado-hoy"'), 'el checkbox fijo de "Contado hoy" debe haber desaparecido, obtuvo: '+htmlBuscarFechas);
 
   // Buscar ahora busca en todo el maestro de SKU (skus_busqueda), no solo en el historial de
   // conteos: un SKU nunca contado debe aparecer con "No contado", sin fecha/estado/fotos.

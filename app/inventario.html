@@ -391,7 +391,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, fechaDesde:'', fechaHasta:'', resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -2064,15 +2064,19 @@ function construirPathBusqueda(offset){
   if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null&conteo_id=not.is.null`;
   else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
   if(state.busqueda.soloFueraDePlan) path += `&fuera_de_plan=eq.true`;
-  if(state.busqueda.soloContadoHoy){
-    // Mismo patrón que exportarConteosExcel: se arma el instante real a partir de la medianoche
-    // LOCAL de hoy (no un string con "Z" a la fuerza), para que "hoy" coincida con el día
-    // calendario que la persona ve en su pantalla, sin importar el huso horario.
-    const hoy = fechaISO(new Date());
-    const desdeInstante = new Date(hoy+'T00:00:00').toISOString();
-    const mañana = fechaISO(sumarDias(new Date(hoy+'T00:00:00'), 1));
-    const hastaInstante = new Date(mañana+'T00:00:00').toISOString();
-    path += `&fecha_conteo=gte.${desdeInstante}&fecha_conteo=lt.${hastaInstante}`;
+  // Rango de fechas de conteo (reemplaza al viejo "Contado hoy" fijo -- a pedido de Joel, ahora
+  // se elige el rango): mismo patrón que exportarConteosExcel, se arma el instante real a partir
+  // de la medianoche LOCAL de cada fecha (no un string con "Z" a la fuerza), para que el rango
+  // coincida con el día calendario que la persona ve en su pantalla, sin importar el huso horario.
+  // Cada extremo es independiente -- se puede filtrar solo desde, solo hasta, o ambos.
+  if(state.busqueda.fechaDesde){
+    const desdeInstante = new Date(state.busqueda.fechaDesde+'T00:00:00').toISOString();
+    path += `&fecha_conteo=gte.${desdeInstante}`;
+  }
+  if(state.busqueda.fechaHasta){
+    const siguienteDia = fechaISO(sumarDias(new Date(state.busqueda.fechaHasta+'T00:00:00'), 1));
+    const hastaInstante = new Date(siguienteDia+'T00:00:00').toISOString();
+    path += `&fecha_conteo=lt.${hastaInstante}`;
   }
   return path;
 }
@@ -2092,7 +2096,7 @@ function irABuscarSku(skuCode){
   setState({
     view: 'buscar',
     busqueda: {
-      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false,
+      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, fechaDesde:'', fechaHasta:'',
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null,
     },
   });
@@ -4972,6 +4976,10 @@ function renderBuscar(){
           ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${b.ciclo===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
         </select>
         ` : ''}
+        <div class="row2" style="margin-top:12px">
+          <div><label for="b-fecha-desde">Contado desde</label><input type="date" id="b-fecha-desde" value="${esc(b.fechaDesde)}"></div>
+          <div><label for="b-fecha-hasta">Contado hasta</label><input type="date" id="b-fecha-hasta" value="${esc(b.fechaHasta)}"></div>
+        </div>
         <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--text-dim)">
           <input type="checkbox" id="b-solo-fotos" ${b.soloConFotos?'checked':''}>
           Solo conteos con fotografías
@@ -4979,10 +4987,6 @@ function renderBuscar(){
         <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
           <input type="checkbox" id="b-solo-fuera-plan" ${b.soloFueraDePlan?'checked':''}>
           Solo fuera de plan
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
-          <input type="checkbox" id="b-contado-hoy" ${b.soloContadoHoy?'checked':''}>
-          Contado hoy
         </label>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
@@ -4994,7 +4998,7 @@ function renderBuscar(){
     <div class="section-head"><div><h2 style="font-size:15px">${resultados.length} resultado${resultados.length===1?'':'s'}</h2></div>
       ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
     </div>
-    ${(b.soloConFotos || b.soloFueraDePlan || b.soloContadoHoy) && resultados.length? `
+    ${(b.soloConFotos || b.soloFueraDePlan || b.fechaDesde || b.fechaHasta) && resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados filtrados'}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
       ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d, true, true)}
@@ -6405,7 +6409,8 @@ function bind(){
         ciclo: selCiclo ? selCiclo.value : '',
         soloConFotos: document.getElementById('b-solo-fotos').checked,
         soloFueraDePlan: document.getElementById('b-solo-fuera-plan').checked,
-        soloContadoHoy: document.getElementById('b-contado-hoy').checked,
+        fechaDesde: document.getElementById('b-fecha-desde').value,
+        fechaHasta: document.getElementById('b-fecha-hasta').value,
         buscando: true,
         yaBuscado: true,
         busquedaPagina: 0,
