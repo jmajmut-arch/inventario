@@ -375,7 +375,7 @@ let state = {
   // ver sus SKU).
   contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null, desdeCache: false },
   cargando: {},
-  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [], diferenciasRecientes: [] },
+  dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [], diferenciasRecientes: [], resumenAbc: [] },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -1977,7 +1977,7 @@ async function cargarDashboard(){
     // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario,
     // ver reconteo_pendiente.valor_diferencia_linea), no por magnitud en unidades — top 10
     // excedentes (mayor valor a favor) y top 10 pérdidas (mayor valor en contra), por separado.
-    const [total, diario, semanal, mensual, ranking, exactitudBodega, exactitudMensual, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, avancePlanPorCiclo, diferenciasRecientes] = await Promise.all([
+    const [total, diario, semanal, mensual, ranking, exactitudBodega, exactitudMensual, topDiferenciasPositivas, topDiferenciasNegativas, valorizacion, avancePlanPorCiclo, diferenciasRecientes, resumenAbc] = await Promise.all([
       rest(`/avance_total?order=bodega.asc`),
       rest(`/avance_diario?order=dia.desc&limit=60`),
       rest(`/avance_semanal?order=semana.desc&limit=8`),
@@ -1990,12 +1990,14 @@ async function cargarDashboard(){
       rest(`/valorizacion_diferencias?order=bodega.asc`),
       rest(`/avance_plan_por_ciclo?order=bodega.asc`),
       rest(`/rpc/diferencias_recientes`, {method:'POST', body:{dias: VENTANA_PROYECCION_DIAS}}),
+      rest(`/skus_resumen_abc`),
     ]);
     setState({dash:{
       total:total||[], diario:diario||[], semanal:semanal||[], mensual:mensual||[],
       ranking: ranking||[], exactitudBodega: exactitudBodega||[], exactitudMensual: exactitudMensual||[],
       topDiferenciasPositivas: topDiferenciasPositivas||[], topDiferenciasNegativas: topDiferenciasNegativas||[],
       valorizacion: valorizacion||[], avancePlanPorCiclo: avancePlanPorCiclo||[], diferenciasRecientes: diferenciasRecientes||[],
+      resumenAbc: resumenAbc||[],
     }, dashDiarioPagina: 0});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -3915,6 +3917,10 @@ function renderInformeEjecutivo(){
   const valorExcedentes = valorizBodega.reduce((s,r)=>s+(Number(r.valor_excedentes)||0),0);
   const valorNeto = valorPerdidas + valorExcedentes;
 
+  // Clasificación ABC (ver skus_resumen_abc): ya viene agregada por clase desde la base -- no
+  // tiene sentido traer miles de filas de skus_valor_abc al navegador solo para contarlas.
+  const resumenAbc = state.dash.resumenAbc||[];
+
   // Orden pedido por Joel: avance global, exactitud, adherencia, valorización y proyección
   // primero (el resumen ejecutivo de un vistazo); el resto (detalle/tendencia de cada uno,
   // rankings y actividad reciente) queda abajo, agrupado cerca del resumen del que es detalle.
@@ -3971,6 +3977,21 @@ function renderInformeEjecutivo(){
           <div class="kpi-value" style="font-size:20px;${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${clp(valorNeto)}</div>
           <div class="kpi-sub">impacto total de las diferencias</div>
         </div>
+      </div>
+    ` : ''}
+
+    ${resumenAbc.length? `
+      <div class="section-head"><div><span class="eyebrow">Costo unitario × stock, catálogo completo</span><h2 style="font-size:17px">Clasificación ABC ${campoConInfo('Ordena el catálogo activo por valor (costo unitario × stock según sistema) y corta en 80%/95% del valor acumulado. Un SKU sin costo unitario cargado no entra en la clasificación.')}</h2></div></div>
+      <div class="kpi-grid" style="margin-bottom:14px">
+        ${['A','B','C','Sin clasificar'].filter(clase=>resumenAbc.some(r=>r.clase_abc===clase)).map(clase=>{
+          const fila = resumenAbc.find(r=>r.clase_abc===clase);
+          const color = clase==='A'?'var(--amber)':clase==='B'?'var(--steel)':clase==='C'?'var(--text-dim)':'var(--text-faint)';
+          return `<div class="tag-card">
+            <div class="kpi-label">${clase==='Sin clasificar'?'Sin clasificar':'Clase '+clase}</div>
+            <div class="kpi-value" style="font-size:20px;color:${color}">${Number(fila.cantidad_sku).toLocaleString('es-CL')}</div>
+            <div class="kpi-sub">${fila.pct_sku}% del catálogo${clase!=='Sin clasificar'?` · ${fila.pct_valor}% del valor`:''}</div>
+          </div>`;
+        }).join('')}
       </div>
     ` : ''}
 
