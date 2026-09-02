@@ -2352,9 +2352,14 @@ const CAMPOS_SKU = [
 // Interpreta la columna opcional "Crítico" de la carga masiva: acepta las formas típicas de una
 // planilla armada a mano (si/no, x, 1/0, true/false) -- cualquier otra cosa, incluida la celda
 // vacía, se toma como "no crítico" (el default más seguro: no inventar criticidad que nadie marcó).
+// A pedido de Joel: en la práctica cualquier marca sirve (una "X", "Sí", "Alta", lo que sea) --
+// no tiene sentido exigir un valor exacto de una lista cerrada. Cualquier celda NO vacía cuenta
+// como crítico, salvo que sea una negación explícita (alguien que sí escribió "No"/"Falso"/"0"
+// a propósito no debería quedar marcado por error).
 function parsearBooleanoCarga(valorTexto){
   const t = normalizarTexto(valorTexto);
-  return ['si','sí','s','x','true','verdadero','1','yes','y'].includes(t);
+  if(!t) return false;
+  return !['no','n','false','falso','0'].includes(t);
 }
 
 function normalizarTexto(s){
