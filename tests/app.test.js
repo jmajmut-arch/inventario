@@ -190,6 +190,14 @@ const fakeFetchImpl = async (url, opts) => {
     const filas = [ {sin_diferencia:9, con_diferencia:1} ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/skus_resumen_abc')){
+    const filas = [
+      {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0},
+      {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0},
+      {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/storage/v1/object/sign/')){
     const ruta = path.replace('/storage/v1/object/sign/fotos-inventario/', '');
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}), json: async()=>({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}) };
@@ -1552,6 +1560,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!diferenciasCall && diferenciasCall.opts.method==='POST' && JSON.parse(diferenciasCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC diferencias_recientes con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.diferenciasRecientes.length===1 && ctx.__appstate.dash.diferenciasRecientes[0].sin_diferencia===9, 'cargarDashboard debe dejar el resultado del RPC en state.dash.diferenciasRecientes, obtuvo: '+JSON.stringify(ctx.__appstate.dash.diferenciasRecientes));
 
+  // cargarDashboard: clasificación ABC (skus_resumen_abc, ya agregada por clase en la base).
+  const resumenAbcCall = calls.find(c=>c.url.includes('/rest/v1/skus_resumen_abc'));
+  assert(!!resumenAbcCall, 'cargarDashboard debe pedir /skus_resumen_abc, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.dash.resumenAbc.length===3 && ctx.__appstate.dash.resumenAbc.find(r=>r.clase_abc==='A').cantidad_sku===3, 'cargarDashboard debe dejar el resumen ABC en state.dash.resumenAbc, obtuvo: '+JSON.stringify(ctx.__appstate.dash.resumenAbc));
+
   // cargarDashboard: exactitud de unidades/ubicación (vista exactitud_por_bodega) y top
   // materiales con diferencia (reconteo_pendiente ordenado por diferencia_abs desc).
   const exactitudCall = calls.find(c=>c.url.includes('/exactitud_por_bodega'));
@@ -1674,6 +1687,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       {bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000},
       {bodega:'Nave Planta', valor_contado:500000, valor_perdidas:-20000, valor_excedentes:10000},
     ],
+    resumenAbc: [
+      {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0},
+      {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0},
+      {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0},
+    ],
   };
   const htmlDashExactitud = ctx.renderDashboard();
   // Global: (16+4)/(20+10) = 66.7% de unidades; (18+9)/30 = 90% de ubicación.
@@ -1696,11 +1714,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashExactitud.includes('Excedentes') && htmlDashExactitud.includes('$50.000'), 'debe mostrar los excedentes sumados, obtuvo: '+htmlDashExactitud);
   assert(htmlDashExactitud.includes('Neto') && htmlDashExactitud.includes('$-120.000'), 'debe mostrar el neto (pérdidas+excedentes), obtuvo: '+htmlDashExactitud);
 
+  // Clasificación ABC (a pedido de Joel, tras el fix de permisos de skus_valor_abc_mv): una
+  // tarjeta por clase con cantidad de SKU + % del catálogo + % del valor, ya agregado desde
+  // skus_resumen_abc (no se cuenta en el cliente).
+  assert(htmlDashExactitud.includes('Clasificación ABC'), 'debe mostrar la sección de clasificación ABC, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Clase A') && /Clase A[\s\S]{0,200}\b3\b[\s\S]{0,100}10(\.0)?% del catálogo[\s\S]{0,50}80(\.0)?% del valor/.test(htmlDashExactitud), 'la tarjeta de Clase A debe mostrar su cantidad de SKU y sus porcentajes de catálogo/valor, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Clase B') && htmlDashExactitud.includes('Clase C'), 'debe mostrar las tres clases, obtuvo: '+htmlDashExactitud);
+  assert(!htmlDashExactitud.includes('Sin clasificar'), 'sin SKU sin clasificar en los datos, esa tarjeta no debe aparecer, obtuvo: '+htmlDashExactitud);
+
+  // Con SKU sin costo cargado (clase_abc devuelto como "Sin clasificar" desde skus_resumen_abc),
+  // debe verse su propia tarjeta, sin inventarle un % de valor (no aporta valor calculable).
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, resumenAbc: [
+    {clase_abc:'A', cantidad_sku:3, pct_sku:60.0, valor_total:8000000, pct_valor:100.0},
+    {clase_abc:'Sin clasificar', cantidad_sku:2, pct_sku:40.0, valor_total:0, pct_valor:0},
+  ]};
+  const htmlDashSinClasificar = ctx.renderDashboard();
+  assert(htmlDashSinClasificar.includes('Sin clasificar') && htmlDashSinClasificar.includes('40% del catálogo'), 'debe mostrar la tarjeta "Sin clasificar" con su % del catálogo, obtuvo: '+htmlDashSinClasificar);
+  const filaSinClasificar = htmlDashSinClasificar.slice(htmlDashSinClasificar.indexOf('Sin clasificar'), htmlDashSinClasificar.indexOf('Sin clasificar')+300);
+  assert(!filaSinClasificar.includes('% del valor'), 'la tarjeta "Sin clasificar" no debe mostrar % del valor (no se le puede calcular), obtuvo: '+filaSinClasificar);
+
   // Sin datos de exactitud (empresa recién empezando), no debe mostrarse el ranking ni el top ni la valorización.
-  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [] };
+  ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], resumenAbc: [] };
   const htmlDashSinExactitud = ctx.renderDashboard();
   assert(!htmlDashSinExactitud.includes('Ranking por ubicación general') && !htmlDashSinExactitud.includes('Excedentes con más impacto') && !htmlDashSinExactitud.includes('Pérdidas con más impacto'), 'sin datos de exactitud todavía, no deben mostrarse esas secciones, obtuvo: '+htmlDashSinExactitud);
   assert(!htmlDashSinExactitud.includes('Valorización de diferencias'), 'sin datos de valorización, no debe mostrarse esa sección, obtuvo: '+htmlDashSinExactitud);
+  assert(!htmlDashSinExactitud.includes('Clasificación ABC'), 'sin datos de clasificación ABC (empresa sin SKU con costo cargado), no debe mostrarse esa sección, obtuvo: '+htmlDashSinExactitud);
 
   // ===== Tendencia de exactitud (exactitud_mensual): compara un mes calendario contra otro sin
   // depender de que la empresa use ciclos (a pedido explícito: "comparación entre inventarios
