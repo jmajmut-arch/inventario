@@ -379,7 +379,9 @@ let state = {
   // Resumen general del Dashboard ("Estado del maestro"): estado de TODO el maestro de SKU activo
   // (no solo el ciclo actual, a diferencia de Adherencia al plan) -- a pedido de Joel. El rango de
   // fechas es opcional y filtra CUÁNDO se contó (no aplica a "no_contado", que no tiene fecha).
-  resumenGeneral: { fechaDesde:'', fechaHasta:'', tipoGrafico:'torta', datos:null, cargando:false },
+  // criticidad: ''=todos, 'criticos'=solo críticos, 'no_criticos'=solo no críticos -- a pedido
+  // de Joel ("un filtro que permita separar los críticos y el resto").
+  resumenGeneral: { fechaDesde:'', fechaHasta:'', criticidad:'', tipoGrafico:'torta', datos:null, cargando:false },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -2019,7 +2021,7 @@ async function cargarDashboard(){
 // (instantesFiltroFecha), sobre el rango propio de esta sección.
 function parametrosResumenGeneralSkus(){
   const { desde, hasta } = instantesFiltroFecha(state.resumenGeneral.fechaDesde, state.resumenGeneral.fechaHasta);
-  return { p_fecha_desde: desde, p_fecha_hasta: hasta };
+  return { p_fecha_desde: desde, p_fecha_hasta: hasta, p_criticidad: state.resumenGeneral.criticidad || null };
 }
 
 // Estado general del maestro completo de SKU (Dashboard) -- independiente de cargarDashboard
@@ -4490,6 +4492,9 @@ function renderResumenGeneralSkus(){
   const hayRango = !!(g.fechaDesde || g.fechaHasta);
   const sumaVisible = d? d.no_contado + d.cuadrado + d.con_diferencia + d.pendiente : 0;
   const fueraDeRango = d? Math.max(0, d.total_activo - sumaVisible) : 0;
+  const etiquetaGrupo = g.criticidad==='criticos' ? 'SKU críticos'
+    : g.criticidad==='no_criticos' ? 'SKU no críticos'
+    : 'SKU activos';
 
   return `
     <div class="section-head" style="margin:18px 0 8px"><div><span class="eyebrow">Todo el maestro</span><h2 style="font-size:17px">Estado general de SKU ${campoConInfo('Sobre TODOS los SKU activos, sin importar el ciclo o período (a diferencia del resumen de avance por plan, más abajo, que solo mira lo elegido). El rango de fechas filtra cuándo se contó; no afecta a "No contado".')}</h2></div></div>
@@ -4503,6 +4508,14 @@ function renderResumenGeneralSkus(){
           <label for="rg-fecha-hasta">Contado hasta</label>
           <input type="date" id="rg-fecha-hasta" value="${esc(g.fechaHasta||'')}">
         </div>
+        <div style="flex:1;min-width:150px">
+          <label for="rg-criticidad">Criticidad</label>
+          <select id="rg-criticidad">
+            <option value="" ${g.criticidad===''?'selected':''}>Todos</option>
+            <option value="criticos" ${g.criticidad==='criticos'?'selected':''}>Solo críticos</option>
+            <option value="no_criticos" ${g.criticidad==='no_criticos'?'selected':''}>Solo no críticos</option>
+          </select>
+        </div>
         <div class="segmented" style="flex:none">
           <button type="button" class="segmented-btn ${g.tipoGrafico==='torta'?'active':''}" data-resumen-grafico="torta">Torta</button>
           <button type="button" class="segmented-btn ${g.tipoGrafico==='barras'?'active':''}" data-resumen-grafico="barras">Barras</button>
@@ -4512,7 +4525,7 @@ function renderResumenGeneralSkus(){
     <div class="card">
       ${g.cargando? `<div class="empty"><span class="spinner"></span> Cargando…</div>` :
         !d? `<div class="empty">Sin datos todavía.</div>` : `
-        <div class="hint" style="margin-bottom:10px">De tus <strong style="color:var(--text)">${d.total_activo.toLocaleString('es-CL')}</strong> SKU activos${hayRango? `, ${d.no_contado.toLocaleString('es-CL')} nunca contados (no cambia con el rango elegido)`:''}.</div>
+        <div class="hint" style="margin-bottom:10px">De tus <strong style="color:var(--text)">${d.total_activo.toLocaleString('es-CL')}</strong> ${etiquetaGrupo}${hayRango? `, ${d.no_contado.toLocaleString('es-CL')} nunca contados (no cambia con el rango elegido)`:''}.</div>
         ${g.tipoGrafico==='torta'
           ? renderPieChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2.dia)
           : renderBarChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2, true, true)}
@@ -6392,6 +6405,11 @@ function bind(){
     });
     if(rgFechaHasta) rgFechaHasta.addEventListener('change', e=>{
       state.resumenGeneral = {...state.resumenGeneral, fechaHasta: e.target.value};
+      cargarResumenGeneralSkus();
+    });
+    const rgCriticidad = document.getElementById('rg-criticidad');
+    if(rgCriticidad) rgCriticidad.addEventListener('change', e=>{
+      state.resumenGeneral = {...state.resumenGeneral, criticidad: e.target.value};
       cargarResumenGeneralSkus();
     });
   }
