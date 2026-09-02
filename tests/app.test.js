@@ -404,6 +404,14 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(path.startsWith('/rest/v1/skus_valor_abc')){
+    // sku-pag-3 queda deliberadamente afuera (sin costo cargado -> sin fila -> clase_abc null).
+    const filas = [
+      {sku_id:'sku-pag-1', clase_abc:'A', pct_acumulado:42.0},
+      {sku_id:'sku-pag-2', clase_abc:'B', pct_acumulado:88.5},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/rpc/eliminar_skus_sin_contar')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'4' };
   }
@@ -3039,6 +3047,95 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(filaOk.includes('var(--ok)') && filaOk.includes('border-radius:50%'), 'el SKU cuadrado (aprobado) debe mostrar el ícono verde, obtuvo: '+filaOk);
   assert(!filaSc.includes('border-radius:50%'), 'el SKU que aún no se ha contado no debe mostrar ningún ícono, obtuvo: '+filaSc);
   assert(htmlColorFilas.includes('btn-eliminar-skus-sin-contar'), 'la tabla de SKU debe incluir el botón para eliminar todo lo no contado, obtuvo: '+htmlColorFilas);
+
+  // ===== ABC + criticidad (a pedido de Joel, backlog #101): badges de clase y crítico =====
+  // claseAbcBadge / criticoBadge: helpers puros usados tanto en el listado de Materiales como en
+  // Buscar.
+  assert(ctx.claseAbcBadge('A').includes('Clase A') && ctx.claseAbcBadge('A').includes('badge-warn'), 'Clase A debe mostrarse en ámbar, obtuvo: '+ctx.claseAbcBadge('A'));
+  assert(ctx.claseAbcBadge('B').includes('Clase B') && ctx.claseAbcBadge('B').includes('badge-steel'), 'Clase B debe mostrarse en azul (steel), obtuvo: '+ctx.claseAbcBadge('B'));
+  assert(ctx.claseAbcBadge('C').includes('Clase C') && ctx.claseAbcBadge('C').includes('badge-neutral'), 'Clase C debe mostrarse en gris, obtuvo: '+ctx.claseAbcBadge('C'));
+  assert(ctx.claseAbcBadge(null).includes('Sin clasificar'), 'sin clase (SKU sin costo_unitario cargado) debe mostrar "Sin clasificar", no inventarle una clase, obtuvo: '+ctx.claseAbcBadge(null));
+  assert(ctx.criticoBadge().includes('Crítico') && ctx.criticoBadge().includes('badge-danger'), 'el badge de crítico debe destacarse en rojo, obtuvo: '+ctx.criticoBadge());
+
+  // parsearBooleanoCarga: interpreta la columna opcional "Crítico" de la carga masiva.
+  ['Si','sí','S','x','X','true','TRUE','1','yes'].forEach(v=>{
+    assert(ctx.parsearBooleanoCarga(v)===true, `"${v}" debe interpretarse como crítico, obtuvo: `+ctx.parsearBooleanoCarga(v));
+  });
+  ['No','no','','0','false','tal vez', undefined, null].forEach(v=>{
+    assert(ctx.parsearBooleanoCarga(v)===false, `"${v}" debe interpretarse como NO crítico, obtuvo: `+ctx.parsearBooleanoCarga(v));
+  });
+
+  // renderTablaSkus: debe mostrar la clase ABC de cada fila y, si está marcado, el badge de
+  // crítico junto al código.
+  ctx.__appstate.skusPagina = { rows:[
+    {id:'sku-abc-a', sku_code:'SKU-ABC-A', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, clase_abc:'A', critico:true},
+    {id:'sku-abc-sc', sku_code:'SKU-ABC-SC', descripcion:'x', bodega:null, ubicacion:null, storage_bin:null, stock_sistema:null, clase_abc:null, critico:false},
+  ], page:0, total:2 };
+  const htmlTablaAbc = ctx.renderTablaSkus();
+  const filaAbcA = htmlTablaAbc.slice(htmlTablaAbc.indexOf('SKU-ABC-A'), htmlTablaAbc.indexOf('SKU-ABC-A')+400);
+  const filaAbcSc = htmlTablaAbc.slice(htmlTablaAbc.indexOf('SKU-ABC-SC'), htmlTablaAbc.indexOf('SKU-ABC-SC')+400);
+  assert(filaAbcA.includes('★ Crítico'), 'un SKU marcado crítico debe mostrar el badge junto a su código en el listado de Materiales, obtuvo: '+filaAbcA);
+  assert(htmlTablaAbc.includes('Clase A'), 'el listado de Materiales debe mostrar la clase ABC de cada SKU, obtuvo: '+htmlTablaAbc);
+  assert(filaAbcSc.includes('Sin clasificar') && !filaAbcSc.includes('★ Crítico'), 'un SKU sin costo ni marca de crítico debe verse "Sin clasificar" y sin el badge de crítico, obtuvo: '+filaAbcSc);
+
+  // cargarSkusPagina: además del estado del último conteo (ultimo_conteo_por_sku), debe traer la
+  // clase ABC de skus_valor_abc y pegarla a cada fila por sku_id (mismo patrón, vista sin FK).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  await ctx.cargarSkusPagina(0);
+  await new Promise(r=>setTimeout(r, 0));
+  const filaPag1Abc = ctx.__appstate.skusPagina.rows.find(r=>r.id==='sku-pag-1');
+  assert(!!filaPag1Abc && filaPag1Abc.clase_abc==='A', 'cargarSkusPagina debe pegar la clase ABC de skus_valor_abc a cada fila, obtuvo: '+JSON.stringify(filaPag1Abc));
+  const filaPag3Abc = ctx.__appstate.skusPagina.rows.find(r=>r.id==='sku-pag-3');
+  assert(!!filaPag3Abc && filaPag3Abc.clase_abc===null, 'un SKU sin fila en skus_valor_abc (o sin clase) debe quedar clase_abc null, no undefined, obtuvo: '+JSON.stringify(filaPag3Abc));
+
+  // renderBuscar: mismos badges (clase ABC + crítico) en la tabla de resultados.
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[
+    {sku_code:'SKU-BUS-A', descripcion:'X', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[], clase_abc:'A', critico:true},
+  ], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null};
+  const htmlBuscarAbc = ctx.renderBuscar();
+  assert(htmlBuscarAbc.includes('Clase A'), 'Buscar debe mostrar la clase ABC de cada resultado, obtuvo: '+htmlBuscarAbc);
+  assert(htmlBuscarAbc.includes('★ Crítico'), 'Buscar debe mostrar el badge de crítico junto al SKU, obtuvo: '+htmlBuscarAbc);
+
+  // ===== Carga masiva: columna opcional "Crítico" =====
+  // (state.view sigue en 'carga' desde el bloque de más arriba -- lo sacamos de esa vista para
+  // que los re-renders intermedios de confirmarCargaMasiva, disparados por setState() mientras
+  // progresa la carga, no intenten pintar renderCargaPreview() con un cargaPreview minimalista
+  // que no trae "campos"; ver el reset a 'dashboard' más abajo, que ya hacían los tests previos.)
+  ctx.__appstate.view = 'skus';
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'criticos.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', critico:'Critico' },
+    data: [
+      { Codigo:'SKU-CRIT-SI', Bodega:'Nave', Critico:'Si' },
+      { Codigo:'SKU-CRIT-NO', Bodega:'Nave', Critico:'No' },
+    ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postCritico = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filasCritico = JSON.parse(postCritico.opts.body);
+  assert(filasCritico.find(f=>f.sku_code==='SKU-CRIT-SI').critico===true, 'la carga masiva debe interpretar "Si" en la columna Crítico como true, obtuvo: '+JSON.stringify(filasCritico));
+  assert(filasCritico.find(f=>f.sku_code==='SKU-CRIT-NO').critico===false, 'la carga masiva debe interpretar "No" en la columna Crítico como false, obtuvo: '+JSON.stringify(filasCritico));
+
+  // Sin la columna "Crítico" en el archivo, el campo NO debe mandarse (ni siquiera en false):
+  // como la carga masiva hace upsert (resolution=merge-duplicates), mandar critico:false pisaría
+  // en silencio lo que alguien ya había marcado a mano para un SKU que se re-sube sin esa columna.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'sincritico.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock' },
+    data: [ { Codigo:'SKU-SIN-CRIT', Bodega:'Nave', Stock:'5' } ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postSinCritico = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filaSinCritico = JSON.parse(postSinCritico.opts.body)[0];
+  assert(!('critico' in filaSinCritico), 'sin columna Crítico en el archivo, el campo no debe mandarse en absoluto (para no pisar el valor ya guardado en una empresa que ya lo tenía marcado), obtuvo: '+JSON.stringify(filaSinCritico));
+
+  // Tras una carga masiva que trae costo o stock, debe refrescar la clasificación ABC (el
+  // matview no se recalcula solo, ver skus_valor_abc_mv/refrescar_clasificacion_abc).
+  assert(calls.some(c=>c.url.includes('/rpc/refrescar_clasificacion_abc') && c.opts.method==='POST'), 'tras cargar stock/costo, la carga masiva debe refrescar la clasificación ABC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // ===== Ciclos de conteo: crear, listar y marcar el actual =====
   calls.length = 0;
