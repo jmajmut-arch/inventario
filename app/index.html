@@ -5475,7 +5475,7 @@ function renderConfiguraciones(){
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
     </div>
-    ${esAdmin && !esSuperAdmin? `
+    ${esAdmin? `
     <div class="section-head"><div><span class="eyebrow">Exactitud</span><h2 style="font-size:15px">Conteo ciego ${campoConInfo('Mientras está activo, los operadores no ven el stock del sistema en Contar, Buscar, Reconteo ni el maestro de SKU -- evita que ajusten su conteo al número que ya vieron. Lo puedes prender y apagar cuando quieras; no borra ni cambia ningún dato ya guardado.')}</h2></div></div>
     <div class="card">
       <label style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">

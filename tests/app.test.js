@@ -2174,6 +2174,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConfigSuperAdmin.includes('<option value="emp-1">Minera Andes</option>') && htmlConfigSuperAdmin.includes('<option value="emp-2">Minera Sur</option>'), 'el selector de empresa del formulario de invitación debe listar las empresas, obtuvo: '+htmlConfigSuperAdmin);
   assert(!htmlConfigSuperAdmin.includes('Supervisor'), 'ya no debe existir el rol Supervisor en ningún selector, obtuvo: '+htmlConfigSuperAdmin);
   assert(!htmlConfigSuperAdmin.includes('id="form-invitar-equipo"'), 'un super-admin ya tiene su propio panel para invitar; no debe duplicarse con el de "invitar a tu equipo", obtuvo: '+htmlConfigSuperAdmin);
+  // Bug real reportado (Joel): el toggle de conteo ciego quedó escondido a un super-admin por
+  // copiar el mismo filtro que "Plan y facturación"/"Invitar equipo" (que sí tiene sentido
+  // ocultarles, por no ser cuentas de facturación) -- pero conteo ciego es una config operativa
+  // normal de la empresa, no de facturación: un super-admin que también administra una empresa
+  // real debe poder verlo y usarlo igual que cualquier admin.
+  assert(htmlConfigSuperAdmin.includes('id="chk-conteo-ciego"'), 'un super-admin (que también es admin de una empresa) debe ver el toggle de conteo ciego, obtuvo: '+htmlConfigSuperAdmin);
 
   // Pedido de Joel: diferenciar el menú de super-admin con títulos claros por sección (antes
   // "Empresas", "Invitar persona", "Personas" y "Leads" venían todos amontonados bajo el único
