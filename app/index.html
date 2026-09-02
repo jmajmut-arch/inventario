@@ -589,7 +589,7 @@ async function authRequest(path, body){
   return data;
 }
 
-async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={}, incluirTotal=false } = {}){
+async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={} } = {}){
   const hacerLlamada = () => {
     const headers = {
       'apikey': SUPABASE_ANON_KEY,
@@ -629,15 +629,6 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
   if(text){ try{ data = JSON.parse(text); }catch(e){ /* respuesta no-JSON */ } }
   if(!res.ok){
     throw new Error((data && data.message) || 'No se pudo completar la operación. Inténtalo de nuevo.');
-  }
-  // incluirTotal (opt-in, no cambia el contrato para el resto de los llamadores): junto con
-  // prefer:'count=exact', PostgREST devuelve el total real que calza con el filtro en el header
-  // Content-Range ("0-29/744"), aparte de las filas de esta página -- lo usa Buscar para mostrar
-  // el total real en vez de solo "lo cargado hasta ahora".
-  if(incluirTotal){
-    const range = res.headers.get('content-range');
-    const total = range && range.includes('/') && range.split('/')[1]!=='*' ? Number(range.split('/')[1]) : null;
-    return { data, total };
   }
   return data;
 }
@@ -2104,16 +2095,43 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
   // de la medianoche LOCAL de cada fecha (no un string con "Z" a la fuerza), para que el rango
   // coincida con el día calendario que la persona ve en su pantalla, sin importar el huso horario.
   // Cada extremo es independiente -- se puede filtrar solo desde, solo hasta, o ambos.
-  if(state.busqueda.fechaDesde){
-    const desdeInstante = new Date(state.busqueda.fechaDesde+'T00:00:00').toISOString();
-    path += `&fecha_conteo=gte.${desdeInstante}`;
-  }
+  const { desde, hasta } = instantesFiltroFechaBusqueda();
+  if(desde) path += `&fecha_conteo=gte.${desde}`;
+  if(hasta) path += `&fecha_conteo=lt.${hasta}`;
+  return path;
+}
+
+// Convierte el rango de fechas (calendario, string "YYYY-MM-DD") de Buscar en los instantes UTC
+// exactos a partir de la medianoche LOCAL de cada fecha -- compartido entre construirPathBusqueda
+// (filtra las filas) y construirParametrosBusquedaRpc (cuenta el total): ambos deben comparar
+// exactamente el mismo instante, o el total mostrado no calzaría con las filas que trae la tabla.
+function instantesFiltroFechaBusqueda(){
+  const desde = state.busqueda.fechaDesde ? new Date(state.busqueda.fechaDesde+'T00:00:00').toISOString() : null;
+  let hasta = null;
   if(state.busqueda.fechaHasta){
     const siguienteDia = fechaISO(sumarDias(new Date(state.busqueda.fechaHasta+'T00:00:00'), 1));
-    const hastaInstante = new Date(siguienteDia+'T00:00:00').toISOString();
-    path += `&fecha_conteo=lt.${hastaInstante}`;
+    hasta = new Date(siguienteDia+'T00:00:00').toISOString();
   }
-  return path;
+  return { desde, hasta };
+}
+
+// Parámetros para el RPC contar_busqueda_skus -- mismo contrato de filtros que construirPathBusqueda
+// (ver esa función), pero como un count(*) directo contra skus (sin joins), mucho más rápido que
+// pedirle a PostgREST el total exacto vía Prefer: count=exact/Content-Range cuando la búsqueda no
+// tiene filtros (ver PR de optimización de Buscar para la medición).
+function construirParametrosBusquedaRpc(){
+  const { desde, hasta } = instantesFiltroFechaBusqueda();
+  return {
+    p_texto: sanearTextoFiltro(state.busqueda.texto) || null,
+    p_bodega: sanearTextoFiltro(state.busqueda.bodega) || null,
+    p_estado: state.busqueda.estado || null,
+    p_ciclo: state.busqueda.ciclo || null,
+    p_solo_fuera_de_plan: !!state.busqueda.soloFueraDePlan,
+    p_solo_criticos: !!state.busqueda.soloCriticos,
+    p_clase_abc: state.busqueda.claseAbc || null,
+    p_fecha_desde: desde,
+    p_fecha_hasta: hasta,
+  };
 }
 
 // "Solo con fotografías" no es una columna propia (fotos es un array agregado), así que
@@ -2138,15 +2156,20 @@ function irABuscarSku(skuCode){
   buscarConteos();
 }
 
-// Pide de entrada hasta TOPE_CARGA_TOTAL_BUSQUEDA filas (no solo TAM_PAGINA_LISTA) junto con el
-// total real (count=exact/Content-Range) -- ver esa constante para por qué esto no le agrega
-// costo real al motor. Si el total cabe bajo el tope, queda TODO cargado de una: el conteo de
-// arriba y los gráficos (que se calculan sobre `resultados`) ya reflejan el total real, no solo
-// lo primero cargado. Si el total supera el tope (una búsqueda ancha, sin filtro), se sigue
-// paginando de a TAM_PAGINA_LISTA con "Siguiente"/buscarMasConteos, como antes.
+// Pide de entrada hasta TOPE_CARGA_TOTAL_BUSQUEDA filas (no solo TAM_PAGINA_LISTA) y, en paralelo,
+// el total real vía el RPC contar_busqueda_skus -- un count(*) directo contra skus, mucho más
+// rápido que pedirle a PostgREST el total exacto con Prefer: count=exact (que para una búsqueda sin
+// filtro obliga a materializar y unir las 58 mil filas antes de poder aplicar el LIMIT). Si el
+// total cabe bajo el tope, queda TODO cargado de una: el conteo de arriba y los gráficos (que se
+// calculan sobre `resultados`) ya reflejan el total real, no solo lo primero cargado. Si el total
+// supera el tope (una búsqueda ancha, sin filtro), se sigue paginando de a TAM_PAGINA_LISTA con
+// "Siguiente"/buscarMasConteos, como antes.
 async function buscarConteos(){
   try{
-    const { data, total } = await rest(construirPathBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA), { prefer:'count=exact', incluirTotal:true });
+    const [data, total] = await Promise.all([
+      rest(construirPathBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA)),
+      rest('/rpc/contar_busqueda_skus', { method:'POST', body: construirParametrosBusquedaRpc() }),
+    ]);
     const rows = data || [];
     const resultados = filtrarResultadosBusqueda(rows);
     setState({busqueda: {...state.busqueda, resultados, total, buscando:false, hayMas: total!=null ? rows.length<total : rows.length===TOPE_CARGA_TOTAL_BUSQUEDA, paginaOffset: rows.length, busquedaPagina:0}});
