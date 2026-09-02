@@ -390,7 +390,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0 },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false, resultados:[], buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -2082,7 +2082,7 @@ function irABuscarSku(skuCode){
     view: 'buscar',
     busqueda: {
       texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloContadoHoy:false,
-      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0,
+      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null,
     },
   });
   buscarConteos();
@@ -2127,6 +2127,12 @@ async function avanzarPaginaBuscar(){
 }
 function retrocederPaginaBuscar(){
   setState({busqueda: {...state.busqueda, busquedaPagina: Math.max(0, (state.busqueda.busquedaPagina||0)-1)}});
+}
+
+// Filtro de la tabla de resultados al hacer clic en una porción/leyenda de "Quién contó" (ver
+// renderBuscar). Un segundo clic sobre la misma persona quita el filtro (toggle).
+function toggleFiltroContadoPor(nombre){
+  setState({busqueda: {...state.busqueda, filtroContadoPor: state.busqueda.filtroContadoPor===nombre? null : nombre}});
 }
 
 // Exporta a Excel los conteos de una fecha o rango de fechas (vista conteos_exportables: un
@@ -3440,18 +3446,28 @@ function resumenEstadoBusqueda(resultados){
   return Object.entries(grupos).map(([dia,n])=>({dia, n}));
 }
 
-// Leyenda chica de colores para un gráfico apilado (ver renderBarChartApilado).
-function renderLeyendaColores(items){
-  return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">${items.map(([color,label])=>`
-    <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim)">
+// Leyenda chica de colores para un gráfico apilado o de torta (ver renderBarChartApilado /
+// renderPieChart). Cada item es [color, label] o, si el gráfico es seleccionable, [color, label,
+// clave] -- con clave presente el ítem queda clickeable (data-porcion-clave) y se atenúa si hay
+// una selección activa (`activo`) distinta a la suya.
+function renderLeyendaColores(items, activo){
+  return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">${items.map(([color,label,clave])=>{
+    const clickeable = clave!==undefined && clave!==null;
+    const atenuar = clickeable && activo && activo!==clave;
+    return `
+    <span ${clickeable?`data-porcion-clave="${esc(clave)}" role="button" tabindex="0"`:''} style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);${clickeable?`cursor:pointer;opacity:${atenuar?0.5:1}`:''}">
       <span style="width:9px;height:9px;border-radius:2px;background:${color};display:inline-block;flex-shrink:0"></span>${esc(label)}
-    </span>`).join('')}</div>`;
+    </span>`;
+  }).join('')}</div>`;
 }
 
 // Gráfico de torta genérico: colorFn(d,i) decide el color de cada porción, labelFn(d) el texto
 // del tooltip. Cuando una sola porción cubre el 100% se dibuja como círculo completo -- un arco
 // SVG no puede describir 360° con un solo path (inicio y fin coinciden).
-function renderPieChart(datos, valueKey, colorFn, labelFn){
+// opts.clave(d) habilita selección: cada porción queda clickeable (data-porcion-clave) y, si
+// opts.activo apunta a otra porción, esta se atenúa para resaltar la seleccionada.
+function renderPieChart(datos, valueKey, colorFn, labelFn, opts){
+  opts = opts || {};
   const total = datos.reduce((s,d)=>s+(d[valueKey]||0), 0);
   if(!total) return `<div class="empty">Sin datos todavía.</div>`;
   const cx=50, cy=50, r=42;
@@ -3465,13 +3481,16 @@ function renderPieChart(datos, valueKey, colorFn, labelFn){
     const frac = val/total;
     const pct = Math.round(frac*100);
     const titulo = `${esc(labelFn(d))}: ${val} (${pct}%)`;
-    if(frac>0.999) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${colorFn(d,i)}"><title>${titulo}</title></circle>`;
+    const clave = opts.clave ? opts.clave(d) : null;
+    const atenuar = clave!==null && opts.activo && opts.activo!==clave;
+    const atrs = clave!==null ? ` data-porcion-clave="${esc(clave)}" style="cursor:pointer;opacity:${atenuar?0.35:1}"` : '';
+    if(frac>0.999) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${colorFn(d,i)}"${atrs}><title>${titulo}</title></circle>`;
     const inicio = anguloAcum;
     anguloAcum += frac*360;
     const [x1,y1] = puntoEnCirculo(inicio);
     const [x2,y2] = puntoEnCirculo(anguloAcum);
     const grandeArco = (anguloAcum-inicio)>180 ? 1 : 0;
-    return `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${grandeArco} 1 ${x2},${y2} Z" fill="${colorFn(d,i)}" stroke="var(--surface)" stroke-width="2"><title>${titulo}</title></path>`;
+    return `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${grandeArco} 1 ${x2},${y2} Z" fill="${colorFn(d,i)}" stroke="var(--surface)" stroke-width="2"${atrs}><title>${titulo}</title></path>`;
   }).join('');
   return `<svg viewBox="0 0 100 100" width="140" height="140" style="display:block;margin:0 auto">${segmentos}</svg>`;
 }
@@ -3486,6 +3505,8 @@ function colorQuienConto(d,i){ return COLOR_QUIEN_CONTO[i] || 'var(--text-faint)
 // filas ya contadas (con conteo_id); un SKU "No contado" no tiene contador que atribuirle.
 // Ordena de mayor a menor y agrupa todo lo que exceda las primeras 5 personas en "Otros", para
 // no terminar con una torta de decenas de porciones ilegibles en una empresa con mucha gente.
+// La entrada "Otros" lleva además su lista de nombres (`nombres`) para que un clic sobre esa
+// porción (ver nombresParaFiltroContador) pueda filtrar por todas esas personas a la vez.
 function resumenQuienConto(resultados){
   const map = new Map();
   resultados.forEach(r=>{
@@ -3496,8 +3517,18 @@ function resumenQuienConto(resultados){
   const ordenado = Array.from(map.entries()).map(([nombre,n])=>({nombre,n})).sort((a,b)=>b.n-a.n);
   const TOPE = 5;
   if(ordenado.length<=TOPE) return ordenado;
-  const otros = ordenado.slice(TOPE).reduce((s,d)=>s+d.n, 0);
-  return [...ordenado.slice(0,TOPE), {nombre:'Otros', n:otros}];
+  const resto = ordenado.slice(TOPE);
+  const otros = resto.reduce((s,d)=>s+d.n, 0);
+  return [...ordenado.slice(0,TOPE), {nombre:'Otros', n:otros, nombres: resto.map(d=>d.nombre)}];
+}
+
+// Resuelve a qué nombre(s) de contador corresponde la porción/leyenda seleccionada: la propia
+// persona, o -- si se seleccionó "Otros" -- la lista de nombres que ese bucket agrupa.
+function nombresParaFiltroContador(quienConto, clave){
+  if(!clave) return null;
+  const entrada = quienConto.find(d=>d.nombre===clave);
+  if(entrada && entrada.nombres) return entrada.nombres;
+  return [clave];
 }
 
 function abrevDiaSemana(iso){
@@ -4756,12 +4787,21 @@ function renderReconteo(){
 function renderBuscar(){
   const b = state.busqueda;
   const resultados = b.resultados;
+  const quienConto = resumenQuienConto(resultados);
+  // Selección desde el gráfico "Quién contó" (ver toggleFiltroContadoPor): filtra la tabla de
+  // abajo por esa persona (o, si se eligió "Otros", por todas las que agrupa ese bucket). Se
+  // muestra sin paginar -- es un drill-down sobre lo ya cargado, no una nueva búsqueda al
+  // servidor, así que no tiene sentido reusar avanzarPaginaBuscar/hayMas (esos dependen del total
+  // sin filtrar).
+  const nombresFiltro = nombresParaFiltroContador(quienConto, b.filtroContadoPor);
+  const resultadosFiltrados = nombresFiltro
+    ? resultados.filter(r=> r.conteo_id && nombresFiltro.includes(r.contado_por || 'Sin asignar'))
+    : null;
   // Igual que Materiales contados (Dashboard operativo): 15 filas por página sobre lo ya
   // cargado del servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar.
   const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(resultados.length/TAM_PAGINA_BUSCAR)-1));
-  const resultadosPagina = resultados.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
-  const busquedaHaySiguiente = (busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < resultados.length || b.hayMas;
-  const quienConto = resumenQuienConto(resultados);
+  const resultadosPagina = resultadosFiltrados || resultados.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
+  const busquedaHaySiguiente = !resultadosFiltrados && ((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < resultados.length || b.hayMas);
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card">
@@ -4816,13 +4856,19 @@ function renderBuscar(){
     ` : ''}
     ${quienConto.length? `
     <div class="card">
-      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados cargados'}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros".')}</h2></div></div>
-      ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre)}
-      ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n})`]))}
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${b.hayMas? `Primeros ${resultados.length} cargados` : 'Resultados cargados'}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una porción o su nombre en la leyenda para filtrar la tabla de abajo por esa persona.')}</h2></div></div>
+      ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre, {clave:d=>d.nombre, activo:b.filtroContadoPor})}
+      ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n})`, d.nombre]), b.filtroContadoPor)}
+    </div>
+    ` : ''}
+    ${b.filtroContadoPor? `
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px">
+      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por <strong style="color:var(--text)">${esc(b.filtroContadoPor)}</strong> — ${resultadosFiltrados.length} de ${resultados.length} resultado${resultados.length===1?'':'s'}</span>
+      <button type="button" class="btn btn-secondary" id="btn-quitar-filtro-contador" style="width:auto;padding:6px 12px;font-size:12px">Quitar filtro</button>
     </div>
     ` : ''}
     <div class="card">
-      ${resultados.length? `<div class="table-wrap"><table>
+      ${resultadosPagina.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Batch</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
@@ -4846,7 +4892,7 @@ function renderBuscar(){
           </tr>`;
         }).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
-      ${resultados.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
+      ${(resultados.length && !resultadosFiltrados)? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
         <button class="btn btn-secondary" id="buscar-pagina-prev" style="width:auto;flex:none;padding:8px 14px" ${busquedaPaginaActual<=0?'disabled':''}>Anterior</button>
         <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`pág. ${busquedaPaginaActual+1}`}</span>
         <button class="btn btn-secondary" id="buscar-pagina-next" style="width:auto;flex:none;padding:8px 14px" ${(!busquedaHaySiguiente || b.buscandoMas)?'disabled':''}>Siguiente</button>
@@ -6215,6 +6261,7 @@ function bind(){
         buscando: true,
         yaBuscado: true,
         busquedaPagina: 0,
+        filtroContadoPor: null,
       }});
       buscarConteos();
     });
@@ -6233,6 +6280,16 @@ function bind(){
     const btnBuscarPaginaNext = document.getElementById('buscar-pagina-next');
     if(btnBuscarPaginaPrev) btnBuscarPaginaPrev.addEventListener('click', retrocederPaginaBuscar);
     if(btnBuscarPaginaNext) btnBuscarPaginaNext.addEventListener('click', avanzarPaginaBuscar);
+    // Porciones del gráfico "Quién contó" + su leyenda (ver renderPieChart/renderLeyendaColores):
+    // un clic (o Enter/Espacio sobre la leyenda) filtra la tabla de resultados por esa persona.
+    document.querySelectorAll('[data-porcion-clave]').forEach(el=>{
+      el.addEventListener('click', ()=> toggleFiltroContadoPor(el.dataset.porcionClave));
+      el.addEventListener('keydown', e=>{
+        if(e.key==='Enter' || e.key===' '){ e.preventDefault(); toggleFiltroContadoPor(el.dataset.porcionClave); }
+      });
+    });
+    const btnQuitarFiltroContador = document.getElementById('btn-quitar-filtro-contador');
+    if(btnQuitarFiltroContador) btnQuitarFiltroContador.addEventListener('click', ()=> setState({busqueda:{...state.busqueda, filtroContadoPor:null}}));
   }
 
   if(state.view==='plan'){
