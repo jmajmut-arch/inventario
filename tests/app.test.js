@@ -2131,6 +2131,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const formInvitarEquipoHtml = htmlConfigAdmin.slice(htmlConfigAdmin.indexOf('id="form-invitar-equipo"'), htmlConfigAdmin.indexOf('</form>', htmlConfigAdmin.indexOf('id="form-invitar-equipo"')));
   assert(!formInvitarEquipoHtml.includes('Administrador'), 'el formulario de invitar equipo no debe ofrecer el rol Administrador, obtuvo: '+formInvitarEquipoHtml);
 
+  // Conteo ciego: un admin de empresa debe ver el toggle en Configuraciones, reflejando el
+  // estado actual de su empresa.
+  assert(htmlConfigAdmin.includes('id="chk-conteo-ciego"') && !htmlConfigAdmin.includes('id="chk-conteo-ciego" checked'), 'un admin debe ver el toggle de conteo ciego, sin marcar si la empresa no lo tiene activo, obtuvo: '+htmlConfigAdmin);
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = true;
+  const htmlConfigAdminCiegoActivo = ctx.renderConfiguraciones();
+  assert(htmlConfigAdminCiegoActivo.includes('id="chk-conteo-ciego" checked'), 'con el flag activo en la empresa, el toggle debe verse marcado, obtuvo: '+htmlConfigAdminCiegoActivo);
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+
   // Pedido de Joel: diferenciar el menú de Configuraciones con títulos más claros y organizados
   // (antes "Plan y facturación", "Invitar equipo" y "Mi equipo" venían todos amontonados bajo un
   // único encabezado "Empresa", sin secciones propias).
@@ -2145,6 +2153,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlConfigOperador = ctx.renderConfiguraciones();
   assert(!htmlConfigOperador.includes('id="form-empresa-nombre"'), 'un operador (no admin) no debe poder editar el nombre de la empresa, obtuvo: '+htmlConfigOperador);
   assert(!htmlConfigOperador.includes('id="form-invitar-equipo"'), 'un operador (no admin) no debe poder invitar gente a la empresa, obtuvo: '+htmlConfigOperador);
+  assert(!htmlConfigOperador.includes('id="chk-conteo-ciego"'), 'un operador no debe poder cambiar el conteo ciego, solo el admin, obtuvo: '+htmlConfigOperador);
 
   // invitarPersona desde un admin de empresa (no super-admin): debe llamar a invite-user igual, pero
   // sin disparar el resumen del super-admin (no le corresponde a un admin normal).
@@ -2525,6 +2534,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!patchEmpresa, 'actualizarNombreEmpresa debe hacer PATCH a /empresas?id=eq.<empresa_id>, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(JSON.parse(patchEmpresa.opts.body).nombre==='Minera Andes Sur', 'el PATCH debe llevar el nuevo nombre, obtuvo: '+patchEmpresa.opts.body);
   assert(ctx.__appstate.perfil.empresas.nombre==='Minera Andes Sur', 'debe reflejar el nuevo nombre en el estado local tras guardar, obtuvo: '+ctx.__appstate.perfil.empresas.nombre);
+
+  // actualizarConteoCiego: mismo patrón (PATCH a /empresas + actualización optimista), y el
+  // admin lo puede prender y apagar las veces que quiera.
+  calls.length = 0;
+  await ctx.actualizarConteoCiego(true);
+  const patchConteoCiegoOn = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/empresas?id=eq.emp-1'));
+  assert(!!patchConteoCiegoOn && JSON.parse(patchConteoCiegoOn.opts.body).conteo_ciego_habilitado===true, 'debe hacer PATCH activando conteo_ciego_habilitado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.perfil.empresas.conteo_ciego_habilitado===true, 'debe reflejarlo en el estado local, obtuvo: '+ctx.__appstate.perfil.empresas.conteo_ciego_habilitado);
+  calls.length = 0;
+  await ctx.actualizarConteoCiego(false);
+  const patchConteoCiegoOff = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/empresas?id=eq.emp-1'));
+  assert(!!patchConteoCiegoOff && JSON.parse(patchConteoCiegoOff.opts.body).conteo_ciego_habilitado===false, 'el admin debe poder apagarlo de nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.perfil.empresas.conteo_ciego_habilitado===false, 'debe reflejarlo en el estado local, obtuvo: '+ctx.__appstate.perfil.empresas.conteo_ciego_habilitado);
 
   // Las acciones de escritura deben viajar con el empresa_id del perfil actual (aislamiento entre empresas).
   // crearSkuManual debe hacer un INSERT simple a /skus, SIN upsert: si el código ya existe
@@ -3481,6 +3503,97 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // etiquetaNumeroConteo: 1 es el conteo original, 2+ son reconteos (numerados desde 1).
   assert(ctx.etiquetaNumeroConteo(1)==='Conteo' && ctx.etiquetaNumeroConteo(2)==='Reconteo 1' && ctx.etiquetaNumeroConteo(3)==='Reconteo 2', 'etiquetaNumeroConteo debe distinguir el conteo original de cada reconteo, obtuvo: '+JSON.stringify([ctx.etiquetaNumeroConteo(1), ctx.etiquetaNumeroConteo(2), ctx.etiquetaNumeroConteo(3)]));
+
+  // ===== Conteo ciego: ocultarStockOperador() decide según rol + el flag de la empresa. Un
+  // admin siempre ve el stock; un operador solo lo ve si su empresa NO tiene el flag activo. =====
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  assert(ctx.ocultarStockOperador()===true, 'operador con conteo ciego activo debe ocultar el stock, obtuvo: '+ctx.ocultarStockOperador());
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+  assert(ctx.ocultarStockOperador()===false, 'operador con conteo ciego apagado NO debe ocultar el stock, obtuvo: '+ctx.ocultarStockOperador());
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  assert(ctx.ocultarStockOperador()===false, 'un admin siempre ve el stock, sin importar el flag, obtuvo: '+ctx.ocultarStockOperador());
+
+  // esConteoAtipico: reemplazo del chequeo de cordura cuando no se ve el stock -- umbral es el
+  // mayor entre 50% del stock o 5 unidades (nunca revela el valor real, solo si es "raro").
+  assert(ctx.esConteoAtipico(5, null)===false, 'sin stock_sistema conocido no hay con qué comparar, nunca es atípico, obtuvo: '+ctx.esConteoAtipico(5,null));
+  assert(ctx.esConteoAtipico(19, 20)===false, 'una diferencia chica (1 de 20) no debe marcarse atípica, obtuvo: '+ctx.esConteoAtipico(19,20));
+  assert(ctx.esConteoAtipico(2, 20)===true, 'una diferencia grande (18 de 20, sobre el 50%) sí debe marcarse atípica, obtuvo: '+ctx.esConteoAtipico(2,20));
+  assert(ctx.esConteoAtipico(4, 0)===false, 'con stock 0, hasta 5 unidades de diferencia no es atípico (umbral mínimo absoluto), obtuvo: '+ctx.esConteoAtipico(4,0));
+  assert(ctx.esConteoAtipico(6, 0)===true, 'con stock 0, más de 5 unidades sí es atípico, obtuvo: '+ctx.esConteoAtipico(6,0));
+
+  // Render de Contar: con conteo ciego activo, un operador no debe ver "Stock sistema"; sin
+  // el flag, o siendo admin, sí.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  const htmlContarCiegoActivo = ctx.renderConteo();
+  assert(!htmlContarCiegoActivo.includes('Stock sistema'), 'con conteo ciego activo, un operador no debe ver la línea de Stock sistema, obtuvo: '+htmlContarCiegoActivo);
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+  const htmlContarCiegoInactivo = ctx.renderConteo();
+  assert(htmlContarCiegoInactivo.includes('Stock sistema (este batch): 20 UN'), 'con conteo ciego apagado, el operador sí debe ver el stock, obtuvo: '+htmlContarCiegoInactivo);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  const htmlContarAdminSiempreVe = ctx.renderConteo();
+  assert(htmlContarAdminSiempreVe.includes('Stock sistema (este batch): 20 UN'), 'un admin siempre debe ver el stock, aunque el conteo ciego esté activo, obtuvo: '+htmlContarAdminSiempreVe);
+
+  // guardarConteo + conteo ciego: un valor bien distinto de lo esperado dispara una confirmación
+  // neutra (nunca menciona el valor real) antes de guardar; si cancela, no se guarda.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  ctx.__appstate.conteoOrigenPlan = true;
+  ctx.__appstate.conteoFotos = [];
+  confirmRespuesta = false; confirmLlamadas.length = 0; calls.length = 0;
+  await ctx.guardarConteo({cantidad:'2', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+  assert(confirmLlamadas.length===1 && !/20/.test(confirmLlamadas[0]), 'debe preguntar confirmación sin revelar el valor esperado, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'si cancela la confirmación, el conteo no debe guardarse, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  confirmRespuesta = true; confirmLlamadas.length = 0; calls.length = 0;
+  await ctx.guardarConteo({cantidad:'2', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+  assert(confirmLlamadas.length===1, 'si confirma, igual debe haber preguntado antes, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'si confirma, el conteo debe guardarse, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  confirmLlamadas.length = 0; calls.length = 0;
+  await ctx.guardarConteo({cantidad:'19', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+  assert(confirmLlamadas.length===0, 'un valor cercano a lo habitual no debe disparar la confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'debe guardarse directo sin preguntar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  ctx.__appstate.skuSeleccionado = null;
+  ctx.__appstate.conteoOrigenPlan = false;
+
+  // Render de Reconteo: con conteo ciego, la columna "Sistema" desaparece y la diferencia se
+  // neutraliza a "Con diferencia" (sin el monto) -- "Contado" + el monto también delatarían el
+  // stock del sistema. Reusa el fixture rf1/rf2 (stock_sistema 10 y 5) ya cargado arriba.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  const htmlReconteoCiego = ctx.renderReconteo();
+  assert(!htmlReconteoCiego.includes('<th class="num">Sistema</th>'), 'con conteo ciego, la columna "Sistema" no debe mostrarse en Reconteo, obtuvo: '+htmlReconteoCiego);
+  assert(!htmlReconteoCiego.includes('>10<') && !htmlReconteoCiego.includes('>-2<'), 'con conteo ciego, ni el stock ni el monto de la diferencia deben aparecer, obtuvo: '+htmlReconteoCiego);
+  assert(htmlReconteoCiego.includes('badge-warn">Con diferencia<'), 'con conteo ciego, la diferencia debe mostrarse sin monto ("Con diferencia"), obtuvo: '+htmlReconteoCiego);
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+  const htmlReconteoNormal = ctx.renderReconteo();
+  assert(htmlReconteoNormal.includes('<th class="num">Sistema</th>') && htmlReconteoNormal.includes('badge-warn">-2<'), 'con conteo ciego apagado, "Sistema" y el monto de la diferencia deben verse normal, obtuvo: '+htmlReconteoNormal);
+
+  // Render de Buscar: la magnitud de "Diferencia" (que junto con "Contado" delata el stock) se
+  // neutraliza igual que en Reconteo.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[
+    {sku_code:'SKU-9', descripcion:'X', bodega:'Nave', conteo_id:'c-9', cantidad_contada:12, estado:'con_diferencia', diferencia:-3, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:null, fotos:[]},
+  ], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  const htmlBuscarCiego = ctx.renderBuscar();
+  assert(htmlBuscarCiego.includes('badge-warn">Con diferencia<') && !htmlBuscarCiego.includes('>-3<'), 'con conteo ciego, Buscar no debe mostrar el monto de la diferencia, obtuvo: '+htmlBuscarCiego);
+  assert(htmlBuscarCiego.includes('<td class="num">12</td>'), 'lo "Contado" solo, sin la diferencia, no delata el stock -- sigue visible, obtuvo: '+htmlBuscarCiego);
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+  const htmlBuscarNormal = ctx.renderBuscar();
+  assert(htmlBuscarNormal.includes('badge-warn">Diferencia -3<'), 'con conteo ciego apagado, Buscar debe mostrar el monto normal, obtuvo: '+htmlBuscarNormal);
+
+  // Render del maestro de SKU: la columna "Stock" desaparece con conteo ciego.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  ctx.__appstate.skusPagina = {rows:[{id:'s1', sku_code:'SKU-1', descripcion:'X', bodega:'Nave', ubicacion:'', storage_bin:'', batch:'', stock_sistema:15, ultimoEstado:null, ultimaDiferencia:null}], page:0, total:1};
+  const htmlSkusCiego = ctx.renderSkus();
+  assert(!htmlSkusCiego.includes('<th class="num">Stock</th>') && !htmlSkusCiego.includes('<td class="num">15</td>'), 'con conteo ciego, la columna "Stock" del maestro de SKU no debe mostrarse, obtuvo: '+htmlSkusCiego);
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+  const htmlSkusNormal = ctx.renderSkus();
+  assert(htmlSkusNormal.includes('<th class="num">Stock</th>') && htmlSkusNormal.includes('<td class="num">15</td>'), 'con conteo ciego apagado, la columna "Stock" debe verse normal, obtuvo: '+htmlSkusNormal);
+
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
   // ===== Dashboard: "Materiales contados" con "Cargar más" =====
   calls.length = 0;
