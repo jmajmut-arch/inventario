@@ -158,19 +158,26 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  // Buscar: skus_busqueda (un renglón por SKU, contado o no) — paginación de 30 + 4.
+  // Buscar: skus_busqueda (un renglón por SKU, contado o no) — 34 filas en total en el fixture
+  // por defecto; honra el "limit=" real del pedido (30 para "cargar más", TOPE_CARGA_TOTAL_BUSQUEDA
+  // para la carga inicial) y devuelve Content-Range como PostgREST real, para poder probar
+  // buscarConteos/incluirTotal sin duplicar la lógica de paginación acá.
   if(path.startsWith('/rest/v1/skus_busqueda?select=')){
-    if(skusBusquedaFixture){
-      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(skusBusquedaFixture) };
-    }
     const offsetMatch = path.match(/offset=(\d+)/);
     const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+    const limitMatch = path.match(/limit=(\d+)/);
+    const limit = limitMatch ? Number(limitMatch[1]) : 30;
+    if(skusBusquedaFixture){
+      const total = skusBusquedaFixture.length;
+      const filas = skusBusquedaFixture.slice(offset, offset+limit);
+      return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `${offset}-${Math.max(offset+filas.length-1,offset)}/${total}` : null}, text: async()=>JSON.stringify(filas) };
+    }
     const total = 34;
     const filas = [];
-    for(let i=offset; i<Math.min(offset+30, total); i++){
+    for(let i=offset; i<Math.min(offset+limit, total); i++){
       filas.push({sku_id:'sku-busq-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:'busq-'+i, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-18T10:00:00Z', capturado_en:'2026-08-18T10:00:00Z', fuera_de_plan:false, ciclo_id:null, ciclo_nombre:null, fotos:[], contado_por:'Persona '+(i%3)});
     }
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `${offset}-${Math.max(offset+filas.length-1,offset)}/${total}` : null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/conteos?select=')){
     const offsetMatch = path.match(/offset=(\d+)/);
@@ -3829,18 +3836,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.dashMaterialesPagina===0, 'debe volver a la página 1, obtuvo: '+ctx.__appstate.dashMaterialesPagina);
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
-  // ===== Buscar: carga por tandas respetando los filtros de texto y fotos (que se aplican en
-  // el cliente, no en la consulta) =====
-  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  // ===== Buscar: carga inicial hasta TOPE_CARGA_TOTAL_BUSQUEDA de una vez, con el total real
+  // (count=exact/Content-Range) -- ver buscarConteos. Con más de mil filas (un caso ancho, sin
+  // filtro), no alcanza a traer todo de una: sigue paginando con "Siguiente"/buscarMasConteos. =====
+  const filaBusquedaGenerica = (i) => ({sku_id:'sku-ancho-'+i, sku_code:'SKU-ANCHO-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_id:null, ciclo_nombre:null, fotos:[], batch:null, contado_por:null, critico:false, clase_abc:null});
+  skusBusquedaFixture = Array.from({length:1005}, (_,i)=>filaBusquedaGenerica(i));
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   calls.length = 0;
   await ctx.buscarConteos();
-  assert(ctx.__appstate.busqueda.resultados.length===30 && ctx.__appstate.busqueda.hayMas===true, 'buscarConteos debe traer la primera página (30) y marcar hayMas, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
-  assert(ctx.__appstate.busqueda.paginaOffset===30, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
+  const busquedaCallInicial = calls.find(c=>c.url.includes('/skus_busqueda?select='));
+  assert(!!busquedaCallInicial && busquedaCallInicial.url.includes(`limit=${1000}`), 'la carga inicial debe pedir hasta TOPE_CARGA_TOTAL_BUSQUEDA, no solo TAM_PAGINA_LISTA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===true, 'con más filas que el tope, debe cargar hasta el tope y saber el total real (1005) vía Content-Range, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
+  assert(ctx.__appstate.busqueda.paginaOffset===1000, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
   calls.length = 0;
   await ctx.buscarMasConteos();
   const busquedaCallMas = calls.find(c=>c.url.includes('/skus_busqueda?select='));
-  assert(!!busquedaCallMas && busquedaCallMas.url.includes('offset=30'), 'buscarMasConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===34 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  assert(!!busquedaCallMas && busquedaCallMas.url.includes(`offset=${1000}`), 'buscarMasConteos debe pedir la página siguiente desde donde quedó, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las filas restantes hasta completar el total real y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+
+  // Caso típico (un total chico, por debajo del tope): queda TODO cargado en la primera llamada,
+  // sin necesidad de "Siguiente" -- así el conteo de arriba y los gráficos ya reflejan el total
+  // real de entrada (a pedido de Joel: "en el gráfico igual sale en menor a treinta").
+  skusBusquedaFixture = null; // vuelve al fixture por defecto (34 filas en total)
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(ctx.__appstate.busqueda.resultados.length===34 && ctx.__appstate.busqueda.total===34 && ctx.__appstate.busqueda.hayMas===false, 'con un total por debajo del tope, debe quedar todo cargado de una sola vez, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
 
   // ===== Buscar pagina de a 15 con Anterior/Siguiente (a pedido de Joel, mismo caso que
   // Materiales contados), reemplazando el botón "Cargar más". En este punto ya quedaron
@@ -4701,8 +4722,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Regresión real reportada (Joel): con hayMas=true, el titulo "N resultados" mostraba un
   // número fijo (30, el tamaño de página) que parecía ser el total, sin dejar claro que había
   // muchos más -- confundía como si la búsqueda solo pudiera traer 30 en total.
-  assert(htmlBuscarHayMas.includes('>1+ resultado<'), 'con hayMas=true, el título debe llevar un "+" (no parecer el total), obtuvo: '+htmlBuscarHayMas);
-  assert(htmlBuscarHayMas.includes('Hay más'), 'con hayMas=true, debe explicar cómo ver el resto (paginar o exportar), obtuvo: '+htmlBuscarHayMas);
+  assert(htmlBuscarHayMas.includes('>1+ resultado<'), 'con hayMas=true y total desconocido, el título debe llevar un "+" (no parecer el total), obtuvo: '+htmlBuscarHayMas);
+  assert(htmlBuscarHayMas.includes('Mostrando los primeros'), 'con hayMas=true, debe explicar cómo ver el resto (paginar o exportar), obtuvo: '+htmlBuscarHayMas);
+
+  // Con el total real conocido (el caso normal desde que buscarConteos pide count=exact): el
+  // título debe mostrar el total exacto, no "N+", y el aviso debe decir de cuántos en total.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, total:744};
+  const htmlBuscarTotalConocido = ctx.renderBuscar();
+  assert(htmlBuscarTotalConocido.includes('>744 resultados<'), 'con el total real conocido, el título debe mostrar el total exacto, obtuvo: '+htmlBuscarTotalConocido);
+  assert(htmlBuscarTotalConocido.includes('Mostrando los primeros 1 de 744'), 'el aviso debe decir de cuántos en total, obtuvo: '+htmlBuscarTotalConocido);
+  assert(htmlBuscarTotalConocido.includes('Primeros 1 de 744'), 'el gráfico también debe usar el total real conocido en vez de solo "cargados", obtuvo: '+htmlBuscarTotalConocido);
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, hayMas:false};
   const htmlBuscarSinHayMas = ctx.renderBuscar();
   assert(htmlBuscarSinHayMas.includes('>1 resultado<') && !htmlBuscarSinHayMas.includes('>1+ resultado<'), 'sin hayMas, el título no debe llevar "+" (ya es el total real), obtuvo: '+htmlBuscarSinHayMas);
