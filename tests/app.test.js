@@ -3453,6 +3453,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.pareceFalloDeRed(new ctx.__TypeError('Failed to fetch'))===true, 'un TypeError debe considerarse fallo de red');
   assert(ctx.pareceFalloDeRed(new Error('Mensaje de error del servidor'))===false, 'un Error normal (HTTP) no debe considerarse fallo de red');
 
+  // mensajeParaRechazoNoCapturado (Sentry #227): red de seguridad global de iniciarApp() para
+  // promesas rechazadas que se le escapan a su propio catch -- un TypeError de red debe mostrar
+  // el mismo mensaje de "sin conexión" que ya usan los ~15 catch puntuales, y cualquier otro error
+  // (uno real, no de red) debe mostrar un aviso genérico en vez de dejar a la persona sin avisarle.
+  assert(ctx.mensajeParaRechazoNoCapturado(new ctx.__TypeError('Failed to fetch'))==='No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', 'un TypeError de red debe mostrar el mensaje de sin conexión, obtuvo: '+ctx.mensajeParaRechazoNoCapturado(new ctx.__TypeError('Failed to fetch')));
+  assert(ctx.mensajeParaRechazoNoCapturado(new Error('Cannot read properties of undefined'))==='Ocurrió un error inesperado. Inténtalo de nuevo.', 'un error que no es de red debe mostrar un aviso genérico, no el de sin conexión, obtuvo: '+ctx.mensajeParaRechazoNoCapturado(new Error('Cannot read properties of undefined')));
+
   // rest(): cuando fetch() rechaza con un TypeError crudo (sin conexión), rest() debe volver
   // a lanzar un TypeError (para que pareceFalloDeRed lo siga reconociendo y los flujos con
   // manejo offline sigan encolando) pero con un mensaje en español entendible — no el texto

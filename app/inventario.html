@@ -2826,6 +2826,17 @@ function pareceFalloDeRed(e){
   return e instanceof TypeError;
 }
 
+// Red de seguridad global para promesas rechazadas que se le escapan a su propio catch (Sentry
+// #227): con decenas de rest()/authRequest()/storageUpload() en la app, un catch(e) olvidado en
+// algún flujo puntual deja el TypeError de "sin conexión" (u otro error) como promesa rechazada
+// sin capturar -- Sentry lo ve igual (tiene su propio listener aparte, ver window.addEventListener
+// más abajo en iniciarApp), pero la persona se queda sin ningún aviso en pantalla. Esto no
+// reemplaza los catch puntuales (que siguen dando mensajes más específicos), es el piso mínimo
+// para que ninguno se escape en silencio.
+function mensajeParaRechazoNoCapturado(motivo){
+  return pareceFalloDeRed(motivo) ? MENSAJE_SIN_CONEXION : 'Ocurrió un error inesperado. Inténtalo de nuevo.';
+}
+
 function leerColaOffline(){
   try{ return JSON.parse(localStorage.getItem(COLA_OFFLINE_KEY)||'[]'); }catch(e){ return []; }
 }
@@ -7024,6 +7035,8 @@ async function iniciarApp(){
   // que devuelva un listener nativo — cualquier falla que en el futuro se le escape a su propio
   // try/catch quedaría como promesa rechazada sin capturar en vez de un toast.
   window.addEventListener('online', ()=> sincronizarColaOffline().catch(e=>toast(e.message,'err')));
+  // Red de seguridad global (Sentry #227) -- ver mensajeParaRechazoNoCapturado más arriba.
+  window.addEventListener('unhandledrejection', e=> toast(mensajeParaRechazoNoCapturado(e.reason), 'err'));
   procesarRetornoFlow();
   procesarRegistroPlanDesdeUrl();
   await procesarLlegadaPorInvitacion();
