@@ -3981,7 +3981,7 @@ function renderInformeEjecutivo(){
     ` : ''}
 
     ${resumenAbc.length? `
-      <div class="section-head"><div><span class="eyebrow">Costo unitario × stock, catálogo completo</span><h2 style="font-size:17px">Clasificación ABC ${campoConInfo('Ordena el catálogo activo por valor (costo unitario × stock según sistema) y corta en 80%/95% del valor acumulado. Un SKU sin costo unitario cargado no entra en la clasificación.')}</h2></div></div>
+      <div class="section-head"><div><span class="eyebrow">Costo unitario × stock, catálogo completo</span><h2 style="font-size:17px">Clasificación ABC ${campoConInfo('Ordena el catálogo activo por valor (costo unitario × stock según sistema) y corta en 80%/95% del valor acumulado. Un SKU sin costo unitario cargado no entra en la clasificación. El % contado es sobre el ciclo de conteo actual.')}</h2></div></div>
       <div class="kpi-grid" style="margin-bottom:14px">
         ${['A','B','C','Sin clasificar'].filter(clase=>resumenAbc.some(r=>r.clase_abc===clase)).map(clase=>{
           const fila = resumenAbc.find(r=>r.clase_abc===clase);
@@ -3990,6 +3990,8 @@ function renderInformeEjecutivo(){
             <div class="kpi-label">${clase==='Sin clasificar'?'Sin clasificar':'Clase '+clase}</div>
             <div class="kpi-value" style="font-size:20px;color:${color}">${Number(fila.cantidad_sku).toLocaleString('es-CL')}</div>
             <div class="kpi-sub">${fila.pct_sku}% del catálogo${clase!=='Sin clasificar'?` · ${fila.pct_valor}% del valor`:''}</div>
+            <div class="progress-track" style="margin-top:6px"><div class="progress-fill" style="width:${fila.pct_avance}%;background:${color}"></div></div>
+            <div class="kpi-sub" style="margin-top:3px">${fila.pct_avance}% contado</div>
           </div>`;
         }).join('')}
       </div>
