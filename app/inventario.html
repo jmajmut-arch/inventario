@@ -165,6 +165,7 @@ textarea{resize:vertical;min-height:60px;}
 .badge-warn{background:rgba(224,178,60,.15);color:var(--warn);}
 .badge-danger{background:rgba(224,85,74,.15);color:var(--danger);}
 .badge-neutral{background:var(--surface-2);color:var(--text-dim);}
+.badge-steel{background:rgba(91,143,176,.15);color:var(--steel);}
 
 .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:11px 18px;border-radius:8px;font-size:13.5px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:88%;text-align:center;}
 .toast.err{border-color:#5a2f2c;color:#f3a6a0;}
@@ -1151,6 +1152,14 @@ async function cargarSkusPagina(page=0){
           r.ultimaDiferencia = e ? e.diferencia : null;
         });
       }catch(e){ /* si falla, la tabla igual se ve, solo sin el ícono */ }
+      // Clase ABC (ver skus_valor_abc): consulta aparte porque vive en una vista sin FK declarada
+      // hacia skus, igual que ultimo_conteo_por_sku arriba.
+      try{
+        const ids = rows.map(r=>r.id).join(',');
+        const clases = await rest(`/skus_valor_abc?sku_id=in.(${ids})&select=sku_id,clase_abc`);
+        const claseSku = new Map((clases||[]).map(c=>[c.sku_id, c.clase_abc]));
+        rows.forEach(r=>{ r.clase_abc = claseSku.get(r.id) || null; });
+      }catch(e){ /* si falla, la tabla igual se ve, solo sin el badge de clase */ }
     }
     setState({skusPagina: { rows, page, total: total||0 }, skusSeleccionados: []});
   }catch(e){ toast(e.message,'err'); }
@@ -2334,7 +2343,17 @@ const CAMPOS_SKU = [
     alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
   { campo:'categoria', obligatorio:false, etiqueta:'Categoría',
     alias:['categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
+  { campo:'critico', obligatorio:false, etiqueta:'Crítico',
+    alias:['critico','es critico','sku critico','critical','is critical'] },
 ];
+
+// Interpreta la columna opcional "Crítico" de la carga masiva: acepta las formas típicas de una
+// planilla armada a mano (si/no, x, 1/0, true/false) -- cualquier otra cosa, incluida la celda
+// vacía, se toma como "no crítico" (el default más seguro: no inventar criticidad que nadie marcó).
+function parsearBooleanoCarga(valorTexto){
+  const t = normalizarTexto(valorTexto);
+  return ['si','sí','s','x','true','verdadero','1','yes','y'].includes(t);
+}
 
 function normalizarTexto(s){
   return String(s||'')
@@ -2527,6 +2546,10 @@ async function confirmarCargaMasiva(){
       bodega,
       stock_sistema,
       costo_unitario,
+      // Si el archivo no trae columna "Crítico", se omite el campo entero (no se manda ni en
+      // false) -- así el upsert (resolution=merge-duplicates) no pisa el valor que ya tenía cada
+      // SKU en la base. Solo se sobrescribe cuando la persona de verdad mandó esa columna.
+      ...(mapeo.critico? {critico: parsearBooleanoCarga(valor(row,'critico'))} : {}),
       activo: true,
       updated_at: marcaTiempo,
       capturado_en: marcaTiempo,
@@ -2552,6 +2575,13 @@ async function confirmarCargaMasiva(){
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
       await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
+    }
+    // La clasificación ABC (ver skus_valor_abc) está materializada por rendimiento -- no se
+    // recalcula sola. Una carga masiva es justo cuando más cambia (costo/stock de miles de SKU de
+    // una vez), así que se refresca acá; si por lo que sea falla, no debe tumbar una carga que ya
+    // se guardó bien -- el cron nocturno la deja al día de todos modos.
+    if(lote.some(f=>f.costo_unitario!==undefined && f.costo_unitario!==null) || lote.some(f=>f.stock_sistema!==undefined && f.stock_sistema!==null)){
+      try{ await rest('/rpc/refrescar_clasificacion_abc', {method:'POST'}); }catch(e){ /* el cron nocturno lo cubre */ }
     }
     await registrarCarga(file.name, 'skus', data.length, ok, error, resumenErroresAArray(resumenErrores));
     toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
@@ -4263,6 +4293,20 @@ function estadoBadge(estado, diferencia, ocultarMagnitud){
   return `<span class="badge badge-ok">${estado==='aprobado' ? 'Cuadrado' : esc(estado||'ok')}</span>`;
 }
 
+// Clasificación ABC por valor (costo_unitario * stock_sistema, ver skus_valor_abc) -- SKU sin
+// costo_unitario cargado no se puede clasificar (clase null), no se le inventa una clase C.
+const CLASE_ABC_BADGE = {A:'badge-warn', B:'badge-steel', C:'badge-neutral'};
+function claseAbcBadge(clase){
+  if(!clase) return `<span class="badge badge-neutral" title="Sin costo unitario cargado: no se puede clasificar">Sin clasificar</span>`;
+  return `<span class="badge ${CLASE_ABC_BADGE[clase]||'badge-neutral'}">Clase ${esc(clase)}</span>`;
+}
+
+// "Crítico": marca manual e independiente del valor -- un SKU barato puede ser crítico si su
+// falta detiene un proceso o equipo (ver ABC + criticidad, backlog #101).
+function criticoBadge(){
+  return `<span class="badge badge-danger">★ Crítico</span>`;
+}
+
 // Reportado: en Planificación, el rango de la semana mostrado ("23 ago – 29 ago") no coincidía
 // con los días reales (Lun 24 – Dom 30) ni con lo que dice cada tarjeta. fmtFecha recibe tanto
 // fechas puras "YYYY-MM-DD" (ej. plan_semanal.fecha, sin hora) como timestamps completos (ej.
@@ -4363,6 +4407,10 @@ function renderSkus(){
           <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" list="dl-unidades" autocomplete="off" placeholder="UN, KG, LT..."></div>
           <div><label for="s-cat">Categoría</label><input type="text" id="s-cat" list="dl-categorias" autocomplete="off" placeholder="Ej. planta, familia de material"></div>
         </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--text-dim)">
+          <input type="checkbox" id="s-critico">
+          Crítico ${campoConInfo('Si falta, detiene un proceso o equipo -- sin importar su costo. Independiente del costo, se marca a mano.')}
+        </label>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar SKU'}</button>
         </div>
@@ -4420,18 +4468,19 @@ function renderTablaSkus(){
       </div>
       <div class="hint" style="margin-bottom:10px">🟢 Último conteo cuadrado · 🟡 Diferencia positiva (sobrante) · 🔴 Diferencia negativa (faltante)</div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th>${ocultarStockOperador()?'':'<th class="num">Stock</th>'}</tr></thead>
+        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th>${ocultarStockOperador()?'':'<th class="num">Stock</th>'}<th>Clase</th></tr></thead>
         <tbody>${sp.rows.map(s=>{
           return `<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
           <td>${iconoUltimoConteo(s.ultimoEstado, s.ultimaDiferencia)}</td>
-          <td class="mono">${esc(s.sku_code)}</td>
+          <td class="mono">${esc(s.sku_code)}${s.critico?`<div style="margin-top:3px">${criticoBadge()}</div>`:''}</td>
           <td>${esc(s.descripcion||'—')}</td>
           <td>${esc(s.bodega||'—')}</td>
           <td>${esc(s.ubicacion||'—')}</td>
           <td class="mono">${esc(s.storage_bin||'—')}</td>
           <td class="mono">${esc(s.batch||'—')}</td>
           ${ocultarStockOperador()?'':`<td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>`}
+          <td>${claseAbcBadge(s.clase_abc)}</td>
         </tr>`;
         }).join('')}</tbody>
       </table></div>
@@ -4869,12 +4918,12 @@ function renderBuscar(){
     ` : ''}
     <div class="card">
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Batch</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Batch</th><th>Descripción</th><th>Ubic. general</th><th class="num">Contado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Ciclo</th><th class="num">Fotos</th><th>Clase</th></tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
           return `<tr>
-            <td class="mono">${esc(r.sku_code)}</td>
+            <td class="mono">${esc(r.sku_code)}${r.critico?`<div style="margin-top:3px">${criticoBadge()}</div>`:''}</td>
             <td class="mono">${esc(r.batch||'—')}</td>
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
@@ -4889,6 +4938,7 @@ function renderBuscar(){
             <td class="num">${fotos.length
               ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`
               : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
+            <td>${claseAbcBadge(r.clase_abc)}</td>
           </tr>`;
         }).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
@@ -6060,6 +6110,7 @@ function bind(){
         storage_bin: document.getElementById('s-bin').value.trim() || null,
         stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
         costo_unitario: document.getElementById('s-costo').value !== '' ? Number(document.getElementById('s-costo').value) : null,
+        critico: document.getElementById('s-critico').checked,
       };
       if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
       if(payload.stock_sistema !== null && payload.stock_sistema < 0){ toast('El stock según sistema no puede ser negativo','err'); return; }
