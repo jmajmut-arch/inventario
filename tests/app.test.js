@@ -192,9 +192,9 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/skus_resumen_abc')){
     const filas = [
-      {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0},
-      {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0},
-      {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0},
+      {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0, skus_contados:1, pct_avance:33.3},
+      {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0, skus_contados:2, pct_avance:28.6},
+      {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0, skus_contados:4, pct_avance:20.0},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -1688,9 +1688,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       {bodega:'Nave Planta', valor_contado:500000, valor_perdidas:-20000, valor_excedentes:10000},
     ],
     resumenAbc: [
-      {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0},
-      {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0},
-      {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0},
+      {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0, skus_contados:1, pct_avance:33.3},
+      {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0, skus_contados:2, pct_avance:28.6},
+      {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0, skus_contados:4, pct_avance:20.0},
     ],
   };
   const htmlDashExactitud = ctx.renderDashboard();
@@ -1722,16 +1722,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashExactitud.includes('Clase B') && htmlDashExactitud.includes('Clase C'), 'debe mostrar las tres clases, obtuvo: '+htmlDashExactitud);
   assert(!htmlDashExactitud.includes('Sin clasificar'), 'sin SKU sin clasificar en los datos, esa tarjeta no debe aparecer, obtuvo: '+htmlDashExactitud);
 
+  // % de conteo por clase (a pedido de Joel): sobre el ciclo actual, mismo criterio que
+  // avance_total -- ya viene calculado desde skus_resumen_abc (skus_contados/pct_avance).
+  assert(/Clase A[\s\S]{0,500}33\.3% contado/.test(htmlDashExactitud), 'la tarjeta de Clase A debe mostrar su % contado, obtuvo: '+htmlDashExactitud);
+  assert(/Clase B[\s\S]{0,500}28\.6% contado/.test(htmlDashExactitud), 'la tarjeta de Clase B debe mostrar su % contado, obtuvo: '+htmlDashExactitud);
+  assert(/Clase C[\s\S]{0,500}20% contado/.test(htmlDashExactitud), 'la tarjeta de Clase C debe mostrar su % contado, obtuvo: '+htmlDashExactitud);
+
   // Con SKU sin costo cargado (clase_abc devuelto como "Sin clasificar" desde skus_resumen_abc),
-  // debe verse su propia tarjeta, sin inventarle un % de valor (no aporta valor calculable).
+  // debe verse su propia tarjeta, sin inventarle un % de valor (no aporta valor calculable), pero
+  // sí con su propio % contado (el avance de conteo no depende de tener costo cargado).
   ctx.__appstate.dash = { ...ctx.__appstate.dash, resumenAbc: [
-    {clase_abc:'A', cantidad_sku:3, pct_sku:60.0, valor_total:8000000, pct_valor:100.0},
-    {clase_abc:'Sin clasificar', cantidad_sku:2, pct_sku:40.0, valor_total:0, pct_valor:0},
+    {clase_abc:'A', cantidad_sku:3, pct_sku:60.0, valor_total:8000000, pct_valor:100.0, skus_contados:3, pct_avance:100.0},
+    {clase_abc:'Sin clasificar', cantidad_sku:2, pct_sku:40.0, valor_total:0, pct_valor:0, skus_contados:0, pct_avance:0},
   ]};
   const htmlDashSinClasificar = ctx.renderDashboard();
   assert(htmlDashSinClasificar.includes('Sin clasificar') && htmlDashSinClasificar.includes('40% del catálogo'), 'debe mostrar la tarjeta "Sin clasificar" con su % del catálogo, obtuvo: '+htmlDashSinClasificar);
-  const filaSinClasificar = htmlDashSinClasificar.slice(htmlDashSinClasificar.indexOf('Sin clasificar'), htmlDashSinClasificar.indexOf('Sin clasificar')+300);
+  const filaSinClasificar = htmlDashSinClasificar.slice(htmlDashSinClasificar.indexOf('Sin clasificar'), htmlDashSinClasificar.indexOf('Sin clasificar')+500);
   assert(!filaSinClasificar.includes('% del valor'), 'la tarjeta "Sin clasificar" no debe mostrar % del valor (no se le puede calcular), obtuvo: '+filaSinClasificar);
+  assert(filaSinClasificar.includes('0% contado'), 'la tarjeta "Sin clasificar" también debe mostrar su % contado, obtuvo: '+filaSinClasificar);
 
   // Sin datos de exactitud (empresa recién empezando), no debe mostrarse el ranking ni el top ni la valorización.
   ctx.__appstate.dash = { ...ctx.__appstate.dash, exactitudBodega: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], resumenAbc: [] };
