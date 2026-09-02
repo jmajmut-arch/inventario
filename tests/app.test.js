@@ -1925,6 +1925,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(vecesOperativo===1, 'en modo Operativo, la sección de estado general debe aparecer una sola vez, obtuvo '+vecesOperativo+' apariciones');
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
+  // ===== Filtro de criticidad ("un filtro que permita separar los críticos y el resto", a
+  // pedido de Joel): ''=todos, 'criticos'=solo críticos, 'no_criticos'=solo no críticos. Se aplica
+  // en el WHERE base del RPC (no como un balde aparte), así total_activo también queda acotado al
+  // grupo elegido -- si no, "de tus X SKU..." mostraría el total general aunque el desglose de
+  // abajo esté mirando solo los críticos. =====
+  resumenGeneralSkusFixture = {total_activo:908, no_contado:905, cuadrado:2, con_diferencia:1, pendiente:0};
+  ctx.__appstate.resumenGeneral = {fechaDesde:'', fechaHasta:'', criticidad:'criticos', tipoGrafico:'torta', datos:null, cargando:false};
+  calls.length = 0;
+  await ctx.cargarResumenGeneralSkus();
+  const rpcCriticos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  assert(JSON.parse(rpcCriticos.opts.body).p_criticidad==='criticos', 'con "Solo críticos" elegido, el RPC debe recibir p_criticidad="criticos", obtuvo: '+rpcCriticos.opts.body);
+  const htmlCriticos = ctx.renderResumenGeneralSkus();
+  assert(htmlCriticos.includes('id="rg-criticidad"') && htmlCriticos.includes('value="criticos" selected'), 'debe mostrar el selector de criticidad con "Solo críticos" seleccionado, obtuvo: '+htmlCriticos);
+  assert(htmlCriticos.includes('908') && htmlCriticos.includes('SKU críticos'), 'con el filtro activo, el total mostrado debe ser el del grupo filtrado (908 críticos), no el general, obtuvo: '+htmlCriticos);
+
+  resumenGeneralSkusFixture = {total_activo:57808, no_contado:57786, cuadrado:14, con_diferencia:8, pendiente:0};
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, criticidad:'no_criticos'};
+  calls.length = 0;
+  await ctx.cargarResumenGeneralSkus();
+  const rpcNoCriticos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  assert(JSON.parse(rpcNoCriticos.opts.body).p_criticidad==='no_criticos', 'con "Solo no críticos" elegido, el RPC debe recibir p_criticidad="no_criticos", obtuvo: '+rpcNoCriticos.opts.body);
+  const htmlNoCriticos = ctx.renderResumenGeneralSkus();
+  assert(htmlNoCriticos.includes('id="rg-criticidad"') && htmlNoCriticos.includes('value="no_criticos" selected'), 'debe mostrar "Solo no críticos" seleccionado, obtuvo: '+htmlNoCriticos);
+  assert(htmlNoCriticos.includes('57.808') && htmlNoCriticos.includes('SKU no críticos'), 'con "Solo no críticos", el total mostrado debe ser el del grupo filtrado, obtuvo: '+htmlNoCriticos);
+
+  resumenGeneralSkusFixture = {total_activo:58716, no_contado:58691, cuadrado:16, con_diferencia:9, pendiente:0};
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, criticidad:''};
+  calls.length = 0;
+  await ctx.cargarResumenGeneralSkus();
+  const rpcTodos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  assert(JSON.parse(rpcTodos.opts.body).p_criticidad===null, 'sin criticidad elegida ("Todos"), el RPC debe recibir p_criticidad=null, obtuvo: '+rpcTodos.opts.body);
+
   // El rango de fechas filtra CUÁNDO se contó -- viaja como el mismo instante (timestamptz) que
   // usa Buscar, no como fecha simple (ver instantesFiltroFecha: correctness fix ya aplicado esta
   // sesión para el RPC contar_busqueda_skus, reusado acá). "No contado" nunca cambia con el
