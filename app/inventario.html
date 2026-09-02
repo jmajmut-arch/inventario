@@ -376,6 +376,10 @@ let state = {
   contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null, desdeCache: false },
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [], diferenciasRecientes: [], resumenAbc: [] },
+  // Resumen general del Dashboard ("Estado del maestro"): estado de TODO el maestro de SKU activo
+  // (no solo el ciclo actual, a diferencia de Adherencia al plan) -- a pedido de Joel. El rango de
+  // fechas es opcional y filtra CUÁNDO se contó (no aplica a "no_contado", que no tiene fecha).
+  resumenGeneral: { fechaDesde:'', fechaHasta:'', tipoGrafico:'torta', datos:null, cargando:false },
   ultimosConteos: [],
   ultimosConteosHayMas: false,
   ultimosConteosCargandoMas: false,
@@ -1036,7 +1040,7 @@ function manejarSesionInvalida(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()]);
+  await Promise.all([cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()]);
 }
 
 async function cargarSkus(){
@@ -2011,6 +2015,27 @@ async function cargarDashboard(){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Parámetros para el RPC resumen_general_skus -- mismo helper de fechas que usa Buscar
+// (instantesFiltroFecha), sobre el rango propio de esta sección.
+function parametrosResumenGeneralSkus(){
+  const { desde, hasta } = instantesFiltroFecha(state.resumenGeneral.fechaDesde, state.resumenGeneral.fechaHasta);
+  return { p_fecha_desde: desde, p_fecha_hasta: hasta };
+}
+
+// Estado general del maestro completo de SKU (Dashboard) -- independiente de cargarDashboard
+// (que trae varias tablas y gráficos del ciclo/período actual) para poder recargar solo esto
+// cuando cambia el rango de fechas, sin repetir el resto de las consultas del panel.
+async function cargarResumenGeneralSkus(){
+  setState({resumenGeneral: {...state.resumenGeneral, cargando:true}});
+  try{
+    const filas = await rest('/rpc/resumen_general_skus', {method:'POST', body: parametrosResumenGeneralSkus()});
+    setState({resumenGeneral: {...state.resumenGeneral, datos: (filas&&filas[0])||null, cargando:false}});
+  }catch(e){
+    setState({resumenGeneral: {...state.resumenGeneral, cargando:false}});
+    toast(e.message,'err');
+  }
+}
+
 // Igual que el resto de las métricas del dashboard ejecutivo (avance_total, exactitud_por_bodega,
 // etc.): se acota al ciclo de conteo actual, no a todo el histórico — si no, "Conteos recientes"
 // termina mostrando siempre el límite de la página (TAM_PAGINA_LISTA) aunque esos conteos sean de
@@ -2105,14 +2130,22 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
 // exactos a partir de la medianoche LOCAL de cada fecha -- compartido entre construirPathBusqueda
 // (filtra las filas) y construirParametrosBusquedaRpc (cuenta el total): ambos deben comparar
 // exactamente el mismo instante, o el total mostrado no calzaría con las filas que trae la tabla.
-function instantesFiltroFechaBusqueda(){
-  const desde = state.busqueda.fechaDesde ? new Date(state.busqueda.fechaDesde+'T00:00:00').toISOString() : null;
+// Convierte un rango de fechas (calendario, strings "YYYY-MM-DD") en los instantes UTC exactos a
+// partir de la medianoche LOCAL de cada fecha -- usado por Buscar (construirPathBusqueda /
+// construirParametrosBusquedaRpc) y por el resumen general del Dashboard
+// (parametrosResumenGeneralSkus): todos deben comparar exactamente el mismo instante, o lo que
+// muestran no calzaría entre sí.
+function instantesFiltroFecha(fechaDesde, fechaHasta){
+  const desde = fechaDesde ? new Date(fechaDesde+'T00:00:00').toISOString() : null;
   let hasta = null;
-  if(state.busqueda.fechaHasta){
-    const siguienteDia = fechaISO(sumarDias(new Date(state.busqueda.fechaHasta+'T00:00:00'), 1));
+  if(fechaHasta){
+    const siguienteDia = fechaISO(sumarDias(new Date(fechaHasta+'T00:00:00'), 1));
     hasta = new Date(siguienteDia+'T00:00:00').toISOString();
   }
   return { desde, hasta };
+}
+function instantesFiltroFechaBusqueda(){
+  return instantesFiltroFecha(state.busqueda.fechaDesde, state.busqueda.fechaHasta);
 }
 
 // Parámetros para el RPC contar_busqueda_skus -- mismo contrato de filtros que construirPathBusqueda
@@ -2973,7 +3006,7 @@ async function sincronizarColaOffline(){
   state.sincronizandoOffline = false;
   if(enviados>0){
     toast(`${enviados} cambio${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
-    cargarDashboard(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
+    cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
   }
   render();
 }
@@ -2991,7 +3024,7 @@ async function reintentarAccionOffline(id){
   if(resultado.ok){
     quitarDeColaOffline(id);
     toast(item.tipo==='sku' ? 'SKU sincronizado' : 'Conteo sincronizado');
-    cargarDashboard(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
+    cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
   }else if(resultado.red){
     toast('Sigue sin haber conexión','err');
   }else{
@@ -3166,7 +3199,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     toast('Conteo registrado');
     setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
-    cargarDashboard(); cargarUltimosConteos(); cargarReconteos();
+    cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
     // Sin conexión de verdad (no un error del servidor): guardamos el conteo (y sus
     // fotos, en IndexedDB) en este dispositivo y lo enviamos apenas vuelva la señal,
@@ -4434,8 +4467,59 @@ function renderDashboard(){
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
+    ${renderResumenGeneralSkus()}
     ${modo==='operativo'? renderAdherenciaPlan() : ''}
     ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
+  `;
+}
+
+// Estado general del maestro completo de SKU activo (ver cargarResumenGeneralSkus) -- a
+// diferencia de "Adherencia al plan" (acotada al período elegido), esto mira TODOS los SKU
+// activos sin importar el ciclo. Visible en ambos modos del Dashboard (Ejecutivo/Operativo): es
+// una foto del maestro completo, no algo propio de uno u otro. El rango de fechas es opcional y
+// filtra CUÁNDO se contó -- no aplica a "No contado", que no tiene fecha con qué compararse.
+function renderResumenGeneralSkus(){
+  const g = state.resumenGeneral;
+  const d = g.datos;
+  const datosGrafico = d? [
+    {dia:'No contado', n:d.no_contado},
+    {dia:'Cuadrado', n:d.cuadrado},
+    {dia:'Diferencia', n:d.con_diferencia},
+    {dia:'Pendiente', n:d.pendiente},
+  ] : [];
+  const hayRango = !!(g.fechaDesde || g.fechaHasta);
+  const sumaVisible = d? d.no_contado + d.cuadrado + d.con_diferencia + d.pendiente : 0;
+  const fueraDeRango = d? Math.max(0, d.total_activo - sumaVisible) : 0;
+
+  return `
+    <div class="section-head" style="margin:18px 0 8px"><div><span class="eyebrow">Todo el maestro</span><h2 style="font-size:17px">Estado general de SKU ${campoConInfo('Sobre TODOS los SKU activos, sin importar el ciclo o período (a diferencia del resumen de avance por plan, más abajo, que solo mira lo elegido). El rango de fechas filtra cuándo se contó; no afecta a "No contado".')}</h2></div></div>
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <div style="flex:1;min-width:130px">
+          <label for="rg-fecha-desde">Contado desde</label>
+          <input type="date" id="rg-fecha-desde" value="${esc(g.fechaDesde||'')}">
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label for="rg-fecha-hasta">Contado hasta</label>
+          <input type="date" id="rg-fecha-hasta" value="${esc(g.fechaHasta||'')}">
+        </div>
+        <div class="segmented" style="flex:none">
+          <button type="button" class="segmented-btn ${g.tipoGrafico==='torta'?'active':''}" data-resumen-grafico="torta">Torta</button>
+          <button type="button" class="segmented-btn ${g.tipoGrafico==='barras'?'active':''}" data-resumen-grafico="barras">Barras</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      ${g.cargando? `<div class="empty"><span class="spinner"></span> Cargando…</div>` :
+        !d? `<div class="empty">Sin datos todavía.</div>` : `
+        <div class="hint" style="margin-bottom:10px">De tus <strong style="color:var(--text)">${d.total_activo.toLocaleString('es-CL')}</strong> SKU activos${hayRango? `, ${d.no_contado.toLocaleString('es-CL')} nunca contados (no cambia con el rango elegido)`:''}.</div>
+        ${g.tipoGrafico==='torta'
+          ? renderPieChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2.dia)
+          : renderBarChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2, true, true)}
+        ${renderLeyendaColores(datosGrafico.map(d2=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', `${d2.dia} (${d2.n.toLocaleString('es-CL')})`]))}
+        ${hayRango && fueraDeRango>0? `<div class="hint" style="margin-top:10px">${fueraDeRango.toLocaleString('es-CL')} SKU contados fuera del rango elegido no aparecen en el gráfico (siguen contados, solo que no dentro de esta ventana de fechas).</div>` : ''}
+      `}
+    </div>
   `;
 }
 
@@ -6294,6 +6378,22 @@ function bind(){
     if(btnDashMaterialesNext) btnDashMaterialesNext.addEventListener('click', avanzarPaginaMateriales);
     const btnExportarInforme = document.getElementById('btn-exportar-informe');
     if(btnExportarInforme) btnExportarInforme.addEventListener('click', imprimirInformeCiclo);
+    // Estado general de SKU (ver renderResumenGeneralSkus): el tipo de gráfico es puramente
+    // client-side (no vuelve a pedir datos); el rango de fechas sí, porque cambia el filtro que
+    // ve el RPC resumen_general_skus.
+    document.querySelectorAll('[data-resumen-grafico]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({resumenGeneral: {...state.resumenGeneral, tipoGrafico: btn.dataset.resumenGrafico}}));
+    });
+    const rgFechaDesde = document.getElementById('rg-fecha-desde');
+    const rgFechaHasta = document.getElementById('rg-fecha-hasta');
+    if(rgFechaDesde) rgFechaDesde.addEventListener('change', e=>{
+      state.resumenGeneral = {...state.resumenGeneral, fechaDesde: e.target.value};
+      cargarResumenGeneralSkus();
+    });
+    if(rgFechaHasta) rgFechaHasta.addEventListener('change', e=>{
+      state.resumenGeneral = {...state.resumenGeneral, fechaHasta: e.target.value};
+      cargarResumenGeneralSkus();
+    });
   }
 
   if(state.view==='skus'){
