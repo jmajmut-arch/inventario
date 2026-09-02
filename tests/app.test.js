@@ -24,6 +24,7 @@ let cicloActualRpcRespuesta = null;
 let autoservicioRespuesta = { error: null };
 let conteosExportablesFixture = [];
 let skusBusquedaFixture = null;
+let resumenGeneralSkusFixture = null;
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
@@ -206,6 +207,13 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/rpc/diferencias_recientes')){
     const filas = [ {sin_diferencia:9, con_diferencia:1} ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Estado general de SKU (Dashboard, ver cargarResumenGeneralSkus/renderResumenGeneralSkus):
+  // un count(*) con FILTER agregado, PostgREST lo devuelve como un array de una sola fila (misma
+  // forma que ranking_responsable/diferencias_recientes, no un escalar).
+  if(path.startsWith('/rest/v1/rpc/resumen_general_skus')){
+    const filas = [ resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, pendiente:2} ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/skus_resumen_abc')){
@@ -1879,6 +1887,68 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const vecesAdherenciaOperativo = htmlOrdenOperativo.split('id="dash-periodo"').length - 1;
   assert(vecesAdherenciaOperativo===1, 'en modo Operativo, la sección de Adherencia debe seguir apareciendo (una sola vez), obtuvo '+vecesAdherenciaOperativo+' apariciones');
   ctx.__appstate.dashboardModo = 'ejecutivo';
+
+  // ===== Estado general de SKU (Dashboard, a pedido de Joel: "siento que falta ver resúmenes de
+  // contado, pendiente, etc" sobre TODO el maestro completo, no solo el ciclo actual o lo que
+  // trae Buscar) -- ver cargarResumenGeneralSkus/renderResumenGeneralSkus. =====
+  resumenGeneralSkusFixture = {total_activo:58716, no_contado:58691, cuadrado:16, con_diferencia:9, pendiente:0};
+  ctx.__appstate.resumenGeneral = {fechaDesde:'', fechaHasta:'', tipoGrafico:'torta', datos:null, cargando:false};
+  calls.length = 0;
+  await ctx.cargarResumenGeneralSkus();
+  const resumenGeneralCall = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  assert(!!resumenGeneralCall && resumenGeneralCall.opts.method==='POST', 'cargarResumenGeneralSkus debe llamar al RPC resumen_general_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const bodyResumenGeneral = JSON.parse(resumenGeneralCall.opts.body);
+  assert(bodyResumenGeneral.p_fecha_desde===null && bodyResumenGeneral.p_fecha_hasta===null, 'sin rango de fechas elegido, el RPC debe recibir ambos límites en null, obtuvo: '+JSON.stringify(bodyResumenGeneral));
+  assert(!!ctx.__appstate.resumenGeneral.datos && ctx.__appstate.resumenGeneral.datos.total_activo===58716 && ctx.__appstate.resumenGeneral.cargando===false, 'cargarResumenGeneralSkus debe dejar la fila que devuelve el RPC en state.resumenGeneral.datos, obtuvo: '+JSON.stringify(ctx.__appstate.resumenGeneral));
+
+  const htmlResumenGeneral = ctx.renderResumenGeneralSkus();
+  assert(htmlResumenGeneral.includes('Estado general de SKU'), 'debe mostrar el título de la sección, obtuvo: '+htmlResumenGeneral);
+  assert(htmlResumenGeneral.includes('58.716') && htmlResumenGeneral.includes('No contado (58.691)') && htmlResumenGeneral.includes('Cuadrado (16)') && htmlResumenGeneral.includes('Diferencia (9)') && htmlResumenGeneral.includes('Pendiente (0)'), 'debe mostrar el total activo y el desglose por estado con sus valores reales, obtuvo: '+htmlResumenGeneral);
+  assert(!htmlResumenGeneral.includes('nunca contados'), 'sin rango de fechas elegido, no debe mostrar la aclaración sobre "No contado", obtuvo: '+htmlResumenGeneral);
+  // Torta por defecto: círculo/arcos (<path>/<circle>), nunca barras (<rect>).
+  assert(!htmlResumenGeneral.includes('<rect'), 'con tipoGrafico=torta no debe dibujar barras (<rect>), obtuvo: '+htmlResumenGeneral);
+  assert(htmlResumenGeneral.includes('<circle') || htmlResumenGeneral.includes('<path'), 'con tipoGrafico=torta debe dibujar la torta (<circle> o <path>), obtuvo: '+htmlResumenGeneral);
+
+  // Alternar a "Barras" es puramente client-side (ver bind(): el click en data-resumen-grafico
+  // solo cambia tipoGrafico, sin volver a pedir datos al servidor).
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, tipoGrafico:'barras'};
+  const htmlResumenGeneralBarras = ctx.renderResumenGeneralSkus();
+  assert(htmlResumenGeneralBarras.includes('<rect'), 'con tipoGrafico=barras debe dibujar barras (<rect>), obtuvo: '+htmlResumenGeneralBarras);
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, tipoGrafico:'torta'};
+
+  // Visible en ambos modos del Dashboard (Ejecutivo/Operativo) -- es una foto del maestro
+  // completo, no algo propio de uno u otro -- sin duplicarse en ninguno.
+  const vecesEjecutivo = (ctx.renderDashboard().match(/Estado general de SKU/g)||[]).length;
+  assert(vecesEjecutivo===1, 'en modo Ejecutivo, la sección de estado general debe aparecer una sola vez, obtuvo '+vecesEjecutivo+' apariciones');
+  ctx.__appstate.dashboardModo = 'operativo';
+  const vecesOperativo = (ctx.renderDashboard().match(/Estado general de SKU/g)||[]).length;
+  assert(vecesOperativo===1, 'en modo Operativo, la sección de estado general debe aparecer una sola vez, obtuvo '+vecesOperativo+' apariciones');
+  ctx.__appstate.dashboardModo = 'ejecutivo';
+
+  // El rango de fechas filtra CUÁNDO se contó -- viaja como el mismo instante (timestamptz) que
+  // usa Buscar, no como fecha simple (ver instantesFiltroFecha: correctness fix ya aplicado esta
+  // sesión para el RPC contar_busqueda_skus, reusado acá). "No contado" nunca cambia con el
+  // rango, y se avisa cuando queda gente contada fuera de la ventana elegida.
+  resumenGeneralSkusFixture = {total_activo:58716, no_contado:58691, cuadrado:3, con_diferencia:1, pendiente:0};
+  ctx.__appstate.resumenGeneral = {fechaDesde:'2026-08-20', fechaHasta:'2026-08-25', tipoGrafico:'torta', datos:null, cargando:false};
+  calls.length = 0;
+  await ctx.cargarResumenGeneralSkus();
+  const rpcConRango = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  const bodyConRango = JSON.parse(rpcConRango.opts.body);
+  const desdeEsperadoResumen = new Date('2026-08-20T00:00:00').toISOString();
+  const hastaEsperadoResumen = new Date('2026-08-26T00:00:00').toISOString();
+  assert(bodyConRango.p_fecha_desde===desdeEsperadoResumen && bodyConRango.p_fecha_hasta===hastaEsperadoResumen, 'con un rango de fechas elegido, el RPC debe recibir el instante exacto (medianoche local a UTC), no la fecha simple, obtuvo: '+JSON.stringify(bodyConRango));
+  const htmlConRango = ctx.renderResumenGeneralSkus();
+  assert(htmlConRango.includes('58.691 nunca contados (no cambia con el rango elegido)'), 'con un rango elegido, debe explicitar que "No contado" es independiente del rango, obtuvo: '+htmlConRango);
+  assert(htmlConRango.includes('SKU contados fuera del rango elegido no aparecen en el gráfico'), 'cuando el total activo supera lo que se ve en el gráfico (58716 > 3+1+0+58691), debe avisar que hay SKU contados fuera del rango elegido, obtuvo: '+htmlConRango);
+  resumenGeneralSkusFixture = null;
+  ctx.__appstate.resumenGeneral = {fechaDesde:'', fechaHasta:'', tipoGrafico:'torta', datos:null, cargando:false};
+
+  // Estados de carga/vacío.
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, cargando:true, datos:null};
+  assert(ctx.renderResumenGeneralSkus().includes('spinner'), 'mientras carga debe mostrar el spinner, obtuvo: '+ctx.renderResumenGeneralSkus());
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, cargando:false, datos:null};
+  assert(ctx.renderResumenGeneralSkus().includes('Sin datos todavía'), 'sin datos y sin estar cargando, debe mostrar el estado vacío, obtuvo: '+ctx.renderResumenGeneralSkus());
 
   // ===== Ícono "i" con qué considera cada panel del Dashboard (a pedido de Joel: "incluye
   // reconteos", "SKU planificados y no planificados", etc., sin tener que adivinar ni leer el
