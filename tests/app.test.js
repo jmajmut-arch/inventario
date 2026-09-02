@@ -3749,6 +3749,82 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlBuscarConContados.includes('Quién contó') && htmlBuscarConContados.includes('<svg') , 'con resultados contados, la tarjeta "Quién contó" debe mostrarse con su gráfico, obtuvo: '+htmlBuscarConContados);
   assert(htmlBuscarConContados.includes('Ana Torres (1)') && htmlBuscarConContados.includes('Diego Muñoz (1)'), 'la leyenda debe mostrar el nombre de cada persona y cuántos contó, obtuvo: '+htmlBuscarConContados);
 
+  // ===== Buscar: filtro interactivo del gráfico "Quién contó" (a pedido de Joel: poder
+  // seleccionar una porción/leyenda y que la tabla de abajo se filtre por esa persona) =====
+  function filaBusquedaFake(sku, contadoPor){
+    return {sku_code:sku, batch:null, descripcion:'X', bodega:'Nave', conteo_id:'c-'+sku, cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:false, ciclo_nombre:null, fotos:[], contado_por:contadoPor};
+  }
+  // 7 personas: Ana(3), Beto(2), Caro(2), Diego(1), Elena(1) quedan en el top 5; Fede(1) y
+  // Gaby(1) caen agrupados en "Otros" (mismo criterio de resumenQuienConto ya probado arriba).
+  const filasQuienContoInteractivo = [
+    ...Array.from({length:3}, (_,i)=>filaBusquedaFake(`SKU-ANA-${i}`, 'Ana')),
+    ...Array.from({length:2}, (_,i)=>filaBusquedaFake(`SKU-BETO-${i}`, 'Beto')),
+    ...Array.from({length:2}, (_,i)=>filaBusquedaFake(`SKU-CARO-${i}`, 'Caro')),
+    filaBusquedaFake('SKU-DIEGO-0', 'Diego'),
+    filaBusquedaFake('SKU-ELENA-0', 'Elena'),
+    filaBusquedaFake('SKU-FEDE-0', 'Fede'),
+    filaBusquedaFake('SKU-GABY-0', 'Gaby'),
+  ];
+  const quienContoInteractivo = ctx.resumenQuienConto(filasQuienContoInteractivo);
+  const otrosEntry = quienContoInteractivo.find(d=>d.nombre==='Otros');
+  assert(!!otrosEntry && JSON.stringify(otrosEntry.nombres.slice().sort())===JSON.stringify(['Fede','Gaby']), 'el bucket "Otros" debe recordar qué nombres agrupa, para poder filtrar por todos ellos, obtuvo: '+JSON.stringify(otrosEntry));
+
+  // nombresParaFiltroContador: resuelve la porción/leyenda seleccionada a los nombres reales de
+  // contador -- una sola persona, o la lista completa cuando se eligió "Otros".
+  assert(JSON.stringify(ctx.nombresParaFiltroContador(quienContoInteractivo, 'Ana'))===JSON.stringify(['Ana']), 'debe resolver a la persona misma cuando no es "Otros", obtuvo: '+JSON.stringify(ctx.nombresParaFiltroContador(quienContoInteractivo, 'Ana')));
+  assert(JSON.stringify(ctx.nombresParaFiltroContador(quienContoInteractivo, 'Otros').slice().sort())===JSON.stringify(['Fede','Gaby']), 'seleccionar "Otros" debe resolver a todas las personas que agrupa, obtuvo: '+JSON.stringify(ctx.nombresParaFiltroContador(quienContoInteractivo, 'Otros')));
+  assert(ctx.nombresParaFiltroContador(quienContoInteractivo, null)===null, 'sin selección no debe filtrar nada, obtuvo: '+ctx.nombresParaFiltroContador(quienContoInteractivo, null));
+
+  // renderPieChart: sin opts.clave, no debe quedar clickeable (compatibilidad con otros usos del
+  // helper); con opts.clave/opts.activo, cada porción queda marcada y las no seleccionadas se
+  // atenúan para resaltar la elegida.
+  const svgSinOpts = ctx.renderPieChart(quienContoInteractivo, 'n', ctx.colorQuienConto, d=>d.nombre);
+  assert(!svgSinOpts.includes('data-porcion-clave'), 'sin opts, el gráfico no debe ser clickeable, obtuvo: '+svgSinOpts);
+  const svgConSeleccion = ctx.renderPieChart(quienContoInteractivo, 'n', ctx.colorQuienConto, d=>d.nombre, {clave:d=>d.nombre, activo:'Ana'});
+  assert(svgConSeleccion.includes('data-porcion-clave="Ana"'), 'con opts.clave, cada porción debe quedar marcada con su nombre, obtuvo: '+svgConSeleccion);
+  assert((svgConSeleccion.match(/opacity:0\.35/g)||[]).length===5, 'con Ana seleccionada, las otras 5 porciones (de 6) deben atenuarse, obtuvo: '+((svgConSeleccion.match(/opacity:0\.35/g)||[]).length));
+  assert(!/data-porcion-clave="Ana"[^>]*opacity:0\.35/.test(svgConSeleccion), 'la porción seleccionada (Ana) no debe atenuarse, obtuvo: '+svgConSeleccion);
+
+  // renderLeyendaColores: mismo criterio -- sin clave no es clickeable; con clave, el ítem activo
+  // se distingue del resto (que se atenúa).
+  const leyendaSinClave = ctx.renderLeyendaColores([['var(--steel)','Conteos'], ['var(--amber)','Reconteos']]);
+  assert(!leyendaSinClave.includes('data-porcion-clave') && !leyendaSinClave.includes('role="button"'), 'sin clave, la leyenda no debe ser clickeable, obtuvo: '+leyendaSinClave);
+  const leyendaConSeleccion = ctx.renderLeyendaColores([['var(--steel)','Ana (3)','Ana'], ['var(--amber)','Beto (2)','Beto']], 'Ana');
+  assert(leyendaConSeleccion.includes('data-porcion-clave="Ana"') && leyendaConSeleccion.includes('role="button"'), 'con clave, el ítem debe quedar clickeable y accesible por teclado, obtuvo: '+leyendaConSeleccion);
+  assert(/data-porcion-clave="Beto"[^>]*opacity:0\.5/.test(leyendaConSeleccion), 'el ítem no seleccionado (Beto) debe atenuarse en la leyenda, obtuvo: '+leyendaConSeleccion);
+  assert(!/data-porcion-clave="Ana"[^>]*opacity:0\.5/.test(leyendaConSeleccion), 'el ítem seleccionado (Ana) no debe atenuarse en la leyenda, obtuvo: '+leyendaConSeleccion);
+
+  // toggleFiltroContadoPor: un clic filtra por esa persona; un segundo clic sobre la misma
+  // persona quita el filtro (toggle); un clic sobre otra persona reemplaza la selección.
+  ctx.__appstate.busqueda.filtroContadoPor = null;
+  ctx.toggleFiltroContadoPor('Ana');
+  assert(ctx.__appstate.busqueda.filtroContadoPor==='Ana', 'un clic debe fijar el filtro en esa persona, obtuvo: '+ctx.__appstate.busqueda.filtroContadoPor);
+  ctx.toggleFiltroContadoPor('Ana');
+  assert(ctx.__appstate.busqueda.filtroContadoPor===null, 'un segundo clic sobre la misma persona debe quitar el filtro, obtuvo: '+ctx.__appstate.busqueda.filtroContadoPor);
+  ctx.toggleFiltroContadoPor('Beto');
+  assert(ctx.__appstate.busqueda.filtroContadoPor==='Beto', 'un clic sobre otra persona debe reemplazar la selección, obtuvo: '+ctx.__appstate.busqueda.filtroContadoPor);
+
+  // renderBuscar con el filtro activo: la tabla solo debe mostrar las filas de la persona
+  // seleccionada, con el chip "Filtrando por" visible y sin controles de paginación (es un
+  // drill-down sobre lo ya cargado, no una página más).
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: filasQuienContoInteractivo, yaBuscado:true, filtroContadoPor:'Ana', busquedaPagina:0, hayMas:false};
+  const htmlFiltradoAna = ctx.renderBuscar();
+  assert(htmlFiltradoAna.includes('id="btn-quitar-filtro-contador"') && htmlFiltradoAna.includes('Filtrando por'), 'con el filtro activo debe verse el chip "Filtrando por" con su botón para quitarlo, obtuvo: '+htmlFiltradoAna);
+  assert((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length===3, 'filtrando por Ana la tabla debe mostrar solo sus 3 filas, obtuvo: '+((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length));
+  assert(!htmlFiltradoAna.includes('id="buscar-pagina-prev"'), 'con el filtro activo no deben verse los controles de paginación, obtuvo: '+htmlFiltradoAna);
+
+  // Filtrando por "Otros" debe agrupar a Fede y Gaby (los dos que quedaron fuera del top 5).
+  ctx.__appstate.busqueda.filtroContadoPor = 'Otros';
+  const htmlFiltradoOtros = ctx.renderBuscar();
+  assert((htmlFiltradoOtros.match(/<tr>\s*<td/g)||[]).length===2, 'filtrando por "Otros" debe mostrar las filas de Fede y Gaby, obtuvo: '+((htmlFiltradoOtros.match(/<tr>\s*<td/g)||[]).length));
+
+  // Sin filtro, vuelve a verse todo (11 filas, sin paginar porque caben en una sola página de 15)
+  // y el chip desaparece.
+  ctx.__appstate.busqueda.filtroContadoPor = null;
+  const htmlSinFiltroInteractivo = ctx.renderBuscar();
+  assert(!htmlSinFiltroInteractivo.includes('id="btn-quitar-filtro-contador"') && !htmlSinFiltroInteractivo.includes('Filtrando por'), 'sin filtro, el chip no debe mostrarse, obtuvo: '+htmlSinFiltroInteractivo);
+  assert((htmlSinFiltroInteractivo.match(/<tr>\s*<td/g)||[]).length===11, 'sin filtro deben verse las 11 filas cargadas, obtuvo: '+((htmlSinFiltroInteractivo.match(/<tr>\s*<td/g)||[]).length));
+
   // ===== Escáner de códigos: resolución código → SKU y asociación =====
   // (debe ir antes de handleLogout más abajo, que reasigna `state` por completo y deja
   // desactualizada la referencia __appstate capturada al cargar el script — ver nota ahí.)
