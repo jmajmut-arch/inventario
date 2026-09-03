@@ -2409,6 +2409,7 @@ function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud){
     ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
     ['Fecha de conteo', contado ? fmtFechaHora(r.fecha_conteo) : '—'],
     ['Ciclo', r.ciclo_nombre || '—'],
+    ['Observación', r.observacion || '—'],
   ];
   return `
     <div class="print-ficha">
