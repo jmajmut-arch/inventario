@@ -4895,14 +4895,14 @@ function renderCargaPreview(){
       <input type="radio" name="modo-carga" value="complementar" ${modo==='complementar'?'checked':''}>
       <div>
         <div class="nombre">Agregar / complementar</div>
-        <div class="desc">Crea los SKU nuevos y actualiza los que ya existen. No borra ni desactiva nada.</div>
+        <div class="desc">Úsalo para tu carga de todos los días: actualiza stock, costos y ubicaciones. Crea los SKU nuevos y actualiza los que ya existen — nunca borra ni desactiva nada.</div>
       </div>
     </label>
     <label class="opcion-carga ${modo==='reemplazar'?'activo':''}">
       <input type="radio" name="modo-carga" value="reemplazar" ${modo==='reemplazar'?'checked':''}>
       <div>
         <div class="nombre">Reemplazar completo</div>
-        <div class="desc">Este archivo pasa a ser la lista completa de SKU activos: los que ya existían y NO vengan aquí quedarán inactivos (dejan de listarse, pero conservan su historial de conteos).</div>
+        <div class="desc">Para una limpieza puntual — se recomienda 1 vez al mes: además de actualizar, desactiva los SKU que ya no vengan en el maestro de tu ERP. No se borran: dejan de listarse, pero conservan su historial de conteos.</div>
       </div>
     </label>
     ${modo==='reemplazar'? `
