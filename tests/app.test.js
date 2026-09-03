@@ -3854,6 +3854,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const fechaEsperada = ctx.fmtFechaHora('2026-08-11T09:30:00Z');
   assert(htmlReconteoSoh.includes(`antes: 8 · ${fechaEsperada}`), 'con stock_sistema_anterior debe mostrar "antes: 8" junto con cuándo cambió, obtuvo: '+htmlReconteoSoh);
 
+  // ===== Stock por tipo (Bloqueado/Tránsito 1/Tránsito 2/Transferencia, a pedido de Joel):
+  // informativo en Reconteo, se omite entero si el SKU no trae ninguno de los 4 datos.
+  assert(!htmlReconteoFotos.includes('Bloq:') && !htmlReconteoFotos.includes('Trán.') && !htmlReconteoFotos.includes('Transf:'), 'sin datos de stock por tipo no debe mostrarse nada de más, obtuvo: '+htmlReconteoFotos);
+  ctx.__appstate.reconteos = [
+    { id:'rf4', sku_code:'SKU-TIPOS', descripcion:'Con stock por tipo', stock_sistema:20, ultima_cantidad_contada:18, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', fotos:[],
+      stock_bloqueado:3, stock_transito_1:0, stock_transito_2:5, stock_transferencia:2 },
+  ];
+  const htmlReconteoTipos = ctx.renderReconteo();
+  assert(htmlReconteoTipos.includes('Bloq: 3 · Trán. 2: 5 · Transf: 2'), 'debe mostrar los tipos de stock presentes, omitiendo Tránsito 1 (0), obtuvo: '+htmlReconteoTipos);
+
   // etiquetaNumeroConteo: 1 es el conteo original, 2+ son reconteos (numerados desde 1).
   assert(ctx.etiquetaNumeroConteo(1)==='Conteo' && ctx.etiquetaNumeroConteo(2)==='Reconteo 1' && ctx.etiquetaNumeroConteo(3)==='Reconteo 2', 'etiquetaNumeroConteo debe distinguir el conteo original de cada reconteo, obtuvo: '+JSON.stringify([ctx.etiquetaNumeroConteo(1), ctx.etiquetaNumeroConteo(2), ctx.etiquetaNumeroConteo(3)]));
 
