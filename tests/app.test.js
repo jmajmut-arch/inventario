@@ -3725,6 +3725,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const resumenSku = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'skus', datos_antes:{sku_code:'FIL-1001', costo_unitario:1000}, datos_despues:{sku_code:'FIL-1001', costo_unitario:1500}});
   assert(resumenSku==='Costo unitario: 1000 → 1500', 'UPDATE de SKU debe listar los campos auditados que cambiaron, obtuvo: '+resumenSku);
 
+  // Carga masiva de SKU (ver migración registrar_auditoria_skus_masivo, a pedido de Joel: recarga
+  // el maestro "prácticamente todos los días"): el trigger deja UNA fila de auditoria por
+  // sentencia, con {_resumen:true, filas_afectadas:N} en vez del detalle real -- sin manejarlo
+  // aparte, resumenCambioAuditoria intentaría leer sku_code/descripción/etc. ahí y mostraría puros
+  // "—", no cuántas filas fueron.
+  const resumenCargaInsert = ctx.resumenCambioAuditoria({accion:'INSERT', tabla:'skus', datos_despues:{_resumen:true, filas_afectadas:2000}});
+  assert(resumenCargaInsert==='Carga masiva: 2000 SKU cargados de una vez', 'un INSERT masivo debe resumir cuántos SKU se cargaron, obtuvo: '+resumenCargaInsert);
+  const resumenCargaUpdate = ctx.resumenCambioAuditoria({accion:'UPDATE', tabla:'skus', datos_despues:{_resumen:true, filas_afectadas:56087}});
+  assert(resumenCargaUpdate==='Carga masiva: 56087 SKU actualizados de una vez', 'un UPDATE masivo debe resumir cuántos SKU se actualizaron, obtuvo: '+resumenCargaUpdate);
+  const resumenCargaDelete = ctx.resumenCambioAuditoria({accion:'DELETE', tabla:'skus', datos_antes:{_resumen:true, filas_afectadas:120}});
+  assert(resumenCargaDelete==='Carga masiva: 120 SKU eliminados de una vez', 'un DELETE masivo debe resumir cuántos SKU se eliminaron, obtuvo: '+resumenCargaDelete);
+  assert(ctx.identificadorAuditoria({tabla:'skus', datos_despues:{_resumen:true, filas_afectadas:2000}})==='', 'una fila resumen no debe mostrar un sku_code puntual (no hay uno solo), obtuvo: '+JSON.stringify(ctx.identificadorAuditoria({tabla:'skus', datos_despues:{_resumen:true, filas_afectadas:2000}})));
+
   // identificadorAuditoria: además del código de SKU, ahora también identifica quién/cuál
   // registro cambió en personas, empresas y conteos — sin esto "Persona · Modificado" no decía
   // a quién le pasó.
