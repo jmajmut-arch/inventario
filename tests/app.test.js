@@ -576,6 +576,7 @@ function makeEl(id){
     addEventListener(ev,fn){ this.listeners[ev]=this.listeners[ev]||[]; this.listeners[ev].push(fn); },
     dispatch(ev, arg){ (this.listeners[ev]||[]).forEach(fn=>fn(arg||{target:this})); },
     appendChild(child){ this.hijos.push(child); }, remove(){}, focus(){}, reset(){},
+    querySelectorAll(){ return []; },
   };
   return elements[id];
 }
@@ -5191,7 +5192,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // ===== Seleccionar resultados de Buscar y exportarlos a PDF con foto (Joel: "en Buscar, ¿puedo
   // elegir algunos SKU y que me imprima un PDF con el detalle y una foto?") =====
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: [
-    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A'},
+    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A', observacion:'Rodamiento con desgaste visible en el borde'},
     {sku_id:'sku-exp-4', sku_code:'SKU-EXP-4', descripcion:'Nunca contado', bodega:'Nave Mina', ubicacion:null, storage_bin:null, batch:null, critico:false, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[], clase_abc:null},
   ], seleccionados:[], yaBuscado:true};
   const htmlSinSeleccion = ctx.renderBuscar();
@@ -5222,6 +5223,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printBuscarEl.innerHTML.includes('SKU-EXP-1') && printBuscarEl.innerHTML.includes('Rodamiento') && printBuscarEl.innerHTML.includes('Pasillo 2') && printBuscarEl.innerHTML.includes('B-04'), 'el PDF debe traer el detalle del primer seleccionado, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'debe incrustar la foto (la más reciente, a.jpg) resuelta a su URL firmada, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('SKU-EXP-4') && printBuscarEl.innerHTML.includes('Sin foto') && printBuscarEl.innerHTML.includes('No contado'), 'un SKU nunca contado y sin fotos debe avisar "Sin foto" y "No contado" en vez de romperse, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('Rodamiento con desgaste visible en el borde'), 'el PDF debe traer la observación que se llenó en Tomar inventario, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('Diferencia -2'), 'debe mostrar la magnitud real de la diferencia cuando no hay conteo ciego, obtuvo: '+printBuscarEl.innerHTML);
   assert(ctx.__appstate.busqueda.exportandoPdf===false, 'al terminar, exportandoPdf debe quedar en false, obtuvo: '+ctx.__appstate.busqueda.exportandoPdf);
 
