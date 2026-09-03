@@ -5382,8 +5382,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   fallarFirmaConTransform = false;
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
 
-  // Salto de página cada 3 fichas: con 4 seleccionados, el salto debe caer justo después
-  // de la 3ra (antes de la 4ta) y no sobrar ninguno al final.
+  // Salto de página: la 1ra hoja lleva el título ("Detalle de materiales" + el resumen), que
+  // ocupa el espacio de una ficha más, así que solo entran 2 fichas ahí -- desde la 2da hoja en
+  // adelante entran 3. Con 4 seleccionados, el salto debe caer justo después de la 2da (antes
+  // de la 3ra) y no sobrar ninguno al final.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
   const htmlTodosSeleccionados = ctx.renderBuscar();
   assert(htmlTodosSeleccionados.includes('Quitar selección'), 'con los 4 cargados ya seleccionados, el botón debe ofrecer "Quitar selección" en vez de "Seleccionar todos", obtuvo: '+htmlTodosSeleccionados);
@@ -5395,15 +5397,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const sku2Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-2');
   const sku3Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-3');
   assert(saltoPos>-1, 'con 4 seleccionados debe insertar un salto de página, obtuvo: '+printBuscarEl.innerHTML);
-  assert(sku1Pos<saltoPos && sku4Pos<saltoPos && sku2Pos<saltoPos, 'los primeros 3 seleccionados deben quedar antes del salto de página, obtuvo posiciones: '+JSON.stringify({sku1Pos,sku4Pos,sku2Pos,saltoPos}));
-  assert(sku3Pos>saltoPos, 'el 4to seleccionado debe quedar después del salto de página, obtuvo posiciones: '+JSON.stringify({sku3Pos,saltoPos}));
+  assert(sku1Pos<saltoPos && sku4Pos<saltoPos, 'los primeros 2 seleccionados deben quedar antes del salto de página, obtuvo posiciones: '+JSON.stringify({sku1Pos,sku4Pos,saltoPos}));
+  assert(sku2Pos>saltoPos && sku3Pos>saltoPos, 'el 3ro y 4to seleccionado deben quedar después del salto de página, obtuvo posiciones: '+JSON.stringify({sku2Pos,sku3Pos,saltoPos}));
   assert((printBuscarEl.innerHTML.match(/pdf-salto-pagina/g)||[]).length===1, 'con exactamente 4 seleccionados debe haber un solo salto de página, obtuvo: '+printBuscarEl.innerHTML);
 
-  // Con exactamente 3 seleccionados (una hoja completa), no debe sobrar un salto de página al final.
-  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2']};
+  // Con exactamente 2 seleccionados (la 1ra hoja completa, con título), no debe sobrar un salto
+  // de página al final.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
   printBuscarEl.innerHTML = '';
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(!printBuscarEl.innerHTML.includes('pdf-salto-pagina'), 'con exactamente 3 seleccionados (una hoja completa) no debe sobrar un salto de página, obtuvo: '+printBuscarEl.innerHTML);
+  assert(!printBuscarEl.innerHTML.includes('pdf-salto-pagina'), 'con exactamente 2 seleccionados (la 1ra hoja completa) no debe sobrar un salto de página, obtuvo: '+printBuscarEl.innerHTML);
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
 
   // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
