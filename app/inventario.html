@@ -265,6 +265,12 @@ textarea{resize:vertical;min-height:60px;}
 #print-plan{display:none;}
 #print-buscar{display:none;}
 @media print{
+  /* Sin esto, el tamaño de página imprimible depende de los márgenes que cada impresora/diálogo
+     de impresión traiga por defecto (variable) -- eso rompía el "3 por hoja" de Buscar: con
+     márgenes más grandes que los usados al probarlo, 3 fichas no entraban y el navegador cortaba
+     antes de llegar al salto explícito, dejando 1 o 2 por hoja. Fijando el tamaño acá, el área
+     imprimible es siempre la misma sin importar la configuración de quien imprime.  */
+  @page{size:A4;margin:12mm;}
   html,body{background:#fff;}
   #app,#toast-root{display:none;}
   #print-plan{display:block;padding:0;color:#000;background:#fff;}
