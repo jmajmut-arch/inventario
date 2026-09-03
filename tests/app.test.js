@@ -5188,6 +5188,51 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(xlsxEscrituras.length===1 && xlsxEscrituras[0].libro.hojas['Buscar'].length===34, 'debe exportar las 34 filas completas, no solo la primera tanda, obtuvo: '+(xlsxEscrituras[0] && xlsxEscrituras[0].libro.hojas['Buscar'].length));
   skusBusquedaFixture = null;
 
+  // ===== Seleccionar resultados de Buscar y exportarlos a PDF con foto (Joel: "en Buscar, ¿puedo
+  // elegir algunos SKU y que me imprima un PDF con el detalle y una foto?") =====
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: [
+    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A'},
+    {sku_id:'sku-exp-4', sku_code:'SKU-EXP-4', descripcion:'Nunca contado', bodega:'Nave Mina', ubicacion:null, storage_bin:null, batch:null, critico:false, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[], clase_abc:null},
+  ], seleccionados:[], yaBuscado:true};
+  const htmlSinSeleccion = ctx.renderBuscar();
+  assert(!htmlSinSeleccion.includes('id="btn-exportar-buscar-pdf"'), 'sin nada seleccionado, el botón de exportar a PDF no debe verse, obtuvo: '+htmlSinSeleccion);
+  assert(htmlSinSeleccion.includes('class="chk-buscar-fila"') && htmlSinSeleccion.includes('data-sku-id="sku-exp-1"'), 'cada fila debe traer su checkbox de selección con el sku_id, obtuvo: '+htmlSinSeleccion);
+
+  ctx.toggleSeleccionBusqueda('sku-exp-1');
+  assert(JSON.stringify(ctx.__appstate.busqueda.seleccionados)===JSON.stringify(['sku-exp-1']), 'toggleSeleccionBusqueda debe agregar el sku_id a la selección, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.seleccionados));
+  const htmlUnaSeleccion = ctx.renderBuscar();
+  assert(htmlUnaSeleccion.includes('id="btn-exportar-buscar-pdf"') && htmlUnaSeleccion.includes('Exportar 1 seleccionado a PDF'), 'con 1 seleccionado, el botón debe verse con el conteo en singular, obtuvo: '+htmlUnaSeleccion);
+  assert(/data-sku-id="sku-exp-1"[^>]*checked/.test(htmlUnaSeleccion), 'la fila seleccionada debe verse con el checkbox marcado, obtuvo: '+htmlUnaSeleccion);
+
+  ctx.toggleSeleccionTodosBusqueda(['sku-exp-1','sku-exp-4'], true);
+  assert(JSON.stringify(ctx.__appstate.busqueda.seleccionados.slice().sort())===JSON.stringify(['sku-exp-1','sku-exp-4']), 'toggleSeleccionTodosBusqueda(marcar:true) debe agregar todos los ids dados, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.seleccionados));
+  const htmlDosSelecciones = ctx.renderBuscar();
+  assert(htmlDosSelecciones.includes('Exportar 2 seleccionados a PDF'), 'con 2 seleccionados, el botón debe verse en plural, obtuvo: '+htmlDosSelecciones);
+
+  // Genera el PDF (vía impresión del navegador, mismo mecanismo que imprimirPlan/imprimirInformeCiclo):
+  // debe traer el detalle completo de cada seleccionado y resolver la foto más reciente a su URL
+  // firmada; el SKU nunca contado no tiene foto, así que debe avisar "Sin foto" en vez de romperse.
+  const printBuscarEl = makeEl('print-buscar');
+  const printInformeElBusqPrevio = makeEl('print-informe'); printInformeElBusqPrevio.innerHTML = '<h1>basura de un informe anterior</h1>';
+  const printPlanElBusqPrevio = makeEl('print-plan'); printPlanElBusqPrevio.innerHTML = '<h1>basura de un plan anterior</h1>';
+  printCalled = 0;
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(printCalled===1, 'exportarSeleccionadosBusquedaPDF debe llamar a window.print()');
+  assert(printInformeElBusqPrevio.innerHTML==='' && printPlanElBusqPrevio.innerHTML==='', 'debe limpiar los otros contenedores de impresión para no arrastrar un PDF anterior, obtuvo: '+JSON.stringify({informe:printInformeElBusqPrevio.innerHTML, plan:printPlanElBusqPrevio.innerHTML}));
+  assert(printBuscarEl.innerHTML.includes('SKU-EXP-1') && printBuscarEl.innerHTML.includes('Rodamiento') && printBuscarEl.innerHTML.includes('Pasillo 2') && printBuscarEl.innerHTML.includes('B-04'), 'el PDF debe traer el detalle del primer seleccionado, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'debe incrustar la foto (la más reciente, a.jpg) resuelta a su URL firmada, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('SKU-EXP-4') && printBuscarEl.innerHTML.includes('Sin foto') && printBuscarEl.innerHTML.includes('No contado'), 'un SKU nunca contado y sin fotos debe avisar "Sin foto" y "No contado" en vez de romperse, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('Diferencia -2'), 'debe mostrar la magnitud real de la diferencia cuando no hay conteo ciego, obtuvo: '+printBuscarEl.innerHTML);
+  assert(ctx.__appstate.busqueda.exportandoPdf===false, 'al terminar, exportandoPdf debe quedar en false, obtuvo: '+ctx.__appstate.busqueda.exportandoPdf);
+
+  // Conteo ciego: igual que en la tabla de pantalla (estadoBadge con ocultarStockOperador), el PDF
+  // tampoco debe filtrar la magnitud de la diferencia a un operador con conteo ciego activo.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(printBuscarEl.innerHTML.includes('Con diferencia') && !printBuscarEl.innerHTML.includes('Diferencia -2'), 'con conteo ciego activo, el PDF no debe revelar la magnitud de la diferencia, obtuvo: '+printBuscarEl.innerHTML);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+
   // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
   // por fecha_conteo, paginada, mapeada a columnas en español y escrita con XLSX (mockeado
   // arriba: json_to_sheet devuelve las filas tal cual, así se puede inspeccionar qué se exportó). =====

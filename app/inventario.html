@@ -263,6 +263,7 @@ textarea{resize:vertical;min-height:60px;}
 .plan-sku-lista .icon-btn{padding:2px;flex:none;}
 
 #print-plan{display:none;}
+#print-buscar{display:none;}
 @media print{
   html,body{background:#fff;}
   #app,#toast-root{display:none;}
@@ -292,6 +293,20 @@ textarea{resize:vertical;min-height:60px;}
   #print-informe .print-meta{font-size:11px;color:var(--text-dim);margin-bottom:16px;}
   #print-informe .segmented{display:none;}
   #print-informe .section-head,#print-informe .card,#print-informe .tag-card{page-break-inside:avoid;}
+
+  #print-buscar{display:block;padding:0;color:#000;background:#fff;}
+  #print-buscar h1{font-size:17px;margin:0 0 2px;}
+  #print-buscar .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
+  .print-ficha{display:flex;gap:16px;padding:12px 0;border-bottom:1px solid #ccc;page-break-inside:avoid;}
+  .print-ficha:first-of-type{border-top:1px solid #ccc;}
+  .print-ficha-datos{flex:1;min-width:0;}
+  .print-ficha-datos h2{font-size:14px;margin:0 0 6px;font-family:monospace;}
+  .print-ficha-datos table{width:100%;border-collapse:collapse;font-size:10.5px;}
+  .print-ficha-datos th{text-align:left;color:#555;font-weight:normal;padding:2px 8px 2px 0;white-space:nowrap;vertical-align:top;}
+  .print-ficha-datos td{padding:2px 0;}
+  .print-ficha-foto{flex:none;width:130px;height:130px;}
+  .print-ficha-foto img{width:100%;height:100%;object-fit:cover;border:1px solid #ccc;}
+  .print-sin-foto{width:100%;height:100%;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999;text-align:center;}
 }
 </style>
 </head>
@@ -300,6 +315,7 @@ textarea{resize:vertical;min-height:60px;}
 <div id="toast-root"></div>
 <div id="print-plan"></div>
 <div id="print-informe"></div>
+<div id="print-buscar"></div>
 <div id="marca-agua" aria-hidden="true">Joel Majmut</div>
 
 <script>
@@ -406,7 +422,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -2216,7 +2232,7 @@ function irABuscarSku(skuCode){
     view: 'buscar',
     busqueda: {
       texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
-      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null,
+      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, seleccionados:[],
     },
   });
   buscarConteos();
@@ -2355,6 +2371,81 @@ async function exportarBusquedaExcel(){
     toast(`${filas.length} resultado${filas.length===1?'':'s'} exportado${filas.length===1?'':'s'}`);
   }catch(e){ toast(e.message,'err'); }
   setState({busqueda: {...state.busqueda, exportando:false}});
+}
+
+function toggleSeleccionBusqueda(skuId){
+  const actuales = state.busqueda.seleccionados||[];
+  const seleccionados = actuales.includes(skuId) ? actuales.filter(id=>id!==skuId) : actuales.concat(skuId);
+  setState({busqueda:{...state.busqueda, seleccionados}});
+}
+function toggleSeleccionTodosBusqueda(ids, marcar){
+  const actuales = new Set(state.busqueda.seleccionados||[]);
+  ids.forEach(id=> marcar ? actuales.add(id) : actuales.delete(id));
+  setState({busqueda:{...state.busqueda, seleccionados:Array.from(actuales)}});
+}
+
+// Ficha imprimible de un resultado de Buscar: todo su detalle + la foto más reciente del conteo
+// (si tiene) -- a pedido de Joel, para compartir en PDF un puñado de materiales puntuales (ej.
+// evidencia para un reclamo) sin exportar todo Buscar. Respeta el conteo ciego (ver
+// ocultarStockOperador) igual que la tabla en pantalla: un operador con conteo ciego activo no
+// debe filtrarse la magnitud de la diferencia por esta vía tampoco.
+function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud){
+  const contado = !!r.conteo_id;
+  const tieneDiferencia = contado && r.diferencia && Number(r.diferencia)!==0;
+  const estadoTexto = !contado ? 'No contado'
+    : tieneDiferencia ? (ocultarMagnitud ? 'Con diferencia' : `Diferencia ${r.diferencia>0?'+':''}${r.diferencia}`)
+    : r.estado==='pendiente_revision' ? 'Pendiente'
+    : r.estado==='aprobado' ? 'Cuadrado' : (r.estado || 'ok');
+  const filas = [
+    ['Descripción', r.descripcion || '—'],
+    ['Ubicación general', r.bodega || '—'],
+    ['Ubicación específica', r.ubicacion || '—'],
+    ['Storage bin', r.storage_bin || '—'],
+    ['Batch', r.batch || '—'],
+    ['Clase ABC', r.clase_abc || 'Sin clasificar'],
+    ['Crítico', r.critico ? 'Sí' : 'No'],
+    ['Cantidad contada', contado ? r.cantidad_contada : '—'],
+    ['Estado', estadoTexto],
+    ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
+    ['Fecha de conteo', contado ? fmtFechaHora(r.fecha_conteo) : '—'],
+    ['Ciclo', r.ciclo_nombre || '—'],
+  ];
+  return `
+    <div class="print-ficha">
+      <div class="print-ficha-datos">
+        <h2>${esc(r.sku_code)}</h2>
+        <table>${filas.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(String(v))}</td></tr>`).join('')}</table>
+      </div>
+      <div class="print-ficha-foto">${fotoUrl? `<img src="${esc(fotoUrl)}">` : `<div class="print-sin-foto">Sin foto</div>`}</div>
+    </div>
+  `;
+}
+
+async function exportarSeleccionadosBusquedaPDF(){
+  const ids = state.busqueda.seleccionados||[];
+  if(!ids.length) return;
+  const filas = state.busqueda.resultados.filter(r=> ids.includes(r.sku_id));
+  setState({busqueda:{...state.busqueda, exportandoPdf:true}});
+  try{
+    const ocultar = ocultarStockOperador();
+    const fichas = await Promise.all(filas.map(async r=>{
+      const foto = (r.fotos||[])[0];
+      let fotoUrl = null;
+      if(foto){
+        try{ fotoUrl = await crearUrlFirmada(foto.foto_url); }catch(e){ /* sigue sin foto si falla la firma */ }
+      }
+      return fichaBusquedaPDF(r, fotoUrl, ocultar);
+    }));
+    document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-plan').innerHTML = '';
+    document.getElementById('print-buscar').innerHTML = `
+      <h1>Detalle de materiales</h1>
+      <div class="print-meta">${fichas.length} material${fichas.length===1?'':'es'} · Generado ${new Date().toLocaleString('es-CL')}</div>
+      ${fichas.join('')}
+    `;
+    window.print();
+  }catch(e){ toast(e.message,'err'); }
+  setState({busqueda:{...state.busqueda, exportandoPdf:false}});
 }
 
 // Exporta a Excel los conteos de una fecha o rango de fechas (vista conteos_exportables: un
@@ -5310,7 +5401,10 @@ function renderBuscar(){
 
     ${b.yaBuscado? `
     <div class="section-head"><div><h2 style="font-size:15px">${totalConocido?totalReal:`${resultados.length}+`} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
-      ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        ${(b.seleccionados||[]).length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar-pdf" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportandoPdf?'disabled':''}>${b.exportandoPdf?'<span class="spinner"></span> Generando…':`${ICONS.download} Exportar ${b.seleccionados.length} seleccionado${b.seleccionados.length===1?'':'s'} a PDF`}</button>` : ''}
+        ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
+      </div>
     </div>
     ${(b.soloConFotos || b.soloFueraDePlan || b.soloCriticos || b.claseAbc || b.fechaDesde || b.fechaHasta) && resultados.length? `
     <div class="card">
@@ -5334,11 +5428,12 @@ function renderBuscar(){
     <div class="card">
       ${(resultados.length && !resultadosFiltrados)? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalReal}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
+        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
           return `<tr>
+            <td><input type="checkbox" class="chk-buscar-fila" data-sku-id="${esc(r.sku_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${(b.seleccionados||[]).includes(r.sku_id)?'checked':''}></td>
             <td class="mono">${esc(r.sku_code)}${r.critico?`<div style="margin-top:3px">${criticoBadge()}</div>`:''}</td>
             <td class="mono">${esc(r.batch||'—')}</td>
             <td>${esc(r.descripcion||'—')}</td>
@@ -5417,6 +5512,8 @@ async function imprimirPlan(){
   })).filter(d=>d.entradas.length);
 
   if(!porDia.length){
+    document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
       <h1>${esc(titulo)}</h1>
       <div class="print-meta">${meta}</div>
@@ -5437,6 +5534,8 @@ async function imprimirPlan(){
         cuerpo += encabezadoEntradaPlan(e) + tablaSkusEntradaPlan(skus);
       }
     }
+    document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
       <h1>${esc(titulo)}</h1>
       <div class="print-meta">${meta}</div>
@@ -5462,6 +5561,7 @@ async function imprimirPlanDelDia(){
 
   if(!cp.entradas.length){
     document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
       <h1>Plan del día</h1>
       <div class="print-meta">${esc(meta)}</div>
@@ -5480,6 +5580,7 @@ async function imprimirPlanDelDia(){
       cuerpo += encabezadoEntradaPlan(e) + tablaSkusEntradaPlan(skus);
     }
     document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
       <h1>Plan del día</h1>
       <div class="print-meta">${esc(meta)}</div>
@@ -5503,6 +5604,7 @@ function imprimirInformeCiclo(){
   const empresaNombre = (state.perfil && state.perfil.empresas && state.perfil.empresas.nombre) || '';
   const metaPartes = [empresaNombre, cicloActual? cicloActual.nombre : 'Sin ciclo asignado', new Date().toLocaleString('es-CL')].filter(Boolean);
   document.getElementById('print-plan').innerHTML = '';
+  document.getElementById('print-buscar').innerHTML = '';
   document.getElementById('print-informe').innerHTML = `
     <h1>Informe de ciclo de conteo</h1>
     <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
@@ -6753,6 +6855,7 @@ function bind(){
         yaBuscado: true,
         busquedaPagina: 0,
         filtroContadoPor: null,
+        seleccionados: [],
       }});
       buscarConteos();
     });
@@ -6787,6 +6890,16 @@ function bind(){
     if(btnQuitarFiltroContador) btnQuitarFiltroContador.addEventListener('click', ()=> setState({busqueda:{...state.busqueda, filtroContadoPor:null}}));
     const btnExportarBuscar = document.getElementById('btn-exportar-buscar');
     if(btnExportarBuscar) btnExportarBuscar.addEventListener('click', exportarBusquedaExcel);
+    const btnExportarBuscarPdf = document.getElementById('btn-exportar-buscar-pdf');
+    if(btnExportarBuscarPdf) btnExportarBuscarPdf.addEventListener('click', exportarSeleccionadosBusquedaPDF);
+    document.querySelectorAll('.chk-buscar-fila').forEach(chk=>{
+      chk.addEventListener('change', ()=> toggleSeleccionBusqueda(chk.dataset.skuId));
+    });
+    const chkBuscarTodos = document.getElementById('chk-buscar-todos');
+    if(chkBuscarTodos) chkBuscarTodos.addEventListener('change', ()=>{
+      const idsPagina = Array.from(document.querySelectorAll('.chk-buscar-fila')).map(c=>c.dataset.skuId);
+      toggleSeleccionTodosBusqueda(idsPagina, chkBuscarTodos.checked);
+    });
   }
 
   if(state.view==='plan'){
