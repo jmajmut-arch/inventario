@@ -1130,7 +1130,9 @@ async function cargarTodo(){
 
 async function cargarSkus(){
   try{
-    const rows = await rest(`/skus?activo=eq.true&order=sku_code.asc&limit=500`);
+    // skus_lectura (no /skus directo): con conteo ciego activo, esta lista alimenta la selección
+    // por código/escáner en Contar -- necesita el mismo enmascarado de stock que el resto.
+    const rows = await rest(`/skus_lectura?activo=eq.true&order=sku_code.asc&limit=500`);
     setState({skus: rows||[]});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1197,7 +1199,7 @@ async function buscarSkusLibre(texto){
   const miPeticion = ++buscadorLibrePeticionId;
   const t = sanearTextoFiltro(texto);
   try{
-    const rows = t? await rest(`/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
+    const rows = t? await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
     state.buscadorLibre = { resultados: rows||[], buscando: false };
     actualizarResultadosBuscadorLibreEnPantalla();
@@ -1214,7 +1216,9 @@ async function buscarSkusLibre(texto){
 async function fetchSkusPagina(page){
   const from = page*SKUS_POR_PAGINA;
   const to = from + SKUS_POR_PAGINA - 1;
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/skus?activo=eq.true&order=sku_code.asc`, {
+  // skus_lectura (no /skus directo): esta tabla la ve también un operador (no es solo-admin, ver
+  // VISTAS_SOLO_ADMIN), así que necesita el mismo enmascarado de stock que el resto.
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc`, {
     headers:{
       'apikey': SUPABASE_ANON_KEY,
       'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
@@ -1536,16 +1540,11 @@ function ocultarStockOperador(){
   return !!(state.perfil && state.perfil.rol==='operador' && state.perfil.empresas && state.perfil.empresas.conteo_ciego_habilitado);
 }
 
-// Umbral para el aviso de "valor atípico" en conteo ciego (ver guardarConteo): como el operador
-// no ve el stock del sistema, esto reemplaza ese chequeo de cordura sin revelar el número real --
-// solo avisa que el valor ingresado se aleja mucho de lo esperado, nunca cuánto es lo esperado.
-const UMBRAL_CONTEO_ATIPICO_PCT = 0.5;
-const UMBRAL_CONTEO_ATIPICO_ABS = 5;
-function esConteoAtipico(cantidad, stockSistema){
-  if(stockSistema===null || stockSistema===undefined) return false;
-  const umbral = Math.max(UMBRAL_CONTEO_ATIPICO_ABS, Math.abs(stockSistema)*UMBRAL_CONTEO_ATIPICO_PCT);
-  return Math.abs(Number(cantidad) - Number(stockSistema)) > umbral;
-}
+// El chequeo de "valor atípico" en conteo ciego (umbral: 5 unidades o 50% del stock, lo que sea
+// mayor) vive ahora en el servidor -- ver verificar_conteo_atipico() (RPC) y su uso en
+// guardarConteo. Antes se calculaba acá mismo contra stock_sistema, pero ese valor ya no le
+// llega al cliente cuando el operador tiene conteo ciego activo (ver skus_lectura/
+// skus_planificables y debe_ocultar_stock_operador()).
 
 /* =======================================================================
    ACCIONES — Super-admin (empresas y personas de cualquier empresa)
@@ -3407,9 +3406,17 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   // Con conteo ciego, la persona no ve el stock del sistema -- este es el reemplazo del chequeo
   // de cordura que antes hacía ella misma al ver un número muy distinto al que tenía en pantalla.
   // Nunca revela cuál es el valor esperado, solo que el ingresado se aleja mucho de lo habitual.
-  if(ocultarStockOperador() && esConteoAtipico(cantidad, state.skuSeleccionado.stock_sistema)){
-    const unidad = state.skuSeleccionado.unidad_medida||'';
-    if(!confirm(`¿Confirmas ${cantidad} ${unidad}? Este valor es bastante distinto de lo habitual para este material.`)) return;
+  // stock_sistema ahora llega enmascarado (null) para un operador con conteo ciego -- ver
+  // skus_lectura/skus_planificables y debe_ocultar_stock_operador() -- así que la comparación se
+  // hace en el servidor (verificar_conteo_atipico), contra el valor real, sin mandarlo nunca acá.
+  if(ocultarStockOperador()){
+    let atipico = false;
+    try{ atipico = !!(await rest('/rpc/verificar_conteo_atipico', {method:'POST', body:{p_sku_id: state.skuSeleccionado.id, p_cantidad: Number(cantidad)}})); }
+    catch(e){ /* si falla la verificación, no se bloquea el guardado -- sigue como si no fuera atípico */ }
+    if(atipico){
+      const unidad = state.skuSeleccionado.unidad_medida||'';
+      if(!confirm(`¿Confirmas ${cantidad} ${unidad}? Este valor es bastante distinto de lo habitual para este material.`)) return;
+    }
   }
   // Momento real en que la persona capturó el conteo (no cuándo termina de guardarse) —
   // fundamental para auditoría cuando se guarda sin conexión y se sincroniza horas después.

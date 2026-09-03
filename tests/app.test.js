@@ -21,6 +21,7 @@ function assert(cond, msg){
 let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
 let tengoOtraSesionActivaRespuesta = false;
 let cicloActualRpcRespuesta = null;
+let verificarConteoAtipicoRespuesta = false;
 let autoservicioRespuesta = { error: null };
 let conteosExportablesFixture = [];
 let skusBusquedaFixture = null;
@@ -45,6 +46,11 @@ const fakeFetchImpl = async (url, opts) => {
     // Función escalar (RETURNS uuid, no TABLE/SETOF): PostgREST devuelve el valor crudo, no
     // envuelto en un array — por defecto sin ciclo actual (null), como mi_estado_bloqueo etc.
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cicloActualRpcRespuesta) };
+  }
+  if(path.startsWith('/rest/v1/rpc/verificar_conteo_atipico')){
+    // Chequeo de cordura de conteo ciego, ahora resuelto en el servidor (ver guardarConteo):
+    // función escalar (RETURNS boolean), valor crudo sin envolver, igual que ciclo_actual.
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(verificarConteoAtipicoRespuesta) };
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -432,7 +438,7 @@ const fakeFetchImpl = async (url, opts) => {
       ]),
     };
   }
-  if(path === '/rest/v1/skus?activo=eq.true&order=sku_code.asc'){
+  if(path === '/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc'){
     const filas = [
       {id:'sku-pag-1', sku_code:'SKU-PAG-1', descripcion:'Con diferencia', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:10},
       {id:'sku-pag-2', sku_code:'SKU-PAG-2', descripcion:'Cuadrado', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:5},
@@ -570,7 +576,7 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
   // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
-  if(path.startsWith('/rest/v1/skus?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
+  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
     const filas = [
       {id:'id-libre-1', sku_code:'FIL-1001', descripcion:'Filtro de aceite', bodega:'Bodega Central', ubicacion:'Pasillo 2', storage_bin:'B-04', stock_sistema:12, unidad_medida:'UN'},
       {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:'Bodega Central', ubicacion:null, storage_bin:null, stock_sistema:3, unidad_medida:'UN'},
@@ -4039,13 +4045,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
   assert(ctx.ocultarStockOperador()===false, 'un admin siempre ve el stock, sin importar el flag, obtuvo: '+ctx.ocultarStockOperador());
 
-  // esConteoAtipico: reemplazo del chequeo de cordura cuando no se ve el stock -- umbral es el
-  // mayor entre 50% del stock o 5 unidades (nunca revela el valor real, solo si es "raro").
-  assert(ctx.esConteoAtipico(5, null)===false, 'sin stock_sistema conocido no hay con qué comparar, nunca es atípico, obtuvo: '+ctx.esConteoAtipico(5,null));
-  assert(ctx.esConteoAtipico(19, 20)===false, 'una diferencia chica (1 de 20) no debe marcarse atípica, obtuvo: '+ctx.esConteoAtipico(19,20));
-  assert(ctx.esConteoAtipico(2, 20)===true, 'una diferencia grande (18 de 20, sobre el 50%) sí debe marcarse atípica, obtuvo: '+ctx.esConteoAtipico(2,20));
-  assert(ctx.esConteoAtipico(4, 0)===false, 'con stock 0, hasta 5 unidades de diferencia no es atípico (umbral mínimo absoluto), obtuvo: '+ctx.esConteoAtipico(4,0));
-  assert(ctx.esConteoAtipico(6, 0)===true, 'con stock 0, más de 5 unidades sí es atípico, obtuvo: '+ctx.esConteoAtipico(6,0));
+  // El chequeo de "valor atípico" (umbral: mayor entre 50% del stock o 5 unidades) ahora se
+  // resuelve en el servidor -- ver verificar_conteo_atipico (RPC) y guardarConteo más abajo.
+  // El umbral en sí (5 / 50%) se verificó por SQL directo contra la base real, no acá.
 
   // Render de Contar: con conteo ciego activo, un operador no debe ver "Stock sistema"; sin
   // el flag, o siendo admin, sí.
@@ -4074,14 +4076,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlContarTiposOperadorSinCiego = ctx.renderConteo();
   assert(htmlContarTiposOperadorSinCiego.includes('Bloq: 3 · Trán. 2: 5 · Transf: 2'), 'con conteo ciego apagado, el operador sí debe ver el stock por tipo, obtuvo: '+htmlContarTiposOperadorSinCiego);
 
-  // guardarConteo + conteo ciego: un valor bien distinto de lo esperado dispara una confirmación
-  // neutra (nunca menciona el valor real) antes de guardar; si cancela, no se guarda.
+  // guardarConteo + conteo ciego: el chequeo de "valor atípico" ahora lo resuelve el servidor
+  // (verificar_conteo_atipico) -- stock_sistema ya no le llega al operador (skus_lectura/
+  // skus_planificables lo enmascaran), así que ya no hay con qué comparar en el cliente.
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
-  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:null, unidad_medida:'UN'};
   ctx.__appstate.conteoOrigenPlan = true;
   ctx.__appstate.conteoFotos = [];
+  verificarConteoAtipicoRespuesta = true;
   confirmRespuesta = false; confirmLlamadas.length = 0; calls.length = 0;
   await ctx.guardarConteo({cantidad:'2', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+  const rpcAtipicoCall = calls.find(c=>c.url.includes('/rpc/verificar_conteo_atipico'));
+  assert(!!rpcAtipicoCall && JSON.parse(rpcAtipicoCall.opts.body).p_sku_id==='sku-001-id' && JSON.parse(rpcAtipicoCall.opts.body).p_cantidad===2, 'debe consultar el chequeo atípico en el servidor con el sku_id y la cantidad ingresada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(confirmLlamadas.length===1 && !/20/.test(confirmLlamadas[0]), 'debe preguntar confirmación sin revelar el valor esperado, obtuvo: '+JSON.stringify(confirmLlamadas));
   assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'si cancela la confirmación, el conteo no debe guardarse, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
@@ -4090,11 +4096,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(confirmLlamadas.length===1, 'si confirma, igual debe haber preguntado antes, obtuvo: '+JSON.stringify(confirmLlamadas));
   assert(calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'si confirma, el conteo debe guardarse, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
-  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:null, unidad_medida:'UN'};
+  verificarConteoAtipicoRespuesta = false;
   confirmLlamadas.length = 0; calls.length = 0;
   await ctx.guardarConteo({cantidad:'19', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
-  assert(confirmLlamadas.length===0, 'un valor cercano a lo habitual no debe disparar la confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(confirmLlamadas.length===0, 'cuando el servidor dice que no es atípico, no debe disparar la confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
   assert(calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'debe guardarse directo sin preguntar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si falla la verificación en el servidor (red, etc.), no debe bloquear el guardado -- sigue
+  // como si no fuera atípico, en vez de dejar a la persona sin poder guardar su conteo.
+  ctx.__appstate.skuSeleccionado = {id:'sku-falla-rpc', sku_code:'SKU-FALLA', descripcion:'X', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:null, unidad_medida:'UN'};
+  const fetchOriginalParaFalla = ctx.fetch;
+  ctx.fetch = async (url, opts) => { if(String(url).includes('/rpc/verificar_conteo_atipico')) throw new TypeError('fallo de red'); return fetchOriginalParaFalla(url, opts); };
+  confirmLlamadas.length = 0; calls.length = 0;
+  await ctx.guardarConteo({cantidad:'2', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+  assert(confirmLlamadas.length===0, 'si falla la verificación del servidor, no debe bloquear con una confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
+  ctx.fetch = fetchOriginalParaFalla;
+  verificarConteoAtipicoRespuesta = false;
 
   ctx.__appstate.skuSeleccionado = null;
   ctx.__appstate.conteoOrigenPlan = false;
@@ -4448,7 +4466,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   await new Promise(resolve=>setTimeout(resolve, 400));
   const callBusquedaLibre = calls.find(c=>c.url.includes('sku_code.ilike.*fil*'));
-  assert(!!callBusquedaLibre && callBusquedaLibre.url.includes('/rest/v1/skus?activo=eq.true'), 'tras el debounce debe consultar /skus (maestro completo) con ilike sobre el texto escrito, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!callBusquedaLibre && callBusquedaLibre.url.includes('/rest/v1/skus_lectura?activo=eq.true'), 'tras el debounce debe consultar /skus_lectura (maestro completo, con el stock ya enmascarado si corresponde) con ilike sobre el texto escrito, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.buscadorLibre.resultados.length===2 && ctx.__appstate.buscadorLibre.resultados[0].sku_code==='FIL-1001', 'debe guardar los resultados que devuelve el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre.resultados));
   assert(ctx.__appstate.buscadorLibre.buscando===false, 'tras responder debe apagar el indicador de "buscando", obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
 
