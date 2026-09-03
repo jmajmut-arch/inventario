@@ -2439,7 +2439,9 @@ function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud){
     ['Storage bin', r.storage_bin || '—'],
     ['Batch', r.batch || '—'],
     ['Clase ABC', r.clase_abc || 'Sin clasificar'],
-    ['Crítico', r.critico ? 'Sí' : 'No'],
+    // La etiqueta "Crítico" va en rojo cuando el material sí lo es, para que salte a la vista
+    // en el PDF igual que el badge ★ Crítico ya lo hace en pantalla (ver criticoBadge()).
+    ['Crítico', r.critico ? 'Sí' : 'No', r.critico],
     ['Cantidad contada', contado ? r.cantidad_contada : '—'],
     ['Estado', estadoTexto],
     ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
@@ -2451,7 +2453,7 @@ function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud){
     <div class="print-ficha">
       <div class="print-ficha-datos">
         <h2>${esc(r.sku_code)}</h2>
-        <table>${filas.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(String(v))}</td></tr>`).join('')}</table>
+        <table>${filas.map(([k,v,destacar])=>`<tr><th${destacar?' style="color:var(--danger);font-weight:600"':''}>${esc(k)}</th><td>${esc(String(v))}</td></tr>`).join('')}</table>
       </div>
       <div class="print-ficha-foto">${fotoUrl? `<img src="${esc(fotoUrl)}">` : `<div class="print-sin-foto">Sin foto</div>`}</div>
     </div>

@@ -5355,6 +5355,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printCalled===1, 'exportarSeleccionadosBusquedaPDF debe llamar a window.print()');
   assert(printInformeElBusqPrevio.innerHTML==='' && printPlanElBusqPrevio.innerHTML==='', 'debe limpiar los otros contenedores de impresión para no arrastrar un PDF anterior, obtuvo: '+JSON.stringify({informe:printInformeElBusqPrevio.innerHTML, plan:printPlanElBusqPrevio.innerHTML}));
   assert(printBuscarEl.innerHTML.includes('SKU-EXP-1') && printBuscarEl.innerHTML.includes('Rodamiento') && printBuscarEl.innerHTML.includes('Pasillo 2') && printBuscarEl.innerHTML.includes('B-04'), 'el PDF debe traer el detalle del primer seleccionado, obtuvo: '+printBuscarEl.innerHTML);
+  // La etiqueta "Crítico" va en rojo solo para el material que sí lo es (SKU-EXP-1); para
+  // SKU-EXP-4 (no crítico) debe quedar sin color especial.
+  assert((printBuscarEl.innerHTML.match(/<th style="color:var\(--danger\);font-weight:600">Crítico<\/th>/g)||[]).length===1, 'debe haber exactamente una etiqueta "Crítico" en rojo (solo SKU-EXP-1 es crítico entre los seleccionados), obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('<th>Crítico</th>'), 'el material no crítico (SKU-EXP-4) debe mostrar la etiqueta "Crítico" sin color especial, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'debe incrustar la foto (la más reciente, a.jpg) resuelta a su URL firmada, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('transform=1'), 'debe pedir la foto redimensionada (Image Transformations) para que el PDF no descargue la foto original de varios MB, obtuvo: '+printBuscarEl.innerHTML);
   assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && JSON.parse(c.opts.body).transform && JSON.parse(c.opts.body).transform.width===400), 'la firma debe pedir un transform con un ancho acotado, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('a.jpg')).map(c=>c.opts.body)));
