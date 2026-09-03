@@ -93,6 +93,10 @@ input,select,textarea{font-family:inherit;}
 
 /* ---------- layout ---------- */
 main{flex:1;max-width:720px;width:100%;margin:0 auto;padding:18px 16px 96px;}
+/* Vistas admin/súper-admin (Dashboard, Planificación, Carga masiva, Períodos, Configuraciones):
+   más contenido tabular y gráficos pensados para pantalla grande -- se ensanchan aparte, sin
+   tocar Contar/Reconteo/Buscar, que siguen angostas a propósito para el celular en terreno. */
+main.ancho{max-width:1180px;}
 .section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 0 10px;}
 .section-head:first-child{margin-top:0;}
 .section-head h2{font-size:22px;margin:0;}
@@ -460,6 +464,13 @@ let state = {
   opcionesBatches: [], // valores de batch/lote ya usados por la empresa (idem)
   opcionesUnidades: [],   // valores de unidad de medida ya usados por la empresa (idem)
   skuFormOpciones: { ubicaciones: [], bins: [] }, // sugerencias de ubicación/bin en "Cargar SKU", en cascada según la bodega/ubicación tipeada
+  // Verificación en dos pasos (MFA/TOTP) -- ver continuarSiHaceFaltaMfa/renderMfaDesafio y
+  // renderSeccionMfa (Configuraciones). mfaDesafio gatea la pantalla completa entre la contraseña
+  // y entrar a la app; mfaFactores/mfaFactoresCargado y mfaEnrolando son propios de Configuraciones.
+  mfaDesafio: null,        // null | {factorId, codigo, verificando, error} mientras se pide el código en el login
+  mfaFactores: [],         // factores TOTP de la cuenta (ver cargarMfaFactores), tal como los devuelve /auth/v1/user
+  mfaFactoresCargado: false,
+  mfaEnrolando: null,      // null | {factorId, qr, secret, guardando, error, cargando} durante el enrolamiento
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo', skus:'SKU' };
@@ -606,6 +617,11 @@ const BODEGA_VACIA = '__bodega_vacia__';
 // tiene acceso — a pedido: se muestran igual (con un candado) en vez de ocultarlas o dejarlas
 // entrar, para que quede claro que la función existe pero es solo para administradores.
 const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos'];
+// Vistas con tablas/gráficos densos pensadas para admin/súper-admin en pantalla grande (ver
+// main.ancho) -- las VISTAS_SOLO_ADMIN de arriba, más Configuraciones (equipo, panel de
+// súper-admin), a diferencia de Contar/Reconteo/Buscar que se usan sobre todo desde el celular
+// en terreno y quedan angostas a propósito.
+const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config'];
 function vistaBloqueadaParaRol(view){
   if(!VISTAS_SOLO_ADMIN.includes(view)) return false;
   if(!state.perfil) return false;
@@ -660,6 +676,38 @@ async function authRequest(path, body){
   const data = await res.json().catch(()=> ({}));
   if(!res.ok){ throw new Error(data.error_description || data.msg || data.error || 'Error de autenticación'); }
   return data;
+}
+
+// Como authRequest, pero para llamadas de MFA (factors/user) que necesitan la sesión ya
+// autenticada (Authorization: Bearer) en vez de solo la apikey, y pueden ser GET/DELETE además
+// de POST -- ver enrolarMfa/enviarCodigoMfaDesafio/desactivarMfa más abajo.
+async function authFetch(path, { method='GET', body=null } = {}){
+  let res;
+  try{
+    res = await fetch(`${SUPABASE_URL}/auth/v1${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${state.session.access_token}` },
+      body: body ? JSON.stringify(body) : null,
+    });
+  }catch(e){
+    if(pareceFalloDeRed(e)) throw new TypeError(MENSAJE_SIN_CONEXION);
+    throw e;
+  }
+  const data = await res.json().catch(()=> ({}));
+  if(!res.ok){ throw new Error(data.error_description || data.msg || data.error || 'Error de autenticación'); }
+  return data;
+}
+
+// Lee el nivel de verificación (aal) del token actual sin llamar al servidor -- viene codificado
+// en el propio JWT (segundo segmento, base64url). 'aal1' = solo contraseña; 'aal2' = ya pasó por
+// un segundo factor. Si algo no calza (token raro, etc.) se asume aal1, el nivel más bajo -- así,
+// ante la duda, se pide el segundo factor en vez de dejar pasar una sesión no verificada.
+function decodeJwtAal(accessToken){
+  try{
+    const payload = accessToken.split('.')[1];
+    const json = JSON.parse(atob(payload.replace(/-/g,'+').replace(/_/g,'/')));
+    return json.aal || 'aal1';
+  }catch(e){ return 'aal1'; }
 }
 
 // Convierte cualquier fallo de la llamada (de red real, o el aborto por timeoutMs de más abajo)
@@ -851,16 +899,55 @@ async function handleLogin(email, password){
     const data = await authRequest('/token?grant_type=password', {email, password});
     state.session = data;
     guardarSesion(data);
-    await cargarPerfil();
-    const otraSesionCerrada = await hayOtraSesionActiva();
-    setState({loading:false, view:vistaInicialParaPerfil()});
-    toast(otraSesionCerrada
-      ? 'Cerramos tu sesión anterior en otro dispositivo.'
-      : `Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
-    cargarTodo();
+    await continuarSiHaceFaltaMfa();
   }catch(e){
     setState({loading:false});
     toast(e.message,'err');
+  }
+}
+
+// Tras la contraseña, revisa si la cuenta tiene un segundo factor (TOTP) ya verificado y la
+// sesión recién obtenida todavía está en aal1 -- en ese caso, en vez de entrar directo, pide el
+// código de la app autenticadora (ver renderMfaDesafio) antes de cargar el perfil. Si falla la
+// consulta de factores (red, etc.) se sigue como si no tuviera MFA activado: un error de red acá
+// no debe dejar a nadie fuera de su propia cuenta.
+async function continuarSiHaceFaltaMfa(){
+  if(decodeJwtAal(state.session.access_token) !== 'aal2'){
+    let factores = [];
+    try{ const usuario = await authFetch('/user'); factores = (usuario && usuario.factors) || []; }catch(e){ /* seguimos como si no tuviera MFA */ }
+    const factorVerificado = factores.find(f=>f.status==='verified');
+    if(factorVerificado){
+      setState({loading:false, mfaDesafio:{factorId:factorVerificado.id, codigo:'', verificando:false, error:null}});
+      return;
+    }
+  }
+  await finalizarLogin();
+}
+
+// Última parte, común a un login sin MFA y a uno que sí pasó por el desafío: carga el perfil y
+// entra a la app. Antes vivía inline al final de handleLogin.
+async function finalizarLogin(){
+  await cargarPerfil();
+  const otraSesionCerrada = await hayOtraSesionActiva();
+  setState({loading:false, view:vistaInicialParaPerfil(), mfaDesafio:null});
+  toast(otraSesionCerrada
+    ? 'Cerramos tu sesión anterior en otro dispositivo.'
+    : `Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
+  cargarTodo();
+}
+
+async function enviarCodigoMfaDesafio(codigo){
+  const d = state.mfaDesafio;
+  if(!d) return;
+  setState({mfaDesafio:{...d, verificando:true, error:null}});
+  try{
+    const desafio = await authFetch(`/factors/${d.factorId}/challenge`, {method:'POST'});
+    const sesion = await authFetch(`/factors/${d.factorId}/verify`, {method:'POST', body:{challenge_id: desafio.id, code: codigo}});
+    state.session = sesion;
+    guardarSesion(sesion);
+    await finalizarLogin();
+  }catch(e){
+    setState({mfaDesafio:{...state.mfaDesafio, verificando:false, error: e.message}});
   }
 }
 
@@ -1100,7 +1187,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]} };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1129,7 +1216,12 @@ function manejarSesionInvalida(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  await Promise.all([cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()]);
+  const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
+  // El checklist de primeros pasos (ver renderChecklistPrimerosPasos) necesita saber si ya hay
+  // equipo invitado -- se pide solo para admin/súper-admin, los únicos que ven el checklist (un
+  // operador nunca llega a Dashboard, ver VISTAS_SOLO_ADMIN).
+  if(state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin)) tareas.push(cargarEquipo());
+  await Promise.all(tareas);
 }
 
 async function cargarSkus(){
@@ -1703,6 +1795,69 @@ async function actualizarPersonaEquipo(id, cambios){
     await rest(`/usuarios?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
     toast(cambios.activo===false ? 'Persona desactivada' : cambios.activo===true ? 'Persona reactivada' : 'Persona actualizada');
     cargarEquipo();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+/* =======================================================================
+   VERIFICACIÓN EN DOS PASOS (MFA/TOTP) -- Configuraciones
+   ======================================================================= */
+// Trae los factores TOTP de la cuenta (verificados o no) desde /auth/v1/user, para mostrar el
+// estado real en renderSeccionMfa. Se pide solo al entrar a Configuraciones (ver bind()), no en
+// cada carga de la app.
+async function cargarMfaFactores(){
+  state.mfaFactoresCargado = true;
+  try{
+    const usuario = await authFetch('/user');
+    setState({mfaFactores: (usuario && usuario.factors) || []});
+  }catch(e){ /* si falla, no se muestra el estado -- no bloquea nada más de Configuraciones */ }
+}
+
+// Paso 1 de 2 del enrolamiento: pide un factor TOTP nuevo (queda "unverified" hasta confirmarlo
+// con un código real, ver confirmarEnrolamientoMfa) y muestra el QR + secreto para escanear.
+async function iniciarEnrolamientoMfa(){
+  setState({mfaEnrolando:{factorId:null, qr:null, secret:null, guardando:false, error:null, cargando:true}});
+  try{
+    const factor = await authFetch('/factors', {method:'POST', body:{factor_type:'totp'}});
+    setState({mfaEnrolando:{factorId:factor.id, qr:(factor.totp&&factor.totp.qr_code)||null, secret:(factor.totp&&factor.totp.secret)||null, guardando:false, error:null, cargando:false}});
+  }catch(e){
+    setState({mfaEnrolando:null});
+    toast(e.message,'err');
+  }
+}
+
+function cancelarEnrolamientoMfa(){
+  const factorId = state.mfaEnrolando && state.mfaEnrolando.factorId;
+  setState({mfaEnrolando:null});
+  // El factor recién creado queda "unverified" en la cuenta si se cancela a mitad de camino --
+  // se borra para no dejar un factor fantasma que confunda un futuro intento de enrolar.
+  if(factorId) authFetch(`/factors/${factorId}`, {method:'DELETE'}).catch(()=>{});
+}
+
+// Paso 2 de 2: confirma que la persona sí configuró bien su app autenticadora. Si el código es
+// válido, el factor pasa a "verified" y queda activo desde ya -- de paso sube la sesión actual a
+// aal2 (la respuesta de /verify es una sesión nueva, igual que al iniciar sesión).
+async function confirmarEnrolamientoMfa(codigo){
+  const en = state.mfaEnrolando;
+  if(!en || !en.factorId) return;
+  setState({mfaEnrolando:{...en, guardando:true, error:null}});
+  try{
+    const desafio = await authFetch(`/factors/${en.factorId}/challenge`, {method:'POST'});
+    const sesion = await authFetch(`/factors/${en.factorId}/verify`, {method:'POST', body:{challenge_id: desafio.id, code: codigo}});
+    if(sesion && sesion.access_token){ state.session = sesion; guardarSesion(sesion); }
+    setState({mfaEnrolando:null});
+    toast('Verificación en dos pasos activada');
+    await cargarMfaFactores();
+  }catch(e){
+    setState({mfaEnrolando:{...state.mfaEnrolando, guardando:false, error: e.message}});
+  }
+}
+
+async function desactivarMfa(factorId){
+  if(!confirm('¿Desactivar la verificación en dos pasos? Tu cuenta volverá a pedir solo la contraseña la próxima vez que inicies sesión.')) return;
+  try{
+    await authFetch(`/factors/${factorId}`, {method:'DELETE'});
+    toast('Verificación en dos pasos desactivada');
+    await cargarMfaFactores();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -3810,6 +3965,33 @@ function renderIngresarCodigo(){
   </div>`;
 }
 
+// Pantalla intermedia entre la contraseña y entrar a la app: se muestra cuando la cuenta tiene
+// un segundo factor (TOTP) activado y la sesión recién obtenida todavía está en aal1 (ver
+// continuarSiHaceFaltaMfa/handleLogin). Nunca revela nada del perfil -- eso recién se carga
+// después de pasar este paso.
+function renderMfaDesafio(){
+  const d = state.mfaDesafio;
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">IA</div>
+      <h1 class="login-title">Verificación en dos pasos</h1>
+      <div class="login-sub">Ingresa el código de 6 dígitos de tu app autenticadora.</div>
+      ${d.error? `<div class="hint" style="color:var(--danger);text-align:center;margin-bottom:8px">${esc(d.error)}</div>` : ''}
+      <form id="form-mfa-desafio">
+        <label for="mfa-codigo">Código</label>
+        <input type="text" id="mfa-codigo" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456" autocomplete="one-time-code" required>
+        <div style="margin-top:20px">
+          <button type="submit" class="btn btn-primary" ${d.verificando?'disabled':''}>
+            ${d.verificando? '<span class="spinner"></span>' : 'Verificar'}
+          </button>
+        </div>
+      </form>
+      <div class="login-toggle"><button type="button" id="btn-cancelar-mfa">Volver a iniciar sesión</button></div>
+    </div>
+  </div>`;
+}
+
 /* =======================================================================
    RENDER — Crear contraseña (llegada desde un correo de invitación)
    ======================================================================= */
@@ -4677,6 +4859,51 @@ function renderAdherenciaPlan(){
   ` : `<div class="empty">Sin plan creado para este período.</div>`);
 }
 
+// Checklist de "primeros pasos" para una empresa nueva (a pedido de Joel): guía los pasos
+// iniciales para dejar la app operativa. Se descarta a mano por empresa (localStorage, mismo
+// patrón que tema_app) -- no hace falta guardarlo en el servidor, es puramente una conveniencia
+// de la persona que lo cierra en su propio navegador.
+function checklistPrimerosPasosOculto(empresaId){
+  try{ return localStorage.getItem(`checklist_oculto_${empresaId}`) === '1'; }catch(e){ return false; }
+}
+function ocultarChecklistPrimerosPasos(){
+  try{ localStorage.setItem(`checklist_oculto_${state.perfil.empresa_id}`, '1'); }catch(e){ /* localStorage no disponible (modo privado, etc.) */ }
+  render();
+}
+
+// Solo tiene sentido para admin/súper-admin: un operador nunca llega a Dashboard (ver
+// VISTAS_SOLO_ADMIN), así que si esto se está pintando ya sabemos que el rol es el correcto.
+// Se oculta sola apenas los tres pasos están completos -- no hace falta que la persona la
+// descarte a mano si ya terminó.
+function renderChecklistPrimerosPasos(){
+  if(!state.perfil || checklistPrimerosPasosOculto(state.perfil.empresa_id)) return '';
+  const pasos = [
+    { hecho: state.skus.length>0, texto:'Carga tus SKU', detalle:'Sube tu maestro de materiales desde Carga masiva.', vista:'carga' },
+    { hecho: state.equipo.personas.some(p=>p.id!==state.perfil.id), texto:'Invita a tu equipo', detalle:'Suma a las personas que van a contar, desde Configuraciones.', vista:'config' },
+    { hecho: state.ciclos.length>0, texto:'Crea tu primer período de conteo', detalle:'Define un ciclo (ej. "T1 2027") para agrupar y comparar tus conteos.', vista:'ciclos' },
+  ];
+  if(pasos.every(p=>p.hecho)) return '';
+  return `
+    <div class="card" style="margin-bottom:14px;border-color:var(--amber)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <h2 style="font-size:15px;margin:0">Primeros pasos</h2>
+        <button type="button" id="btn-ocultar-checklist" style="background:none;border:none;color:var(--text-dim);font-size:12px;padding:2px;cursor:pointer">Ocultar</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
+        ${pasos.map(p=>`
+          <button type="button" class="checklist-paso" data-ir-vista="${p.vista}" style="display:flex;align-items:flex-start;gap:10px;text-align:left;background:none;border:none;padding:6px 4px;cursor:pointer;border-radius:8px;${p.hecho?'opacity:.55':''}">
+            <span aria-hidden="true" style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid ${p.hecho?'var(--ok)':'var(--line)'};background:${p.hecho?'var(--ok)':'transparent'};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;margin-top:1px">${p.hecho?'✓':''}</span>
+            <span>
+              <span style="display:block;font-weight:600;font-size:13.5px;color:var(--text);${p.hecho?'text-decoration:line-through':''}">${esc(p.texto)}</span>
+              <span style="display:block;font-size:12px;color:var(--text-dim)">${esc(p.detalle)}</span>
+            </span>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderDashboard(){
   const periodTable = (rows, keyLabel, keyField, formatKey=fmtFecha) => {
     if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
@@ -4765,6 +4992,7 @@ function renderDashboard(){
   `;
 
   return `
+    ${renderChecklistPrimerosPasos()}
     <div class="section-head">
       <div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div>
       <button class="btn btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${ejecutivoIncluido?'':'disabled title="Disponible en el plan Profesional"'}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
@@ -6227,6 +6455,44 @@ function renderCiclos(){
   `;
 }
 
+// Estado de la verificación en dos pasos dentro de Configuraciones (ver cargarMfaFactores/
+// iniciarEnrolamientoMfa/confirmarEnrolamientoMfa/desactivarMfa). Tres estados posibles: todavía
+// cargando, enrolando (QR + código de confirmación), o el resumen (activada/no activada).
+function renderSeccionMfa(){
+  const en = state.mfaEnrolando;
+  if(en){
+    if(en.cargando) return `<div class="hint">Generando código…</div>`;
+    return `
+      <div class="hint" style="margin-bottom:10px">Escanea este código con tu app autenticadora (Google Authenticator, Authy, 1Password, etc.) y escribe el código de 6 dígitos que te muestra para confirmar.</div>
+      ${en.qr? `<div style="display:flex;justify-content:center;margin-bottom:10px"><img src="${en.qr}" alt="Código QR para activar la verificación en dos pasos" style="width:180px;height:180px;background:#fff;border-radius:8px;padding:8px"></div>` : ''}
+      ${en.secret? `<div class="hint" style="margin-bottom:10px;text-align:center">¿No puedes escanear? Ingresa este código a mano: <span class="mono" style="user-select:all">${esc(en.secret)}</span></div>` : ''}
+      ${en.error? `<div style="color:var(--danger);font-size:12.5px;margin-bottom:8px">${esc(en.error)}</div>` : ''}
+      <form id="form-mfa-confirmar">
+        <label for="mfa-confirmar-codigo">Código de 6 dígitos</label>
+        <input type="text" id="mfa-confirmar-codigo" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456" autocomplete="one-time-code" required>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${en.guardando?'disabled':''}>${en.guardando?'Confirmando…':'Confirmar y activar'}</button>
+          <button type="button" id="btn-cancelar-mfa-enrolar" class="btn btn-secondary" style="width:auto;padding:8px 14px" ${en.guardando?'disabled':''}>Cancelar</button>
+        </div>
+      </form>
+    `;
+  }
+  if(!state.mfaFactoresCargado) return `<div class="hint">Cargando…</div>`;
+  const factorActivo = state.mfaFactores.find(f=>f.status==='verified');
+  if(factorActivo){
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><span class="badge badge-ok">Activada</span> <span class="hint" style="display:inline">Tu cuenta pide un código además de la contraseña al iniciar sesión.</span></div>
+        <button type="button" id="btn-mfa-desactivar" class="btn btn-secondary" style="width:auto;padding:8px 14px;color:var(--danger)" data-factor-id="${esc(factorActivo.id)}">Desactivar</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="hint" style="margin-bottom:10px">No está activada. Si tu cuenta es administradora, te recomendamos activarla.</div>
+    <button type="button" id="btn-mfa-activar" class="btn btn-secondary" style="width:auto;padding:8px 14px">Activar verificación en dos pasos</button>
+  `;
+}
+
 function renderConfiguraciones(){
   const empresa = state.perfil && state.perfil.empresas;
   const esAdmin = state.perfil && state.perfil.rol === 'admin';
@@ -6255,6 +6521,10 @@ function renderConfiguraciones(){
         <span>Ocultar el stock del sistema a los operadores mientras cuentan</span>
       </label>
     </div>
+    ` : ''}
+    ${esAdmin||esSuperAdmin? `
+    <div class="section-head"><div><span class="eyebrow">Seguridad</span><h2 style="font-size:15px">Verificación en dos pasos ${campoConInfo('Pide un código de una app autenticadora (Google Authenticator, Authy, 1Password, etc.) además de tu contraseña al iniciar sesión. Recomendado para cuentas administradoras.')}</h2></div></div>
+    <div class="card">${renderSeccionMfa()}</div>
     ` : ''}
     ${esAdmin && !esSuperAdmin? `<div class="section-head"><div><span class="eyebrow">Suscripción</span><h2 style="font-size:15px">Plan y facturación</h2></div></div>` : ''}
     ${esAdmin && !esSuperAdmin? renderPlanYFacturacion(empresa) : ''}
@@ -6360,7 +6630,7 @@ function renderShell(){
       </div>
     </div>
     ` : ''}
-    <main>${content}</main>
+    <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
     <nav class="tabbar">
       ${tabBtn('dashboard','Dashboard')}
       ${tabBtn('carga','Carga')}
@@ -6393,7 +6663,7 @@ function render(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -6518,6 +6788,20 @@ function bind(){
       });
     }
   }
+  if(state.mfaDesafio){
+    document.getElementById('form-mfa-desafio').addEventListener('submit', e=>{
+      e.preventDefault();
+      enviarCodigoMfaDesafio(document.getElementById('mfa-codigo').value.trim());
+    });
+    document.getElementById('btn-cancelar-mfa').addEventListener('click', ()=>{
+      // Se descarta la sesión aal1 a medio camino: si la persona no tiene el segundo factor a
+      // mano, es más seguro volver al login (contraseña de nuevo) que dejarla atascada acá.
+      borrarSesionGuardada();
+      state = estadoTrasCerrarSesion();
+      render();
+    });
+    return;
+  }
   if(state.debeCrearPassword){
     document.getElementById('crear-password-form').addEventListener('submit', e=>{
       e.preventDefault();
@@ -6607,6 +6891,19 @@ function bind(){
       });
     });
     if(!state.equipo.cargado) cargarEquipo();
+    const esAdminOSuperAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
+    if(esAdminOSuperAdmin && !state.mfaFactoresCargado && !state.mfaEnrolando) cargarMfaFactores();
+    const btnMfaActivar = document.getElementById('btn-mfa-activar');
+    if(btnMfaActivar) btnMfaActivar.addEventListener('click', iniciarEnrolamientoMfa);
+    const btnMfaDesactivar = document.getElementById('btn-mfa-desactivar');
+    if(btnMfaDesactivar) btnMfaDesactivar.addEventListener('click', ()=> desactivarMfa(btnMfaDesactivar.dataset.factorId));
+    const btnCancelarMfaEnrolar = document.getElementById('btn-cancelar-mfa-enrolar');
+    if(btnCancelarMfaEnrolar) btnCancelarMfaEnrolar.addEventListener('click', cancelarEnrolamientoMfa);
+    const formMfaConfirmar = document.getElementById('form-mfa-confirmar');
+    if(formMfaConfirmar) formMfaConfirmar.addEventListener('submit', e=>{
+      e.preventDefault();
+      confirmarEnrolamientoMfa(document.getElementById('mfa-confirmar-codigo').value.trim());
+    });
     const formEmpresaNombre = document.getElementById('form-empresa-nombre');
     if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
       e.preventDefault();
@@ -6728,6 +7025,11 @@ function bind(){
   }
 
   if(state.view==='dashboard'){
+    const btnOcultarChecklist = document.getElementById('btn-ocultar-checklist');
+    if(btnOcultarChecklist) btnOcultarChecklist.addEventListener('click', ocultarChecklistPrimerosPasos);
+    document.querySelectorAll('[data-ir-vista]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({view: btn.dataset.irVista}));
+    });
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         const rutas = JSON.parse(btn.dataset.verFotos);
