@@ -2642,17 +2642,18 @@ function detectarMapeo(headers, campos){
 /* =======================================================================
    ACCIONES — SKUs
    ======================================================================= */
-// Detecta el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key) para
-// mostrar un mensaje claro en vez del error crudo de Postgres. A propósito ya NO se resuelve
-// con un upsert: hacerlo pisaba en silencio los datos de un SKU existente si alguien reusaba su
-// código para un material distinto (bug real: "123456" con "Filtro" quedó sobrescrito por
-// "Sillas" al cargar de nuevo el mismo código sin bodega). Para actualizar un SKU ya
-// cargado se usa la carga masiva, que sí actualiza los que ya existen a propósito.
+// Detecta el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
+// ubicacion_key, storage_bin_key) para mostrar un mensaje claro en vez del error crudo de
+// Postgres. A propósito ya NO se resuelve con un upsert: hacerlo pisaba en silencio los datos
+// de un SKU existente si alguien reusaba su código para un material distinto (bug real:
+// "123456" con "Filtro" quedó sobrescrito por "Sillas" al cargar de nuevo el mismo código sin
+// bodega). Para actualizar un SKU ya cargado se usa la carga masiva, que sí actualiza los que
+// ya existen a propósito.
 function esErrorCodigoSkuDuplicado(e){
-  return /skus_empresa_id_sku_code_bodega_batch_key/i.test((e && e.message) || '');
+  return /skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key/i.test((e && e.message) || '');
 }
-function mensajeCodigoSkuDuplicado(skuCode, bodega, batch){
-  return `El código ${skuCode} ya existe${bodega? ` en ${bodega}` : ' sin bodega asignada'}${batch? ` con batch ${batch}` : ''}. Para actualizarlo, usa la carga masiva.`;
+function mensajeCodigoSkuDuplicado(skuCode, bodega, batch, ubicacion, storageBin){
+  return `El código ${skuCode} ya existe${bodega? ` en ${bodega}` : ' sin bodega asignada'}${batch? ` con batch ${batch}` : ''}${ubicacion? ` en ${ubicacion}` : ''}${storageBin? ` (bin ${storageBin})` : ''}. Para actualizarlo, usa la carga masiva.`;
 }
 async function crearSkuManual(payload){
   if(!perfilCargado()) return false;
@@ -2670,7 +2671,7 @@ async function crearSkuManual(payload){
       toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return true;
     }
-    toast(esErrorCodigoSkuDuplicado(e) ? mensajeCodigoSkuDuplicado(payload.sku_code, payload.bodega, payload.batch) : e.message, 'err');
+    toast(esErrorCodigoSkuDuplicado(e) ? mensajeCodigoSkuDuplicado(payload.sku_code, payload.bodega, payload.batch, payload.ubicacion, payload.storage_bin) : e.message, 'err');
     return false;
   }
 }
@@ -2740,14 +2741,16 @@ async function confirmarCargaMasiva(){
   // filas guardar en detalle, como sí lo era la lista plana anterior.
   const resumenErrores = new Map();
   const anotarError = (motivo) => { error++; resumenErrores.set(motivo, (resumenErrores.get(motivo)||0)+1); };
-  // Un mismo sku_code puede vivir en más de una bodega (cada bodega es su propia fila, con
-  // su propio stock/ubicación) y, dentro de la misma bodega, en más de un batch (mismo
-  // material, distinto lote, distinto SOH) — la clave de deduplicado es código+bodega+batch,
-  // no solo el código: si el archivo trae dos filas del mismo código en bodegas o batches
-  // distintos, todas deben llegar al upsert. Si trae dos filas del mismo código EN LA MISMA
-  // bodega Y el MISMO batch, ahí sí nos quedamos con la última (no hay forma de saber cuál es
-  // la correcta).
-  const porCodigoYBodega = new Map();
+  // Un mismo sku_code puede vivir en más de una bodega (cada bodega es su propia fila) y,
+  // dentro de la misma bodega, en más de un batch (mismo material, distinto lote, distinto
+  // SOH) -- pero además, dentro de la misma bodega+batch, puede estar repartido en más de una
+  // ubicación/bin (mismo material, dos Storage Location distintos, cada uno con su propio
+  // stock -- caso real confirmado con Joel: Materials_4.xlsx de Escondida trae miles de SKU así).
+  // La clave de deduplicado es código+bodega+batch+ubicación+bin, no solo el código: si el
+  // archivo trae dos filas del mismo código en bodegas, batches o ubicaciones/bines distintos,
+  // todas deben llegar al upsert como filas separadas. Si trae dos filas idénticas en TODOS esos
+  // campos, ahí sí nos quedamos con la última (no hay forma de saber cuál es la correcta).
+  const porIdentidadSku = new Map();
   data.forEach((row,idx)=>{
     const sku_code = valor(row,'sku_code');
     if(!sku_code){ anotarError('Código de SKU vacío'); return; }
@@ -2756,6 +2759,8 @@ async function confirmarCargaMasiva(){
     const costoRaw = valor(row,'costo_unitario');
     const bodega = valor(row,'bodega') || null;
     const batch = valor(row,'batch') || null;
+    const ubicacion = valor(row,'ubicacion') || null;
+    const storage_bin = valor(row,'storage_bin') || null;
     // Un valor negativo (típico de notas de crédito/ajustes en exportaciones de SAP) viola el
     // check constraint de la tabla — sin este filtro, esa UNA fila hace fallar el INSERT masivo
     // completo (todo el archivo, no solo esa fila), porque se manda como un solo lote. Se guarda
@@ -2770,15 +2775,15 @@ async function confirmarCargaMasiva(){
       anotarError('Costo en negativo');
       costo_unitario = null;
     }
-    porCodigoYBodega.set(JSON.stringify([sku_code, bodega, batch]), {
+    porIdentidadSku.set(JSON.stringify([sku_code, bodega, batch, ubicacion, storage_bin]), {
       sku_code,
       empresa_id: state.perfil.empresa_id,
       descripcion: valor(row,'descripcion') || null,
       categoria: valor(row,'categoria') || null,
       batch,
       unidad_medida: valor(row,'unidad_medida') || null,
-      ubicacion: valor(row,'ubicacion') || null,
-      storage_bin: valor(row,'storage_bin') || null,
+      ubicacion,
+      storage_bin,
       bodega,
       stock_sistema,
       costo_unitario,
@@ -2797,7 +2802,7 @@ async function confirmarCargaMasiva(){
       capturado_en: marcaTiempo,
     });
   });
-  const lote = Array.from(porCodigoYBodega.values());
+  const lote = Array.from(porIdentidadSku.values());
   // Un solo POST con todo el archivo (ej. 64.000 filas) supera el statement_timeout de 8s del
   // rol authenticated: cada fila dispara triggers propios (auditoría + chequeo de límite de
   // bodega), y ese costo por-fila multiplicado por decenas de miles de filas hace que Postgres
@@ -2810,7 +2815,7 @@ async function confirmarCargaMasiva(){
   try{
     for(let i=0; i<lote.length; i+=TAM_LOTE_CARGA){
       const bloque = lote.slice(i, i+TAM_LOTE_CARGA);
-      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key,batch_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
+      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
       insertados += bloque.length;
       setState({cargaMasivaProgreso: {actual:insertados, total:lote.length}});
     }
@@ -3044,7 +3049,7 @@ async function procesarUnItemOffline(item){
     return {ok:true};
   }catch(e){
     if(pareceFalloDeRed(e)) return {ok:false, red:true};
-    if(item.tipo==='sku' && esErrorCodigoSkuDuplicado(e)) return {ok:false, red:false, mensaje:mensajeCodigoSkuDuplicado(item.sku_code, item.bodega, item.batch)};
+    if(item.tipo==='sku' && esErrorCodigoSkuDuplicado(e)) return {ok:false, red:false, mensaje:mensajeCodigoSkuDuplicado(item.sku_code, item.bodega, item.batch, item.ubicacion, item.storage_bin)};
     return {ok:false, red:false, mensaje:e.message};
   }
 }
