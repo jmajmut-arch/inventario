@@ -24,6 +24,12 @@ let cicloActualRpcRespuesta = null;
 let verificarConteoAtipicoRespuesta = false;
 let conteosEnPeriodoRespuesta = 0;
 let autoservicioRespuesta = { error: null };
+// ===== MFA (verificación en dos pasos) =====
+let usuarioAuthFactores = []; // lo que /auth/v1/user devuelve en su campo "factors"
+let mfaEnrollRespuesta = { id:'factor-nuevo', type:'totp', totp:{qr_code:'data:image/svg+xml;base64,AAA=', secret:'SECRETOBASE32', uri:'otpauth://totp/x'} };
+let mfaChallengeRespuesta = { id:'challenge-1' };
+let mfaVerifyRespuesta = { access_token:'tok-aal2', refresh_token:'ref-aal2', user:{id:'user-1', email:'joel@test.com'} };
+let mfaVerifyError = null; // {status, error} para simular un código incorrecto
 let conteosExportablesFixture = [];
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
@@ -257,8 +263,23 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{}', json: async()=>({}) };
   }
   if(path.startsWith('/auth/v1/user')){
-    const usuario = {id:'user-invitado', email:'invitado@test.com'};
+    const usuario = {id:'user-invitado', email:'invitado@test.com', factors: usuarioAuthFactores};
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(usuario), json: async()=>usuario };
+  }
+  if(path.startsWith('/auth/v1/factors')){
+    const method = (opts && opts.method) || 'GET';
+    if(path.includes('/challenge')){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(mfaChallengeRespuesta), json: async()=>mfaChallengeRespuesta };
+    }
+    if(path.includes('/verify')){
+      if(mfaVerifyError) return { status: mfaVerifyError.status||422, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({error:mfaVerifyError.error}), json: async()=>({error:mfaVerifyError.error}) };
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(mfaVerifyRespuesta), json: async()=>mfaVerifyRespuesta };
+    }
+    if(method==='DELETE'){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{}', json: async()=>({}) };
+    }
+    // POST /auth/v1/factors (enrolar un factor nuevo)
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(mfaEnrollRespuesta), json: async()=>mfaEnrollRespuesta };
   }
   if(path.startsWith('/functions/v1/invite-user')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -705,6 +726,8 @@ const sandbox = {
   URLSearchParams,
   AbortController,
   crypto,
+  atob,
+  btoa,
   Image: class {},
   FileReader: class {},
   location: { hash: '', pathname: '/index.html', search: '' },
@@ -1455,6 +1478,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dashboardModo = 'operativo';
   const htmlDashOperativo = ctx.renderDashboard();
   assert(htmlDashOperativo.includes('Materiales contados (ciclo actual)'), 'la lista de materiales contados (vista Operativo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDashOperativo);
+
+  // ===== Checklist de "primeros pasos" (a pedido de Joel): guía a una empresa nueva a cargar
+  // SKU, invitar equipo y crear su primer período. Se oculta sola apenas los tres pasos están
+  // completos, o si la persona la descarta a mano (localStorage, por empresa). =====
+  ctx.__appstate.perfil = { id:'admin-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-checklist', empresas:{nombre:'Minera Andes'} };
+  ctx.__appstate.skus = [];
+  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}] };
+  ctx.__appstate.ciclos = [];
+  ctx.localStorage.removeItem('checklist_oculto_emp-checklist');
+  const htmlChecklistNada = ctx.renderDashboard();
+  assert(htmlChecklistNada.includes('Primeros pasos') && htmlChecklistNada.includes('Carga tus SKU') && htmlChecklistNada.includes('Invita a tu equipo') && htmlChecklistNada.includes('Crea tu primer período de conteo'), 'con una empresa recién creada (sin SKU, sin equipo, sin ciclos) debe mostrarse el checklist completo, obtuvo: '+htmlChecklistNada);
+
+  ctx.__appstate.skus = [{id:'s1', sku_code:'A1'}];
+  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}, {id:'op-1', nombre:'Beto', rol:'operador', activo:true}] };
+  ctx.__appstate.ciclos = [{id:'c1', nombre:'T1 2027', es_actual:true}];
+  const htmlChecklistCompleto = ctx.renderDashboard();
+  assert(!htmlChecklistCompleto.includes('Primeros pasos'), 'con los tres pasos completos, el checklist debe ocultarse solo, sin que la persona tenga que descartarlo, obtuvo: '+htmlChecklistCompleto);
+
+  ctx.__appstate.skus = [];
+  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}] };
+  ctx.__appstate.ciclos = [];
+  ctx.ocultarChecklistPrimerosPasos();
+  const htmlChecklistDescartado = ctx.renderDashboard();
+  assert(!htmlChecklistDescartado.includes('Primeros pasos'), 'al descartarlo a mano, el checklist no debe volver a aparecer aunque falten pasos, obtuvo: '+htmlChecklistDescartado);
+  assert(ctx.localStorage.getItem('checklist_oculto_emp-checklist')==='1', 'debe persistir el descarte en localStorage, por empresa, obtuvo: '+ctx.localStorage.getItem('checklist_oculto_emp-checklist'));
+  ctx.localStorage.removeItem('checklist_oculto_emp-checklist');
 
   // Pedido del usuario: en el Dashboard operativo, Semanal debe mostrar el número de semana (no
   // la fecha cruda del lunes) y Mensual el nombre del mes (no la fecha cruda del día 1). Diario
@@ -2422,6 +2471,79 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlConfigSuperAdmin.includes('id="form-crear-ciclo"'), 'Configuraciones ya no debe incluir el formulario de crear ciclo (se movió a su propia pestaña), obtuvo: '+htmlConfigSuperAdmin);
   assert(ctx.renderCiclos().includes('id="form-crear-ciclo"'), 'renderCiclos() debe mostrar el formulario para crear ciclos, obtuvo: '+ctx.renderCiclos());
 
+  // ===== Verificación en dos pasos (MFA/TOTP) en Configuraciones =====
+  ctx.__appstate.session = { access_token:'tok-antes', refresh_token:'ref-antes', user:{id:'user-1', email:'ana@test.com'} };
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  ctx.__appstate.mfaFactoresCargado = false;
+  ctx.__appstate.mfaFactores = [];
+  ctx.__appstate.mfaEnrolando = null;
+  const htmlMfaAdmin = ctx.renderConfiguraciones();
+  assert(htmlMfaAdmin.includes('Verificación en dos pasos'), 'un admin debe ver la sección de verificación en dos pasos, obtuvo: '+htmlMfaAdmin);
+
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlMfaOperador = ctx.renderConfiguraciones();
+  assert(!htmlMfaOperador.includes('Verificación en dos pasos'), 'un operador no debe ver la sección de verificación en dos pasos, obtuvo: '+htmlMfaOperador);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // Sin factor verificado: debe ofrecer el botón de activar.
+  ctx.__appstate.mfaFactoresCargado = true;
+  ctx.__appstate.mfaFactores = [];
+  const htmlMfaSinActivar = ctx.renderConfiguraciones();
+  assert(htmlMfaSinActivar.includes('id="btn-mfa-activar"') && !htmlMfaSinActivar.includes('id="btn-mfa-desactivar"'), 'sin un factor verificado, debe ofrecer activarla, obtuvo: '+htmlMfaSinActivar);
+
+  // Con factor verificado: debe mostrar "Activada" y el botón de desactivar.
+  ctx.__appstate.mfaFactores = [{id:'factor-activo', factor_type:'totp', status:'verified'}];
+  const htmlMfaActiva = ctx.renderConfiguraciones();
+  assert(htmlMfaActiva.includes('badge-ok">Activada<') && htmlMfaActiva.includes('data-factor-id="factor-activo"'), 'con un factor verificado, debe mostrar que está activada y el botón para desactivarla, obtuvo: '+htmlMfaActiva);
+
+  // iniciarEnrolamientoMfa: pide un factor nuevo y guarda el QR/secreto para mostrarlos.
+  ctx.__appstate.mfaFactores = [];
+  await ctx.iniciarEnrolamientoMfa();
+  assert(ctx.__appstate.mfaEnrolando && ctx.__appstate.mfaEnrolando.factorId==='factor-nuevo' && ctx.__appstate.mfaEnrolando.qr && ctx.__appstate.mfaEnrolando.secret==='SECRETOBASE32', 'iniciarEnrolamientoMfa debe guardar el QR y el secreto del factor recién creado, obtuvo: '+JSON.stringify(ctx.__appstate.mfaEnrolando));
+  const htmlEnrolando = ctx.renderConfiguraciones();
+  assert(htmlEnrolando.includes('id="form-mfa-confirmar"') && htmlEnrolando.includes('SECRETOBASE32'), 'mientras enrola, debe mostrar el formulario de confirmación con el secreto de respaldo, obtuvo: '+htmlEnrolando);
+
+  // confirmarEnrolamientoMfa: código incorrecto no debe activar nada, y debe mostrar el error.
+  mfaVerifyError = {status:422, error:'Invalid TOTP code'};
+  await ctx.confirmarEnrolamientoMfa('000000');
+  assert(ctx.__appstate.mfaEnrolando && ctx.__appstate.mfaEnrolando.error==='Invalid TOTP code' && !ctx.__appstate.mfaEnrolando.guardando, 'con un código incorrecto, debe mostrar el error y no cerrar el enrolamiento, obtuvo: '+JSON.stringify(ctx.__appstate.mfaEnrolando));
+  mfaVerifyError = null;
+
+  // Código correcto: activa el factor, sube la sesión a aal2 y refresca el estado.
+  usuarioAuthFactores = [{id:'factor-nuevo', factor_type:'totp', status:'verified'}];
+  calls.length = 0;
+  await ctx.confirmarEnrolamientoMfa('123456');
+  assert(ctx.__appstate.mfaEnrolando===null, 'con un código correcto, debe cerrar la pantalla de enrolamiento, obtuvo: '+JSON.stringify(ctx.__appstate.mfaEnrolando));
+  assert(ctx.__appstate.session.access_token==='tok-aal2', 'debe reemplazar la sesión por la que devuelve /verify (ya en aal2), obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  const challengeCall = calls.find(c=>c.url.includes('/factors/factor-nuevo/challenge'));
+  const verifyCall = calls.find(c=>c.url.includes('/factors/factor-nuevo/verify'));
+  assert(!!challengeCall && !!verifyCall && JSON.parse(verifyCall.opts.body).code==='123456', 'debe crear un desafío y verificarlo con el código ingresado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.mfaFactores.some(f=>f.status==='verified'), 'tras activar, debe recargar los factores y reflejar el que quedó verificado, obtuvo: '+JSON.stringify(ctx.__appstate.mfaFactores));
+
+  // cancelarEnrolamientoMfa: descarta el factor unverified a medio camino.
+  await ctx.iniciarEnrolamientoMfa();
+  calls.length = 0;
+  ctx.cancelarEnrolamientoMfa();
+  assert(ctx.__appstate.mfaEnrolando===null, 'cancelar debe volver a null, obtuvo: '+JSON.stringify(ctx.__appstate.mfaEnrolando));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert(calls.some(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/factors/factor-nuevo')), 'cancelar debe borrar el factor unverified recién creado, obtuvo: '+JSON.stringify(calls.map(c=>({url:c.url, method:c.opts&&c.opts.method}))));
+
+  // desactivarMfa: pide confirmación y, si cancela, no borra nada.
+  confirmRespuesta = false; calls.length = 0;
+  await ctx.desactivarMfa('factor-activo');
+  assert(!calls.some(c=>c.opts && c.opts.method==='DELETE'), 'si cancela la confirmación, no debe borrar nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si confirma, borra el factor y recarga el estado (ya sin ninguno verificado).
+  confirmRespuesta = true; usuarioAuthFactores = []; calls.length = 0;
+  await ctx.desactivarMfa('factor-activo');
+  assert(calls.some(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/factors/factor-activo')), 'si confirma, debe borrar el factor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.mfaFactores.length===0, 'tras desactivar, debe recargar los factores (ya sin ninguno verificado), obtuvo: '+JSON.stringify(ctx.__appstate.mfaFactores));
+
+  // Deja session/perfil como estaban antes de este bloque (súper-admin "Vendedor"), para no
+  // afectar las pruebas de renderSuperAdmin que siguen a continuación.
+  ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
+  ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
+
   // crearEmpresaSuperAdmin: POST a /empresas con solo el nombre (el código se genera solo en la BD).
   calls.length = 0;
   await ctx.crearEmpresaSuperAdmin('Minera Nueva');
@@ -2648,6 +2770,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.handleLogin('vicky@minera.cl', 'clave-cualquiera');
     nuevosToasts = toastRootLogin.hijos.slice(toastsAntes);
     assert(nuevosToasts.some(t=>t.textContent.startsWith('Bienvenido')), 'si tengo_otra_sesion_activa() devuelve false, debe mostrar el saludo normal, obtuvo: '+JSON.stringify(nuevosToasts.map(t=>t.textContent)));
+  }
+
+  // ===== MFA en el login: si la cuenta tiene un factor TOTP verificado y la sesión recién
+  // obtenida sigue en aal1 (el mock de /token no devuelve un JWT real, así que decodeJwtAal
+  // siempre cae a 'aal1'), debe pedir el código antes de cargar el perfil y entrar a la app. =====
+  {
+    usuarioAuthFactores = [{id:'factor-login', factor_type:'totp', status:'verified'}];
+    calls.length = 0;
+    await ctx.handleLogin('vicky@minera.cl', 'clave-cualquiera');
+    assert(ctx.__appstate.mfaDesafio && ctx.__appstate.mfaDesafio.factorId==='factor-login', 'con un factor TOTP verificado, el login debe detenerse en el desafío de MFA en vez de entrar directo, obtuvo: '+JSON.stringify(ctx.__appstate.mfaDesafio));
+    assert(!calls.some(c=>c.url.includes('/rest/v1/usuarios?auth_user_id')), 'no debe cargar el perfil todavía -- recién después de pasar el desafío, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const htmlDesafio = ctx.renderMfaDesafio();
+    assert(htmlDesafio.includes('id="form-mfa-desafio"') && htmlDesafio.includes('Verificación en dos pasos'), 'debe mostrar la pantalla de pedir el código, obtuvo: '+htmlDesafio);
+
+    // Código incorrecto: muestra el error y sigue pidiendo, sin dejar entrar.
+    mfaVerifyError = {status:422, error:'Invalid TOTP code'};
+    await ctx.enviarCodigoMfaDesafio('000000');
+    assert(ctx.__appstate.mfaDesafio && ctx.__appstate.mfaDesafio.error==='Invalid TOTP code' && !ctx.__appstate.mfaDesafio.verificando, 'con un código incorrecto, debe mostrar el error sin dejar entrar, obtuvo: '+JSON.stringify(ctx.__appstate.mfaDesafio));
+    mfaVerifyError = null;
+
+    // Código correcto: reemplaza la sesión (ya viene en aal2), carga el perfil y entra a la app.
+    calls.length = 0;
+    await ctx.enviarCodigoMfaDesafio('123456');
+    assert(ctx.__appstate.mfaDesafio===null, 'con el código correcto, debe cerrar la pantalla del desafío, obtuvo: '+JSON.stringify(ctx.__appstate.mfaDesafio));
+    assert(ctx.__appstate.session.access_token==='tok-aal2', 'debe quedarse con la sesión que devuelve /verify, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+    assert(calls.some(c=>c.url.includes('/rest/v1/usuarios?auth_user_id')), 'recién ahora, tras pasar el desafío, debe cargar el perfil, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    usuarioAuthFactores = [];
   }
 
   // rest(): si la API responde 401 (token vencido), debe refrescar la sesión y reintentar una sola vez.
