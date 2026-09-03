@@ -544,9 +544,9 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
     const filas = binFiltro==='A-01'
-      ? [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20}]
+      ? [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20, critico:true, clase_abc:'A'}]
       : binFiltro==='A-02'
-        ? [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8}]
+        ? [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8, critico:false, clase_abc:'B'}]
         // Mismo sku_code, dos filas (una por batch): reproduce el pedido de Joel de mostrar el
         // SOH desglosado por batch en Contar -- ambas deben sobrevivir al armar el plan del día.
         : binFiltro==='BX-01'
@@ -1375,6 +1375,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printCalled===1, 'imprimirPlan debe llamar a window.print()');
   assert(printEl.innerHTML.includes('SKU-001') && printEl.innerHTML.includes('Perno M8'), 'El PDF debe listar el SKU y descripción de A-01, obtuvo: '+printEl.innerHTML);
   assert(printEl.innerHTML.includes('SKU-002') && printEl.innerHTML.includes('Tuerca M8'), 'El PDF debe listar el SKU y descripción de A-02, obtuvo: '+printEl.innerHTML);
+  // La hoja de conteo debe avisar ABC y Crítico (para priorizar en terreno) sin revelar ningún
+  // número de stock -- ver tablaSkusEntradaPlan.
+  assert(printEl.innerHTML.includes('<th>ABC</th>') && printEl.innerHTML.includes('<th>Crítico</th>'), 'la tabla del plan debe traer columnas ABC y Crítico, obtuvo: '+printEl.innerHTML);
+  assert(/<td>A<\/td>\s*<td style="color:var\(--danger\);font-weight:600">★<\/td>/.test(printEl.innerHTML), 'SKU-001 (crítico, clase A) debe mostrar "A" y la estrella roja de crítico, obtuvo: '+printEl.innerHTML);
+  assert(/<td>B<\/td>\s*<td>—<\/td>/.test(printEl.innerHTML), 'SKU-002 (no crítico, clase B) debe mostrar "B" y un guion sin resaltar en Crítico, obtuvo: '+printEl.innerHTML);
+  assert(!printEl.innerHTML.includes('stock_bloqueado') && !/\bBloqueado\b/.test(printEl.innerHTML), 'la hoja de conteo NO debe mostrar cantidades de stock (bloqueado/tránsito/transferencia) -- solo lo que ayuda a priorizar sin revelar números, obtuvo: '+printEl.innerHTML);
   assert(printEl.innerHTML.includes('Responsable: Ana Torres'), 'El PDF debe indicar el responsable de la entrada e1, obtuvo: '+printEl.innerHTML);
   assert(printEl.innerHTML.includes('Responsable: Sin asignar'), 'El PDF debe indicar "Sin asignar" para la entrada e2 sin responsable, obtuvo: '+printEl.innerHTML);
   assert(printEl.innerHTML.includes('Revisar merma'), 'El PDF debe incluir la nota de la entrada');

@@ -5581,9 +5581,12 @@ function encabezadoEntradaPlan(e){
 
 function tablaSkusEntradaPlan(skus){
   if(!skus.length) return `<p class="print-vacio">Sin SKU activos en esta ubicación.</p>`;
+  // ABC y Crítico ayudan a priorizar en terreno (qué contar con más cuidado) sin revelar
+  // ningún número de stock -- por eso van acá, a diferencia de bloqueado/tránsito/transferencia,
+  // que sí son cantidades del sistema y no corresponde mostrarlas en una hoja de conteo ciego.
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Descripción</th><th>Storage bin</th><th>Unidad</th><th>Cantidad contada</th><th>Observación</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Descripción</th><th>Storage bin</th><th>Unidad</th><th>ABC</th><th>Crítico</th><th>Cantidad contada</th><th>Observación</th></tr></thead>
       <tbody>
         ${skus.map(s=>`
           <tr>
@@ -5591,6 +5594,8 @@ function tablaSkusEntradaPlan(skus){
             <td>${esc(s.descripcion||'')}</td>
             <td>${esc(s.storage_bin||'—')}</td>
             <td>${esc(s.unidad_medida||'—')}</td>
+            <td>${esc(s.clase_abc||'—')}</td>
+            <td${s.critico?' style="color:var(--danger);font-weight:600"':''}>${s.critico?'★':'—'}</td>
             <td class="print-blank"></td>
             <td class="print-blank"></td>
           </tr>
