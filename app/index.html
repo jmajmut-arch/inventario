@@ -127,6 +127,11 @@ main{flex:1;max-width:720px;width:100%;margin:0 auto;padding:18px 16px 96px;}
 
 .progress-track{height:8px;border-radius:5px;background:var(--surface-2);overflow:hidden;margin-top:8px;}
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--amber-dim),var(--amber));border-radius:5px;transition:width .4s ease;}
+/* Barra indeterminada (no hay un % real que mostrar, ej. guardar conteo con señal mala) --
+   a diferencia de .progress-fill, no lleva width dinámico: una franja se desliza sin parar
+   dentro de .progress-track para transmitir "sigue trabajando", no un avance medible. */
+.progress-indeterminada{height:100%;width:35%;background:linear-gradient(90deg,var(--amber-dim),var(--amber));border-radius:5px;animation:avance-indeterminado 1.1s ease-in-out infinite;}
+@keyframes avance-indeterminado{0%{margin-left:-35%;}100%{margin-left:100%;}}
 
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th{text-align:left;color:var(--text-faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;padding:6px 8px;border-bottom:1px solid var(--line);}
@@ -367,6 +372,10 @@ let state = {
   // por inercia si alguien no editaba el campo precargado).
   conteoOtraUbicacion: false,
   conteoFotos: [],       // [{file, preview}]
+  // true cuando guardarConteo lleva más de UMBRAL_GUARDADO_LENTO_MS esperando la respuesta del
+  // servidor (señal mala en bodega/mina) -- muestra la barra de "esto está tardando" además del
+  // spinner del botón, ver guardarConteo.
+  conteoGuardandoLento: false,
   // "Mi plan del día" en Contar: qué le toca hoy a la cuenta logueada (responsable_id en
   // plan_semanal es directo el id de la cuenta) y con qué bodega/ubicación está trabajando ahora
   // mismo. Sin filtro de storage bin: la persona solo elige bodega y ubicación, y ve juntos los
@@ -510,6 +519,12 @@ const TAM_PAGINA_LISTA = 30;
 // Por eso el tope: cubre holgado un filtro típico (cientos de SKU), sin arriesgarse a mandar
 // una búsqueda sin filtro (decenas de miles de SKU) entera por la red.
 const TOPE_CARGA_TOTAL_BUSQUEDA = 1000;
+// Guardar conteo: si el guardado tarda más que esto (señal mala en bodega/mina), se muestra una
+// barra de "esto está tardando más de lo normal" además del spinner del botón -- para que la
+// persona sepa que la app sigue intentando, no que se colgó. No cambia CUÁNDO se considera
+// guardado (sigue esperando la respuesta real del servidor, ver guardarConteo) -- solo mejora el
+// aviso durante la espera. A pedido de Joel.
+const UMBRAL_GUARDADO_LENTO_MS = 4000;
 // Trazabilidad usa una página más chica: la tabla de auditoría es más densa de leer que las
 // otras listas paginadas, así que conviene una tanda menor por carga.
 const TAM_PAGINA_AUDITORIA = 20;
@@ -3183,7 +3198,11 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   // Momento real en que la persona capturó el conteo (no cuándo termina de guardarse) —
   // fundamental para auditoría cuando se guarda sin conexión y se sincroniza horas después.
   const capturadoEn = new Date().toISOString();
-  setState({loading:true});
+  setState({loading:true, conteoGuardandoLento:false});
+  // Ver UMBRAL_GUARDADO_LENTO_MS: si el guardado no terminó (éxito, error, o modo offline) antes
+  // de este plazo, avisa que sigue intentando en vez de dejar solo el spinner chico del botón.
+  // El finally de más abajo lo limpia siempre, gane quien gane la carrera.
+  const timerLento = setTimeout(()=> setState({conteoGuardandoLento:true}), UMBRAL_GUARDADO_LENTO_MS);
   try{
     const filas = await rest('/conteos', {method:'POST', body:[{
       sku_id: state.skuSeleccionado.id,
@@ -3210,7 +3229,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     }
 
     toast('Conteo registrado');
-    setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
+    setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
     cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
@@ -3233,12 +3252,14 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
         ubicacion_distinta: !!ubicacionDistinta,
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
-      setState({loading:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
+      setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
       toast('Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return;
     }
-    setState({loading:false});
+    setState({loading:false, conteoGuardandoLento:false});
     toast(e.message,'err');
+  }finally{
+    clearTimeout(timerLento);
   }
 }
 
@@ -5072,6 +5093,10 @@ function renderConteo(){
 
           <div style="margin-top:18px">
             <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar conteo'}</button>
+            ${state.loading && state.conteoGuardandoLento? `
+            <div class="progress-track"><div class="progress-indeterminada"></div></div>
+            <div class="hint" style="text-align:center;margin-top:6px">Esto está tardando más de lo normal -- seguimos intentando, no cierres la app.</div>
+            ` : ''}
           </div>
         </form>
       </div>

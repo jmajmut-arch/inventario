@@ -3154,6 +3154,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!bodyConteoOnline.capturado_en, 'guardarConteo debe enviar capturado_en, obtuvo: '+JSON.stringify(bodyConteoOnline));
   assert(Math.abs(new Date(bodyConteoOnline.capturado_en).getTime()-antesGuardar) < 5000, 'capturado_en debe ser la hora real de guardado, obtuvo: '+bodyConteoOnline.capturado_en);
 
+  // ===== Barra de "esto está tardando más de lo normal" (a pedido de Joel, guardado lento con
+  // señal mala): guardarConteo debe dejar conteoGuardandoLento en false al terminar, sin importar
+  // si el timer de UMBRAL_GUARDADO_LENTO_MS llegó a dispararse o no -- probar el timer en sí
+  // implicaría esperar los 4s reales en cada corrida de tests, así que se cubre por separado la
+  // lógica de render (con el flag ya en true) y que guardarConteo siempre lo deja limpio. =====
+  ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };
+  ctx.__appstate.conteoFotos = [];
+  ctx.__appstate.conteoGuardandoLento = true; // simula que ya llevaba un rato largo cuando terminó
+  await ctx.guardarConteo({cantidad:4, ubicacion:'', bodega:''});
+  assert(ctx.__appstate.conteoGuardandoLento===false, 'al terminar (éxito), guardarConteo debe apagar conteoGuardandoLento, obtuvo: '+ctx.__appstate.conteoGuardandoLento);
+
+  // renderConteo: con el flag prendido, debe mostrar la barra indeterminada y el aviso; sin él
+  // (aunque siga cargando), solo el spinner chico del botón, como antes.
+  ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave', stock_sistema:10 };
+  ctx.__appstate.loading = true;
+  ctx.__appstate.conteoGuardandoLento = true;
+  const htmlGuardandoLento = ctx.renderConteo();
+  assert(htmlGuardandoLento.includes('progress-indeterminada') && htmlGuardandoLento.includes('Esto está tardando más de lo normal'), 'con conteoGuardandoLento:true debe mostrar la barra y el aviso, obtuvo: '+htmlGuardandoLento);
+  ctx.__appstate.conteoGuardandoLento = false;
+  const htmlGuardandoRapido = ctx.renderConteo();
+  assert(!htmlGuardandoRapido.includes('progress-indeterminada') && !htmlGuardandoRapido.includes('Esto está tardando más de lo normal'), 'sin conteoGuardandoLento no debe mostrar la barra ni el aviso, aunque siga cargando, obtuvo: '+htmlGuardandoRapido);
+  ctx.__appstate.loading = false;
+
   // crearSkuManual (online) también debe enviar capturado_en.
   calls.length = 0;
   await ctx.crearSkuManual({sku_code:'SKU-CAP-1', descripcion:'x', activo:true});
