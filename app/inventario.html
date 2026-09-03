@@ -2481,8 +2481,17 @@ async function exportarSeleccionadosBusquedaPDF(){
     document.getElementById('print-plan').innerHTML = '';
     const contenedor = document.getElementById('print-buscar');
     // Salto de página cada 3 fichas -- así entran exactamente 3 materiales por hoja,
-    // en vez de dejar que el navegador corte donde le quede según sus márgenes.
-    const fichasConSaltos = fichas.map((f,i)=> (i>0 && i%3===0) ? `<div class="pdf-salto-pagina"></div>${f}` : f).join('');
+    // en vez de dejar que el navegador corte donde le quede según sus márgenes. La primera
+    // hoja lleva además el título ("Detalle de materiales" + el resumen de cuántos materiales
+    // son), que ocupa el espacio de una ficha más -- por eso ahí el corte va después de la
+    // segunda ficha, no de la tercera, o si no la 3ª ficha se corría sola a la hoja 2 dejándola
+    // casi vacía y desfasando el conteo de 3 por hoja en el resto del documento.
+    const FICHAS_POR_HOJA = 3;
+    const FICHAS_PRIMERA_HOJA = 2;
+    const fichasConSaltos = fichas.map((f,i)=>{
+      const esInicioDeHoja = i===FICHAS_PRIMERA_HOJA || (i>FICHAS_PRIMERA_HOJA && (i-FICHAS_PRIMERA_HOJA)%FICHAS_POR_HOJA===0);
+      return esInicioDeHoja ? `<div class="pdf-salto-pagina"></div>${f}` : f;
+    }).join('');
     contenedor.innerHTML = `
       <h1>Detalle de materiales</h1>
       <div class="print-meta">${fichas.length} material${fichas.length===1?'':'es'} · Generado ${new Date().toLocaleString('es-CL')}</div>
