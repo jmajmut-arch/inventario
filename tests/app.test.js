@@ -576,6 +576,7 @@ function makeEl(id){
     addEventListener(ev,fn){ this.listeners[ev]=this.listeners[ev]||[]; this.listeners[ev].push(fn); },
     dispatch(ev, arg){ (this.listeners[ev]||[]).forEach(fn=>fn(arg||{target:this})); },
     appendChild(child){ this.hijos.push(child); }, remove(){}, focus(){}, reset(){},
+    querySelectorAll(){ return []; },
   };
   return elements[id];
 }

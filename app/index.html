@@ -2438,11 +2438,15 @@ async function exportarSeleccionadosBusquedaPDF(){
     }));
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-plan').innerHTML = '';
-    document.getElementById('print-buscar').innerHTML = `
+    const contenedor = document.getElementById('print-buscar');
+    contenedor.innerHTML = `
       <h1>Detalle de materiales</h1>
       <div class="print-meta">${fichas.length} material${fichas.length===1?'':'es'} · Generado ${new Date().toLocaleString('es-CL')}</div>
       ${fichas.join('')}
     `;
+    // Espera a que las fotos terminen de descargar (la URL firmada ya está lista, pero el
+    // navegador aún debe traer los bytes de la imagen) para que no salgan en blanco al imprimir.
+    await Promise.all(Array.from(contenedor.querySelectorAll('img')).map(img=> img.complete ? Promise.resolve() : new Promise(resolve=>{ img.addEventListener('load', resolve, {once:true}); img.addEventListener('error', resolve, {once:true}); })));
     window.print();
   }catch(e){ toast(e.message,'err'); }
   setState({busqueda:{...state.busqueda, exportandoPdf:false}});
