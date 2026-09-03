@@ -265,6 +265,12 @@ textarea{resize:vertical;min-height:60px;}
 #print-plan{display:none;}
 #print-buscar{display:none;}
 @media print{
+  /* Sin esto, el tamaño de página imprimible depende de los márgenes que cada impresora/diálogo
+     de impresión traiga por defecto (variable) -- eso rompía el "3 por hoja" de Buscar: con
+     márgenes más grandes que los usados al probarlo, 3 fichas no entraban y el navegador cortaba
+     antes de llegar al salto explícito, dejando 1 o 2 por hoja. Fijando el tamaño acá, el área
+     imprimible es siempre la misma sin importar la configuración de quien imprime.  */
+  @page{size:A4;margin:12mm;}
   html,body{background:#fff;}
   #app,#toast-root{display:none;}
   #print-plan{display:block;padding:0;color:#000;background:#fff;}
@@ -5361,6 +5367,11 @@ function renderBuscar(){
     : (resultados.length<totalReal ? `Primeros ${resultados.length} de ${totalReal}` : etiquetaCompleto);
   const desdeTabla = busquedaPaginaActual*TAM_PAGINA_BUSCAR + 1;
   const hastaTabla = Math.min((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR, resultados.length);
+  // El checkbox del encabezado de la tabla solo marca la página visible (15 filas). Este botón
+  // marca/desmarca de una vez TODO lo cargado en pantalla (que puede ser más de una página), sin
+  // necesidad de ir página por página -- a pedido de Joel.
+  const idsTodosCargados = (resultadosFiltrados || resultados).map(r=>r.sku_id);
+  const todosSeleccionadosCargados = idsTodosCargados.length>0 && idsTodosCargados.every(id=>(b.seleccionados||[]).includes(id));
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card">
@@ -5420,6 +5431,7 @@ function renderBuscar(){
     ${b.yaBuscado? `
     <div class="section-head"><div><h2 style="font-size:15px">${totalConocido?totalReal:`${resultados.length}+`} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        ${idsTodosCargados.length? `<button type="button" class="btn btn-secondary" id="btn-seleccionar-todo-buscar" data-ids="${esc(JSON.stringify(idsTodosCargados))}" style="width:auto;padding:8px 12px;flex:none">${todosSeleccionadosCargados? 'Quitar selección' : `Seleccionar todos (${idsTodosCargados.length})`}</button>` : ''}
         ${(b.seleccionados||[]).length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar-pdf" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportandoPdf?'disabled':''}>${b.exportandoPdf?'<span class="spinner"></span> Generando…':`${ICONS.download} Exportar ${b.seleccionados.length} seleccionado${b.seleccionados.length===1?'':'s'} a PDF`}</button>` : ''}
         ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
       </div>
@@ -6910,6 +6922,12 @@ function bind(){
     if(btnExportarBuscar) btnExportarBuscar.addEventListener('click', exportarBusquedaExcel);
     const btnExportarBuscarPdf = document.getElementById('btn-exportar-buscar-pdf');
     if(btnExportarBuscarPdf) btnExportarBuscarPdf.addEventListener('click', exportarSeleccionadosBusquedaPDF);
+    const btnSeleccionarTodoBuscar = document.getElementById('btn-seleccionar-todo-buscar');
+    if(btnSeleccionarTodoBuscar) btnSeleccionarTodoBuscar.addEventListener('click', ()=>{
+      const ids = JSON.parse(btnSeleccionarTodoBuscar.dataset.ids||'[]');
+      const yaEstabanTodos = ids.length>0 && ids.every(id=>(state.busqueda.seleccionados||[]).includes(id));
+      toggleSeleccionTodosBusqueda(ids, !yaEstabanTodos);
+    });
     document.querySelectorAll('.chk-buscar-fila').forEach(chk=>{
       chk.addEventListener('change', ()=> toggleSeleccionBusqueda(chk.dataset.skuId));
     });
