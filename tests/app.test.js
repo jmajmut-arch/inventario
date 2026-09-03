@@ -2833,6 +2833,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const mapeoBatch = ctx.detectarMapeo(['Material','Batch'], ctx.__CAMPOS_SKU);
   assert(mapeoBatch.batch==='Batch' && mapeoBatch.categoria===undefined, 'un encabezado "Batch" en el archivo debe mapear al campo batch, no a categoria, obtuvo: '+JSON.stringify(mapeoBatch));
 
+  // Caso real (archivo SAP de Escondida, 61.672 filas): "Stock in Quality Inspection" NO debe
+  // mapear a stock_transito_2 solo por compartir las palabras genéricas "stock"/"in" con el
+  // alias "stock in transit 2" -- son categorías de stock distintas (calidad ≠ tránsito). Sin
+  // el filtro de palabras genéricas en puntajeColumna, este archivo real mezclaba ambas.
+  const mapeoTransito = ctx.detectarMapeo(['Material','Unrestricted Stock','Stock in Transit','Stock in Quality Inspection'], ctx.__CAMPOS_SKU);
+  assert(mapeoTransito.stock_transito_1==='Stock in Transit', '"Stock in Transit" debe mapear a stock_transito_1, obtuvo: '+JSON.stringify(mapeoTransito));
+  assert(mapeoTransito.stock_transito_2===undefined, '"Stock in Quality Inspection" NO debe mapear a stock_transito_2 (categoría de stock distinta), obtuvo: '+JSON.stringify(mapeoTransito));
+
   // Un costo o stock negativo (típico de notas de crédito/ajustes en exportaciones de SAP)
   // viola el check constraint de la tabla — antes, esa UNA fila hacía fallar el INSERT masivo
   // COMPLETO (el archivo entero, no solo esa fila), porque se manda como un solo lote. Ahora
