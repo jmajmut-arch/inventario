@@ -2598,6 +2598,12 @@ function normalizarTexto(s){
 // ese alias pesa más que una coincidencia exacta con un alias genérico/jerga SAP,
 // para que columnas como "Ubicación general" no pierdan contra "Storage Location"
 // cuando el mismo archivo trae ambas.
+// Palabras demasiado genéricas/comunes en encabezados SAP como para, por sí solas,
+// justificar un match por "palabras en común" (el nivel más débil de puntajeColumna):
+// un archivo real de Escondida trajo "Stock in Quality Inspection", que sin este
+// filtro matcheaba erróneamente con el alias "stock in transit 2" (stock_transito_2)
+// solo por compartir "stock"/"in" -- dos palabras genéricas, no la señal real del campo.
+const PALABRAS_GENERICAS_MAPEO = new Set(['stock','de','en','la','el','a','of','in','on','the','and','y','del','para']);
 function puntajeColumna(headerNorm, aliases){
   let mejor = 0;
   aliases.forEach((alias, idx)=>{
@@ -2605,7 +2611,7 @@ function puntajeColumna(headerNorm, aliases){
     if(headerNorm === a){ mejor = Math.max(mejor, idx===0? 110 : 100); return; }
     if(headerNorm.includes(a) || a.includes(headerNorm)){ mejor = Math.max(mejor, 75); return; }
     const hw = new Set(headerNorm.split(' '));
-    const comunes = a.split(' ').filter(w=>w && hw.has(w)).length;
+    const comunes = a.split(' ').filter(w=>w && !PALABRAS_GENERICAS_MAPEO.has(w) && hw.has(w)).length;
     if(comunes) mejor = Math.max(mejor, 40 + comunes*10);
   });
   return mejor;
