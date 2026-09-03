@@ -25,6 +25,7 @@ let autoservicioRespuesta = { error: null };
 let conteosExportablesFixture = [];
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
+let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
@@ -226,7 +227,11 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/storage/v1/object/sign/')){
     const ruta = path.replace('/storage/v1/object/sign/fotos-inventario/', '');
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}), json: async()=>({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake`}) };
+    const pideTransform = opts && opts.body && JSON.parse(opts.body).transform;
+    if(pideTransform && fallarFirmaConTransform){
+      return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'Image transformation is not enabled for this project'}), json: async()=>({message:'Image transformation is not enabled for this project'}) };
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake${pideTransform?'&transform=1':''}`}), json: async()=>({signedURL:`/object/sign/fotos-inventario/${ruta}?token=fake${pideTransform?'&transform=1':''}`}) };
   }
   if(path.startsWith('/storage/v1/object/fotos-inventario/')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{}', json: async()=>({}) };
@@ -5222,6 +5227,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printInformeElBusqPrevio.innerHTML==='' && printPlanElBusqPrevio.innerHTML==='', 'debe limpiar los otros contenedores de impresión para no arrastrar un PDF anterior, obtuvo: '+JSON.stringify({informe:printInformeElBusqPrevio.innerHTML, plan:printPlanElBusqPrevio.innerHTML}));
   assert(printBuscarEl.innerHTML.includes('SKU-EXP-1') && printBuscarEl.innerHTML.includes('Rodamiento') && printBuscarEl.innerHTML.includes('Pasillo 2') && printBuscarEl.innerHTML.includes('B-04'), 'el PDF debe traer el detalle del primer seleccionado, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'debe incrustar la foto (la más reciente, a.jpg) resuelta a su URL firmada, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('transform=1'), 'debe pedir la foto redimensionada (Image Transformations) para que el PDF no descargue la foto original de varios MB, obtuvo: '+printBuscarEl.innerHTML);
+  assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && JSON.parse(c.opts.body).transform && JSON.parse(c.opts.body).transform.width===400), 'la firma debe pedir un transform con un ancho acotado, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('a.jpg')).map(c=>c.opts.body)));
   assert(printBuscarEl.innerHTML.includes('SKU-EXP-4') && printBuscarEl.innerHTML.includes('Sin foto') && printBuscarEl.innerHTML.includes('No contado'), 'un SKU nunca contado y sin fotos debe avisar "Sin foto" y "No contado" en vez de romperse, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('Rodamiento con desgaste visible en el borde'), 'el PDF debe traer la observación que se llenó en Tomar inventario, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('Diferencia -2'), 'debe mostrar la magnitud real de la diferencia cuando no hay conteo ciego, obtuvo: '+printBuscarEl.innerHTML);
@@ -5234,6 +5241,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.exportarSeleccionadosBusquedaPDF();
   assert(printBuscarEl.innerHTML.includes('Con diferencia') && !printBuscarEl.innerHTML.includes('Diferencia -2'), 'con conteo ciego activo, el PDF no debe revelar la magnitud de la diferencia, obtuvo: '+printBuscarEl.innerHTML);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+
+  // Si el proyecto no tiene Image Transformations habilitadas, la firma con transform falla --
+  // debe reintentar sin transform y seguir mostrando la foto (aunque sea a tamaño original) en
+  // vez de dejar la ficha en "Sin foto".
+  fallarFirmaConTransform = true;
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1']};
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('transform=1'), 'si falla la firma con transform (Image Transformations no habilitadas), debe reintentar sin transform y seguir mostrando la foto, obtuvo: '+printBuscarEl.innerHTML);
+  fallarFirmaConTransform = false;
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
 
   // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
   // por fecha_conteo, paginada, mapeada a columnas en español y escrita con XLSX (mockeado

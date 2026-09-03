@@ -703,15 +703,18 @@ async function storageUpload(path, file){
 
 // Genera una URL temporal para ver una foto del bucket privado. Acepta tanto
 // una ruta nueva (empresa_id/sku/archivo) como una URL pública completa de
-// fotos subidas antes de que el bucket pasara a privado.
-async function crearUrlFirmada(fotoUrlORuta){
+// fotos subidas antes de que el bucket pasara a privado. `transform` (opcional)
+// pide una versión redimensionada/comprimida vía Supabase Image Transformations
+// -- si el proyecto no la tiene habilitada, el llamador debe reintentar sin transform.
+async function crearUrlFirmada(fotoUrlORuta, transform){
   const marcador = `/object/public/${BUCKET}/`;
   const idx = fotoUrlORuta.indexOf(marcador);
   const ruta = idx>=0 ? fotoUrlORuta.slice(idx+marcador.length) : fotoUrlORuta;
+  const body = transform ? {expiresIn:3600, transform} : {expiresIn:3600};
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${BUCKET}/${ruta}`, {
     method:'POST',
     headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
-    body: JSON.stringify({expiresIn:3600})
+    body: JSON.stringify(body)
   });
   const data = await res.json().catch(()=>({}));
   if(!res.ok || !data.signedURL) throw new Error(data.message || 'No se pudo abrir la foto');
@@ -2433,7 +2436,11 @@ async function exportarSeleccionadosBusquedaPDF(){
       const foto = (r.fotos||[])[0];
       let fotoUrl = null;
       if(foto){
-        try{ fotoUrl = await crearUrlFirmada(foto.foto_url); }catch(e){ /* sigue sin foto si falla la firma */ }
+        // Pide una versión redimensionada -- las fotos originales pesan varios MB (resolución de
+        // cámara) para un recuadro de 130x130px en el PDF. Si el proyecto no tiene habilitadas las
+        // Image Transformations de Supabase, reintenta con la foto original en vez de romperse.
+        try{ fotoUrl = await crearUrlFirmada(foto.foto_url, {width:400, height:400, resize:'cover', quality:70}); }
+        catch(e){ try{ fotoUrl = await crearUrlFirmada(foto.foto_url); }catch(e2){ /* sigue sin foto si falla también la firma sin redimensionar */ } }
       }
       return fichaBusquedaPDF(r, fotoUrl, ocultar);
     }));
