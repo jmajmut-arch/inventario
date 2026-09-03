@@ -4036,11 +4036,11 @@ function renderEscanerModal(){
         <button id="escaner-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
       ${m.opciones? `
-        <div class="hint">Este código existe en más de una bodega o batch. Elige cuál estás contando:</div>
+        <div class="hint">Este código existe en más de una bodega, ubicación o batch. Elige cuál estás contando:</div>
         <div style="margin-top:10px">
           ${m.opciones.map(s=>`
             <div class="sku-pick" data-escaner-elegir="${s.id}">
-              <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'Sin ubicación general')}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+              <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'Sin ubicación general')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
               <button data-escaner-elegir-btn="${s.id}">Elegir</button>
             </div>`).join('')}
         </div>
@@ -4057,7 +4057,7 @@ function renderEscanerModal(){
           ${q.length===0? `<div class="hint">Escribe para buscar entre ${state.skus.length} SKU activos.</div>` :
             resultados.length? resultados.map(s=>`
               <div class="sku-pick" data-asociar="${s.id}">
-                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}</span></div>
+                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
                 <button data-asociar-btn="${s.id}" ${m.asociando?'disabled':''}>${m.asociando?'...':'Asociar'}</button>
               </div>`).join('') :
             `<div class="hint">No se encontraron coincidencias.</div>`}
@@ -5083,7 +5083,7 @@ function renderResultadosBuscadorLibre(){
     state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
     resultados.length? resultados.map(s=>`
       <div class="sku-pick" data-pick="${s.id}">
-        <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+        <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
         <button data-pick-btn="${s.id}">Elegir</button>
       </div>`).join('') :
     `<div class="hint">No se encontraron coincidencias.</div>`;
