@@ -566,6 +566,13 @@ const TOPE_CARGA_TOTAL_BUSQUEDA = 1000;
 // guardado (sigue esperando la respuesta real del servidor, ver guardarConteo) -- solo mejora el
 // aviso durante la espera. A pedido de Joel.
 const UMBRAL_GUARDADO_LENTO_MS = 4000;
+// Con señal mala (no "sin conexión" -- eso ya se detecta al toque, ver pareceFalloDeRed), un
+// guardado puede quedar colgado esperando una respuesta que nunca llega en un tiempo razonable.
+// Pasado este plazo, guardarConteo lo trata igual que si de verdad no hubiera conexión: aborta el
+// intento y lo deja en la cola offline para reintentar solo cuando mejore la señal, en vez de
+// dejar a la persona esperando indefinidamente. Bastante más alto que UMBRAL_GUARDADO_LENTO_MS
+// (ese solo cambia el aviso en pantalla; este de acá corta la espera de verdad).
+const UMBRAL_ABORTAR_GUARDADO_MS = 15000;
 // Trazabilidad usa una página más chica: la tabla de auditoría es más densa de leer que las
 // otras listas paginadas, así que conviene una tanda menor por carga.
 const TAM_PAGINA_AUDITORIA = 20;
@@ -651,7 +658,18 @@ async function authRequest(path, body){
   return data;
 }
 
-async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={} } = {}){
+// Convierte cualquier fallo de la llamada (de red real, o el aborto por timeoutMs de más abajo)
+// en el mismo TypeError "sin conexión" que ya reconoce pareceFalloDeRed en toda la app -- así los
+// flujos que ya saben encolar offline ante un fallo de red (ver guardarConteo) también absorben el
+// caso "señal viva pero demasiado lenta" sin necesitar lógica aparte. motivoTimeout distingue el
+// caso puntual (para un mensaje más preciso: "está lento" en vez de "sin conexión").
+function relanzarComoSinConexion(e){
+  if(e && e.name==='AbortError'){ const err = new TypeError(MENSAJE_SIN_CONEXION); err.motivoTimeout = true; throw err; }
+  if(pareceFalloDeRed(e)) throw new TypeError(MENSAJE_SIN_CONEXION);
+  throw e;
+}
+
+async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={}, timeoutMs=null } = {}){
   const hacerLlamada = () => {
     const headers = {
       'apikey': SUPABASE_ANON_KEY,
@@ -660,14 +678,21 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
       ...extraHeaders
     };
     if(prefer) headers['Prefer'] = prefer;
+    let signal;
+    if(timeoutMs){
+      const controller = new AbortController();
+      signal = controller.signal;
+      const timer = setTimeout(()=> controller.abort(), timeoutMs);
+      return fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body?JSON.stringify(body):null, signal })
+        .finally(()=> clearTimeout(timer));
+    }
     return fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body?JSON.stringify(body):null });
   };
   let res;
   try{
     res = await hacerLlamada();
   }catch(e){
-    if(pareceFalloDeRed(e)) throw new TypeError(MENSAJE_SIN_CONEXION);
-    throw e;
+    relanzarComoSinConexion(e);
   }
   // El access_token dura poco (~1h); si ya venció, refrescamos con el refresh_token
   // guardado y reintentamos una sola vez antes de mostrar el error.
@@ -677,8 +702,7 @@ async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={
       try{
         res = await hacerLlamada();
       }catch(e){
-        if(pareceFalloDeRed(e)) throw new TypeError(MENSAJE_SIN_CONEXION);
-        throw e;
+        relanzarComoSinConexion(e);
       }
     }
     else{
@@ -3137,14 +3161,28 @@ async function procesarUnItemOffline(item){
       return {ok:true};
     }
 
+    // Compatibilidad: un item encolado antes de agregar idempotencia no trae la llave -- se le
+    // asigna una la primera vez que se procesa y se guarda en la cola, para que quede estable en
+    // reintentos futuros de este mismo item (si no, cada reintento generaría una llave distinta
+    // y el conteo terminaría duplicado en vez de deduplicado).
+    let idempotencyKey = item.idempotency_key;
+    if(!idempotencyKey){
+      idempotencyKey = crypto.randomUUID();
+      guardarColaOffline(leerColaOffline().map(i=> i.id===item.id ? {...i, idempotency_key:idempotencyKey} : i));
+    }
+
     const fotos = await leerFotosOffline(item.id).catch(()=>[]);
     const urls = [];
-    for(const foto of fotos){
+    for(let i=0;i<fotos.length;i++){
+      const foto = fotos[i];
       const ext = (foto.nombre.split('.').pop()||'jpg').toLowerCase();
-      const ruta = `${item.empresa_id}/${item.sku_code}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.${ext}`;
+      // Ruta determinística (llave de idempotencia + índice), no Date.now()+random: si este
+      // mismo item se reintenta (ver más abajo), storageUpload (x-upsert:true) pisa la MISMA
+      // ruta en vez de crear un archivo nuevo cada vez.
+      const ruta = `${item.empresa_id}/${item.sku_code}/${idempotencyKey}-${i}.${ext}`;
       urls.push(await storageUpload(ruta, foto.blob));
     }
-    const filas = await rest('/conteos', {method:'POST', body:[{
+    let filas = await rest('/conteos?on_conflict=idempotency_key', {method:'POST', body:[{
       sku_id: item.sku_id,
       usuario_id: item.usuario_id,
       empresa_id: item.empresa_id,
@@ -3155,10 +3193,17 @@ async function procesarUnItemOffline(item){
       capturado_en: capturadoEn,
       fuera_de_plan: item.fuera_de_plan,
       ubicacion_distinta: !!item.ubicacion_distinta,
-    }], prefer:'return=representation'});
-    const conteoId = filas && filas[0] && filas[0].id;
+      idempotency_key: idempotencyKey,
+    }], prefer:'resolution=ignore-duplicates,return=representation'});
+    // Igual que en guardarConteo: si ya existía (un intento anterior de sincronizar este mismo
+    // item sí llegó a guardarse, pero la respuesta se perdió), se busca la fila ya guardada.
+    let conteoId = filas && filas[0] && filas[0].id;
+    if(!conteoId){
+      const existentes = await rest(`/conteos?idempotency_key=eq.${idempotencyKey}&select=id`);
+      conteoId = existentes && existentes[0] && existentes[0].id;
+    }
     if(conteoId && urls.length){
-      await rest('/conteo_fotos', {method:'POST', body: urls.map(foto_url=>({conteo_id:conteoId, foto_url})), prefer:'return=minimal'});
+      await rest('/conteo_fotos?on_conflict=foto_url', {method:'POST', body: urls.map(foto_url=>({conteo_id:conteoId, foto_url})), prefer:'resolution=ignore-duplicates,return=minimal'});
     }
     await borrarFotosOffline(item.id).catch(()=>{});
     return {ok:true};
@@ -3358,13 +3403,19 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   // Momento real en que la persona capturó el conteo (no cuándo termina de guardarse) —
   // fundamental para auditoría cuando se guarda sin conexión y se sincroniza horas después.
   const capturadoEn = new Date().toISOString();
+  // Llave de idempotencia: se genera UNA vez por intento de guardado y viaja igual en cualquier
+  // reintento de ESE mismo intento (online con timeout, o encolado offline y sincronizado
+  // después) -- así, si el conteo termina llegando al servidor más de una vez (ej. la respuesta
+  // del primer intento se perdió por señal mala, pero el insert sí se alcanzó a hacer), el
+  // servidor lo reconoce como el mismo intento y no lo duplica (conteos.idempotency_key, único).
+  const idempotencyKey = crypto.randomUUID();
   setState({loading:true, conteoGuardandoLento:false});
   // Ver UMBRAL_GUARDADO_LENTO_MS: si el guardado no terminó (éxito, error, o modo offline) antes
   // de este plazo, avisa que sigue intentando en vez de dejar solo el spinner chico del botón.
   // El finally de más abajo lo limpia siempre, gane quien gane la carrera.
   const timerLento = setTimeout(()=> setState({conteoGuardandoLento:true}), UMBRAL_GUARDADO_LENTO_MS);
   try{
-    const filas = await rest('/conteos', {method:'POST', body:[{
+    let filas = await rest('/conteos?on_conflict=idempotency_key', {method:'POST', body:[{
       sku_id: state.skuSeleccionado.id,
       usuario_id: state.perfil ? state.perfil.id : null,
       empresa_id: state.perfil.empresa_id,
@@ -3375,17 +3426,29 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       capturado_en: capturadoEn,
       fuera_de_plan: !state.conteoOrigenPlan,
       ubicacion_distinta: !!ubicacionDistinta,
-    }], prefer:'return=representation'});
-    const conteoId = filas && filas[0] && filas[0].id;
+      idempotency_key: idempotencyKey,
+    }], prefer:'resolution=ignore-duplicates,return=representation', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
+    // Si el conteo ya existía (reintento de un intento anterior que sí había llegado a guardarse
+    // en el servidor, pero cuya respuesta nunca volvió), el insert no devuelve fila (ON CONFLICT
+    // DO NOTHING) -- se busca la que ya quedó guardada, para poder asociarle las fotos igual.
+    let conteoId = filas && filas[0] && filas[0].id;
+    if(!conteoId){
+      const existentes = await rest(`/conteos?idempotency_key=eq.${idempotencyKey}&select=id`);
+      conteoId = existentes && existentes[0] && existentes[0].id;
+    }
 
     if(conteoId && state.conteoFotos.length){
       const urls = [];
-      for(const f of state.conteoFotos){
+      for(let i=0;i<state.conteoFotos.length;i++){
+        const f = state.conteoFotos[i];
         const ext = (f.file.name.split('.').pop()||'jpg').toLowerCase();
-        const path = `${state.perfil.empresa_id}/${state.skuSeleccionado.sku_code}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.${ext}`;
+        // Ruta determinística (llave de idempotencia + índice de la foto), no Date.now()+random:
+        // si esta misma foto se reintenta subir, storageUpload (x-upsert:true) pisa la MISMA
+        // ruta en vez de crear un archivo nuevo cada vez.
+        const path = `${state.perfil.empresa_id}/${state.skuSeleccionado.sku_code}/${idempotencyKey}-${i}.${ext}`;
         urls.push(await storageUpload(path, f.file));
       }
-      await rest('/conteo_fotos', {method:'POST', body: urls.map(foto_url=>({conteo_id:conteoId, foto_url})), prefer:'return=minimal'});
+      await rest('/conteo_fotos?on_conflict=foto_url', {method:'POST', body: urls.map(foto_url=>({conteo_id:conteoId, foto_url})), prefer:'resolution=ignore-duplicates,return=minimal'});
     }
 
     toast('Conteo registrado');
@@ -3393,12 +3456,15 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
     cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
-    // Sin conexión de verdad (no un error del servidor): guardamos el conteo (y sus
-    // fotos, en IndexedDB) en este dispositivo y lo enviamos apenas vuelva la señal,
-    // en vez de perder el trabajo.
+    // Sin conexión de verdad, o señal tan lenta que rest() abortó el intento (ver
+    // UMBRAL_ABORTAR_GUARDADO_MS): en ambos casos guardamos el conteo (y sus fotos, en
+    // IndexedDB) en este dispositivo y lo enviamos apenas vuelva/mejore la señal, en vez de
+    // dejar a la persona esperando o perder el trabajo. La llave de idempotencia viaja con el
+    // item encolado, para que la sincronización posterior sea segura de reintentar.
     if(pareceFalloDeRed(e)){
       const fotosAEncolar = state.conteoFotos.map(f=>f.file);
       const item = encolarAccionOffline('conteo', {
+        idempotency_key: idempotencyKey,
         sku_id: state.skuSeleccionado.id,
         sku_code: state.skuSeleccionado.sku_code,
         usuario_id: state.perfil ? state.perfil.id : null,
@@ -3413,7 +3479,9 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
       setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
-      toast('Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
+      toast(e.motivoTimeout
+        ? 'La conexión está muy lenta: el conteo quedó guardado en este dispositivo y se enviará solo cuando mejore la señal.'
+        : 'Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return;
     }
     setState({loading:false, conteoGuardandoLento:false});

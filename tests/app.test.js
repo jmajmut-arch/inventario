@@ -26,6 +26,10 @@ let conteosExportablesFixture = [];
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
+// Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
+// hace Postgres ante ON CONFLICT DO NOTHING) y la búsqueda de respaldo por idempotency_key
+// devuelve el id ya guardado, en vez del habitual {id:'conteo-nuevo-1'}.
+let conteoIdempotenteYaExistente = null;
 const calls = [];
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
@@ -141,7 +145,11 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
+  if(path.startsWith('/rest/v1/conteos?idempotency_key=eq.')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conteoIdempotenteYaExistente ? [{id:conteoIdempotenteYaExistente}] : []) };
+  }
   if(path.startsWith('/rest/v1/conteos') && opts && opts.method==='POST'){
+    if(conteoIdempotenteYaExistente) return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]' };
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'conteo-nuevo-1'}]) };
   }
   // Usado por eliminarSkusSeleccionados para saber cuáles de los SKU seleccionados ya
@@ -683,6 +691,8 @@ const sandbox = {
   clearTimeout: (id) => clearTimeout(id),
   URL,
   URLSearchParams,
+  AbortController,
+  crypto,
   Image: class {},
   FileReader: class {},
   location: { hash: '', pathname: '/index.html', search: '' },
@@ -3543,6 +3553,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(errorDeRest && errorDeRest.message === 'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', 'el mensaje debe ser en español y entendible, no el texto crudo del navegador, obtuvo: '+(errorDeRest && errorDeRest.message));
   ctx.fetch = fetchOriginalRest;
 
+  // rest() con timeoutMs (señal viva pero muy lenta, ver UMBRAL_ABORTAR_GUARDADO_MS): si el
+  // fetch queda colgado sin resolver nunca, rest() debe abortarlo y relanzar el mismo TypeError
+  // "sin conexión" (para que pareceFalloDeRed lo reconozca igual), pero marcado con
+  // motivoTimeout=true para poder distinguirlo del caso "de verdad no hay conexión".
+  const fetchOriginalTimeout = ctx.fetch;
+  // Un fetch real, al abortarse, rechaza por el AbortSignal -- a diferencia de una promesa que
+  // simplemente nunca resuelve, hay que escuchar el evento 'abort' para simular eso de verdad
+  // (si no, nada dispara el rechazo y el await queda colgado para siempre).
+  ctx.fetch = (url, opts) => new Promise((resolve, reject) => {
+    if(opts && opts.signal) opts.signal.addEventListener('abort', ()=>{
+      const err = new Error('The operation was aborted'); err.name = 'AbortError'; reject(err);
+    });
+  });
+  let errorDeTimeout = null;
+  try{ await ctx.rest('/algo-que-sea', {timeoutMs:5}); }catch(e){ errorDeTimeout = e; }
+  ctx.fetch = fetchOriginalTimeout;
+  assert(errorDeTimeout instanceof ctx.__TypeError && errorDeTimeout.message==='No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', 'ante un fetch colgado, rest() con timeoutMs debe relanzar el mismo TypeError de sin conexión, obtuvo: '+(errorDeTimeout && errorDeTimeout.message));
+  assert(errorDeTimeout && errorDeTimeout.motivoTimeout===true, 'el error por timeout debe venir marcado con motivoTimeout=true, para distinguirlo de un fallo de red real, obtuvo: '+JSON.stringify(errorDeTimeout));
+  assert(ctx.pareceFalloDeRed(errorDeTimeout)===true, 'pareceFalloDeRed debe seguir reconociendo el error por timeout como fallo de red (es un TypeError), para que los flujos offline lo encolen igual');
+
   // Sin conexión (fetch rechaza con TypeError): guardarConteo debe encolar el conteo en
   // localStorage (con estado "pendiente") en vez de mostrar un error, guardar la(s) foto(s)
   // en IndexedDB (no se pierden), y limpiar el formulario igual que si hubiera guardado con éxito.
@@ -3551,9 +3581,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.skuSeleccionado = { id:'sku-offline', sku_code:'SKU-OFF', bodega:'Nave' };
   ctx.__appstate.conteoFotos = [{ file: { name:'foto.jpg', type:'image/jpeg' } }];
   const fetchOriginalOffline = ctx.fetch;
+  let bodyIntentoOnlineFallido = null;
   ctx.fetch = async (url, opts) => {
     const u = new URL(url);
-    if(u.pathname==='/rest/v1/conteos' && opts.method==='POST') throw new ctx.__TypeError('Failed to fetch');
+    if(u.pathname==='/rest/v1/conteos' && opts.method==='POST'){
+      bodyIntentoOnlineFallido = JSON.parse(opts.body)[0];
+      throw new ctx.__TypeError('Failed to fetch');
+    }
     return fetchOriginalOffline(url, opts);
   };
   const toastRootOffline = elements['toast-root'];
@@ -3567,9 +3601,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // justo en el momento en que el operador más necesita sentir que su conteo quedó a salvo.
   const toastsOffline = toastRootOffline.hijos.slice(toastsAntesOffline);
   assert(toastsOffline.length===1 && toastsOffline[0].className==='toast warn', 'el aviso de conteo guardado sin conexión debe usar el tipo "warn" (ámbar), no "err" (rojo), obtuvo className: '+(toastsOffline[0]&&toastsOffline[0].className));
+  assert(/^Sin conexión:/.test(toastsOffline[0].textContent), 'sin conexión de verdad (no un timeout), el aviso debe usar la frase "Sin conexión", no la de "conexión muy lenta", obtuvo: '+toastsOffline[0].textContent);
   assert(ctx.__appstate.colaOffline.length===1, 'guardarConteo sin conexión debe agregar el conteo a la cola offline, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
   const itemEncolado = ctx.__appstate.colaOffline[0];
   assert(itemEncolado.sku_id==='sku-offline' && itemEncolado.sku_code==='SKU-OFF' && itemEncolado.cantidad_contada===7 && itemEncolado.ubicacion_contada==='Rack A' && itemEncolado.empresa_id==='emp-1', 'el conteo encolado debe llevar los datos ingresados y el empresa_id del perfil actual, obtuvo: '+JSON.stringify(itemEncolado));
+  // Idempotencia (ver conteos.idempotency_key): el intento online fallido y el item que termina
+  // encolado deben llevar la MISMA llave -- si el insert original sí llegó a guardarse en el
+  // servidor (solo se perdió la respuesta), el reintento vía la cola debe poder reconocerse como
+  // el mismo intento en vez de duplicar el conteo.
+  assert(!!bodyIntentoOnlineFallido && typeof bodyIntentoOnlineFallido.idempotency_key==='string' && bodyIntentoOnlineFallido.idempotency_key.length>0, 'el intento online debe enviar una idempotency_key, obtuvo: '+JSON.stringify(bodyIntentoOnlineFallido));
+  assert(itemEncolado.idempotency_key===bodyIntentoOnlineFallido.idempotency_key, 'el item encolado debe reusar la MISMA idempotency_key del intento online que falló, obtuvo: '+JSON.stringify({encolado:itemEncolado.idempotency_key, online:bodyIntentoOnlineFallido.idempotency_key}));
   assert(itemEncolado.estado==='pendiente' && itemEncolado.error===null, 'un conteo recién encolado debe quedar en estado "pendiente", sin error, obtuvo: '+JSON.stringify(itemEncolado));
   assert(itemEncolado.fotosCount===1, 'debe recordar cuántas fotos quedaron pendientes de subir, obtuvo: '+itemEncolado.fotosCount);
   const colaGuardada = JSON.parse(ctx.localStorage.getItem('cola_offline_conteos'));
@@ -3579,6 +3620,63 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // La foto sí debe haber quedado guardada en IndexedDB, asociada a ese conteo encolado.
   const fotosGuardadas = await ctx.leerFotosOffline(itemEncolado.id);
   assert(fotosGuardadas.length===1 && fotosGuardadas[0].nombre==='foto.jpg', 'la foto adjunta debe quedar guardada en IndexedDB para subirla al sincronizar, obtuvo: '+JSON.stringify(fotosGuardadas));
+
+  // Señal lenta pero "viva" (no un TypeError -- un fetch que nunca responde): pasado
+  // UMBRAL_ABORTAR_GUARDADO_MS, guardarConteo debe tratarlo igual que si no hubiera conexión
+  // (encolar localmente), pero con un aviso que hable de "conexión lenta" en vez de "sin
+  // conexión", para no confundir a alguien que sí tiene señal (solo que muy mala).
+  ctx.__appstate.skuSeleccionado = { id:'sku-lento', sku_code:'SKU-LENTO', bodega:'Nave' };
+  ctx.__appstate.conteoFotos = [];
+  const fetchOriginalLento = ctx.fetch;
+  let bodyIntentoLento = null;
+  ctx.fetch = (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/conteos' && opts.method==='POST'){
+      bodyIntentoLento = JSON.parse(opts.body)[0];
+      // Nunca resuelve por sí sola -- solo rechaza si rest() la aborta por timeoutMs (igual que
+      // haría un fetch real ante una señal tan mala que ni eso llega a responder a tiempo).
+      return new Promise((resolve, reject)=>{
+        if(opts.signal) opts.signal.addEventListener('abort', ()=>{
+          const err = new Error('The operation was aborted'); err.name = 'AbortError'; reject(err);
+        });
+      });
+    }
+    return fetchOriginalLento(url, opts);
+  };
+  const toastRootLento = elements['toast-root'];
+  const toastsAntesLento = toastRootLento.hijos.length;
+  await ctx.guardarConteo({cantidad:2, ubicacion:'', bodega:'Nave Mina'});
+  ctx.fetch = fetchOriginalLento;
+  const toastsLento = toastRootLento.hijos.slice(toastsAntesLento);
+  assert(toastsLento.length===1 && toastsLento[0].className==='toast warn', 'con señal lenta (fetch nunca responde a tiempo), el guardado también debe terminar avisando "warn" (no error), obtuvo: '+JSON.stringify(toastsLento[0]));
+  assert(/lenta/i.test(toastsLento[0].textContent) && !/^Sin conexión:/.test(toastsLento[0].textContent), 'con señal lenta debe usar la frase de "conexión lenta", no la de "sin conexión" (son avisos para causas distintas), obtuvo: '+toastsLento[0].textContent);
+  assert(ctx.__appstate.colaOffline.length===2, 'el conteo con señal lenta también debe terminar encolado, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+  const itemLento = ctx.__appstate.colaOffline[1];
+  assert(itemLento.sku_id==='sku-lento' && !!bodyIntentoLento && itemLento.idempotency_key===bodyIntentoLento.idempotency_key, 'el item encolado por señal lenta también debe reusar la idempotency_key del intento que se abortó, obtuvo: '+JSON.stringify({item:itemLento, body:bodyIntentoLento}));
+  // Deja la cola tal cual estaba antes de esta prueba (solo itemEncolado), para no interferir
+  // con el banner y las pruebas de sincronización que siguen más abajo.
+  ctx.guardarColaOffline([itemEncolado]);
+  ctx.__appstate.colaOffline = [itemEncolado];
+
+  // Reintento de un intento que en realidad SÍ se había guardado en el servidor (la respuesta se
+  // perdió por señal mala): el insert responde sin filas (ON CONFLICT DO NOTHING, ver
+  // conteoIdempotenteYaExistente en el mock) -- guardarConteo debe buscar la fila ya guardada por
+  // su idempotency_key y seguir adelante con éxito (incluida la foto), en vez de fallar o de
+  // dejar el conteo duplicado.
+  ctx.__appstate.skuSeleccionado = { id:'sku-dup', sku_code:'SKU-DUP', bodega:'Nave' };
+  ctx.__appstate.conteoFotos = [{ file: { name:'foto-dup.jpg', type:'image/jpeg' } }];
+  conteoIdempotenteYaExistente = 'conteo-ya-existia';
+  calls.length = 0;
+  const toastRootIdemDup = elements['toast-root'];
+  const toastsAntesIdemDup = toastRootIdemDup.hijos.length;
+  await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:'Nave Mina'});
+  conteoIdempotenteYaExistente = null;
+  const toastsIdemDup = toastRootIdemDup.hijos.slice(toastsAntesIdemDup);
+  assert(toastsIdemDup.length===1 && toastsIdemDup[0].className==='toast ok' && toastsIdemDup[0].textContent==='Conteo registrado', 'un reintento que resulta ser un duplicado (ya existía) debe terminar en éxito normal, no en error, obtuvo: '+JSON.stringify(toastsIdemDup[0]));
+  const getExistenteDup = calls.find(c=>c.url.includes('idempotency_key=eq.') && c.opts.method==='GET');
+  assert(!!getExistenteDup, 'ante un insert sin filas (ya existía), debe buscar la fila existente por idempotency_key, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const postFotoDup = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteo_fotos'));
+  assert(!!postFotoDup && JSON.parse(postFotoDup.opts.body)[0].conteo_id==='conteo-ya-existia', 'la foto debe quedar asociada al conteo ya existente (encontrado por la búsqueda de respaldo), no perderse, obtuvo: '+JSON.stringify(postFotoDup&&postFotoDup.opts.body));
 
   // El banner de conteos pendientes debe aparecer en la app (renderShell) con la cantidad correcta,
   // con un botón para ver el detalle además del de reintentar.
@@ -3620,6 +3718,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(capturadoEnSincronizado===new Date(itemEncolado.creado_en).toISOString(), 'al sincronizar, capturado_en debe ser la fecha original en que se encoló (no la de sincronización), obtuvo: '+capturadoEnSincronizado+' esperado: '+new Date(itemEncolado.creado_en).toISOString());
   const postFotoConteo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteo_fotos'));
   assert(!!postFotoConteo, 'tras crear el conteo, debe enlazar la foto subida con /conteo_fotos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Idempotencia al sincronizar: debe reusar la MISMA llave con la que se había encolado (no
+  // generar una nueva en cada sync), pedir on_conflict=idempotency_key, y subir la foto a una
+  // ruta determinística (la llave + el índice de la foto) en vez de Date.now()+random -- así un
+  // reintento de sincronización pisa la misma foto en vez de subir un archivo nuevo cada vez.
+  assert(postSincronizado.url.includes('on_conflict=idempotency_key'), 'el POST de sincronización debe pedir on_conflict=idempotency_key, obtuvo: '+postSincronizado.url);
+  assert(JSON.parse(postSincronizado.opts.body)[0].idempotency_key===itemEncolado.idempotency_key, 'debe reusar la idempotency_key con la que se encoló, obtuvo: '+JSON.stringify(JSON.parse(postSincronizado.opts.body)[0]));
+  assert(fotoSubidaAlSincronizar.url.includes(`/storage/v1/object/fotos-inventario/emp-1/SKU-OFF/${itemEncolado.idempotency_key}-0.jpg`), 'la foto debe subirse a una ruta determinística (llave de idempotencia + índice), obtuvo: '+fotoSubidaAlSincronizar.url);
+  assert(postFotoConteo.url.includes('on_conflict=foto_url'), 'el POST de conteo_fotos debe pedir on_conflict=foto_url, obtuvo: '+postFotoConteo.url);
   assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, la cola offline debe quedar vacía');
   assert(ctx.localStorage.getItem('cola_offline_conteos')==='[]', 'la cola vacía también debe reflejarse en localStorage, obtuvo: '+ctx.localStorage.getItem('cola_offline_conteos'));
   const fotosTrasSincronizar = await ctx.leerFotosOffline(itemEncolado.id);
@@ -3683,6 +3789,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postConteoSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
   assert(!!postConteoSincronizado, 'reintentarAccionOffline debe volver a intentar el envío aunque el conteo estuviera en error, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.colaOffline.length===0, 'si el reintento manual tiene éxito, el conteo debe salir de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+  // Compatibilidad: un item que ya estaba encolado ANTES de agregar idempotencia no trae
+  // idempotency_key (undefined) -- procesarUnItemOffline debe asignarle una la primera vez que
+  // lo procesa, guardarla en la cola (para que quede estable si hay que reintentar este mismo
+  // item más adelante) y de todas formas mandarla en el POST, en vez de romperse o mandar
+  // idempotency_key:undefined al servidor.
+  ctx.guardarColaOffline([]);
+  ctx.encolarAccionOffline('conteo', {id:'local-viejo-1', sku_id:'sku-viejo', sku_code:'SKU-VIEJO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:6, ubicacion_contada:null, bodega:null, observacion:null});
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  const postItemViejo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
+  assert(!!postItemViejo, 'debe sincronizar igual un item viejo sin idempotency_key, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const bodyItemViejo = JSON.parse(postItemViejo.opts.body)[0];
+  assert(typeof bodyItemViejo.idempotency_key==='string' && bodyItemViejo.idempotency_key.length>0, 'debe generarle una idempotency_key aunque el item no la trajera, en vez de mandar undefined, obtuvo: '+JSON.stringify(bodyItemViejo));
+  assert(ctx.__appstate.colaOffline.length===0, 'tras sincronizar con éxito, debe salir de la cola igual que cualquier otro item, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
 
   // descartarAccionOffline: borra el conteo de la cola (y sus fotos, si tenía) sin enviarlo nunca,
   // solo si el usuario confirma.
