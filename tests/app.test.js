@@ -5206,6 +5206,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlSinSeleccion.includes('id="btn-exportar-buscar-pdf"'), 'sin nada seleccionado, el botón de exportar a PDF no debe verse, obtuvo: '+htmlSinSeleccion);
   assert(htmlSinSeleccion.includes('class="chk-buscar-fila"') && htmlSinSeleccion.includes('data-sku-id="sku-exp-1"'), 'cada fila debe traer su checkbox de selección con el sku_id, obtuvo: '+htmlSinSeleccion);
 
+  // "Seleccionar todos" -- marca/desmarca de una vez TODO lo cargado (no solo la página visible
+  // de 15), a pedido de Joel. El botón trae los 4 ids cargados en su data-ids.
+  assert(htmlSinSeleccion.includes('id="btn-seleccionar-todo-buscar"') && htmlSinSeleccion.includes('Seleccionar todos (4)'), 'sin nada seleccionado debe ofrecer "Seleccionar todos (4)" con el total cargado, obtuvo: '+htmlSinSeleccion);
+  const idsBotonTodo = JSON.parse(htmlSinSeleccion.match(/id="btn-seleccionar-todo-buscar" data-ids="([^"]+)"/)[1].replace(/&quot;/g,'"'));
+  assert(JSON.stringify(idsBotonTodo.slice().sort())===JSON.stringify(['sku-exp-1','sku-exp-2','sku-exp-3','sku-exp-4']), 'el data-ids del botón debe traer los 4 sku_id cargados, obtuvo: '+JSON.stringify(idsBotonTodo));
+
   ctx.toggleSeleccionBusqueda('sku-exp-1');
   assert(JSON.stringify(ctx.__appstate.busqueda.seleccionados)===JSON.stringify(['sku-exp-1']), 'toggleSeleccionBusqueda debe agregar el sku_id a la selección, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.seleccionados));
   const htmlUnaSeleccion = ctx.renderBuscar();
@@ -5258,6 +5264,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Salto de página cada 3 fichas: con 4 seleccionados, el salto debe caer justo después
   // de la 3ra (antes de la 4ta) y no sobrar ninguno al final.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
+  const htmlTodosSeleccionados = ctx.renderBuscar();
+  assert(htmlTodosSeleccionados.includes('Quitar selección'), 'con los 4 cargados ya seleccionados, el botón debe ofrecer "Quitar selección" en vez de "Seleccionar todos", obtuvo: '+htmlTodosSeleccionados);
   printBuscarEl.innerHTML = '';
   await ctx.exportarSeleccionadosBusquedaPDF();
   const saltoPos = printBuscarEl.innerHTML.indexOf('pdf-salto-pagina');
