@@ -297,16 +297,19 @@ textarea{resize:vertical;min-height:60px;}
   #print-buscar{display:block;padding:0;color:#000;background:#fff;}
   #print-buscar h1{font-size:17px;margin:0 0 2px;}
   #print-buscar .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
-  .print-ficha{display:flex;gap:16px;padding:12px 0;border-bottom:1px solid #ccc;page-break-inside:avoid;}
+  .print-ficha{display:flex;align-items:center;gap:20px;padding:14px 0;border-bottom:1px solid #ccc;page-break-inside:avoid;min-height:78mm;box-sizing:border-box;}
   .print-ficha:first-of-type{border-top:1px solid #ccc;}
   .print-ficha-datos{flex:1;min-width:0;}
-  .print-ficha-datos h2{font-size:14px;margin:0 0 6px;font-family:monospace;}
-  .print-ficha-datos table{width:100%;border-collapse:collapse;font-size:10.5px;}
-  .print-ficha-datos th{text-align:left;color:#555;font-weight:normal;padding:2px 8px 2px 0;white-space:nowrap;vertical-align:top;}
-  .print-ficha-datos td{padding:2px 0;}
-  .print-ficha-foto{flex:none;width:130px;height:130px;}
+  .print-ficha-datos h2{font-size:16px;margin:0 0 8px;font-family:monospace;}
+  .print-ficha-datos table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  .print-ficha-datos th{text-align:left;color:#555;font-weight:normal;padding:3px 10px 3px 0;white-space:nowrap;vertical-align:top;}
+  .print-ficha-datos td{padding:3px 0;}
+  .print-ficha-foto{flex:none;width:190px;height:190px;}
   .print-ficha-foto img{width:100%;height:100%;object-fit:cover;border:1px solid #ccc;}
   .print-sin-foto{width:100%;height:100%;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:10px;color:#999;text-align:center;}
+  /* Fuerza exactamente 3 fichas por hoja -- más confiable que dejar que el navegador
+     corte solo, que depende de los márgenes de cada impresora/config de impresión. */
+  .pdf-salto-pagina{page-break-after:always;}
 }
 </style>
 </head>
@@ -2447,10 +2450,13 @@ async function exportarSeleccionadosBusquedaPDF(){
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-plan').innerHTML = '';
     const contenedor = document.getElementById('print-buscar');
+    // Salto de página cada 3 fichas -- así entran exactamente 3 materiales por hoja,
+    // en vez de dejar que el navegador corte donde le quede según sus márgenes.
+    const fichasConSaltos = fichas.map((f,i)=> (i>0 && i%3===0) ? `<div class="pdf-salto-pagina"></div>${f}` : f).join('');
     contenedor.innerHTML = `
       <h1>Detalle de materiales</h1>
       <div class="print-meta">${fichas.length} material${fichas.length===1?'':'es'} · Generado ${new Date().toLocaleString('es-CL')}</div>
-      ${fichas.join('')}
+      ${fichasConSaltos}
     `;
     // Espera a que las fotos terminen de descargar (la URL firmada ya está lista, pero el
     // navegador aún debe traer los bytes de la imagen) para que no salgan en blanco al imprimir.

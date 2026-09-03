@@ -5199,6 +5199,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: [
     {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A', observacion:'Rodamiento con desgaste visible en el borde'},
     {sku_id:'sku-exp-4', sku_code:'SKU-EXP-4', descripcion:'Nunca contado', bodega:'Nave Mina', ubicacion:null, storage_bin:null, batch:null, critico:false, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[], clase_abc:null},
+    {sku_id:'sku-exp-2', sku_code:'SKU-EXP-2', descripcion:'Filtro', bodega:'Nave Mina', ubicacion:'Pasillo 1', storage_bin:'B-01', batch:null, critico:false, conteo_id:'c-2', cantidad_contada:3, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', fotos:[], clase_abc:'B'},
+    {sku_id:'sku-exp-3', sku_code:'SKU-EXP-3', descripcion:'Correa', bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'B-07', batch:null, critico:false, conteo_id:'c-3', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', fotos:[], clase_abc:'C'},
   ], seleccionados:[], yaBuscado:true};
   const htmlSinSeleccion = ctx.renderBuscar();
   assert(!htmlSinSeleccion.includes('id="btn-exportar-buscar-pdf"'), 'sin nada seleccionado, el botón de exportar a PDF no debe verse, obtuvo: '+htmlSinSeleccion);
@@ -5251,6 +5253,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.exportarSeleccionadosBusquedaPDF();
   assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('transform=1'), 'si falla la firma con transform (Image Transformations no habilitadas), debe reintentar sin transform y seguir mostrando la foto, obtuvo: '+printBuscarEl.innerHTML);
   fallarFirmaConTransform = false;
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
+
+  // Salto de página cada 3 fichas: con 4 seleccionados, el salto debe caer justo después
+  // de la 3ra (antes de la 4ta) y no sobrar ninguno al final.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  const saltoPos = printBuscarEl.innerHTML.indexOf('pdf-salto-pagina');
+  const sku1Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-1');
+  const sku4Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-4');
+  const sku2Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-2');
+  const sku3Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-3');
+  assert(saltoPos>-1, 'con 4 seleccionados debe insertar un salto de página, obtuvo: '+printBuscarEl.innerHTML);
+  assert(sku1Pos<saltoPos && sku4Pos<saltoPos && sku2Pos<saltoPos, 'los primeros 3 seleccionados deben quedar antes del salto de página, obtuvo posiciones: '+JSON.stringify({sku1Pos,sku4Pos,sku2Pos,saltoPos}));
+  assert(sku3Pos>saltoPos, 'el 4to seleccionado debe quedar después del salto de página, obtuvo posiciones: '+JSON.stringify({sku3Pos,saltoPos}));
+  assert((printBuscarEl.innerHTML.match(/pdf-salto-pagina/g)||[]).length===1, 'con exactamente 4 seleccionados debe haber un solo salto de página, obtuvo: '+printBuscarEl.innerHTML);
+
+  // Con exactamente 3 seleccionados (una hoja completa), no debe sobrar un salto de página al final.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2']};
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(!printBuscarEl.innerHTML.includes('pdf-salto-pagina'), 'con exactamente 3 seleccionados (una hoja completa) no debe sobrar un salto de página, obtuvo: '+printBuscarEl.innerHTML);
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
 
   // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
