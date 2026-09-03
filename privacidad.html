@@ -40,6 +40,18 @@
   th{color:var(--text);font-weight:700;}
 
   footer{padding:40px 24px;text-align:center;font-size:13px;color:var(--text-faint);border-top:1px solid var(--line);}
+
+  .encabezado{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+  .btn-pdf{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:100px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:700;font-family:'Inter',sans-serif;text-decoration:none;cursor:pointer;flex-shrink:0;}
+  .btn-pdf:hover{background:var(--surface-2);}
+  .btn-pdf svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+
+  @media print{
+    .nav, footer, .no-print{display:none !important;}
+    body{background:#fff;}
+    .narrow{padding:12px 0 40px;max-width:100%;}
+    a{color:#000;text-decoration:underline;}
+  }
 </style>
 </head>
 <body>
@@ -55,8 +67,14 @@
   </div>
 
   <div class="narrow">
-    <h1>Política de privacidad</h1>
-    <div class="actualizado">Última actualización: agosto de 2026</div>
+    <div class="encabezado">
+      <h1>Política de privacidad</h1>
+      <button type="button" class="btn-pdf no-print" onclick="window.print()">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        Descargar PDF
+      </button>
+    </div>
+    <div class="actualizado">Última actualización: septiembre de 2026</div>
 
     <p>Esta política explica qué datos recopila InventIA, para qué los usa y cómo los protege.</p>
 
@@ -102,20 +120,20 @@
     <p>InventIA no usa cookies de rastreo ni publicidad. Sí guarda información técnica en el almacenamiento local de tu navegador para que la app funcione, por ejemplo: tu sesión iniciada, tu tema visual preferido, y los conteos que capturaste sin conexión mientras esperan sincronizarse.</p>
 
     <h2>7. Cuánto tiempo guardamos tus datos</h2>
-    <p>Guardamos los datos de tu empresa mientras tengas una cuenta activa con nosotros. Si tu empresa deja de usar InventIA y nos lo solicita, eliminamos sus datos dentro de un plazo razonable.</p>
+    <p>Guardamos los datos de tu empresa mientras tengas una cuenta activa con nosotros. Si el contrato con InventIA termina (por cancelación o no renovación), mantenemos tus datos disponibles hasta 90 días después de finalizado, por si necesitas exportarlos o reactivar el servicio. Pasado ese plazo, los eliminamos de forma permanente.</p>
 
     <h2>8. Tus derechos</h2>
-    <p>Puedes pedirnos acceder, corregir o eliminar tus datos personales, conforme a la Ley N° 19.628 sobre Protección de la Vida Privada. Para ejercer estos derechos, escríbenos a <a href="mailto:jmajmut@gmail.com">jmajmut@gmail.com</a>.</p>
+    <p>Puedes pedirnos acceder, corregir o eliminar tus datos personales, conforme a la Ley N° 19.628 sobre Protección de la Vida Privada. Para ejercer estos derechos, escríbenos a <a href="mailto:contacto@inventiapp.cl">contacto@inventiapp.cl</a>.</p>
 
     <h2>9. Cambios a esta política</h2>
     <p>Podemos actualizar esta política ocasionalmente. Si el cambio es significativo, te avisaremos por correo o dentro de la plataforma.</p>
 
     <h2>10. Contacto</h2>
-    <p>Ante cualquier duda sobre esta política, escríbenos a <a href="mailto:jmajmut@gmail.com">jmajmut@gmail.com</a>.</p>
+    <p>Ante cualquier duda sobre esta política, escríbenos a <a href="mailto:contacto@inventiapp.cl">contacto@inventiapp.cl</a>.</p>
   </div>
 
   <footer>
-    InventIA · Control de inventario · <a href="terminos.html">Términos y condiciones</a>
+    InventIA · Control de inventario · <a href="terminos.html">Términos y condiciones</a> · <a href="reembolsos.html">Política de reembolsos</a>
   </footer>
 
 </body>
