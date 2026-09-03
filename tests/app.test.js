@@ -549,11 +549,11 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
-  // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key) para probar que
-  // crearSkuManual / procesarUnItemOffline lo traducen a un mensaje claro en vez del error
-  // crudo de Postgres — ver esErrorCodigoSkuDuplicado.
+  // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
+  // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
+  // traducen a un mensaje claro en vez del error crudo de Postgres — ver esErrorCodigoSkuDuplicado.
   if(path==='/rest/v1/skus' && opts && opts.method==='POST' && JSON.parse(opts.body)[0].sku_code==='SKU-DUP-EXISTE'){
-    return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_key"'}) };
+    return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}) };
   }
   // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
   // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
@@ -2793,7 +2793,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.confirmarCargaMasiva();
   const postCarga = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   assert(!!postCarga, 'confirmarCargaMasiva debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key,batch_key'), 'la carga masiva debe hacer upsert por (empresa_id, sku_code, bodega_key, batch_key), obtuvo: '+postCarga.url);
+  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key'), 'la carga masiva debe hacer upsert por (empresa_id, sku_code, bodega_key, batch_key, ubicacion_key, storage_bin_key), obtuvo: '+postCarga.url);
   const filasCarga = JSON.parse(postCarga.opts.body);
   assert(filasCarga.length===2, 'dos filas del mismo código en bodegas distintas deben llegar ambas al upsert, no deduplicarse a una sola, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
@@ -2820,6 +2820,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(filasCargaBatch.some(f=>f.batch==='L-001' && f.stock_sistema===40), 'debe conservar el SOH del batch L-001, obtuvo: '+JSON.stringify(filasCargaBatch));
   const filaL002 = filasCargaBatch.find(f=>f.batch==='L-002');
   assert(!!filaL002 && filaL002.stock_sistema===12, 'con el mismo código+bodega+batch repetido dos veces, debe quedarse con la última fila (stock 12, no 10), obtuvo: '+JSON.stringify(filaL002));
+
+  // ===== Carga masiva: el mismo sku_code+bodega+batch en dos ubicaciones/storage bin
+  // distintos tampoco debe deduplicarse (caso real confirmado con Joel usando Materials_4.xlsx
+  // de Escondida: un material puede vivir en más de un Storage Location dentro de la misma
+  // planta, cada uno con su propio stock -- antes se colapsaban en una sola fila, perdiendo
+  // hasta ~800 registros con menos stock del real).
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales-ubicacion.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', descripcion:'Desc', bodega:'Bodega', ubicacion:'Ubicacion', storage_bin:'Bin', stock_sistema:'Stock' },
+    data: [
+      { Codigo:'SKU-BIN', Desc:'Manguera', Bodega:'B501', Ubicacion:'0100', Bin:'N1E-198-C2', Stock:'7' },
+      { Codigo:'SKU-BIN', Desc:'Manguera', Bodega:'B501', Ubicacion:'0102', Bin:'N1E-107-A3', Stock:'0' },
+    ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postCargaBin = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filasCargaBin = JSON.parse(postCargaBin.opts.body);
+  assert(filasCargaBin.length===2, 'dos ubicaciones/bin distintos del mismo código+bodega+batch deben llegar ambos al upsert (no colapsarse en uno), obtuvo: '+JSON.stringify(filasCargaBin));
+  assert(filasCargaBin.some(f=>f.ubicacion==='0100' && f.storage_bin==='N1E-198-C2' && f.stock_sistema===7), 'debe conservar el stock de la primera ubicación (7), obtuvo: '+JSON.stringify(filasCargaBin));
+  assert(filasCargaBin.some(f=>f.ubicacion==='0102' && f.storage_bin==='N1E-107-A3' && f.stock_sistema===0), 'debe conservar el stock de la segunda ubicación (0) como fila aparte, sin pisar la primera, obtuvo: '+JSON.stringify(filasCargaBin));
 
   // CAMPOS_SKU: "Batch" es su propio campo (columna batch, separada de categoria), y un
   // encabezado literal "Batch" en el archivo debe mapear a `batch`, no a `categoria` -- antes
