@@ -5132,7 +5132,7 @@ function renderReconteo(){
   const ocultarSistema = ocultarStockOperador();
   return `
     <div class="section-head"><div><span class="eyebrow">${rows.length}${state.reconteosHayMas?'+':''}</span><h2>Reconteo</h2></div></div>
-    <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo no cuadra con el stock de sistema. Recuenta para corregir o confirmar la diferencia.</div>
+    <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo no cuadra con el stock de sistema <b>actual</b> -- si el maestro se actualiza y ya calza, el material sale solo de esta lista, sin necesidad de recontar. Recuenta para corregir o confirmar la diferencia.</div>
     <div class="card">
       ${rows.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
