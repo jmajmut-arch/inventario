@@ -3842,6 +3842,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(/data-ver-fotos="[^"]*original\.jpg[^"]*"[^>]*>[\s\S]*? 2<\/button>/.test(htmlReconteoFotos), 'con 2 fotos (conteo + reconteo), el botón debe mostrar el total (2), obtuvo: '+htmlReconteoFotos);
   assert(htmlReconteoFotos.includes('icon-btn disabled'), 'una fila sin foto registrada debe mostrar el ícono deshabilitado, obtuvo: '+htmlReconteoFotos);
 
+  // ===== Huella de SOH anterior (a pedido de Joel, solo en Reconteo): si el material tiene
+  // stock_sistema_anterior (cambió después de la última carga masiva), se muestra "antes: X" bajo
+  // el stock actual, para que el operador entienda por qué cambió la diferencia. Sin ese dato
+  // (fixture rf1/rf2 de arriba, sin stock_sistema_anterior) no debe mostrarse nada de más.
+  assert(!htmlReconteoFotos.includes('antes:'), 'sin stock_sistema_anterior no debe mostrarse la huella "antes:", obtuvo: '+htmlReconteoFotos);
+  ctx.__appstate.reconteos = [
+    { id:'rf3', sku_code:'SKU-SOH-CAMBIO', descripcion:'Con SOH actualizado', stock_sistema:11, stock_sistema_anterior:8, stock_sistema_actualizado_en:'2026-08-11T09:30:00Z', ultima_cantidad_contada:10, ultima_diferencia:-1, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', fotos:[] },
+  ];
+  const htmlReconteoSoh = ctx.renderReconteo();
+  const fechaEsperada = ctx.fmtFechaHora('2026-08-11T09:30:00Z');
+  assert(htmlReconteoSoh.includes(`antes: 8 · ${fechaEsperada}`), 'con stock_sistema_anterior debe mostrar "antes: 8" junto con cuándo cambió, obtuvo: '+htmlReconteoSoh);
+
   // etiquetaNumeroConteo: 1 es el conteo original, 2+ son reconteos (numerados desde 1).
   assert(ctx.etiquetaNumeroConteo(1)==='Conteo' && ctx.etiquetaNumeroConteo(2)==='Reconteo 1' && ctx.etiquetaNumeroConteo(3)==='Reconteo 2', 'etiquetaNumeroConteo debe distinguir el conteo original de cada reconteo, obtuvo: '+JSON.stringify([ctx.etiquetaNumeroConteo(1), ctx.etiquetaNumeroConteo(2), ctx.etiquetaNumeroConteo(3)]));
 
