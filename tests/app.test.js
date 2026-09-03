@@ -3897,6 +3897,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlContarAdminSiempreVe = ctx.renderConteo();
   assert(htmlContarAdminSiempreVe.includes('Stock sistema (este batch): 20 UN'), 'un admin siempre debe ver el stock, aunque el conteo ciego esté activo, obtuvo: '+htmlContarAdminSiempreVe);
 
+  // ===== Stock por tipo en Contar (a pedido de Joel, "esta info sirve para conteo y reconteo"):
+  // se muestra en la tarjeta del SKU seleccionado, y se oculta con el mismo gate de conteo ciego
+  // que el stock sistema (si el admin apaga "ver stock" para operadores, tampoco ven estos datos).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  ctx.__appstate.skuSeleccionado = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN', stock_bloqueado:3, stock_transito_1:0, stock_transito_2:5, stock_transferencia:2};
+  const htmlContarTiposAdmin = ctx.renderConteo();
+  assert(htmlContarTiposAdmin.includes('Bloq: 3 · Trán. 2: 5 · Transf: 2'), 'un admin debe ver el stock por tipo junto al stock sistema en Contar, obtuvo: '+htmlContarTiposAdmin);
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  const htmlContarTiposCiego = ctx.renderConteo();
+  assert(!htmlContarTiposCiego.includes('Bloq:') && !htmlContarTiposCiego.includes('Trán.') && !htmlContarTiposCiego.includes('Transf:'), 'con conteo ciego activo, un operador tampoco debe ver el stock por tipo, obtuvo: '+htmlContarTiposCiego);
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+  const htmlContarTiposOperadorSinCiego = ctx.renderConteo();
+  assert(htmlContarTiposOperadorSinCiego.includes('Bloq: 3 · Trán. 2: 5 · Transf: 2'), 'con conteo ciego apagado, el operador sí debe ver el stock por tipo, obtuvo: '+htmlContarTiposOperadorSinCiego);
+
   // guardarConteo + conteo ciego: un valor bien distinto de lo esperado dispara una confirmación
   // neutra (nunca menciona el valor real) antes de guardar; si cancela, no se guarda.
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };

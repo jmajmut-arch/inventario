@@ -2558,15 +2558,16 @@ const CAMPOS_SKU = [
     alias:['categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
   { campo:'critico', obligatorio:false, etiqueta:'Crítico',
     alias:['critico','es critico','sku critico','critical','is critical'] },
-  // Estas cuatro son solo informativas (ver infoStockPorTipo/renderReconteo): se muestran junto
-  // al stock sistema en Reconteo para dar contexto, pero la diferencia de un conteo sigue
-  // calculándose solo contra stock_sistema -- no se suman ni se restan de nada automáticamente.
+  // Estas cuatro son solo informativas (ver infoStockPorTipo/renderConteo/renderReconteo): se
+  // muestran junto al stock sistema en Contar y Reconteo para dar contexto, pero la diferencia
+  // de un conteo sigue calculándose solo contra stock_sistema -- no se suman ni se restan de
+  // nada automáticamente. Se ocultan igual que el stock sistema con conteo ciego activo.
   { campo:'stock_bloqueado', obligatorio:false, etiqueta:'Bloqueado',
     alias:['blocked stock','bloqueado','stock bloqueado','blocked'] },
-  { campo:'stock_transito_1', obligatorio:false, etiqueta:'Tránsito 1',
-    alias:['stock in transit 1','transito 1','en transito 1','in transit 1'] },
-  { campo:'stock_transito_2', obligatorio:false, etiqueta:'Tránsito 2',
-    alias:['stock in transit 2','transito 2','en transito 2','in transit 2'] },
+  { campo:'stock_transito_1', obligatorio:false, etiqueta:'SOH en tránsito 1',
+    alias:['soh en transito 1','soh transito 1','stock in transit 1','transito 1','en transito 1','in transit 1'] },
+  { campo:'stock_transito_2', obligatorio:false, etiqueta:'SOH en tránsito 2',
+    alias:['soh en transito 2','soh transito 2','stock in transit 2','transito 2','en transito 2','in transit 2'] },
   { campo:'stock_transferencia', obligatorio:false, etiqueta:'Transferencia',
     alias:['stock in transfer','transferencia','stock transferencia','en transferencia','transfer stock'] },
 ];
@@ -4846,10 +4847,10 @@ function renderCargaMasiva(){
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de SKU</h3>
       <div class="hint">Sube un archivo <b>Excel (.xlsx)</b> o <b>.csv</b> con el maestro de materiales — de SAP o de cualquier otro formato. La app detecta sola qué columna es el código, descripción, bodega, ubicación, batch y stock, y te deja revisar y corregir antes de guardar. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
       <div class="hint">Recomendado: completa siempre <b>Storage bin</b> con la ubicación física final de cada material (no lo dejes en blanco). Es el dato que usa el Plan del día para avisar automáticamente si una carga posterior reubica un material ya planificado.</div>
-      <div class="hint">Opcional -- si tu ERP separa el stock por tipo, puedes mapear estas 4 columnas para verlas como contexto junto al stock en Reconteo (no cambian el cálculo de diferencia, que sigue comparando solo contra Stock sistema):
+      <div class="hint">Opcional -- si tu ERP separa el stock por tipo, puedes mapear estas 4 columnas para verlas como contexto junto al stock en Contar y Reconteo (no cambian el cálculo de diferencia, que sigue comparando solo contra Stock sistema). Se ocultan igual que el stock sistema cuando el conteo ciego está activo para un operador:
         <ul style="margin:6px 0 0;padding-left:18px">
           <li><b>Bloqueado</b>: material físicamente en la bodega pero marcado como no disponible (ej. calidad, cuarentena, dañado).</li>
-          <li><b>Tránsito 1</b> y <b>Tránsito 2</b>: material en tránsito entre bodegas o plantas, aún no confirmado en esta ubicación.</li>
+          <li><b>SOH en tránsito 1</b> y <b>SOH en tránsito 2</b>: material en tránsito entre bodegas o plantas, aún no confirmado en esta ubicación.</li>
           <li><b>Transferencia</b>: material con un movimiento de traslado en curso hacia o desde esta ubicación.</li>
         </ul>
       </div>
@@ -5101,7 +5102,7 @@ function renderConteo(){
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${claseAbcBadge(state.skuSeleccionado.clase_abc)}${state.skuSeleccionado.critico?criticoBadge():''}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Storage bin: ${esc(state.skuSeleccionado.storage_bin||'—')}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Batch: ${esc(state.skuSeleccionado.batch||'—')}</div>
-        ${ocultarStockOperador()? '' : `<div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>`}
+        ${ocultarStockOperador()? '' : `<div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>${infoStockPorTipo(state.skuSeleccionado)}`}
       </div>
 
       <div class="card">
@@ -6710,7 +6711,7 @@ function bind(){
         if(!r) return;
         setState({
           view:'conteo',
-          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc },
+          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc, stock_bloqueado:r.stock_bloqueado, stock_transito_1:r.stock_transito_1, stock_transito_2:r.stock_transito_2, stock_transferencia:r.stock_transferencia },
           // conteoOrigenPlan:true (no false): recontar una diferencia es trabajo pedido por la
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
