@@ -449,10 +449,25 @@ function formatearValorAuditoria(v){
   return String(v);
 }
 
+// Una carga masiva de SKU (ver registrar_auditoria_skus_masivo, la función del trigger) deja UNA
+// fila de auditoria por sentencia SQL en vez de una por cada SKU afectado -- con un resumen
+// {_resumen:true, filas_afectadas:N} en datos_antes/datos_despues en vez del detalle real de una
+// fila. Sin este chequeo, resumenCambioAuditoria/identificadorAuditoria intentarían leer campos
+// que ahí no existen (descripción, stock, sku_code) y mostrarían puros "—" en vez de decir cuántas
+// filas fueron.
+function esResumenAuditoria(fila){
+  return !!((fila.datos_antes && fila.datos_antes._resumen) || (fila.datos_despues && fila.datos_despues._resumen));
+}
+
 // El trigger de auditoría guarda la fila completa (to_jsonb) en datos_antes/datos_despues, así
 // que además de "qué cambió" en un UPDATE, también podemos mostrar el detalle de una creación
 // o eliminación en vez de un genérico "se creó/eliminó el registro" que no dice nada útil.
 function resumenCambioAuditoria(fila){
+  if(esResumenAuditoria(fila)){
+    const n = (fila.datos_despues || fila.datos_antes).filas_afectadas;
+    const verbo = fila.accion==='INSERT' ? 'cargados' : fila.accion==='DELETE' ? 'eliminados' : 'actualizados';
+    return `Carga masiva: ${n} SKU ${verbo} de una vez`;
+  }
   const campos = CAMPOS_AUDITADOS[fila.tabla] || [];
   if(fila.accion==='INSERT'){
     const despues = fila.datos_despues || {};
@@ -476,6 +491,7 @@ function resumenCambioAuditoria(fila){
 // o "Empresa · Eliminado" no dicen a quién le pasó — hay que saber el nombre para que la fila
 // sirva de algo al revisar la trazabilidad (ej. quién quedó con rol admin, qué empresa se borró).
 function identificadorAuditoria(fila){
+  if(esResumenAuditoria(fila)) return '';
   const antes = fila.datos_antes || {};
   const despues = fila.datos_despues || {};
   if(fila.tabla==='skus'){
