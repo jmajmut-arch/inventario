@@ -5138,7 +5138,7 @@ function renderReconteo(){
         <thead><tr><th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
-          ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>`}
+          ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}${r.stock_sistema_anterior!=null?`<div class="hint" style="font-size:10.5px;margin-top:2px;white-space:nowrap">antes: ${r.stock_sistema_anterior}${r.stock_sistema_actualizado_en?` · ${fmtFechaHora(r.stock_sistema_actualizado_en)}`:''}</div>`:''}</td>`}
           <td class="num">${r.ultima_cantidad_contada}</td>
           <td class="num">${ocultarSistema
             ? `<span class="badge badge-warn">Con diferencia</span>`
