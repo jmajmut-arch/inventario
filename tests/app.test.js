@@ -3177,6 +3177,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlGuardandoRapido.includes('progress-indeterminada') && !htmlGuardandoRapido.includes('Esto está tardando más de lo normal'), 'sin conteoGuardandoLento no debe mostrar la barra ni el aviso, aunque siga cargando, obtuvo: '+htmlGuardandoRapido);
   ctx.__appstate.loading = false;
 
+  // Tarjeta de "Tomar inventario": debe mostrar clase ABC y, si corresponde, el badge de crítico
+  // (a pedido de Joel, ver captura real del SKU 10173315) -- sin clase cargada, se muestra "Sin
+  // clasificar" (mismo criterio que en la lista de SKU y en Buscar), y el badge de crítico solo
+  // aparece cuando critico===true.
+  ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'10173315', bodega:'Nave', clase_abc:'A', critico:true };
+  const htmlConClaseYCritico = ctx.renderConteo();
+  assert(htmlConClaseYCritico.includes('Clase A') && htmlConClaseYCritico.includes('★ Crítico'), 'con clase_abc y critico:true debe mostrar ambos badges, obtuvo: '+htmlConClaseYCritico);
+  ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'10173315', bodega:'Nave', clase_abc:null, critico:false };
+  const htmlSinClaseNiCritico = ctx.renderConteo();
+  assert(htmlSinClaseNiCritico.includes('Sin clasificar') && !htmlSinClaseNiCritico.includes('★ Crítico'), 'sin clase_abc no debe forzar una clase, y sin critico no debe mostrar el badge, obtuvo: '+htmlSinClaseNiCritico);
+
   // crearSkuManual (online) también debe enviar capturado_en.
   calls.length = 0;
   await ctx.crearSkuManual({sku_code:'SKU-CAP-1', descripcion:'x', activo:true});
