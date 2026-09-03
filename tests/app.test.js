@@ -22,6 +22,7 @@ let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: n
 let tengoOtraSesionActivaRespuesta = false;
 let cicloActualRpcRespuesta = null;
 let verificarConteoAtipicoRespuesta = false;
+let conteosEnPeriodoRespuesta = 0;
 let autoservicioRespuesta = { error: null };
 let conteosExportablesFixture = [];
 let skusBusquedaFixture = null;
@@ -51,6 +52,11 @@ const fakeFetchImpl = async (url, opts) => {
     // Chequeo de cordura de conteo ciego, ahora resuelto en el servidor (ver guardarConteo):
     // función escalar (RETURNS boolean), valor crudo sin envolver, igual que ciclo_actual.
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(verificarConteoAtipicoRespuesta) };
+  }
+  if(path.startsWith('/rest/v1/rpc/veces_contado_periodo')){
+    // "Ya contado este período" en Contar (ver cargarVecesContadoPeriodo): función escalar
+    // (RETURNS integer), valor crudo sin envolver, igual que ciclo_actual.
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conteosEnPeriodoRespuesta) };
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -4113,6 +4119,42 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(confirmLlamadas.length===0, 'si falla la verificación del servidor, no debe bloquear con una confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
   ctx.fetch = fetchOriginalParaFalla;
   verificarConteoAtipicoRespuesta = false;
+
+  // ===== "Ya contado este período": avisar en la tarjeta del SKU elegido en Contar si ya tiene
+  // conteos en el período (ciclo) actual, y cuántos -- para no duplicar trabajo si dos personas
+  // cuentan lo mismo sin saberlo (RPC veces_contado_periodo, a pedido de Joel). =====
+  const skuVecesPrueba = {id:'sku-veces-1', sku_code:'SKU-VECES', descripcion:'X', bodega:'Nave', ubicacion:'', unidad_medida:'UN'};
+  calls.length = 0;
+  conteosEnPeriodoRespuesta = 2;
+  await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
+  const rpcVecesCall = calls.find(c=>c.url.includes('/rpc/veces_contado_periodo'));
+  assert(!!rpcVecesCall && JSON.parse(rpcVecesCall.opts.body).p_sku_id==='sku-veces-1', 'debe consultar veces_contado_periodo con el sku_id del SKU elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.conteoVecesPeriodo && ctx.__appstate.conteoVecesPeriodo.skuId==='sku-veces-1' && ctx.__appstate.conteoVecesPeriodo.veces===2, 'debe guardar cuántas veces ya se contó según la respuesta del servidor, obtuvo: '+JSON.stringify(ctx.__appstate.conteoVecesPeriodo));
+
+  ctx.__appstate.skuSeleccionado = skuVecesPrueba;
+  const htmlConVeces = ctx.renderConteo();
+  assert(htmlConVeces.includes('Ya contado 2 veces en este período'), 'debe avisar en la tarjeta cuántas veces ya se contó, obtuvo: '+htmlConVeces);
+
+  conteosEnPeriodoRespuesta = 1;
+  await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
+  const htmlUnaVez = ctx.renderConteo();
+  assert(htmlUnaVez.includes('Ya contado 1 vez en este período'), 'debe usar singular ("vez") cuando solo se contó una vez, obtuvo: '+htmlUnaVez);
+
+  conteosEnPeriodoRespuesta = 0;
+  await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
+  const htmlSinContar = ctx.renderConteo();
+  assert(!htmlSinContar.includes('Ya contado'), 'si el SKU todavía no se ha contado en este período, no debe mostrarse ningún aviso, obtuvo: '+htmlSinContar);
+
+  // Si falla la consulta (red, etc.), no debe lanzar ni bloquear -- simplemente no se muestra
+  // el aviso, igual que verificar_conteo_atipico más arriba.
+  const fetchOriginalParaVecesFalla = ctx.fetch;
+  ctx.fetch = async (url, opts) => { if(String(url).includes('/rpc/veces_contado_periodo')) throw new TypeError('fallo de red'); return fetchOriginalParaVecesFalla(url, opts); };
+  await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
+  const htmlFallaRpcVeces = ctx.renderConteo();
+  assert(!htmlFallaRpcVeces.includes('Ya contado'), 'si falla la consulta del servidor, no debe mostrarse el aviso ni bloquear el conteo, obtuvo: '+htmlFallaRpcVeces);
+  ctx.fetch = fetchOriginalParaVecesFalla;
+  conteosEnPeriodoRespuesta = 0;
+  ctx.__appstate.conteoVecesPeriodo = null;
 
   ctx.__appstate.skuSeleccionado = null;
   ctx.__appstate.conteoOrigenPlan = false;

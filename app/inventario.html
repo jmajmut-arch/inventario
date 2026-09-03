@@ -396,6 +396,10 @@ let state = {
   // comparando texto contra el maestro, frágil ante mayúsculas/typos y fácil de dejar mal
   // por inercia si alguien no editaba el campo precargado).
   conteoOtraUbicacion: false,
+  // Cuántas veces ya se contó el SKU elegido en el período actual (ver cargarVecesContadoPeriodo)
+  // -- {skuId, veces, cargando} o null si todavía no se consultó para el SKU actual. Aviso para
+  // no duplicar trabajo si dos personas cuentan lo mismo sin saberlo (a pedido de Joel).
+  conteoVecesPeriodo: null,
   conteoFotos: [],       // [{file, preview}]
   // true cuando guardarConteo lleva más de UMBRAL_GUARDADO_LENTO_MS esperando la respuesta del
   // servidor (señal mala en bodega/mina) -- muestra la barra de "esto está tardando" además del
@@ -1208,6 +1212,28 @@ async function buscarSkusLibre(texto){
     state.buscadorLibre = { resultados: [], buscando: false };
     actualizarResultadosBuscadorLibreEnPantalla();
     toast(e.message,'err');
+  }
+}
+
+let conteoVecesPeriodoPeticionId = 0;
+// Avisa en la tarjeta del SKU elegido en Contar si ya se contó en el período (ciclo) actual y
+// cuántas veces (RPC veces_contado_periodo, ver migración) -- para no duplicar trabajo si dos
+// personas cuentan el mismo material sin saberlo (a pedido de Joel). Se dispara solo, en segundo
+// plano, la primera vez que se pinta la tarjeta de cada SKU (ver bind() de la vista Contar); si
+// falla, simplemente no se muestra el aviso, no bloquea el conteo.
+async function cargarVecesContadoPeriodo(sku){
+  // Marca "cargando" de inmediato (mutación directa, sin setState/render) para que el guard en
+  // bind() no dispare una segunda consulta mientras esta sigue en vuelo -- mismo patrón que
+  // buscadorLibrePeticionId/escribirBuscadorLibre.
+  state.conteoVecesPeriodo = {skuId: sku.id, veces:null, cargando:true};
+  const miPeticion = ++conteoVecesPeriodoPeticionId;
+  try{
+    const veces = await rest('/rpc/veces_contado_periodo', {method:'POST', body:{p_sku_id: sku.id}});
+    if(miPeticion !== conteoVecesPeriodoPeticionId) return; // se eligió otro SKU mientras tanto
+    setState({conteoVecesPeriodo: {skuId: sku.id, veces: Number(veces)||0, cargando:false}});
+  }catch(e){
+    if(miPeticion !== conteoVecesPeriodoPeticionId) return;
+    setState({conteoVecesPeriodo: {skuId: sku.id, veces:null, cargando:false}});
   }
 }
 
@@ -3470,7 +3496,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     }
 
     toast('Conteo registrado');
-    setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
+    setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
     cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos();
   }catch(e){
@@ -3496,7 +3522,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
         ubicacion_distinta: !!ubicacionDistinta,
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
-      setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre()});
+      setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null});
       toast(e.motivoTimeout
         ? 'La conexión está muy lenta: el conteo quedó guardado en este dispositivo y se enviará solo cuando mejore la señal.'
         : 'Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
@@ -5290,6 +5316,16 @@ function renderResultadosBuscadorLibre(){
     `<div class="hint">No se encontraron coincidencias.</div>`;
 }
 
+// Aviso de "ya contado este período" en la tarjeta del SKU elegido en Contar (ver
+// cargarVecesContadoPeriodo). No se muestra mientras carga ni si el SKU no tiene conteos
+// todavía este período -- solo aparece cuando hay algo que avisar.
+function avisoVecesContadoPeriodo(){
+  const info = state.conteoVecesPeriodo;
+  if(!state.skuSeleccionado || !info || info.skuId !== state.skuSeleccionado.id) return '';
+  if(info.cargando || !info.veces) return '';
+  return `<div class="hint" style="margin-top:6px;color:var(--amber);font-weight:600">⚠ Ya contado ${info.veces} ${info.veces===1?'vez':'veces'} en este período.</div>`;
+}
+
 function renderConteo(){
   return `
     <div class="section-head"><div><span class="eyebrow">Terreno · Bodega</span><h2>Tomar inventario</h2></div></div>
@@ -5315,6 +5351,7 @@ function renderConteo(){
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Storage bin: ${esc(state.skuSeleccionado.storage_bin||'—')}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Batch: ${esc(state.skuSeleccionado.batch||'—')}</div>
         ${ocultarStockOperador()? '' : `<div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>${infoStockPorTipo(state.skuSeleccionado)}`}
+        ${avisoVecesContadoPeriodo()}
       </div>
 
       <div class="card">
@@ -6895,7 +6932,11 @@ function bind(){
         });
       });
     }else{
-      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[]}));
+      // Carga en segundo plano "ya contado este período" para el SKU elegido -- guard por
+      // skuId para no repetir la consulta en cada re-render (cargarVecesContadoPeriodo marca
+      // conteoVecesPeriodo.skuId de inmediato, antes de esperar la respuesta del servidor).
+      if(!state.conteoVecesPeriodo || state.conteoVecesPeriodo.skuId !== state.skuSeleccionado.id) cargarVecesContadoPeriodo(state.skuSeleccionado);
+      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], conteoVecesPeriodo:null}));
       document.getElementById('c-foto').addEventListener('change', e=>{
         const files = Array.from(e.target.files || []);
         files.forEach(file=>{
