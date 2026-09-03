@@ -4321,6 +4321,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const htmlConResultadosLibres = ctx.renderConteo();
   assert(htmlConResultadosLibres.includes('FIL-1001') && htmlConResultadosLibres.includes('Filtro de aceite') && htmlConResultadosLibres.includes('data-pick-btn="id-libre-1"'), 'debe listar los resultados del servidor con opción de elegir, obtuvo: '+htmlConResultadosLibres);
+  // A pedido de Joel: desde que un mismo código puede repetirse en más de una ubicación/bin
+  // dentro de la misma bodega (ver identidad ampliada del SKU), el resultado debe mostrar
+  // ubicación y bin para poder diferenciarlos -- sin esto, dos filas del mismo material se ven
+  // idénticas en la lista y no hay forma de saber cuál elegir.
+  assert(htmlConResultadosLibres.includes('Pasillo 2') && htmlConResultadosLibres.includes('Bin B-04'), 'debe mostrar ubicación y bin cuando el SKU los trae, para diferenciar SKU repetidos, obtuvo: '+htmlConResultadosLibres);
+  assert(!/FIL-2002[\s\S]{0,80}Bin/.test(htmlConResultadosLibres), 'sin ubicación/bin (null) no debe mostrar nada de más para ese SKU, obtuvo: '+htmlConResultadosLibres);
   // Bug real que esto corrige: FIL-1001 no está en state.skus (los 500 SKU precargados) y aun
   // así debe aparecer, porque ahora la búsqueda es contra el servidor.
   assert(!ctx.__appstate.skus.some(s=>s.sku_code==='FIL-1001'), 'FIL-1001 no debe estar en state.skus, para que el test sea representativo del bug real que se corrigió');
