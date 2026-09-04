@@ -1619,12 +1619,22 @@ async function cargarPlanSemanal(){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// El Calendario carga resumen_calendario_mes una sola vez por mes (ver el resguardo contra
+// recursión en bind(), state.view==='calendario') y se queda con esa foto -- si se agrega,
+// edita o borra algo del plan mientras tanto (desde Planificación), sin esto la vista quedaba
+// mostrando cifras viejas hasta cerrar sesión. Cualquier mutación de plan_semanal/exclusiones
+// llama esto para que la próxima vez que se entre a Calendario vuelva a pedir datos frescos.
+function invalidarCalendario(){
+  if(state.calendario.cargado) setState({calendario: {...state.calendario, cargado:false}});
+}
+
 async function excluirSkuDePlan(planId, skuCode){
   try{
     await rest('/plan_semanal_exclusiones', {method:'POST', body:[{plan_id:planId, sku_code:skuCode}], prefer:'return=minimal'});
     toast('SKU quitado de la planificación');
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2169,6 +2179,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2181,6 +2192,7 @@ async function actualizarPlanEntrada(id, {fecha, responsableId, nota}){
     toast('Planificación actualizada');
     setState({plan: {...state.plan, editando:null}});
     cargarPlanSemanal();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2190,6 +2202,7 @@ async function borrarPlanEntrada(id){
     toast('Eliminado de la planificación');
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2220,6 +2233,7 @@ async function borrarPlanEntradas(ids){
     toast(`${ids.length} entrada${ids.length>1?'s eliminadas':' eliminada'} de la planificación`);
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 

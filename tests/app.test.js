@@ -1045,6 +1045,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'crearPlanEntrada debe refrescar Ubicación general después de agregar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(calls.some(c=>c.url.includes('bodega=is.null') && c.url.includes('ubicacion=is.null')), 'crearPlanEntrada debe refrescar el conteo de "SKU sin ubicación" después de agregar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+  // Reportado por Joel: agregó una planificación y no le apareció de inmediato en el Calendario.
+  // Causa: state.calendario se carga una sola vez (ver el resguardo contra recursión en bind())
+  // y nada lo invalidaba al cambiar plan_semanal desde Planificación. crearPlanEntrada debe dejar
+  // calendario.cargado en false para que la próxima entrada a esa vista pida datos frescos.
+  ctx.__appstate.calendario = {mes:'2026-08-01', cargando:false, cargado:true, dias:[{fecha:'2026-08-12',planificado:1,contado:0,recontado:0,pendiente:1}], diaSeleccionado:null};
+  await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:[], responsableId:'', nota:''});
+  assert(ctx.__appstate.calendario.cargado===false, 'crearPlanEntrada debe invalidar el Calendario ya cargado para que se recargue con datos frescos, obtuvo: '+JSON.stringify(ctx.__appstate.calendario));
+
   // ===== "Sin bodega asignada" (BODEGA_VACIA): SKU con ubicación específica pero sin bodega,
   // ej. recién cargados por Excel sin esa columna. Antes quedaban invisibles en "Ubicación
   // general" (ni ahí ni en "SKU sin ubicación", que exige bodega Y ubicación null) =====
@@ -1367,6 +1375,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.
   calls.length = 0;
+  ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};
   await ctx.excluirSkuDePlan('e1', 'SKU-001');
   await new Promise(resolve => setTimeout(resolve, 20));
   const postExclusion = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
@@ -1376,6 +1385,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(refrescoTrasExcluir, 'excluirSkuDePlan debe refrescar el plan (cargarPlanSemanal) después de excluir, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   // Excluir un SKU también cambia cuántos quedan "pendiente" en Ubicación general / SKU sin ubicación.
   assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'excluirSkuDePlan debe refrescar Ubicación general después de excluir, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Reportado por Joel: el Calendario no reflejaba de inmediato una planificación recién
+  // agregada/editada -- ver invalidarCalendario. Cualquier mutación de plan_semanal debe
+  // dejar calendario.cargado en false para forzar una recarga la próxima vez que se entre ahí.
+  assert(ctx.__appstate.calendario.cargado===false, 'excluirSkuDePlan también debe invalidar el Calendario ya cargado, obtuvo: '+JSON.stringify(ctx.__appstate.calendario));
 
   // El borrado de la entrada completa debe pedir confirmación (más destructivo que quitar un solo SKU).
   // Si el usuario cancela el confirm(), no debe llegar ningún DELETE a /plan_semanal.
@@ -1389,18 +1402,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Si confirma, sí debe borrarse.
   confirmRespuesta = true;
   calls.length = 0;
+  ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};
   await ctx.confirmarYBorrarPlanEntrada('e1');
   const deleteCall = calls.find(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?id=eq.e1'));
   assert(!!deleteCall, 'si el usuario confirma, debe borrarse la entrada completa, obtuvo: '+JSON.stringify(calls));
   // Borrar una entrada libera SKU que vuelven a estar "pendiente" en Ubicación general / SKU sin ubicación.
   assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'borrarPlanEntrada debe refrescar Ubicación general después de borrar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.calendario.cargado===false, 'borrarPlanEntrada también debe invalidar el Calendario ya cargado, obtuvo: '+JSON.stringify(ctx.__appstate.calendario));
 
   // borrarPlanEntradas (borrado múltiple): también debe refrescar Ubicación general / SKU sin ubicación.
   calls.length = 0;
+  ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};
   await ctx.borrarPlanEntradas(['e1','e2']);
   const deleteMultiCall = calls.find(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?id=in.(e1,e2)'));
   assert(!!deleteMultiCall, 'borrarPlanEntradas debe hacer DELETE con id=in.(...) para todas las entradas seleccionadas, obtuvo: '+JSON.stringify(calls));
   assert(calls.some(c=>c.url.includes('/ubicaciones_generales')), 'borrarPlanEntradas debe refrescar Ubicación general después de borrar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.calendario.cargado===false, 'borrarPlanEntradas también debe invalidar el Calendario ya cargado, obtuvo: '+JSON.stringify(ctx.__appstate.calendario));
 
   // Al entrar en modo edición para e1, debe mostrar el formulario inline con los valores actuales.
   ctx.__appstate.plan.editando = 'e1';
@@ -1432,6 +1449,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // actualizarPlanEntrada debe hacer PATCH con fecha, responsable_id y nota, y limpiar el estado de edición.
   ctx.__appstate.plan.editando = 'e1';
+  ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};
   calls.length = 0;
   await ctx.actualizarPlanEntrada('e1', {fecha:'2026-08-13', responsableId:'u2', nota:'Nota actualizada'});
   const patchPlan = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=eq.e1'));
@@ -1439,6 +1457,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const bodyPatch = JSON.parse(patchPlan.opts.body);
   assert(bodyPatch.fecha==='2026-08-13' && bodyPatch.responsable_id==='u2' && bodyPatch.nota==='Nota actualizada', 'el PATCH debe llevar los nuevos valores, obtuvo: '+JSON.stringify(bodyPatch));
   assert(ctx.__appstate.plan.editando===null, 'tras guardar, editando debe volver a null');
+  assert(ctx.__appstate.calendario.cargado===false, 'actualizarPlanEntrada también debe invalidar el Calendario ya cargado, obtuvo: '+JSON.stringify(ctx.__appstate.calendario));
 
   // Semana sin conteos -> mensaje de vacío, sin tablas, y aun así llama a print() (sin pedir SKU a la base).
   ctx.__appstate.plan = {semanaInicio:'2026-08-10', entradas:[], universos:{}, generales:[], responsables:[], editando:null, detalle:{}, seleccionados:[]};
