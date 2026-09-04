@@ -187,6 +187,11 @@ input[type=text],input[type=number],input[type=password],input[type=email],input
    del contenedor como cualquier otro input. */
 input[type=date]{min-width:0;}
 input:focus,select:focus,textarea:focus{border-color:var(--amber);}
+/* Bug real reportado por Joel ("cuesta hacer la selección" en Plan del día): Ubicación empieza
+   disabled hasta elegir Bodega/patio, pero sin esta regla un <select disabled> se ve IDÉNTICO a
+   uno habilitado (mismo fondo, mismo texto) — no había forma de notar con la vista que ese campo
+   todavía no se puede tocar, así que se sentía que la selección "no respondía". */
+input:disabled,select:disabled,textarea:disabled{opacity:0.5;cursor:not-allowed;}
 textarea{resize:vertical;min-height:60px;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 /* Bug real reportado por Joel (captura de "Exportar conteos" en el celular): un par de
