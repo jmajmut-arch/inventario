@@ -189,6 +189,15 @@ input[type=date]{min-width:0;}
 input:focus,select:focus,textarea:focus{border-color:var(--amber);}
 textarea{resize:vertical;min-height:60px;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+/* Bug real reportado por Joel (captura de "Exportar conteos" en el celular): un par de
+   input[type=date] uno junto al otro en .row2 se salía de la tarjeta -- min-width:0 en el
+   input (ver más abajo) evita que SE DESBORDE él solo, pero en un celular angosto sigue sin
+   entrar completo A CADA LADO del "Desde"/"Hasta" (el control nativo de fecha de Safari no
+   encoge tanto). Mismo patrón que ya usa "Contado desde/hasta" en el Dashboard (flex-wrap): en
+   vez de pelear por el ancho exacto, apila los dos campos en pantallas de celular. */
+@media (max-width:480px){
+  .row2-fechas{grid-template-columns:1fr;}
+}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:8px;padding:12px 16px;font-size:14px;font-weight:600;width:100%;}
 .btn-primary{background:var(--amber);color:#1a1204;}
@@ -4456,7 +4465,7 @@ function renderExportarModal(){
         <button id="exportar-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
       <form id="form-exportar-conteos">
-        <div class="row2">
+        <div class="row2 row2-fechas">
           <div><label for="ex-desde">Desde</label><input type="date" id="ex-desde" value="${esc(state.exportConteos.desde)}" required></div>
           <div><label for="ex-hasta">Hasta</label><input type="date" id="ex-hasta" value="${esc(state.exportConteos.hasta)}"></div>
         </div>
@@ -5829,7 +5838,7 @@ function renderBuscar(){
           <option value="C" ${b.claseAbc==='C'?'selected':''}>Clase C</option>
           <option value="__sin_clasificar__" ${b.claseAbc==='__sin_clasificar__'?'selected':''}>Sin clasificar</option>
         </select>
-        <div class="row2" style="margin-top:12px">
+        <div class="row2 row2-fechas" style="margin-top:12px">
           <div><label for="b-fecha-desde">Contado desde</label><input type="date" id="b-fecha-desde" value="${esc(b.fechaDesde)}"></div>
           <div><label for="b-fecha-hasta">Contado hasta</label><input type="date" id="b-fecha-hasta" value="${esc(b.fechaHasta)}"></div>
         </div>
