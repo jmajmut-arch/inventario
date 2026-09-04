@@ -5577,7 +5577,7 @@ function renderPlanDelDia(){
       <label for="contar-fecha">Día</label>
       <input type="date" id="contar-fecha" value="${cp.fecha}">
       ${cp.desdeCache? `<div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:8px">${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')} Sin conexión: mostrando el plan guardado la última vez que hubo señal</div>` : ''}
-      ${cp.cargando? `<div class="hint" style="margin-top:10px">Cargando…</div>` :
+      ${cp.cargando? `<div class="empty" style="padding:14px 8px;margin-top:10px"><span class="spinner"></span> Cargando…</div>` :
         !cp.entradas.length? `<div class="empty" style="padding:14px 8px;margin-top:10px">Sin nada planificado para ti este día.</div>` : `
         <div class="row2" style="margin-top:10px">
           <div><label for="contar-bodega">Bodega/patio</label>
