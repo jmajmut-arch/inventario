@@ -2060,15 +2060,29 @@ function entradasActivasContar(cp){
 async function skusMovidosDeEntradas(entradas, binesActivos){
   if(!entradas.length) return [];
   const snapshots = await Promise.all(entradas.map(e=>
-    rest(`/plan_semanal_skus?plan_id=eq.${e.id}&select=sku_code,storage_bin_original,bodega_original,ubicacion_original`)
+    rest(`/plan_semanal_skus?plan_id=eq.${e.id}&select=sku_code,sku_id,storage_bin_original,bodega_original,ubicacion_original`)
   ));
-  const original = new Map();
-  snapshots.flat().forEach(s=>{ if(!original.has(s.sku_code)) original.set(s.sku_code, s); });
-  if(!original.size) return [];
-  const codigos = [...original.keys()];
-  const actuales = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})`) || [];
-  return actuales.map(s=>{
-    const o = original.get(s.sku_code);
+  // sku_code NO identifica una ubicación única: el mismo material puede tener stock repartido en
+  // más de una bodega/ubicación a la vez (bug real reportado por Joel — "me parece excesivo" con
+  // ~45% de un plan marcado como movido a horas de haberlo creado, sin ninguna carga masiva de por
+  // medio). Comparar solo por código traía TODAS las filas de ese código, incluida una ubicación
+  // que nunca tuvo nada que ver con este plan, y la marcaba como "movida". sku_id (agregado acá)
+  // identifica la fila exacta que se snapshoteó; se compara por ahí siempre que esté disponible.
+  // Fotos viejas (creadas antes de esta columna) no tienen cómo backfillearse sin ambigüedad si el
+  // código tenía más de una ubicación en ese momento, así que esas siguen cayendo al comparador por
+  // código de antes (mejor que nada, igual que se comportaban hasta ahora).
+  const porId = new Map(), porCodigo = new Map();
+  snapshots.flat().forEach(s=>{
+    if(s.sku_id){ if(!porId.has(s.sku_id)) porId.set(s.sku_id, s); }
+    else{ if(!porCodigo.has(s.sku_code)) porCodigo.set(s.sku_code, s); }
+  });
+  if(!porId.size && !porCodigo.size) return [];
+  const campos = 'id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia';
+  const [actualesPorId, actualesPorCodigo] = await Promise.all([
+    porId.size ? rest(`/skus_planificables?activo=eq.true&select=${campos}&id=in.(${[...porId.keys()].join(',')})`) : Promise.resolve([]),
+    porCodigo.size ? rest(`/skus_planificables?activo=eq.true&select=${campos}&sku_code=in.(${[...porCodigo.keys()].map(c=>encodeURIComponent(c)).join(',')})`) : Promise.resolve([]),
+  ]);
+  const evaluar = (s, o) => {
     // Fotos guardadas antes de que existieran estas dos columnas (plan planificado antes de este
     // aviso) quedan con ambas en null — ahí no hay con qué comparar bodega/ubicación, así que no
     // se puede saber si "cambiaron": tratarlo como si sí hubiera cambiado (null → cualquier dato)
@@ -2081,7 +2095,11 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
     // nuevo es otro de los activos para esta entrada — no hace falta "recuperarlo" acá.
     if(!cambioBodega && !cambioUbicacion && (!cambioBin || binesActivos.has(s.storage_bin))) return null;
     return {...s, bodegaOriginal:o.bodega_original, ubicacionOriginal:o.ubicacion_original, binOriginal:o.storage_bin_original, cambioBodega, cambioUbicacion, cambioBin};
-  }).filter(Boolean);
+  };
+  return [
+    ...(actualesPorId||[]).map(s=> evaluar(s, porId.get(s.id))),
+    ...(actualesPorCodigo||[]).map(s=> evaluar(s, porCodigo.get(s.sku_code))),
+  ].filter(Boolean);
 }
 
 // Texto de la advertencia para un SKU recuperado por skusMovidosDeEntradas: si cambió de bodega
@@ -2179,7 +2197,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
         const snapshots = await Promise.all(conBin.map(f=>
           skusDeUbicacion({bodega:f.bodega, ubicacion:f.ubicacion, storage_bin:f.storage_bin, excluidos:[], soloSinUbicacion:false})
         ));
-        const filasSnapshot = conBin.flatMap((f,i)=>snapshots[i].map(s=>({plan_id:f.id, sku_code:s.sku_code, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion})));
+        const filasSnapshot = conBin.flatMap((f,i)=>snapshots[i].map(s=>({plan_id:f.id, sku_code:s.sku_code, sku_id:s.id, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion})));
         if(filasSnapshot.length){
           await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal'});
         }
