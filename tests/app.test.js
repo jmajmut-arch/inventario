@@ -551,19 +551,40 @@ const fakeFetchImpl = async (url, opts) => {
   // carga masiva lo reasignó a otra bodega+ubicación completa (Bodega Norte/Pasillo 5): sin la
   // foto original de bodega/ubicación, desaparecería en silencio porque ya no calza con ninguna
   // entrada activa de esta cascada.
+  // Bug real reportado por Joel ("me parece excesivo"): sku_code NO identifica una ubicación
+  // única -- el mismo material puede tener stock en más de una bodega/ubicación a la vez. Cuando
+  // la foto (plan_semanal_skus) trae sku_id (ver más abajo), la búsqueda de "estado actual" es por
+  // id específico, no por código, así que id-888-b (una ubicación totalmente ajena que comparte
+  // código con id-888-a) nunca debe aparecer en la respuesta.
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('&id=in.(')){
+    const ids = decodeURIComponent((path.match(/&id=in\.\(([^)]*)\)/)||[])[1]||'').split(',');
+    const porId = {
+      'id-888-a': {id:'id-888-a', sku_code:'SKU-888', descripcion:'Perno especial', bodega:'Bodega Disambig', ubicacion:'Zona Test', storage_bin:'DIS-01', unidad_medida:'UN'},
+    };
+    const filas = ids.map(i=>porId[i]).filter(Boolean);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('sku_code=in.(')){
     const codigos = decodeURIComponent((path.match(/sku_code=in\.\(([^)]*)\)/)||[])[1]||'').split(',');
     const disponibles = {
-      'SKU-999': {id:'id-999', sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'},
-      'SKU-002': {id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'},
-      'SKU-777': {id:'id-777', sku_code:'SKU-777', descripcion:'Retén hidráulico', bodega:'Bodega Norte', ubicacion:'Pasillo 5', storage_bin:'N-03', unidad_medida:'UN'},
+      'SKU-999': [{id:'id-999', sku_code:'SKU-999', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'C-09', unidad_medida:'UN'}],
+      'SKU-002': [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN'}],
+      'SKU-777': [{id:'id-777', sku_code:'SKU-777', descripcion:'Retén hidráulico', bodega:'Bodega Norte', ubicacion:'Pasillo 5', storage_bin:'N-03', unidad_medida:'UN'}],
       // SKU-555 nunca se movió (mismo bin, misma bodega, misma ubicación de siempre) — su foto es
       // "legacy" (ver snapshots.mp1 más abajo): se guardó antes de que existieran
       // bodega_original/ubicacion_original, así que esas dos vienen en null aunque el SKU jamás
       // cambió de bodega/ubicación en la vida real.
-      'SKU-555': {id:'id-555', sku_code:'SKU-555', descripcion:'Filtro de aire', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'},
+      'SKU-555': [{id:'id-555', sku_code:'SKU-555', descripcion:'Filtro de aire', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN'}],
+      // Mismo código, dos ubicaciones reales a la vez: id-888-a es la que se snapshoteó para
+      // mp-disambig (bodega_original/ubicacion_original calzan); id-888-b es un stock totalmente
+      // ajeno a ese plan que NUNCA debe "recuperarse" solo por compartir sku_code (ver el fetch por
+      // id=in.( más arriba, que es el que realmente se usa cuando la foto trae sku_id).
+      'SKU-888': [
+        {id:'id-888-a', sku_code:'SKU-888', descripcion:'Perno especial', bodega:'Bodega Disambig', ubicacion:'Zona Test', storage_bin:'DIS-01', unidad_medida:'UN'},
+        {id:'id-888-b', sku_code:'SKU-888', descripcion:'Perno especial', bodega:'Bodega Sur', ubicacion:'Otro Pasillo', storage_bin:'Z-99', unidad_medida:'UN'},
+      ],
     };
-    const filas = codigos.map(c=>disponibles[c]).filter(Boolean);
+    const filas = codigos.flatMap(c=>disponibles[c]||[]);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/plan_semanal_skus')){
@@ -579,6 +600,12 @@ const fakeFetchImpl = async (url, opts) => {
         {sku_code:'SKU-555', storage_bin_original:'A-01', bodega_original:null, ubicacion_original:null},
       ],
       'mp2': [],
+      // Foto "moderna" (con sku_id): identifica la fila exacta id-888-a, no solo el código
+      // SKU-888 (que también existe en otra ubicación, id-888-b — ver el test que llama
+      // skusMovidosDeEntradas directamente, más abajo en este archivo).
+      'mp-disambig': [
+        {sku_code:'SKU-888', sku_id:'id-888-a', storage_bin_original:'DIS-01', bodega_original:'Bodega Disambig', ubicacion_original:'Zona Test'},
+      ],
     };
     const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
@@ -1031,6 +1058,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filasSnapshot = JSON.parse(postSnapshot.opts.body);
   assert(filasSnapshot.some(f=>f.plan_id==='plan-nuevo-1' && f.sku_code==='SKU-001' && f.storage_bin_original==='A-01' && f.bodega_original==='Nave Mina' && f.ubicacion_original==='Interior Nave'), 'debe guardar el SKU del bin A-01 (plan-nuevo-1) con ese bin, bodega y ubicación como originales, obtuvo: '+JSON.stringify(filasSnapshot));
   assert(filasSnapshot.some(f=>f.plan_id==='plan-nuevo-2' && f.sku_code==='SKU-002' && f.storage_bin_original==='A-02' && f.bodega_original==='Nave Mina' && f.ubicacion_original==='Interior Nave'), 'debe guardar el SKU del bin A-02 (plan-nuevo-2) con ese bin, bodega y ubicación como originales, obtuvo: '+JSON.stringify(filasSnapshot));
+  // Bug real reportado por Joel ("me parece excesivo"): sku_code por sí solo no identifica una
+  // ubicación única (ver skusMovidosDeEntradas). La foto debe guardar también el id específico del
+  // SKU que se seleccionó en ese momento, para poder comparar más adelante contra esa fila exacta
+  // y no contra cualquier otra que comparta el mismo código en otra bodega/ubicación.
+  assert(filasSnapshot.some(f=>f.sku_code==='SKU-001' && f.sku_id==='id-001') && filasSnapshot.some(f=>f.sku_code==='SKU-002' && f.sku_id==='id-002'), 'la foto debe guardar sku_id (el id de la fila exacta), no solo sku_code, obtuvo: '+JSON.stringify(filasSnapshot));
 
   // Sin bins seleccionados ni responsable -> una sola fila con storage_bin y responsable_id null.
   calls.length = 0;
@@ -5131,6 +5163,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // aviso en todos los SKU de un plan viejo sin que nada haya pasado — no debe pasar: SKU-555 no
   // debe aparecer como "movido" (su bin tampoco cambió).
   assert(!skusJuntos.some(s=>s.sku_code==='SKU-555'), 'SKU-555 (foto legacy sin bodega/ubicación original, mismo bin de siempre) no debe aparecer como movido solo porque esas columnas vengan en null, obtuvo: '+JSON.stringify(skusJuntos));
+
+  // Bug real reportado por Joel: en un plan recién creado, casi la mitad de los SKU aparecían
+  // marcados como "Cambió de ubicación" sin que hubiera pasado ninguna carga masiva. Causa real:
+  // sku_code no es único (el mismo material puede tener stock en más de una bodega/ubicación a la
+  // vez) — comparar solo por código traía de vuelta OTRA fila, de una ubicación que nunca tuvo
+  // nada que ver con este plan, y la marcaba como "movida" por error. id-888-a es la fila que se
+  // snapshoteó (mp-disambig, con sku_id); id-888-b comparte el código pero es un stock ajeno en
+  // "Bodega Sur" que jamás debe aparecer acá.
+  const movidosDisambig = await ctx.skusMovidosDeEntradas([{id:'mp-disambig', storage_bin:'DIS-01'}], new Set(['DIS-01']));
+  assert(Array.isArray(movidosDisambig) && movidosDisambig.length===0, 'con sku_id, la comparación debe ser por la fila exacta (id-888-a, que no cambió de lugar) y nunca debe traer de vuelta una ubicación ajena que solo comparte sku_code (id-888-b), obtuvo: '+JSON.stringify(movidosDisambig));
 
   // renderConteo/renderPlanDelDia: fecha, cascada de bodega (incluye "SKU sin ubicación" porque
   // hay una entrada suelta hoy) y el checklist de SKU pendientes ya resuelto arriba.
