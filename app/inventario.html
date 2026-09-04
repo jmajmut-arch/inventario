@@ -90,6 +90,13 @@ input,select,textarea{font-family:inherit;}
 .user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);}
 .user-chip button{background:none;border:1px solid var(--line);color:var(--text-dim);border-radius:6px;padding:5px 9px;font-size:11px;}
 .user-chip button:active{background:var(--surface-2);}
+/* Con el nombre + rol de la cuenta y 5-6 íconos, el chip ya no cabía en una fila en un celular
+   angosto (~390px) y el texto se partía en varias líneas empujando los íconos -- se veía roto
+   incluso antes de agregar el ícono de Calendario. El nombre completo ya se puede ver en
+   Configuraciones, así que en pantallas angostas se oculta acá y solo quedan los íconos. */
+@media (max-width:420px){
+  .user-chip>span{display:none;}
+}
 
 /* ---------- layout ---------- */
 main{flex:1;max-width:720px;width:100%;margin:0 auto;padding:18px 16px 96px;}
@@ -124,6 +131,28 @@ main.ancho{max-width:1180px;}
 .tag-card .kpi-sub{font-size:12px;color:var(--text-dim);margin-top:4px;}
 
 .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+/* Calendario mensual (ver renderCalendario): grilla de 7 columnas (lunes a domingo, igual que
+   inicioSemana en Planificación), celdas angostas a propósito para caber en un celular -- el
+   detalle completo del día elegido va aparte, debajo de la grilla (.cal-detalle). */
+.cal-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+.cal-nav h3{font-size:17px;margin:0;text-transform:capitalize;font-family:'Barlow Condensed';font-weight:700;letter-spacing:.01em;}
+button.cal-nav-btn{width:auto;padding:8px 12px;flex:none;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+.cal-dow{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);text-align:center;padding-bottom:4px;font-weight:600;}
+.cal-dia{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:5px 3px 6px;min-height:58px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:1px;}
+.cal-dia:disabled{opacity:0;pointer-events:none;}
+.cal-dia.es-hoy{border-color:var(--amber);}
+.cal-dia.seleccionado{background:var(--amber);}
+.cal-dia.seleccionado .cal-dia-num,.cal-dia.seleccionado .cal-dia-fila{color:#1a1204;}
+.cal-dia-num{font-size:12px;font-weight:700;color:var(--text-dim);}
+.cal-dia-fila{font-size:9.5px;line-height:1.35;font-family:'IBM Plex Mono';font-variant-numeric:tabular-nums;}
+.cal-dia-fila.c-plan{color:var(--text-faint);}
+.cal-dia-fila.c-contado{color:var(--ok);}
+.cal-dia-fila.c-recontado{color:var(--steel);}
+.cal-detalle-fila{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);}
+.cal-detalle-fila:last-child{border-bottom:none;}
+.cal-detalle-num{font-family:'Barlow Condensed';font-weight:800;font-size:22px;}
 
 .segmented{display:flex;background:var(--surface-2);border-radius:10px;padding:3px;margin-bottom:16px;gap:2px;}
 .segmented-btn{flex:1;border:none;background:none;padding:9px 4px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--text-dim);}
@@ -451,6 +480,10 @@ let state = {
   // dash.avancePlanPorCiclo (que ya trae todos los períodos).
   dashPeriodo: '',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
+  // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
+  // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
+  // detalle debajo de la grilla.
+  calendario: { mes: fechaISO(new Date()).slice(0,8)+'01', cargando:false, cargado:false, dias:[], diaSeleccionado:null },
   superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
@@ -621,7 +654,7 @@ const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos'];
 // main.ancho) -- las VISTAS_SOLO_ADMIN de arriba, más Configuraciones (equipo, panel de
 // súper-admin), a diferencia de Contar/Reconteo/Buscar que se usan sobre todo desde el celular
 // en terreno y quedan angostas a propósito.
-const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config'];
+const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario'];
 function vistaBloqueadaParaRol(view){
   if(!VISTAS_SOLO_ADMIN.includes(view)) return false;
   if(!state.perfil) return false;
@@ -1187,7 +1220,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1607,6 +1640,21 @@ async function cargarCiclos(){
     const rows = await rest('/ciclos_conteo?select=id,nombre,es_actual&order=created_at.desc');
     setState({ciclos: rows||[]});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Calendario mensual: planificado/contado/recontado/pendiente por día vía el RPC
+// resumen_calendario_mes (RLS + el rol dentro de la función deciden el alcance -- admin/
+// súper-admin ven toda la empresa, un operador solo lo suyo -- no hay nada que filtrar acá).
+async function cargarCalendario(mes){
+  if(!perfilCargado()) return;
+  setState({calendario:{...state.calendario, mes, cargando:true}});
+  try{
+    const dias = await rest('/rpc/resumen_calendario_mes', {method:'POST', body:{p_mes: mes}});
+    setState({calendario:{...state.calendario, mes, cargando:false, cargado:true, dias: dias||[]}});
+  }catch(e){
+    setState({calendario:{...state.calendario, cargando:false}});
+    toast(e.message,'err');
+  }
 }
 
 async function crearCiclo(nombre){
@@ -3863,6 +3911,9 @@ const ICONS = {
   config:'<svg viewBox="0 0 24 24" style="width:16px;height:16px" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
   buscar:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   plan:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></svg>',
+  // Distinto a "plan" a propósito (rejilla de puntos = lista de tareas) -- acá un casillero
+  // relleno representa "un día puntual" del calendario, para no confundir ambas pestañas.
+  calendario:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><rect x="7.5" y="13" width="4" height="4" rx="1" fill="currentColor" stroke="none"/><path d="M14 13h3M14 17h3M7.5 17.5h4"/></svg>',
   download:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 21h14"/></svg>',
   editar:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
   papelera:'<svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
@@ -6455,6 +6506,69 @@ function renderCiclos(){
   `;
 }
 
+// Calendario mensual: planificado/contado/recontado/pendiente por día (ver resumen_calendario_mes
+// -- alcance por rol lo resuelve el propio RPC, acá solo se pinta lo que llega). Semana de lunes a
+// domingo, igual convención que Planificación (ver inicioSemana).
+const DOW_CORTOS = ['L','M','M','J','V','S','D'];
+function renderCalendario(){
+  const cal = state.calendario;
+  const [y, m] = cal.mes.split('-').map(Number);
+  const primerDiaSemana = (new Date(y, m-1, 1).getDay() + 6) % 7; // 0=lunes
+  const diasEnMes = new Date(y, m, 0).getDate();
+  const porFecha = {};
+  cal.dias.forEach(d=> porFecha[d.fecha] = d);
+  const hoy = fechaISO(new Date());
+  const celdas = [];
+  for(let i=0; i<primerDiaSemana; i++) celdas.push(null);
+  for(let dia=1; dia<=diasEnMes; dia++) celdas.push(`${y}-${String(m).padStart(2,'0')}-${String(dia).padStart(2,'0')}`);
+  const detalle = cal.diaSeleccionado ? porFecha[cal.diaSeleccionado] : null;
+  const esAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
+
+  return `
+    <div class="section-head"><div><span class="eyebrow">Empresa</span><h2>Calendario</h2></div></div>
+    <div class="hint" style="margin-bottom:14px">Cuánto se planificó, contó y recontó cada día. ${esAdmin? 'Ves toda la empresa.' : 'Ves solo lo tuyo (tu plan y tus conteos).'}</div>
+    <div class="card">
+      <div class="cal-nav">
+        <button type="button" id="cal-mes-prev" class="btn btn-secondary cal-nav-btn" aria-label="Mes anterior">‹</button>
+        <h3>${esc(MESES_ES[m-1])} ${y}</h3>
+        <button type="button" id="cal-mes-next" class="btn btn-secondary cal-nav-btn" aria-label="Mes siguiente">›</button>
+      </div>
+      ${cal.cargando? `<div class="hint" style="text-align:center;padding:24px 0">Cargando…</div>` : `
+      <div class="cal-grid" style="margin-bottom:5px">${DOW_CORTOS.map(d=>`<div class="cal-dow">${d}</div>`).join('')}</div>
+      <div class="cal-grid">
+        ${celdas.map(fecha=>{
+          if(!fecha) return `<button type="button" class="cal-dia" disabled tabindex="-1"></button>`;
+          const d = porFecha[fecha];
+          const clases = ['cal-dia'];
+          if(fecha===hoy) clases.push('es-hoy');
+          if(fecha===cal.diaSeleccionado) clases.push('seleccionado');
+          return `
+          <button type="button" class="${clases.join(' ')}" data-cal-dia="${fecha}" aria-label="${fmtFecha(fecha)}">
+            <span class="cal-dia-num">${Number(fecha.slice(-2))}</span>
+            ${d && d.planificado? `<span class="cal-dia-fila c-plan">P ${d.planificado}</span>` : ''}
+            ${d && d.contado? `<span class="cal-dia-fila c-contado">C ${d.contado}</span>` : ''}
+            ${d && d.recontado? `<span class="cal-dia-fila c-recontado">R ${d.recontado}</span>` : ''}
+          </button>`;
+        }).join('')}
+      </div>
+      `}
+    </div>
+    ${detalle? `
+    <div class="section-head"><div><span class="eyebrow">${esc(fmtFecha(detalle.fecha))}</span><h2 style="font-size:15px">Detalle del día</h2></div></div>
+    <div class="card">
+      <div class="cal-detalle-fila"><span>Planificado</span><span class="cal-detalle-num">${detalle.planificado}</span></div>
+      <div class="cal-detalle-fila"><span>Contado</span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
+      <div class="cal-detalle-fila"><span>Recontado</span><span class="cal-detalle-num" style="color:var(--steel)">${detalle.recontado}</span></div>
+      <div class="cal-detalle-fila"><span>Pendiente</span><span class="cal-detalle-num" style="color:${detalle.pendiente>0?'var(--warn)':'var(--text-dim)'}">${detalle.pendiente}</span></div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button type="button" id="cal-ir-contar" class="btn btn-primary" style="width:auto;padding:8px 14px">Ir a Contar ese día</button>
+        ${esAdmin? `<button type="button" id="cal-ir-plan" class="btn btn-secondary" style="width:auto;padding:8px 14px">Ver en Planificación</button>` : ''}
+      </div>
+    </div>
+    ` : cal.cargado? `<div class="empty" style="padding:14px 8px;text-align:center">Toca un día para ver el detalle.</div>` : ''}
+  `;
+}
+
 // Estado de la verificación en dos pasos dentro de Configuraciones (ver cargarMfaFactores/
 // iniciarEnrolamientoMfa/confirmarEnrolamientoMfa/desactivarMfa). Tres estados posibles: todavía
 // cargando, enrolando (QR + código de confirmación), o el resumen (activada/no activada).
@@ -6586,7 +6700,7 @@ function renderConfiguraciones(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario'}[v];
 }
 
 function renderShell(){
@@ -6600,6 +6714,7 @@ function renderShell(){
     buscar: renderBuscar,
     plan: renderPlanificacion,
     ciclos: renderCiclos,
+    calendario: renderCalendario,
   }[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
@@ -6615,6 +6730,7 @@ function renderShell(){
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
           <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs">${ICONS.skus.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
+          <button id="btn-ir-calendario" class="btn-icon-header" aria-label="Calendario">${ICONS.calendario.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel">${ICONS.download.replace('style="width:15px;height:15px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
           <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
@@ -6862,6 +6978,7 @@ function bind(){
   document.getElementById('btn-config').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'config'}); });
   document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
   document.getElementById('btn-ir-skus').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'skus'}); });
+  document.getElementById('btn-ir-calendario').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'calendario'}); });
   document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=> setState({exportarModal:true}));
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
@@ -7021,6 +7138,43 @@ function bind(){
     });
     document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
       btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
+    });
+  }
+
+  if(state.view==='calendario'){
+    // Mismo resguardo que en Contar (ver más abajo, state.view==='conteo'): cargarCalendario
+    // hace un setState síncrono antes de su primer await, así que sin el chequeo de "cargando"
+    // acá también cada re-render volvería a disparar la carga en una recursión infinita.
+    if(!state.calendario.cargado && !state.calendario.cargando) cargarCalendario(state.calendario.mes);
+    const btnMesPrev = document.getElementById('cal-mes-prev');
+    if(btnMesPrev) btnMesPrev.addEventListener('click', ()=>{
+      const [y,m] = state.calendario.mes.split('-').map(Number);
+      setState({calendario:{...state.calendario, diaSeleccionado:null}});
+      cargarCalendario(fechaISO(new Date(y, m-2, 1)));
+    });
+    const btnMesNext = document.getElementById('cal-mes-next');
+    if(btnMesNext) btnMesNext.addEventListener('click', ()=>{
+      const [y,m] = state.calendario.mes.split('-').map(Number);
+      setState({calendario:{...state.calendario, diaSeleccionado:null}});
+      cargarCalendario(fechaISO(new Date(y, m, 1)));
+    });
+    document.querySelectorAll('[data-cal-dia]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const fecha = btn.dataset.calDia;
+        setState({calendario:{...state.calendario, diaSeleccionado: fecha===state.calendario.diaSeleccionado? null : fecha}});
+      });
+    });
+    const btnCalIrContar = document.getElementById('cal-ir-contar');
+    if(btnCalIrContar) btnCalIrContar.addEventListener('click', ()=>{
+      const fecha = state.calendario.diaSeleccionado;
+      detenerEscaner();
+      setState({view:'conteo', contarPlan:{...state.contarPlan, cargado:false, cargando:false, fecha}});
+    });
+    const btnCalIrPlan = document.getElementById('cal-ir-plan');
+    if(btnCalIrPlan) btnCalIrPlan.addEventListener('click', ()=>{
+      const fecha = state.calendario.diaSeleccionado;
+      setState({view:'plan', plan:{...state.plan, semanaInicio: fechaISO(inicioSemana(new Date(fecha+'T00:00:00')))}});
+      cargarPlanSemanal();
     });
   }
 
