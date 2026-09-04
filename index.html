@@ -132,8 +132,19 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 
   .hero-shot{position:relative;margin:64px auto 0;max-width:920px;padding:0 24px;}
   .hero-shot-glow{position:absolute;inset:-40px -20px auto;top:-40px;height:280px;background:radial-gradient(ellipse at center,rgba(189,91,44,.22),transparent 70%);filter:blur(10px);z-index:0;}
-  .hero-photo{position:relative;z-index:1;width:100%;display:block;border-radius:28px;box-shadow:0 40px 80px -30px rgba(36,26,16,.45);}
-  @media (max-width:680px){ .hero-shot{margin-top:44px;} .hero-photo{border-radius:20px;} }
+  .hero-photo-wrap{position:relative;z-index:1;}
+  .hero-photo{width:100%;display:block;border-radius:28px;box-shadow:0 40px 80px -30px rgba(36,26,16,.45);}
+  .hero-scroll-hint{display:none;}
+  @media (max-width:680px){
+    .hero-shot{margin-top:44px;}
+    .hero-photo{border-radius:20px;}
+    /* La infografía es muy panorámica (9 pasos con texto propio) -- angostarla a lo ancho de
+       un celular deja el texto ilegible. En vez de encogerla, se deja scrolleable a un ancho
+       fijo legible: la persona desliza para leer cada etapa, en vez de forzar un zoom manual. */
+    .hero-photo-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:20px;}
+    .hero-photo{width:860px;max-width:none;}
+    .hero-scroll-hint{display:block;text-align:center;font-size:12.5px;color:var(--text-dim);margin-top:10px;}
+  }
 
   .comparativa-img{width:100%;display:block;border-radius:20px;box-shadow:0 30px 60px -30px rgba(36,26,16,.4);}
 
@@ -316,7 +327,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
     <div class="hero-shot reveal">
       <div class="hero-shot-glow"></div>
-      <img class="hero-photo" src="img/hero-flujo-9-pasos.jpg" alt="Las 9 etapas de InventIA: registro inicial, planificación, operación (escanear, contar y recontar en bodega) y dashboard ejecutivo">
+      <div class="hero-photo-wrap">
+        <img class="hero-photo" src="img/hero-flujo-9-pasos.jpg" alt="Las 9 etapas de InventIA: registro inicial, planificación, operación (escanear, contar y recontar en bodega) y dashboard ejecutivo">
+      </div>
+      <div class="hero-scroll-hint">Desliza para ver las 9 etapas →</div>
     </div>
   </div>
 
