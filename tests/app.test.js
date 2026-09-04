@@ -33,6 +33,7 @@ let mfaVerifyError = null; // {status, error} para simular un código incorrecto
 let conteosExportablesFixture = [];
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
+let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
 // Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
 // hace Postgres ante ON CONFLICT DO NOTHING) y la búsqueda de respaldo por idempotency_key
@@ -241,6 +242,14 @@ const fakeFetchImpl = async (url, opts) => {
   // forma que ranking_responsable/diferencias_recientes, no un escalar).
   if(path.startsWith('/rest/v1/rpc/resumen_general_skus')){
     const filas = [ resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, pendiente:2} ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/rpc/resumen_calendario_mes')){
+    const filas = calendarioFixture || [
+      {fecha:'2026-09-01', planificado:24, contado:20, recontado:3, pendiente:4},
+      {fecha:'2026-09-02', planificado:8, contado:21, recontado:2, pendiente:0},
+      {fecha:'2026-09-03', planificado:0, contado:0, recontado:0, pendiente:0},
+    ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/skus_resumen_abc')){
@@ -5748,6 +5757,101 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!btnIrSkus, 'bind() debe haber consultado #btn-ir-skus');
   btnIrSkus.dispatch('click');
   assert(ctx.__appstate.view==='skus', 'tocar el ícono de SKUs de la barra superior debe navegar a la vista skus, obtuvo: '+ctx.__appstate.view);
+
+  // Pedido de Joel: ícono de Calendario en la barra superior (junto a SKUs/Buscar), visible a
+  // todos los roles -- muestra planificado/contado/recontado/pendiente por día (ver
+  // resumen_calendario_mes). Distinto de "Períodos" (ciclos): acá se navega por mes, no se
+  // administra nada.
+  // handleLogout (mucho más arriba) dejó session en null; bind() corta temprano en ese caso
+  // (pantalla de login) y nunca llegaría al bloque de la vista calendario -- hace falta una
+  // sesión válida para que este bind() real registre cal-ir-contar/cal-mes-prev/cal-mes-next.
+  ctx.__appstate.session = { access_token:'x', user:{id:'user-1', email:'a@b.com'} };
+  assert(shellHtmlTabs.includes('id="btn-ir-calendario"'), 'la barra superior debe tener un ícono para ir a Calendario, obtuvo: '+shellHtmlTabs.slice(0,900));
+  // state.calendario ya "cargado" a propósito ANTES de tocar el ícono: bind() dispara un
+  // auto-load la primera vez que entra a la vista (ver cargarCalendario más abajo) -- probarlo
+  // sin controlar acá dejaría una promesa real en vuelo compitiendo con el resto del test.
+  ctx.__appstate.calendario = { mes:'2026-09-01', cargando:false, cargado:true, dias:[], diaSeleccionado:null };
+  // elements[] es un registro global sin reset entre pruebas (ver notas iguales más arriba,
+  // ej. form-crear-ciclo): sin limpiar acá, un dispatch('click') dispara TODOS los listeners
+  // acumulados de bind()s anteriores sobre este mismo id, no solo el de ahora.
+  delete elements['btn-ir-calendario'];
+  ctx.bind();
+  const btnIrCalendario = elements['btn-ir-calendario'];
+  assert(!!btnIrCalendario, 'bind() debe haber consultado #btn-ir-calendario');
+  btnIrCalendario.dispatch('click');
+  assert(ctx.__appstate.view==='calendario', 'tocar el ícono de Calendario de la barra superior debe navegar a la vista calendario, obtuvo: '+ctx.__appstate.view);
+
+  ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(ctx.vistaBloqueadaParaRol('calendario')===false, 'la vista calendario NO debe estar bloqueada para un admin (visible a todos), obtuvo: '+ctx.vistaBloqueadaParaRol('calendario'));
+  ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(ctx.vistaBloqueadaParaRol('calendario')===false, 'la vista calendario NO debe estar bloqueada para un operador -- a diferencia de Dashboard/Plan/Carga/Períodos, se ve entera (con datos propios), obtuvo: '+ctx.vistaBloqueadaParaRol('calendario'));
+  assert(ctx.viewTitle('calendario')==='Calendario', 'el título de la vista calendario debe ser "Calendario", obtuvo: '+ctx.viewTitle('calendario'));
+
+  // cargarCalendario: debe pedir resumen_calendario_mes con p_mes en el body y dejar las filas
+  // en state.calendario.dias (el alcance por rol lo resuelve el propio RPC en el servidor).
+  ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  calendarioFixture = [
+    {fecha:'2026-09-01', planificado:24, contado:20, recontado:3, pendiente:4},
+    {fecha:'2026-09-15', planificado:5, contado:5, recontado:0, pendiente:0},
+  ];
+  ctx.__appstate.calendario = { mes:'2026-09-01', cargando:false, cargado:false, dias:[], diaSeleccionado:null };
+  await ctx.cargarCalendario('2026-09-01');
+  assert(ctx.__appstate.calendario.cargado===true && ctx.__appstate.calendario.dias.length===2, 'cargarCalendario debe dejar los días devueltos en state.calendario.dias, obtuvo: '+JSON.stringify(ctx.__appstate.calendario.dias));
+  const callCalendario = calls.find(c=>c.url.includes('/rpc/resumen_calendario_mes'));
+  assert(!!callCalendario && callCalendario.opts && JSON.parse(callCalendario.opts.body).p_mes==='2026-09-01', 'cargarCalendario debe mandar p_mes en el body del RPC, obtuvo: '+JSON.stringify(callCalendario && callCalendario.opts));
+
+  // renderCalendario: grilla del mes con un botón data-cal-dia por día, mostrando P/C/R solo
+  // cuando el día tiene datos (un día sin actividad no debe ensuciarse con ceros).
+  ctx.__appstate.view = 'calendario';
+  const htmlCal = ctx.renderCalendario();
+  assert(htmlCal.includes('Septiembre 2026'), 'debe mostrar el mes y año que se está viendo, obtuvo: '+htmlCal.slice(0,700));
+  assert(htmlCal.includes('data-cal-dia="2026-09-01"') && htmlCal.includes('data-cal-dia="2026-09-15"') && htmlCal.includes('data-cal-dia="2026-09-30"'), 'debe generar un botón por cada día del mes con data-cal-dia, obtuvo: '+htmlCal.slice(0,3000));
+  assert(htmlCal.includes('P 24') && htmlCal.includes('C 20') && htmlCal.includes('R 3'), 'un día con datos debe mostrar planificado/contado/recontado, obtuvo: '+htmlCal);
+  assert(!htmlCal.includes('P 0') && !htmlCal.includes('C 0') && !htmlCal.includes('R 0'), 'los días sin actividad (o en cero) no deben mostrar esa métrica, obtuvo: '+htmlCal);
+
+  // Detalle del día elegido: "Ir a Contar ese día" para cualquier rol, "Ver en Planificación"
+  // solo para admin/súper-admin (un operador no administra el plan, solo cuenta lo suyo).
+  ctx.__appstate.calendario.diaSeleccionado = '2026-09-01';
+  const htmlCalDetalleAdmin = ctx.renderCalendario();
+  assert(htmlCalDetalleAdmin.includes('id="cal-ir-contar"') && htmlCalDetalleAdmin.includes('id="cal-ir-plan"'), 'un admin con un día elegido debe ver "Ir a Contar" y "Ver en Planificación", obtuvo: '+htmlCalDetalleAdmin);
+  ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlCalDetalleOperador = ctx.renderCalendario();
+  assert(htmlCalDetalleOperador.includes('id="cal-ir-contar"') && !htmlCalDetalleOperador.includes('id="cal-ir-plan"'), 'un operador NO debe ver "Ver en Planificación", obtuvo: '+htmlCalDetalleOperador);
+
+  // bind(): tocar "Ir a Contar ese día" navega a Contar con la fecha del día elegido (forzando
+  // cargado:false para que dispare cargarPlanDeHoy de ESE día, no del de hoy -- mismo mecanismo
+  // que ya cubre el efecto en state.view==='conteo').
+  ctx.__appstate.contarPlan = { cargado:true, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
+  delete elements['cal-ir-contar'];
+  ctx.bind();
+  const btnCalIrContar = elements['cal-ir-contar'];
+  assert(!!btnCalIrContar, 'bind() debe haber consultado #cal-ir-contar');
+  btnCalIrContar.dispatch('click');
+  assert(ctx.__appstate.view==='conteo' && ctx.__appstate.contarPlan.fecha==='2026-09-01' && ctx.__appstate.contarPlan.cargado===false, '"Ir a Contar ese día" debe navegar a Contar con la fecha del día elegido y forzar una recarga, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, contarPlan:ctx.__appstate.contarPlan}));
+
+  // Navegación de mes: "mes siguiente" pide el mes siguiente y limpia el día elegido (el detalle
+  // de un día de otro mes ya no aplica).
+  ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  ctx.__appstate.view = 'calendario';
+  ctx.__appstate.calendario = { mes:'2026-09-01', cargando:false, cargado:true, dias:[], diaSeleccionado:'2026-09-01' };
+  delete elements['cal-mes-next'];
+  ctx.bind();
+  const btnCalMesNext = elements['cal-mes-next'];
+  assert(!!btnCalMesNext, 'bind() debe haber consultado #cal-mes-next');
+  btnCalMesNext.dispatch('click');
+  await Promise.resolve(); await Promise.resolve();
+  assert(ctx.__appstate.calendario.mes==='2026-10-01', 'el botón de mes siguiente debe avanzar a octubre, obtuvo: '+ctx.__appstate.calendario.mes);
+  assert(ctx.__appstate.calendario.diaSeleccionado===null, 'cambiar de mes debe limpiar el día elegido, obtuvo: '+ctx.__appstate.calendario.diaSeleccionado);
+
+  ctx.__appstate.calendario = { mes:'2026-10-01', cargando:false, cargado:true, dias:[], diaSeleccionado:null };
+  delete elements['cal-mes-prev'];
+  ctx.bind();
+  const btnCalMesPrev = elements['cal-mes-prev'];
+  assert(!!btnCalMesPrev, 'bind() debe haber consultado #cal-mes-prev');
+  btnCalMesPrev.dispatch('click');
+  await Promise.resolve(); await Promise.resolve();
+  assert(ctx.__appstate.calendario.mes==='2026-09-01', 'el botón de mes anterior debe retroceder a septiembre, obtuvo: '+ctx.__appstate.calendario.mes);
+  calendarioFixture = null;
 
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);
