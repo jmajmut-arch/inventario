@@ -179,6 +179,13 @@ input[type=text],input[type=number],input[type=password],input[type=email],input
   width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);
   padding:11px 12px;border-radius:8px;font-size:15px;outline:none;
 }
+/* Bug real reportado por Joel (captura en iPad/Safari): el campo Día de "Plan del día" en Contar
+   se salía por el borde derecho de la tarjeta. Safari no respeta width:100%/box-sizing:border-box
+   en input[type=date] igual que los demás campos -- calcula un ancho mínimo interno (para los
+   segmentos día/mes/año + el ícono de calendario) que puede superar el ancho ya calculado del
+   elemento y lo deja desbordar en vez de encogerlo. min-width:0 fuerza a que sí respete el ancho
+   del contenedor como cualquier otro input. */
+input[type=date]{min-width:0;}
 input:focus,select:focus,textarea:focus{border-color:var(--amber);}
 textarea{resize:vertical;min-height:60px;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
