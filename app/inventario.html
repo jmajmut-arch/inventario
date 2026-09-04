@@ -189,6 +189,15 @@ input[type=date]{min-width:0;}
 input:focus,select:focus,textarea:focus{border-color:var(--amber);}
 textarea{resize:vertical;min-height:60px;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+/* Bug real reportado por Joel (captura de "Exportar conteos" en el celular): un par de
+   input[type=date] uno junto al otro en .row2 se salía de la tarjeta -- min-width:0 en el
+   input (ver más abajo) evita que SE DESBORDE él solo, pero en un celular angosto sigue sin
+   entrar completo A CADA LADO del "Desde"/"Hasta" (el control nativo de fecha de Safari no
+   encoge tanto). Mismo patrón que ya usa "Contado desde/hasta" en el Dashboard (flex-wrap): en
+   vez de pelear por el ancho exacto, apila los dos campos en pantallas de celular. */
+@media (max-width:480px){
+  .row2-fechas{grid-template-columns:1fr;}
+}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:8px;padding:12px 16px;font-size:14px;font-weight:600;width:100%;}
 .btn-primary{background:var(--amber);color:#1a1204;}
@@ -1619,12 +1628,22 @@ async function cargarPlanSemanal(){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// El Calendario carga resumen_calendario_mes una sola vez por mes (ver el resguardo contra
+// recursión en bind(), state.view==='calendario') y se queda con esa foto -- si se agrega,
+// edita o borra algo del plan mientras tanto (desde Planificación), sin esto la vista quedaba
+// mostrando cifras viejas hasta cerrar sesión. Cualquier mutación de plan_semanal/exclusiones
+// llama esto para que la próxima vez que se entre a Calendario vuelva a pedir datos frescos.
+function invalidarCalendario(){
+  if(state.calendario.cargado) setState({calendario: {...state.calendario, cargado:false}});
+}
+
 async function excluirSkuDePlan(planId, skuCode){
   try{
     await rest('/plan_semanal_exclusiones', {method:'POST', body:[{plan_id:planId, sku_code:skuCode}], prefer:'return=minimal'});
     toast('SKU quitado de la planificación');
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2169,6 +2188,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2181,6 +2201,7 @@ async function actualizarPlanEntrada(id, {fecha, responsableId, nota}){
     toast('Planificación actualizada');
     setState({plan: {...state.plan, editando:null}});
     cargarPlanSemanal();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2190,6 +2211,7 @@ async function borrarPlanEntrada(id){
     toast('Eliminado de la planificación');
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2220,6 +2242,7 @@ async function borrarPlanEntradas(ids){
     toast(`${ids.length} entrada${ids.length>1?'s eliminadas':' eliminada'} de la planificación`);
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
+    invalidarCalendario();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -4442,7 +4465,7 @@ function renderExportarModal(){
         <button id="exportar-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
       <form id="form-exportar-conteos">
-        <div class="row2">
+        <div class="row2 row2-fechas">
           <div><label for="ex-desde">Desde</label><input type="date" id="ex-desde" value="${esc(state.exportConteos.desde)}" required></div>
           <div><label for="ex-hasta">Hasta</label><input type="date" id="ex-hasta" value="${esc(state.exportConteos.hasta)}"></div>
         </div>
@@ -5815,7 +5838,7 @@ function renderBuscar(){
           <option value="C" ${b.claseAbc==='C'?'selected':''}>Clase C</option>
           <option value="__sin_clasificar__" ${b.claseAbc==='__sin_clasificar__'?'selected':''}>Sin clasificar</option>
         </select>
-        <div class="row2" style="margin-top:12px">
+        <div class="row2 row2-fechas" style="margin-top:12px">
           <div><label for="b-fecha-desde">Contado desde</label><input type="date" id="b-fecha-desde" value="${esc(b.fechaDesde)}"></div>
           <div><label for="b-fecha-hasta">Contado hasta</label><input type="date" id="b-fecha-hasta" value="${esc(b.fechaHasta)}"></div>
         </div>
