@@ -2501,6 +2501,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Panel de super-admin: solo visible si perfil.es_super_admin.
   ctx.__appstate.perfil = { id:3, nombre:'Vendedor', rol:'admin', es_super_admin:true, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
   ctx.__appstate.superadmin = { empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-2', nombre:'Minera Sur', activo:true, plan_id:'plan-basico'}], resumen:[], leads:[], planes:[{id:'plan-basico', nombre:'basico', etiqueta:'Básico'}, {id:'plan-pro', nombre:'profesional', etiqueta:'Profesional'}, {id:'plan-empresa', nombre:'empresa', etiqueta:'Empresa'}], invitando:false, cargado:true };
+
+  // Bug real (mismo patrón que Contar/cargarEquipo/cargarAuditoria/cargarHistorialCargas): antes
+  // el llamador en bind() marcaba state.superadmin.cargado:true de entrada, sin importar si las 4
+  // cargas del panel (empresas/resumen/leads/planes) realmente funcionaban -- un corte de red al
+  // entrar por primera vez al panel de súper-admin lo dejaba vacío para siempre. Ahora cada una
+  // devuelve true/false, para que quien las orquesta (bind()) sepa si de verdad terminaron.
+  assert(await ctx.cargarEmpresasSuperAdmin()===true, 'cargarEmpresasSuperAdmin debe devolver true cuando el pedido funciona');
+  const fetchOriginalSuperAdmin = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/empresas') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalSuperAdmin(url, opts);
+  };
+  assert(await ctx.cargarEmpresasSuperAdmin()===false, 'cargarEmpresasSuperAdmin debe devolver false cuando el pedido falla, para que bind() no marque el panel como cargado');
+  ctx.fetch = fetchOriginalSuperAdmin;
+  // Las dos llamadas reales de arriba pisaron state.superadmin.empresas (la real, con la lista
+  // vacía del fallback genérico del mock) -- se restaura el fixture para los asserts de render
+  // que siguen, que dependen de ver Minera Andes/Minera Sur.
+  ctx.__appstate.superadmin.empresas = [{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-2', nombre:'Minera Sur', activo:true, plan_id:'plan-basico'}];
+
   const htmlConfigSuperAdmin = ctx.renderConfiguraciones();
   assert(htmlConfigSuperAdmin.includes('id="form-crear-empresa-sa"') && htmlConfigSuperAdmin.includes('id="form-invitar-persona-sa"'), 'un super-admin debe ver el panel para crear empresas e invitar personas, obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.includes('Minera Andes') && htmlConfigSuperAdmin.includes('Minera Sur'), 'debe listar las empresas existentes, obtuvo: '+htmlConfigSuperAdmin);
@@ -2715,6 +2735,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarEquipo();
   assert(ctx.__appstate.equipo.cargado===true, 'cargarEquipo debe marcar cargado:true al terminar');
   assert(ctx.__appstate.equipo.personas.length===2 && ctx.__appstate.equipo.personas[0].nombre==='Beto Ríos', 'cargarEquipo debe cargar el equipo de la propia empresa, obtuvo: '+JSON.stringify(ctx.__appstate.equipo.personas));
+
+  // Bug real (mismo patrón que Contar/cargarPlanDeHoy): si el pedido falla, cargarEquipo NO debe
+  // marcar cargado:true -- si no, un corte de red justo al entrar a Configuraciones deja "Mi
+  // equipo" vacío para siempre, porque el resguardo de bind() ("if(!state.equipo.cargado)") ya no
+  // lo vuelve a pedir solo.
+  ctx.__appstate.equipo = { cargado:false, cargando:false, personas:[] };
+  const fetchOriginalEquipo = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/usuarios' && u.search.includes('select=id,nombre,rol,activo')) throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalEquipo(url, opts);
+  };
+  await ctx.cargarEquipo();
+  ctx.fetch = fetchOriginalEquipo;
+  assert(ctx.__appstate.equipo.cargado===false, 'si el pedido falla, cargarEquipo no debe quedar marcado cargado:true (si no, no se reintentaría solo al volver a Configuraciones), obtuvo: '+JSON.stringify(ctx.__appstate.equipo));
+  await ctx.cargarEquipo();
+  assert(ctx.__appstate.equipo.cargado===true && ctx.__appstate.equipo.personas.length===2, 'una vez que el pedido funciona, cargarEquipo debe cargar bien el equipo, obtuvo: '+JSON.stringify(ctx.__appstate.equipo));
   const htmlMiEquipo = ctx.renderConfiguraciones();
   assert(htmlMiEquipo.includes('Beto Ríos') && htmlMiEquipo.includes('data-toggle-persona-equipo="eq1"'), 'Configuraciones debe listar el equipo propio con su botón de desactivar/reactivar, obtuvo: '+htmlMiEquipo);
   // El rol ya no es editable desde "Mi equipo" (un admin normal no puede ascender a nadie a
@@ -3312,6 +3349,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarHistorialCargas();
   assert(ctx.__appstate.cargasHistorial.cargado===true, 'cargarHistorialCargas debe marcar cargado:true al terminar');
   assert(ctx.__appstate.cargasHistorial.filas.length===3 && ctx.__appstate.cargasHistorial.filas[0].nombre_archivo==='materiales_agosto.xlsx', 'cargarHistorialCargas debe cargar el historial de la empresa, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial.filas));
+
+  // Bug real (mismo patrón que Contar/cargarPlanDeHoy y cargarEquipo): si el pedido falla,
+  // cargarHistorialCargas NO debe marcar cargado:true -- si no, un corte de red al entrar a
+  // Carga masiva deja el historial vacío para siempre.
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+  const fetchOriginalHistorial = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/cargas_masivas') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalHistorial(url, opts);
+  };
+  await ctx.cargarHistorialCargas();
+  ctx.fetch = fetchOriginalHistorial;
+  assert(ctx.__appstate.cargasHistorial.cargado===false, 'si el pedido falla, cargarHistorialCargas no debe quedar marcado cargado:true, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial));
+  await ctx.cargarHistorialCargas();
+  assert(ctx.__appstate.cargasHistorial.cargado===true && ctx.__appstate.cargasHistorial.filas.length===3, 'una vez que el pedido funciona, cargarHistorialCargas debe cargar bien el historial, obtuvo: '+JSON.stringify(ctx.__appstate.cargasHistorial));
 
   const htmlHistorial = ctx.renderCargaMasiva();
   assert(htmlHistorial.includes('Historial de cargas'), 'Carga masiva debe mostrar la sección de historial, obtuvo: '+htmlHistorial);
@@ -4149,6 +4202,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!auditoriaCallTodas && auditoriaCallTodas.url.includes('order=creado_en.desc'), 'cargarAuditoria debe pedir /auditoria ordenado por fecha descendente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(auditoriaCallTodas.url.includes('limit=20'), 'la tabla de Trazabilidad debe paginar de a 20 filas (no 30), obtuvo: '+auditoriaCallTodas.url);
   assert(ctx.__appstate.auditoria.filas.length===4, 'debe cargar las filas devueltas por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria.filas));
+  assert(ctx.__appstate.auditoria.cargado===true, 'cargarAuditoria debe marcar cargado:true al terminar bien, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria));
+
+  // Bug real (mismo patrón que Contar/cargarPlanDeHoy, cargarEquipo y cargarHistorialCargas): si
+  // el pedido falla, cargarAuditoria NO debe marcar cargado:true -- antes lo marcaba el propio
+  // llamador en bind() ANTES de pedirlo, así que un corte de red al entrar a Auditoría la dejaba
+  // vacía para siempre.
+  ctx.__appstate.auditoria = {cargado:false, cargando:false, cargandoMas:false, filas:[], filtroTabla:'', hayMas:false};
+  const fetchOriginalAuditoria = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/auditoria') throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalAuditoria(url, opts);
+  };
+  await ctx.cargarAuditoria('');
+  ctx.fetch = fetchOriginalAuditoria;
+  assert(ctx.__appstate.auditoria.cargado===false, 'si el pedido falla, cargarAuditoria no debe quedar marcado cargado:true, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria));
+  await ctx.cargarAuditoria('');
+  assert(ctx.__appstate.auditoria.cargado===true && ctx.__appstate.auditoria.filas.length===4, 'una vez que el pedido funciona, cargarAuditoria debe cargar bien las filas, obtuvo: '+JSON.stringify(ctx.__appstate.auditoria));
 
   // renderConfiguraciones: la sección de auditoría solo debe verse para admin/super-admin, no para operador.
   const htmlConfigAdminAuditoria = ctx.renderConfiguraciones();
