@@ -2036,7 +2036,15 @@ async function cargarPlanDeHoy(fecha){
       }
     }
     toast(e.message,'err');
-    setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false}});
+    // Bug real reportado por Joel (cuenta de Nasib): entrar a Contar en un momento de mala señal
+    // (sitio minero) hacía fallar este fetch y, sin caché offline con qué recuperarse, quedaba
+    // marcado cargado:true igual -- la lista se veía vacía como si "nada estuviera planificado" Y
+    // encima el resguardo contra recursión en bind() (state.view==='conteo') ya no volvía a
+    // intentarlo solo, porque para él ya estaba "cargado". Cambiar de día y volver al mismo
+    // "arreglaba" porque el <select> de fecha llama a cargarPlanDeHoy() directo, sin pasar por ese
+    // resguardo. No marcar cargado acá (igual que cargarCalendario en su catch) deja que la
+    // próxima vez que se entre a la pestaña Contar lo vuelva a intentar solo.
+    setState({contarPlan:{...state.contarPlan, cargando:false}});
   }
 }
 

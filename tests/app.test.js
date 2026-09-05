@@ -5001,6 +5001,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2099-01-01', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
   await ctx.cargarPlanDeHoy('2099-01-01');
   assert(ctx.__appstate.contarPlan.entradas.length===0 && ctx.__appstate.contarPlan.desdeCache===false, 'sin conexión y sin caché para ese día, debe quedar sin entradas y desdeCache:false, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
+  // Bug real reportado por Joel (cuenta de Nasib): entrar a Contar justo con mala señal (sitio
+  // minero) dejaba la lista vacía Y marcada cargado:true -- el resguardo de bind() (ver más abajo,
+  // "al volver a la pestaña Contar") ya no reintentaba solo, porque para él el plan ya estaba
+  // "cargado" (aunque vacío por el error). Cambiar de día y volver "arreglaba" porque el <select>
+  // de fecha llama a cargarPlanDeHoy() directo, sin pasar por ese resguardo. Sin caché con qué
+  // recuperarse, NO debe quedar marcado como cargado, para que la próxima vez que bind() corra
+  // (p.ej. al volver a esta pestaña) lo vuelva a intentar solo.
+  assert(ctx.__appstate.contarPlan.cargado===false, 'sin conexión y sin caché, no debe quedar marcado cargado:true (si no, no se reintentaría solo al volver a la pestaña Contar), obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
   ctx.fetch = fetchOriginalPlanOffline;
   // Vuelve a dejar el plan real cargado (2026-08-24) para el resto de los tests de esta sección.
   ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
