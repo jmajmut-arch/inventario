@@ -505,7 +505,7 @@ let state = {
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
   calendario: { mes: fechaISO(new Date()).slice(0,8)+'01', cargando:false, cargado:false, dias:[], diaSeleccionado:null },
-  superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
+  superadmin: { empresas: [], resumen: [], leads: [], leadsHayMas: false, leadsCargandoMas: false, planes: [], cargado: false, cargando: false, personasEmpresaId: '', personas: [], cargandoPersonas: false },
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
@@ -1746,12 +1746,18 @@ function ocultarStockOperador(){
 /* =======================================================================
    ACCIONES — Super-admin (empresas y personas de cualquier empresa)
    ======================================================================= */
+// Las 4 devuelven true/false (éxito/fracaso) para que quien las llama en conjunto (ver bind(),
+// "if(!state.superadmin.cargado)") sepa si de verdad terminaron de cargar -- antes ese llamador
+// marcaba cargado:true de entrada, sin importar el resultado, así que un corte de red en el
+// primer ingreso al panel de súper-admin lo dejaba vacío para siempre (mismo bug que
+// cargarEquipo/cargarAuditoria/cargarPlanDeHoy).
 async function cargarEmpresasSuperAdmin(){
   try{
     const filas = await rest('/empresas?select=id,nombre,activo,plan_id,planes(nombre,etiqueta)&order=nombre.asc');
     state.superadmin.empresas = filas || [];
     render();
-  }catch(e){ toast(e.message,'err'); }
+    return true;
+  }catch(e){ toast(e.message,'err'); return false; }
 }
 
 async function cargarPlanesSuperAdmin(){
@@ -1759,7 +1765,8 @@ async function cargarPlanesSuperAdmin(){
     const filas = await rest('/planes?select=id,nombre,etiqueta&order=created_at.asc');
     state.superadmin.planes = filas || [];
     render();
-  }catch(e){ toast(e.message,'err'); }
+    return true;
+  }catch(e){ toast(e.message,'err'); return false; }
 }
 
 // Solo agregados (cantidad de personas y de SKU por empresa) — el super-admin
@@ -1769,7 +1776,8 @@ async function cargarResumenSuperAdmin(){
     const filas = await rest('/rpc/resumen_empresas_super_admin', {method:'POST'});
     state.superadmin.resumen = filas || [];
     render();
-  }catch(e){ toast(e.message,'err'); }
+    return true;
+  }catch(e){ toast(e.message,'err'); return false; }
 }
 
 // Leads capturados desde el botón "Probar la demo" del landing (tabla leads_demo,
@@ -1780,7 +1788,8 @@ async function cargarLeadsSuperAdmin(){
     state.superadmin.leads = filas || [];
     state.superadmin.leadsHayMas = (filas||[]).length === TAM_PAGINA_LISTA;
     render();
-  }catch(e){ toast(e.message,'err'); }
+    return true;
+  }catch(e){ toast(e.message,'err'); return false; }
 }
 
 async function cargarMasLeadsSuperAdmin(){
@@ -1858,12 +1867,16 @@ async function actualizarPersonaSuperAdmin(id, cambios){
 }
 
 async function cargarEquipo(){
-  state.equipo.cargado = true;
   state.equipo.cargando = true;
   render();
   try{
     const filas = await rest(`/usuarios?select=id,nombre,rol,activo&order=nombre.asc`);
     state.equipo.personas = filas || [];
+    // Marcar "cargado" solo si de verdad llegaron los datos (mismo bug que Contar/cargarPlanDeHoy:
+    // ver bind() más abajo, "if(!state.equipo.cargado) cargarEquipo()") -- si se marca cargado
+    // pase lo que pase, un corte de red en el primer ingreso a Configuraciones deja "Mi equipo"
+    // vacío para siempre, porque ese resguardo ya no lo vuelve a pedir solo.
+    state.equipo.cargado = true;
   }catch(e){ toast(e.message,'err'); }
   state.equipo.cargando = false;
   render();
@@ -1949,6 +1962,10 @@ async function cargarAuditoria(tabla){
     const filas = await rest(`/auditoria?select=id,tabla,accion,actor_nombre,datos_antes,datos_despues,creado_en&order=creado_en.desc&limit=${TAM_PAGINA_AUDITORIA}${filtro}`);
     state.auditoria.filas = filas || [];
     state.auditoria.hayMas = (filas||[]).length === TAM_PAGINA_AUDITORIA;
+    // Igual que cargarEquipo/cargarPlanDeHoy: marcar cargado acá adentro, solo si el pedido
+    // realmente funcionó -- si se marca antes (como hacía el llamador en bind()), un corte de red
+    // en el primer ingreso a Auditoría deja la lista vacía para siempre.
+    state.auditoria.cargado = true;
   }catch(e){ toast(e.message,'err'); }
   state.auditoria.cargando = false;
   render();
@@ -3298,12 +3315,15 @@ async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, fil
 const TIPO_CARGA_LABEL = { skus:'Maestro de SKU', stock_sistema:'Stock del sistema', otro:'Otro' };
 
 async function cargarHistorialCargas(){
-  state.cargasHistorial.cargado = true;
   state.cargasHistorial.cargando = true;
   render();
   try{
     const filas = await rest('/cargas_masivas?select=id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,detalle_errores,created_at,usuarios(nombre)&order=created_at.desc&limit=20');
     state.cargasHistorial.filas = filas || [];
+    // Igual que cargarEquipo/cargarAuditoria/cargarPlanDeHoy: marcar cargado solo si el pedido
+    // realmente funcionó, para que un corte de red en el primer ingreso no deje el historial
+    // vacío para siempre (ver el resguardo en bind(), "if(!state.cargasHistorial.cargado)").
+    state.cargasHistorial.cargado = true;
   }catch(e){ toast(e.message,'err'); }
   state.cargasHistorial.cargando = false;
   render();
@@ -7068,7 +7088,7 @@ function bind(){
         setState({tema});
       });
     });
-    if(!state.equipo.cargado) cargarEquipo();
+    if(!state.equipo.cargado && !state.equipo.cargando) cargarEquipo();
     const esAdminOSuperAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
     if(esAdminOSuperAdmin && !state.mfaFactoresCargado && !state.mfaEnrolando) cargarMfaFactores();
     const btnMfaActivar = document.getElementById('btn-mfa-activar');
@@ -7106,7 +7126,7 @@ function bind(){
       invitarPersona({email, nombre, empresaId: state.perfil.empresa_id, rol}).then(ok=>{ if(ok){ e.target.reset(); cargarEquipo(); } });
     });
     if(state.perfil && state.perfil.rol==='admin' && !state.perfil.es_super_admin){
-      if(!state.equipo.cargado) cargarEquipo();
+      if(!state.equipo.cargado && !state.equipo.cargando) cargarEquipo();
       document.querySelectorAll('[data-guardar-persona-equipo]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           const id = btn.dataset.guardarPersonaEquipo;
@@ -7125,13 +7145,19 @@ function bind(){
     }
     const selectAuditoriaTabla = document.getElementById('auditoria-filtro-tabla');
     if(selectAuditoriaTabla){
-      if(!state.auditoria.cargado){ state.auditoria.cargado = true; cargarAuditoria(''); }
+      if(!state.auditoria.cargado && !state.auditoria.cargando){ cargarAuditoria(''); }
       selectAuditoriaTabla.addEventListener('change', ()=> cargarAuditoria(selectAuditoriaTabla.value));
     }
     const btnCargarMasAuditoria = document.getElementById('btn-cargar-mas-auditoria');
     if(btnCargarMasAuditoria) btnCargarMasAuditoria.addEventListener('click', cargarMasAuditoria);
     if(state.perfil && state.perfil.es_super_admin){
-      if(!state.superadmin.cargado){ state.superadmin.cargado = true; cargarEmpresasSuperAdmin(); cargarResumenSuperAdmin(); cargarLeadsSuperAdmin(); cargarPlanesSuperAdmin(); }
+      if(!state.superadmin.cargado && !state.superadmin.cargando){
+        state.superadmin.cargando = true;
+        Promise.all([cargarEmpresasSuperAdmin(), cargarResumenSuperAdmin(), cargarLeadsSuperAdmin(), cargarPlanesSuperAdmin()]).then(resultados=>{
+          state.superadmin.cargando = false;
+          if(resultados.every(Boolean)) state.superadmin.cargado = true;
+        });
+      }
       document.getElementById('form-crear-empresa-sa').addEventListener('submit', e=>{
         e.preventDefault();
         const input = document.getElementById('nueva-empresa-nombre');
@@ -7401,7 +7427,7 @@ function bind(){
         document.getElementById('file-skus-name').textContent = `Leyendo ${file.name}...`;
         await prepararCargaMasiva(file);
       });
-      if(!state.cargasHistorial.cargado) cargarHistorialCargas();
+      if(!state.cargasHistorial.cargado && !state.cargasHistorial.cargando) cargarHistorialCargas();
     }
   }
 
