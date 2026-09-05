@@ -5954,9 +5954,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.calendario.diaSeleccionado = '2026-09-01';
   const htmlCalDetalleAdmin = ctx.renderCalendario();
   assert(htmlCalDetalleAdmin.includes('id="cal-ir-contar"') && htmlCalDetalleAdmin.includes('id="cal-ir-plan"'), 'un admin con un día elegido debe ver "Ir a Contar" y "Ver en Planificación", obtuvo: '+htmlCalDetalleAdmin);
+  // Pedido de Joel: un tercer botón que lleve a Buscar filtrado por ese día -- admin ve "Ver lo
+  // contado" (toda la empresa), un operador ve "Ver lo que conté" (mismo botón, otra etiqueta,
+  // filtrado a lo suyo -- ver irABuscarDelDia). Solo debe aparecer si de verdad hubo algo contado
+  // o recontado ese día (2026-09-01 tiene contado:20, recontado:3 en el fixture de arriba).
+  assert(htmlCalDetalleAdmin.includes('id="cal-ir-buscar"') && htmlCalDetalleAdmin.includes('Ver lo contado'), 'un admin con contado>0 ese día debe ver el botón "Ver lo contado", obtuvo: '+htmlCalDetalleAdmin);
   ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   const htmlCalDetalleOperador = ctx.renderCalendario();
   assert(htmlCalDetalleOperador.includes('id="cal-ir-contar"') && !htmlCalDetalleOperador.includes('id="cal-ir-plan"'), 'un operador NO debe ver "Ver en Planificación", obtuvo: '+htmlCalDetalleOperador);
+  assert(htmlCalDetalleOperador.includes('id="cal-ir-buscar"') && htmlCalDetalleOperador.includes('Ver lo que conté'), 'un operador con contado>0 ese día debe ver el botón "Ver lo que conté" (misma acción, otra etiqueta), obtuvo: '+htmlCalDetalleOperador);
+
+  // Un día sin nada contado ni recontado no debe ofrecer el botón -- ir a Buscar no mostraría nada.
+  ctx.__appstate.calendario = {...ctx.__appstate.calendario, dias:[...ctx.__appstate.calendario.dias, {fecha:'2026-09-20', planificado:8, contado:0, recontado:0, pendiente:8}], diaSeleccionado:'2026-09-20'};
+  const htmlCalDetalleSinContar = ctx.renderCalendario();
+  assert(!htmlCalDetalleSinContar.includes('id="cal-ir-buscar"'), 'un día sin nada contado ni recontado no debe mostrar el botón "Ver lo contado", obtuvo: '+htmlCalDetalleSinContar);
+  ctx.__appstate.calendario.diaSeleccionado = '2026-09-01';
+  ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
   // bind(): tocar "Ir a Contar ese día" navega a Contar con la fecha del día elegido (forzando
   // cargado:false para que dispare cargarPlanDeHoy de ESE día, no del de hoy -- mismo mecanismo
@@ -5968,6 +5981,49 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!btnCalIrContar, 'bind() debe haber consultado #cal-ir-contar');
   btnCalIrContar.dispatch('click');
   assert(ctx.__appstate.view==='conteo' && ctx.__appstate.contarPlan.fecha==='2026-09-01' && ctx.__appstate.contarPlan.cargado===false, '"Ir a Contar ese día" debe navegar a Contar con la fecha del día elegido y forzar una recarga, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, contarPlan:ctx.__appstate.contarPlan}));
+
+  // bind(): tocar "Ver lo contado" (admin) navega a Buscar con el rango de fechas de ese día,
+  // SIN restringir por usuario (ve toda la empresa) -- irABuscarDelDia.
+  ctx.__appstate.view = 'calendario';
+  ctx.__appstate.calendario = { mes:'2026-09-01', cargando:false, cargado:true, dias:[{fecha:'2026-09-01', planificado:24, contado:20, recontado:3, pendiente:4}], diaSeleccionado:'2026-09-01' };
+  calls.length = 0;
+  delete elements['cal-ir-buscar'];
+  ctx.bind();
+  const btnCalIrBuscarAdmin = elements['cal-ir-buscar'];
+  assert(!!btnCalIrBuscarAdmin, 'bind() debe haber consultado #cal-ir-buscar');
+  btnCalIrBuscarAdmin.dispatch('click');
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.view==='buscar' && ctx.__appstate.busqueda.fechaDesde==='2026-09-01' && ctx.__appstate.busqueda.fechaHasta==='2026-09-01' && ctx.__appstate.busqueda.usuarioId===null, '"Ver lo contado" (admin) debe navegar a Buscar con Desde=Hasta=el día elegido y sin filtro de usuario, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, busqueda:ctx.__appstate.busqueda}));
+  assert(!calls.some(c=>c.url.includes('contado_por_id')), 'un admin no debe restringir la búsqueda por usuario, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Un operador con el mismo botón ("Ver lo que conté") sí debe restringirse a lo suyo -- el
+  // filtro va server-side (contado_por_id en la URL), no un drill-down por nombre en el cliente
+  // (eso traería de más al resto de la empresa igual, ver construirPathBusqueda).
+  ctx.__appstate.perfil = { id:'op-nasib', nombre:'Nasib V2', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  ctx.__appstate.view = 'calendario';
+  ctx.__appstate.calendario = { mes:'2026-09-01', cargando:false, cargado:true, dias:[{fecha:'2026-09-01', planificado:24, contado:20, recontado:3, pendiente:4}], diaSeleccionado:'2026-09-01' };
+  calls.length = 0;
+  delete elements['cal-ir-buscar'];
+  ctx.bind();
+  const btnCalIrBuscarOperador = elements['cal-ir-buscar'];
+  btnCalIrBuscarOperador.dispatch('click');
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.view==='buscar' && ctx.__appstate.busqueda.usuarioId==='op-nasib' && ctx.__appstate.busqueda.usuarioNombre==='Nasib V2', '"Ver lo que conté" (operador) debe filtrar por su propia cuenta, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
+  assert(calls.some(c=>c.url.includes('/skus_busqueda') && c.url.includes('contado_por_id=eq.op-nasib')), 'la búsqueda de un operador debe restringirse server-side por contado_por_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const htmlBuscarConFiltroUsuario = ctx.renderBuscar();
+  assert(htmlBuscarConFiltroUsuario.includes('Nasib V2') && htmlBuscarConFiltroUsuario.includes('id="btn-quitar-filtro-usuario"'), 'Buscar debe mostrar un aviso de que está filtrando por esa persona, con botón para quitarlo, obtuvo: '+htmlBuscarConFiltroUsuario);
+
+  // "Quitar filtro" saca la restricción y vuelve a buscar sin ella.
+  delete elements['btn-quitar-filtro-usuario'];
+  ctx.bind();
+  const btnQuitarFiltroUsuarioCal = elements['btn-quitar-filtro-usuario'];
+  assert(!!btnQuitarFiltroUsuarioCal, 'bind() debe haber consultado #btn-quitar-filtro-usuario');
+  calls.length = 0;
+  btnQuitarFiltroUsuarioCal.dispatch('click');
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.busqueda.usuarioId===null && ctx.__appstate.busqueda.usuarioNombre===null, '"Quitar filtro" debe limpiar usuarioId/usuarioNombre, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
+  assert(!calls.some(c=>c.url.includes('contado_por_id')), 'tras quitar el filtro, la nueva búsqueda no debe llevar contado_por_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
   // Navegación de mes: "mes siguiente" pide el mes siguiente y limpia el día elegido (el detalle
   // de un día de otro mes ya no aplica).

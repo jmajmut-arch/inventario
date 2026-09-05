@@ -489,7 +489,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -2514,6 +2514,11 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
   const { desde, hasta } = instantesFiltroFechaBusqueda();
   if(desde) path += `&fecha_conteo=gte.${desde}`;
   if(hasta) path += `&fecha_conteo=lt.${hasta}`;
+  // Filtro por responsable (ver irABuscarDelDia, "Ver lo contado" en Calendario): a diferencia de
+  // filtroContadoPor (drill-down por NOMBRE sobre lo ya cargado en el cliente), este sí restringe
+  // el pedido al servidor -- necesario para que un operador que llega desde Calendario vea solo lo
+  // suyo sin que la respuesta traiga de más al resto de la empresa.
+  if(state.busqueda.usuarioId) path += `&contado_por_id=eq.${encodeURIComponent(state.busqueda.usuarioId)}`;
   return path;
 }
 
@@ -2555,6 +2560,7 @@ function construirParametrosBusquedaRpc(){
     p_clase_abc: state.busqueda.claseAbc || null,
     p_fecha_desde: desde,
     p_fecha_hasta: hasta,
+    p_usuario_id: state.busqueda.usuarioId || null,
   };
 }
 
@@ -2575,6 +2581,29 @@ function irABuscarSku(skuCode){
     busqueda: {
       texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, seleccionados:[],
+      usuarioId:null, usuarioNombre:null,
+    },
+  });
+  buscarConteos();
+}
+
+// Salto directo a Buscar desde el detalle de un día en Calendario ("Ver lo contado" -- ver
+// renderCalendario/bind()): admin ve todo lo contado ese día en la empresa; un operador ve solo
+// lo suyo (usuarioId server-side, no el drill-down por nombre de filtroContadoPor, que solo filtra
+// lo ya cargado en el cliente y traería de más a la empresa igual). Limpia el resto de los filtros
+// por la misma razón que irABuscarSku.
+function irABuscarDelDia(fecha){
+  if(!fecha) return;
+  const esAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
+  detenerEscaner();
+  setState({
+    view: 'buscar',
+    busqueda: {
+      texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'',
+      fechaDesde: fecha, fechaHasta: fecha, orden:null,
+      resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, seleccionados:[],
+      usuarioId: esAdmin ? null : (state.perfil && state.perfil.id) || null,
+      usuarioNombre: esAdmin ? null : (state.perfil && state.perfil.nombre) || null,
     },
   });
   buscarConteos();
@@ -5911,6 +5940,12 @@ function renderBuscar(){
       </form>
     </div>
 
+    ${b.usuarioId? `
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px">
+      <span style="font-size:12.5px;color:var(--text-dim)">Mostrando solo lo contado por <strong style="color:var(--text)">${esc(b.usuarioNombre||'esta cuenta')}</strong></span>
+      <button type="button" class="btn btn-secondary" id="btn-quitar-filtro-usuario" style="width:auto;padding:6px 12px;font-size:12px">Quitar filtro</button>
+    </div>
+    ` : ''}
     ${b.yaBuscado? `
     <div class="section-head"><div><h2 style="font-size:15px">${totalConocido?totalReal:`${resultados.length}+`} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
@@ -6643,6 +6678,7 @@ function renderCalendario(){
       <div class="cal-detalle-fila"><span>Pendiente</span><span class="cal-detalle-num" style="color:${detalle.pendiente>0?'var(--warn)':'var(--text-dim)'}">${detalle.pendiente}</span></div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button type="button" id="cal-ir-contar" class="btn btn-primary" style="width:auto;padding:8px 14px">Ir a Contar ese día</button>
+        ${detalle.contado || detalle.recontado? `<button type="button" id="cal-ir-buscar" class="btn btn-secondary" style="width:auto;padding:8px 14px">${esAdmin? 'Ver lo contado' : 'Ver lo que conté'}</button>` : ''}
         ${esAdmin? `<button type="button" id="cal-ir-plan" class="btn btn-secondary" style="width:auto;padding:8px 14px">Ver en Planificación</button>` : ''}
       </div>
     </div>
@@ -7257,6 +7293,8 @@ function bind(){
       detenerEscaner();
       setState({view:'conteo', contarPlan:{...state.contarPlan, cargado:false, cargando:false, fecha}});
     });
+    const btnCalIrBuscar = document.getElementById('cal-ir-buscar');
+    if(btnCalIrBuscar) btnCalIrBuscar.addEventListener('click', ()=> irABuscarDelDia(state.calendario.diaSeleccionado));
     const btnCalIrPlan = document.getElementById('cal-ir-plan');
     if(btnCalIrPlan) btnCalIrPlan.addEventListener('click', ()=>{
       const fecha = state.calendario.diaSeleccionado;
@@ -7593,6 +7631,11 @@ function bind(){
     });
     const btnQuitarFiltroContador = document.getElementById('btn-quitar-filtro-contador');
     if(btnQuitarFiltroContador) btnQuitarFiltroContador.addEventListener('click', ()=> setState({busqueda:{...state.busqueda, filtroContadoPor:null}}));
+    const btnQuitarFiltroUsuario = document.getElementById('btn-quitar-filtro-usuario');
+    if(btnQuitarFiltroUsuario) btnQuitarFiltroUsuario.addEventListener('click', ()=>{
+      setState({busqueda:{...state.busqueda, usuarioId:null, usuarioNombre:null, buscando:true}});
+      buscarConteos();
+    });
     const btnExportarBuscar = document.getElementById('btn-exportar-buscar');
     if(btnExportarBuscar) btnExportarBuscar.addEventListener('click', exportarBusquedaExcel);
     const btnExportarBuscarPdf = document.getElementById('btn-exportar-buscar-pdf');
