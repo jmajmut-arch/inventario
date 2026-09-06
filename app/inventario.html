@@ -1760,12 +1760,12 @@ async function crearGrupo(nombre, frecuenciaDias){
 }
 
 function abrirGrupo(id){
-  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], candidatos:[], candidatoTexto:'', candidatoBodega:'', vistaPreviaSemanas:null, seguimiento:null}});
+  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null}});
   return Promise.all([cargarMiembrosGrupo(id), cargarSeguimientoGrupo(id)]);
 }
 
 function volverAListaGrupos(){
-  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], candidatos:[], vistaPreviaSemanas:null, seguimiento:null}});
+  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null}});
 }
 
 // Seguimiento del grupo: cuántos de sus materiales están al día vs vencidos según su frecuencia
@@ -1819,12 +1819,59 @@ async function cargarMiembrosGrupo(grupoId){
   }
 }
 
+// Buscador de candidatos para agregar a un grupo: mismo patrón "aparece mientras se tipea" que el
+// buscador libre de Contar (ver escribirBuscadorLibre) -- a pedido de Joel, que quería que se
+// sintiera igual que buscar un SKU al tomar inventario, sin tener que apretar un botón "Buscar".
+// Debounce de 350ms y peticionId para descartar respuestas fuera de orden (misma razón que el
+// buscador libre); el repintado toca SOLO el contenedor de resultados (#candidatos-grupo-
+// resultados), nunca los <input>, para no perder el foco ni el teclado en pantalla en cada tecla.
+let debounceCandidatosGrupo = null;
+let candidatosGrupoPeticionId = 0;
+
+function resetCandidatosGrupo(){
+  clearTimeout(debounceCandidatosGrupo);
+  candidatosGrupoPeticionId++;
+  return { candidatos: [], candidatoTexto:'', candidatoBodega:'', buscandoCandidatos:false };
+}
+
+function actualizarResultadosCandidatosGrupoEnPantalla(){
+  const cont = document.getElementById('candidatos-grupo-resultados');
+  if(!cont) return;
+  cont.innerHTML = renderResultadosCandidatosGrupo();
+  bindResultadosCandidatosGrupo();
+}
+
+// Dispara la búsqueda (con el mismo umbral de 2 caracteres que el buscador libre de Contar) desde
+// cualquiera de los dos campos -- código/descripción o bodega -- ya sea que se haya escrito uno
+// u otro.
+function evaluarBusquedaCandidatosGrupo(){
+  clearTimeout(debounceCandidatosGrupo);
+  const q = sanearTextoFiltro(state.grupos.candidatoTexto);
+  const b = sanearTextoFiltro(state.grupos.candidatoBodega);
+  const activa = q.length>=2 || b.length>=2;
+  state.grupos.buscandoCandidatos = activa;
+  if(!activa) state.grupos.candidatos = [];
+  actualizarResultadosCandidatosGrupoEnPantalla();
+  if(!activa){ candidatosGrupoPeticionId++; return; }
+  debounceCandidatosGrupo = setTimeout(buscarCandidatosGrupo, 350);
+}
+
+function escribirCandidatoTextoGrupo(texto){
+  state.grupos.candidatoTexto = texto;
+  evaluarBusquedaCandidatosGrupo();
+}
+
+function escribirCandidatoBodegaGrupo(texto){
+  state.grupos.candidatoBodega = texto;
+  evaluarBusquedaCandidatosGrupo();
+}
+
 // Busca materiales candidatos para agregar a un grupo, por texto (código/descripción) y bodega.
 // Deduplica por código+bodega (un mismo código puede repetirse en varias filas de `skus` por
 // batch/ubicación/bin distintos) -- acá no importa esa combinación fina, ver comentario arriba.
 async function buscarCandidatosGrupo(){
+  const miPeticion = ++candidatosGrupoPeticionId;
   const { candidatoTexto, candidatoBodega } = state.grupos;
-  setState({grupos: {...state.grupos, buscandoCandidatos:true}});
   try{
     let filtro = `/skus?activo=eq.true&select=sku_code,descripcion,bodega&order=sku_code.asc&limit=200`;
     const texto = sanearTextoFiltro(candidatoTexto);
@@ -1832,11 +1879,16 @@ async function buscarCandidatosGrupo(){
     const bodega = sanearTextoFiltro(candidatoBodega);
     if(bodega) filtro += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
     const rows = await rest(filtro) || [];
+    if(miPeticion !== candidatosGrupoPeticionId) return; // respuesta obsoleta: se siguió escribiendo
     const porIdentidad = new Map();
     rows.forEach(r=> porIdentidad.set(`${r.sku_code}::${r.bodega||''}`, r));
-    setState({grupos: {...state.grupos, candidatos: Array.from(porIdentidad.values()).slice(0,30), buscandoCandidatos:false}});
+    state.grupos.candidatos = Array.from(porIdentidad.values()).slice(0,30);
+    state.grupos.buscandoCandidatos = false;
+    actualizarResultadosCandidatosGrupoEnPantalla();
   }catch(e){
-    setState({grupos: {...state.grupos, buscandoCandidatos:false}});
+    if(miPeticion !== candidatosGrupoPeticionId) return;
+    state.grupos.buscandoCandidatos = false;
+    actualizarResultadosCandidatosGrupoEnPantalla();
     toast(e.message,'err');
   }
 }
@@ -6966,6 +7018,25 @@ function renderGrupos(){
   `;
 }
 
+// Ver comentario sobre buscarCandidatosGrupo: este pedazo se repinta solo (sin tocar los <input>
+// de arriba) cada vez que cambia el resultado de la búsqueda.
+function renderResultadosCandidatosGrupo(){
+  const g = state.grupos;
+  return g.buscandoCandidatos? `<div class="hint" style="text-align:center;padding:16px 0">Buscando…</div>` :
+    g.candidatos.length? `<div style="margin-top:10px">${g.candidatos.map(c=>`
+      <div class="plan-item" style="padding:6px 0;align-items:center;gap:8px">
+        <div style="flex:1">${esc(c.sku_code)} — ${esc(c.descripcion||'')}${c.bodega? ` · ${esc(c.bodega)}` : ' · sin bodega'}</div>
+        <button type="button" class="btn btn-secondary" data-agregar-miembro-grupo="${esc(c.sku_code)}" data-agregar-miembro-bodega="${esc(c.bodega||'')}" style="width:auto;padding:5px 10px;font-size:12px">+ Agregar</button>
+      </div>
+    `).join('')}</div>` : '';
+}
+
+function bindResultadosCandidatosGrupo(){
+  document.querySelectorAll('[data-agregar-miembro-grupo]').forEach(btn=>{
+    btn.addEventListener('click', ()=> agregarMiembroGrupo(btn.dataset.agregarMiembroGrupo, btn.dataset.agregarMiembroBodega));
+  });
+}
+
 function renderDetalleGrupo(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
@@ -6993,17 +7064,11 @@ function renderDetalleGrupo(){
     </div>
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Agregar materiales</div>
-      <form id="form-buscar-candidatos-grupo" style="display:flex;gap:8px;flex-wrap:wrap">
-        <input type="text" id="candidato-texto" placeholder="Código o descripción" value="${esc(g.candidatoTexto)}" style="flex:1;min-width:160px">
-        <input type="text" id="candidato-bodega" placeholder="Bodega" value="${esc(g.candidatoBodega)}" style="width:120px">
-        <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Buscar</button>
-      </form>
-      ${g.buscandoCandidatos? `<div class="hint" style="text-align:center;padding:16px 0">Buscando…</div>` : g.candidatos.length? `<div style="margin-top:10px">${g.candidatos.map(c=>`
-        <div class="plan-item" style="padding:6px 0;align-items:center;gap:8px">
-          <div style="flex:1">${esc(c.sku_code)} — ${esc(c.descripcion||'')}${c.bodega? ` · ${esc(c.bodega)}` : ' · sin bodega'}</div>
-          <button type="button" class="btn btn-secondary" data-agregar-miembro-grupo="${esc(c.sku_code)}" data-agregar-miembro-bodega="${esc(c.bodega||'')}" style="width:auto;padding:5px 10px;font-size:12px">+ Agregar</button>
-        </div>
-      `).join('')}</div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" id="candidato-texto" placeholder="Código o descripción" value="${esc(g.candidatoTexto)}" autocomplete="off" style="flex:1;min-width:160px">
+        <input type="text" id="candidato-bodega" placeholder="Bodega" value="${esc(g.candidatoBodega)}" autocomplete="off" style="width:120px">
+      </div>
+      <div id="candidatos-grupo-resultados">${renderResultadosCandidatosGrupo()}</div>
     </div>
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Vista previa del plan (según la frecuencia del grupo)</div>
@@ -7702,18 +7767,11 @@ function bind(){
       document.querySelectorAll('[data-quitar-miembro-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> quitarMiembroGrupo(btn.dataset.quitarMiembroGrupo));
       });
-      const formBuscarCandidatos = document.getElementById('form-buscar-candidatos-grupo');
-      if(formBuscarCandidatos) formBuscarCandidatos.addEventListener('submit', e=>{
-        e.preventDefault();
-        setState({grupos:{...state.grupos,
-          candidatoTexto: document.getElementById('candidato-texto').value,
-          candidatoBodega: document.getElementById('candidato-bodega').value,
-        }});
-        buscarCandidatosGrupo();
-      });
-      document.querySelectorAll('[data-agregar-miembro-grupo]').forEach(btn=>{
-        btn.addEventListener('click', ()=> agregarMiembroGrupo(btn.dataset.agregarMiembroGrupo, btn.dataset.agregarMiembroBodega));
-      });
+      const candidatoTexto = document.getElementById('candidato-texto');
+      if(candidatoTexto) candidatoTexto.addEventListener('input', e=> escribirCandidatoTextoGrupo(e.target.value));
+      const candidatoBodega = document.getElementById('candidato-bodega');
+      if(candidatoBodega) candidatoBodega.addEventListener('input', e=> escribirCandidatoBodegaGrupo(e.target.value));
+      bindResultadosCandidatosGrupo();
       const btnCalcularVistaPrevia = document.getElementById('btn-calcular-vista-previa');
       if(btnCalcularVistaPrevia) btnCalcularVistaPrevia.addEventListener('click', ()=>{
         setState({grupos:{...state.grupos, cupoSemanal: document.getElementById('grupo-cupo-semanal').value}});

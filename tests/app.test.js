@@ -3825,13 +3825,49 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDetalleGrupo.includes('SKU-100') && htmlDetalleGrupo.includes('B501'), 'el detalle del grupo debe mostrar sus miembros actuales, obtuvo: '+htmlDetalleGrupo);
   assert(htmlDetalleGrupo.includes('data-quitar-miembro-grupo="miembro-1"'), 'cada miembro debe ofrecer un botón para quitarlo, obtuvo: '+htmlDetalleGrupo);
 
-  // Buscar candidatos para agregar: dos filas del mismo código+bodega en el fixture (simulando
+  // Buscar candidatos para agregar: a pedido de Joel ("que cuando uno escriba el SKU sea como en
+  // tomar inventario"), debe aparecer solo mientras se tipea -- mismo patrón de debounce + umbral
+  // de 2 letras + repintado aislado que el buscador libre de Contar (ver escribirBuscadorLibre) --
+  // sin apretar ningún botón "Buscar". Dos filas del mismo código+bodega en el fixture (simulando
   // dos batches distintos de `skus`) deben quedar deduplicadas a una sola.
   calls.length = 0;
-  ctx.__appstate.grupos.candidatoTexto = 'correa';
-  await ctx.buscarCandidatosGrupo();
-  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('sku_code.ilike.*correa*')), 'buscarCandidatosGrupo debe filtrar por el texto ingresado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.escribirCandidatoTextoGrupo('c');
+  assert(ctx.__appstate.grupos.candidatoTexto==='c', 'debe reflejar el texto tecleado de inmediato, obtuvo: '+ctx.__appstate.grupos.candidatoTexto);
+  assert(ctx.__appstate.grupos.buscandoCandidatos===false, 'con menos de 2 letras no debe marcar "buscando" (mismo umbral que el buscador libre de Contar), obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.length===0, 'con menos de 2 letras no debe disparar ninguna consulta, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  ctx.escribirCandidatoTextoGrupo('correa');
+  assert(ctx.__appstate.grupos.buscandoCandidatos===true, 'con 2+ letras debe marcar "buscando" de inmediato en el estado, obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
+  assert(elements['candidatos-grupo-resultados'].innerHTML.includes('Buscando…'), 'el contenedor de resultados (#candidatos-grupo-resultados) debe repintarse solo con el hint "Buscando…" mientras se resuelve, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+  assert(!calls.some(c=>c.url.includes('sku_code.ilike')), 'no debe disparar la consulta de inmediato: el debounce todavía no se cumplió, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('sku_code.ilike.*correa*')), 'tras el debounce debe filtrar por el texto ingresado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.candidatos.length===2, 'debe deduplicar candidatos repetidos por código+bodega (2 filas de SKU-CAND-1 -> 1, más SKU-CAND-2), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(ctx.__appstate.grupos.buscandoCandidatos===false, 'al llegar la respuesta debe salir de "buscando", obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
+  assert(elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-1') && elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-2'), 'el contenedor de resultados debe reflejar los candidatos encontrados, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+
+  // Teclear varias veces seguidas, antes de que se cumpla el debounce de cada una, debe descartar
+  // las respuestas intermedias (mismo peticionId que el buscador libre de Contar) y quedarse solo
+  // con el resultado de la última búsqueda.
+  calls.length = 0;
+  candidatosGrupoFixture = [{sku_code:'SKU-COR-X', descripcion:'Correa X', bodega:'B900'}];
+  ctx.escribirCandidatoTextoGrupo('co');
+  ctx.escribirCandidatoTextoGrupo('cor');
+  ctx.escribirCandidatoTextoGrupo('corx');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.filter(c=>c.url.includes('sku_code.ilike')).length===1, 'debe descartar las búsquedas intermedias y disparar una sola consulta tras dejar de tipear, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.candidatos.length===1 && ctx.__appstate.grupos.candidatos[0].sku_code==='SKU-COR-X', 'debe quedarse con el resultado de la última búsqueda tipeada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  candidatosGrupoFixture = null;
+
+  // Buscar por bodega (sin texto) también debe disparar la búsqueda automática, con el mismo
+  // umbral de 2 letras.
+  calls.length = 0;
+  ctx.escribirCandidatoTextoGrupo('');
+  ctx.escribirCandidatoBodegaGrupo('B501');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('bodega=ilike.*B501*') && !c.url.includes('sku_code.ilike')), 'buscar solo por bodega (sin texto) también debe disparar la consulta automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.escribirCandidatoBodegaGrupo('');
 
   // Agregar un candidato al grupo abierto.
   calls.length = 0;
