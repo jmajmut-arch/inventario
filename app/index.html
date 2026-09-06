@@ -504,7 +504,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false },
+  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0 },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -1245,7 +1245,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1747,12 +1747,12 @@ async function crearGrupo(nombre, frecuenciaDias){
 }
 
 function abrirGrupo(id){
-  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], candidatos:[], candidatoTexto:'', candidatoBodega:''}});
+  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], candidatos:[], candidatoTexto:'', candidatoBodega:'', vistaPreviaSemanas:null}});
   return cargarMiembrosGrupo(id);
 }
 
 function volverAListaGrupos(){
-  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], candidatos:[]}});
+  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], candidatos:[], vistaPreviaSemanas:null}});
 }
 
 async function cargarMiembrosGrupo(grupoId){
@@ -1813,6 +1813,68 @@ async function quitarMiembroGrupo(miembroId){
     cargarMiembrosGrupo(grupoId);
     cargarGrupos();
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Vista previa del plan por grupo (según su frecuencia): SOLO calcula y muestra -- no crea nada
+// en plan_semanal todavía (ver conversación con Joel: primero se revisa el resultado antes de
+// escribir cualquier cosa en Planificación/Calendario). "Vencido" = nunca contado, o contado
+// hace más de la frecuencia del grupo -- ver skus.ultimo_conteo_fecha, ya usado en toda la app.
+async function calcularVistaPreviaPlanGrupo(){
+  const grupoId = state.grupos.grupoAbierto;
+  const grupo = state.grupos.lista.find(g=>g.id===grupoId);
+  if(!grupo || !grupo.frecuencia_dias) return;
+  setState({grupos: {...state.grupos, vistaPreviaCalculando:true}});
+  try{
+    const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
+    let filasVencidas = [];
+    if(miembros.length){
+      // Un mismo código puede repetirse en más de una bodega -- se piden todas las filas activas
+      // de esos códigos y se filtra acá a las que de verdad son miembros (código+bodega exactos),
+      // porque PostgREST no permite filtrar por pares (código,bodega) en un solo pedido.
+      const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
+      const filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
+      const clavesMiembros = new Set(miembros.map(m=>`${m.sku_code}::${m.bodega||''}`));
+      const limiteMs = Date.now() - grupo.frecuencia_dias*24*60*60*1000;
+      filasVencidas = filas.filter(f=>
+        clavesMiembros.has(`${f.sku_code}::${f.bodega||''}`) &&
+        (!f.ultimo_conteo_fecha || new Date(f.ultimo_conteo_fecha).getTime() < limiteMs)
+      );
+    }
+    const semanas = armarVistaPreviaSemanasGrupo(filasVencidas, Number(state.grupos.cupoSemanal)||20);
+    setState({grupos: {...state.grupos, vistaPreviaCalculando:false, vistaPreviaSemanas:semanas, vistaPreviaTotalPendientes:filasVencidas.length}});
+  }catch(e){
+    setState({grupos: {...state.grupos, vistaPreviaCalculando:false}});
+    toast(e.message,'err');
+  }
+}
+
+// Agrupa los materiales vencidos por bodega+ubicación (misma zona física = misma visita) y los
+// reparte en semanas respetando un cupo -- sin cortar una zona a la mitad entre dos semanas (ver
+// conversación: la persona no debe visitar la misma ubicación dos veces por partir el cupo justo
+// a la mitad). Dentro de cada zona, ordenados por storage bin -- ahí sigue el orden físico real
+// de la bodega, según confirmó Joel, así que sirve como orden de recorrido sin inventar nada.
+function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
+  const zonas = new Map();
+  filasVencidas.forEach(f=>{
+    const clave = `${f.bodega||''}::${f.ubicacion||''}`;
+    if(!zonas.has(clave)) zonas.set(clave, {bodega:f.bodega, ubicacion:f.ubicacion, materiales:[]});
+    zonas.get(clave).materiales.push(f);
+  });
+  const zonasOrdenadas = Array.from(zonas.values()).sort((a,b)=>
+    (a.bodega||'').localeCompare(b.bodega||'') || (a.ubicacion||'').localeCompare(b.ubicacion||''));
+  zonasOrdenadas.forEach(z=> z.materiales.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'')));
+
+  const semanas = [];
+  let semanaActual = null;
+  zonasOrdenadas.forEach(z=>{
+    if(!semanaActual || (semanaActual.materiales + z.materiales.length > cupoSemanal && semanaActual.zonas.length)){
+      semanaActual = { materiales:0, zonas:[] };
+      semanas.push(semanaActual);
+    }
+    semanaActual.zonas.push(z);
+    semanaActual.materiales += z.materiales.length;
+  });
+  return semanas;
 }
 
 async function actualizarNombreEmpresa(nombre){
@@ -6794,6 +6856,30 @@ function renderDetalleGrupo(){
         </div>
       `).join('')}</div>` : ''}
     </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:8px">Vista previa del plan (según la frecuencia del grupo)</div>
+      ${!grupo || !grupo.frecuencia_dias ? `<div class="empty" style="padding:10px 8px">Este grupo no tiene una frecuencia definida todavía.</div>` : `
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <label for="grupo-cupo-semanal">Materiales por semana</label>
+          <input type="number" id="grupo-cupo-semanal" min="1" value="${esc(g.cupoSemanal||20)}" style="width:110px">
+        </div>
+        <button type="button" id="btn-calcular-vista-previa" class="btn btn-secondary" style="width:auto;padding:8px 14px">Calcular vista previa</button>
+      </div>
+      ${g.vistaPreviaCalculando? `<div class="hint" style="text-align:center;padding:16px 0">Calculando…</div>` : g.vistaPreviaSemanas? (
+        g.vistaPreviaSemanas.length? `
+        <div class="hint" style="margin:10px 0">${g.vistaPreviaTotalPendientes} material${g.vistaPreviaTotalPendientes===1?'':'es'} pendiente${g.vistaPreviaTotalPendientes===1?'':'s'} de contar, repartidos en ${g.vistaPreviaSemanas.length} semana${g.vistaPreviaSemanas.length===1?'':'s'}.</div>
+        ${g.vistaPreviaSemanas.map((semana,i)=>`
+          <div class="plan-item" style="padding:8px 0;align-items:flex-start;gap:4px;flex-direction:column">
+            <div style="font-weight:500">Semana ${i+1} — ${semana.materiales} material${semana.materiales===1?'':'es'}</div>
+            <div class="hint">${semana.zonas.map(z=>`${esc(z.bodega||'Sin bodega')} · ${esc(z.ubicacion||'Sin ubicación')} (${z.materiales.length})`).join(', ')}</div>
+          </div>
+        `).join('')}
+        ` : `<div class="empty" style="padding:10px 8px">No hay materiales pendientes de contar en este grupo -- todos están dentro de la frecuencia definida.</div>`
+      ) : ''}
+      <div class="hint" style="margin-top:10px;font-style:italic">Esto es solo una vista previa -- todavía no crea nada en Planificación.</div>
+      `}
+    </div>
   `;
 }
 
@@ -7475,6 +7561,11 @@ function bind(){
       });
       document.querySelectorAll('[data-agregar-miembro-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> agregarMiembroGrupo(btn.dataset.agregarMiembroGrupo, btn.dataset.agregarMiembroBodega));
+      });
+      const btnCalcularVistaPrevia = document.getElementById('btn-calcular-vista-previa');
+      if(btnCalcularVistaPrevia) btnCalcularVistaPrevia.addEventListener('click', ()=>{
+        setState({grupos:{...state.grupos, cupoSemanal: document.getElementById('grupo-cupo-semanal').value}});
+        calcularVistaPreviaPlanGrupo();
       });
     }
   }

@@ -35,6 +35,7 @@ let gruposConteoFixture = null; // filas de grupos_conteo (con miembros:[{count}
 let gruposMiembrosFixture = {}; // por grupo_id: filas de skus_grupos_conteo
 let candidatosGrupoFixture = null; // filas que devuelve el buscador de candidatos (skus)
 let gruposMiembroDuplicado = false; // simula el rechazo del índice único al agregar dos veces
+let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de vencidos (ver calcularVistaPreviaPlanGrupo)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -224,6 +225,11 @@ const fakeFetchImpl = async (url, opts) => {
       {sku_code:'SKU-CAND-2', descripcion:'Rodamiento', bodega:'B502'},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Vista previa del plan por grupo (ver calcularVistaPreviaPlanGrupo): trae las filas activas
+  // de skus que coinciden con los códigos de los miembros, para filtrar acá cuáles ya vencieron.
+  if(path.startsWith('/rest/v1/skus?activo=eq.true&sku_code=in.')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filasVencidasGrupoFixture||[]) };
   }
   // Buscar: skus_busqueda (un renglón por SKU, contado o no) — 34 filas en total en el fixture
   // por defecto; honra el "limit=" real del pedido (30 para "cargar más", TOPE_CARGA_TOTAL_BUSQUEDA
@@ -3822,6 +3828,57 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Volver a la lista cierra el detalle.
   ctx.volverAListaGrupos();
   assert(ctx.__appstate.grupos.grupoAbierto===null, 'volverAListaGrupos debe cerrar el detalle del grupo, obtuvo: '+ctx.__appstate.grupos.grupoAbierto);
+
+  // ===== Vista previa del plan por grupo (SOLO calcula -- no escribe en plan_semanal) =====
+
+  // armarVistaPreviaSemanasGrupo: agrupa por zona (bodega+ubicación) y nunca corta una zona a
+  // la mitad entre dos semanas, aunque eso implique pasarse un poco del cupo -- ver conversación
+  // con Joel: la persona no debe visitar la misma ubicación dos veces por partir justo el cupo.
+  const zonaGrande = Array.from({length:5}, (_,i)=>({sku_code:'Z1-'+i, bodega:'B501', ubicacion:'0100', storage_bin:'A-0'+i}));
+  const zonaChica = [{sku_code:'Z2-0', bodega:'B501', ubicacion:'0101', storage_bin:'B-01'}];
+  const semanasArmadas = ctx.armarVistaPreviaSemanasGrupo([...zonaGrande, ...zonaChica], 3);
+  assert(semanasArmadas.length===2, 'con cupo 3 y una zona de 5 (que no se puede cortar) más una de 1, deben quedar 2 semanas, obtuvo: '+JSON.stringify(semanasArmadas.map(s=>s.materiales)));
+  assert(semanasArmadas[0].materiales===5 && semanasArmadas[0].zonas.length===1, 'la primera semana debe llevarse la zona grande completa aunque supere el cupo, obtuvo: '+JSON.stringify(semanasArmadas[0]));
+  assert(semanasArmadas[1].materiales===1, 'la zona chica debe quedar en su propia semana, obtuvo: '+JSON.stringify(semanasArmadas[1]));
+  // Dentro de cada zona, los materiales quedan ordenados por storage bin (orden físico real de
+  // la bodega, según confirmó Joel -- sirve de orden de recorrido sin inventar nada nuevo).
+  assert(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin).join(',')==='A-00,A-01,A-02,A-03,A-04', 'los materiales de una zona deben quedar ordenados por storage bin, obtuvo: '+JSON.stringify(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin)));
+
+  // calcularVistaPreviaPlanGrupo: de punta a punta contra el mock de red -- filtra por
+  // código+bodega exactos (no solo código) y por vencimiento según la frecuencia del grupo.
+  const haceMucho = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // vencido para un grupo trimestral (90 días)
+  const haceUnDia = new Date(Date.now() - 1*24*60*60*1000).toISOString(); // no vencido
+  gruposConteoFixture = [{id:'grupo-trimestral', nombre:'IE', frecuencia_dias:90, activo:true, miembros:[{count:3}]}];
+  gruposMiembrosFixture = { 'grupo-trimestral': [
+    {id:'m1', sku_code:'VENC-1', bodega:'B501'},
+    {id:'m2', sku_code:'VENC-1', bodega:'B502'}, // mismo código, OTRA bodega -- no debe confundirse con m1
+    {id:'m3', sku_code:'NOVENC-1', bodega:'B501'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'VENC-1', bodega:'B501', ubicacion:'0100', storage_bin:'A-01', ultimo_conteo_fecha: haceMucho},
+    {sku_code:'VENC-1', bodega:'B999', ubicacion:'0200', storage_bin:'C-01', ultimo_conteo_fecha: null}, // mismo código, bodega que NO es miembro -> debe descartarse
+    {sku_code:'NOVENC-1', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: haceUnDia},
+    {sku_code:'NUNCA-CONTADO', bodega:'B501', ubicacion:'0100', storage_bin:'A-03', ultimo_conteo_fecha: null}, // no es miembro del grupo -> debe descartarse igual
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-trimestral');
+  calls.length = 0;
+  ctx.__appstate.grupos.cupoSemanal = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&sku_code=in.')), 'calcularVistaPreviaPlanGrupo debe consultar /skus por los códigos de los miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===1, 'solo VENC-1::B501 debe contar como pendiente (vencido Y miembro real del grupo por código+bodega exactos), obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
+  assert(ctx.__appstate.grupos.vistaPreviaSemanas.length===1 && ctx.__appstate.grupos.vistaPreviaSemanas[0].zonas[0].bodega==='B501', 'la única semana debe cubrir la zona B501/0100, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+
+  // Sin frecuencia definida, no debe intentar calcular nada (no tiene con qué comparar).
+  gruposConteoFixture = [{id:'grupo-sin-frecuencia', nombre:'Sin frecuencia', frecuencia_dias:null, activo:true, miembros:[{count:1}]}];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-sin-frecuencia');
+  calls.length = 0;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-sin-frecuencia&select=sku_code')), 'sin frecuencia definida, calcularVistaPreviaPlanGrupo no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const htmlSinFrecuencia = ctx.renderGrupos();
+  assert(htmlSinFrecuencia.includes('no tiene una frecuencia definida'), 'el detalle de un grupo sin frecuencia debe avisar en vez de ofrecer calcular la vista previa, obtuvo: '+htmlSinFrecuencia);
+  assert(!htmlSinFrecuencia.includes('btn-calcular-vista-previa'), 'sin frecuencia, no debe ofrecer el botón de calcular vista previa, obtuvo: '+htmlSinFrecuencia);
 
   // ===== Planificación vinculada a ciclos de conteo (períodos) =====
 
