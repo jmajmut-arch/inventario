@@ -41,6 +41,8 @@ let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo a
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
 let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
 let contarCriticosDistintosFixture = 0; // respuesta del RPC contar_criticos_distintos (ver cargarGrupos)
+let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
+let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -228,6 +230,14 @@ const fakeFetchImpl = async (url, opts) => {
   // lista de Grupos junto al grupo automático (ver cargarGrupos).
   if(path.startsWith('/rest/v1/rpc/contar_criticos_distintos')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(contarCriticosDistintosFixture) };
+  }
+  // Historial de ciclos ya cerrados del grupo (ver cerrar_ciclos_grupo_vencidos / cargarHistorialCiclosGrupo)
+  // -- chequear antes del matcher genérico de /historial_ciclos_grupo de abajo, que es más específico.
+  if(path.startsWith('/rest/v1/historial_ciclos_grupo_resumen?grupo_id=eq.')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(historialCiclosFixture||[]) };
+  }
+  if(path.startsWith('/rest/v1/historial_ciclos_grupo?grupo_id=eq.')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(historialDetalleFixture||[]) };
   }
   if(path.startsWith('/rest/v1/skus_grupos_conteo?grupo_id=eq.')){
     const grupoId = (path.match(/grupo_id=eq\.([^&]+)/)||[])[1];
@@ -4085,20 +4095,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.grupos.vistaPreviaSemanas===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
 
   // ===== Seguimiento del grupo (cargarSeguimientoGrupo) =====
+  // A pedido de Joel: cada grupo tiene su propio ciclo cerrado (fecha de inicio propia + su
+  // frecuencia = fecha de término), independiente del período general de la empresa -- un
+  // material cuenta como "contado en este ciclo" si su conteo más reciente cae en o después de
+  // la fecha de inicio DEL GRUPO, no según una ventana móvil desde "ahora".
 
-  // Con frecuencia definida: distingue al día / vencido / nunca contado.
+  // Con frecuencia definida: distingue contados/pendientes del ciclo actual del grupo.
   const haceMuchoSeg = new Date(Date.now() - 200*24*60*60*1000).toISOString();
   const hacePocoSeg = new Date(Date.now() - 10*24*60*60*1000).toISOString();
-  gruposConteoFixture = [{id:'grupo-seguimiento', nombre:'Seguimiento Test', frecuencia_dias:90, activo:true, miembros:[{count:3}]}];
+  const fechaInicioGrupoSeg = ctx.fechaISO(ctx.sumarDias(new Date(), -30));
+  gruposConteoFixture = [{id:'grupo-seguimiento', nombre:'Seguimiento Test', frecuencia_dias:90, activo:true, fecha_inicio: fechaInicioGrupoSeg, miembros:[{count:3}]}];
   gruposMiembrosFixture = { 'grupo-seguimiento': [
     {id:'gs1', sku_code:'SEG-A', bodega:'SB1'},
     {id:'gs2', sku_code:'SEG-B', bodega:'SB1'},
     {id:'gs3', sku_code:'SEG-C', bodega:'SB1'},
   ]};
   filasVencidasGrupoFixture = [
-    {sku_code:'SEG-A', bodega:'SB1', ultimo_conteo_fecha: haceMuchoSeg}, // vencido (>90 días)
-    {sku_code:'SEG-B', bodega:'SB1', ultimo_conteo_fecha: hacePocoSeg}, // al día
-    // SEG-C no tiene fila -> nunca contado
+    {sku_code:'SEG-A', bodega:'SB1', ultimo_conteo_fecha: haceMuchoSeg}, // hace 200 días: antes de que arrancara el ciclo (hace 30) -> pendiente
+    {sku_code:'SEG-B', bodega:'SB1', ultimo_conteo_fecha: hacePocoSeg}, // hace 10 días: dentro del ciclo -> contado
+    // SEG-C no tiene fila -> nunca contado (y por lo tanto también pendiente de este ciclo)
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-seguimiento');
@@ -4106,12 +4121,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // contadosMes/cicloActual dependen de la fecha real de hoy -- ver el bloque del grupo automático
   // más abajo, que sí los prueba con fechas controladas ("ahora" vs "hace 200 días").
   const segA = ctx.__appstate.grupos.seguimiento;
-  assert(segA.totalMiembros===3 && segA.nuncaContados===1 && segA.alDia===1 && segA.vencidos===1 && segA.tieneFrecuencia===true, 'el seguimiento debe distinguir al día/vencido/nunca contado según la frecuencia, obtuvo: '+JSON.stringify(segA));
+  assert(segA.totalMiembros===3 && segA.nuncaContados===1 && segA.contadosCiclo===1 && segA.pendientesCiclo===2 && segA.tieneFrecuencia===true, 'el seguimiento debe distinguir contados/pendientes del ciclo propio del grupo según su fecha de inicio, obtuvo: '+JSON.stringify(segA));
+  assert(segA.cicloGrupo && segA.cicloGrupo.dia===31 && segA.cicloGrupo.totalDias===90, 'debe calcular el día del ciclo propio del grupo a partir de su fecha de inicio (hace 30 días -> día 31), obtuvo: '+JSON.stringify(segA.cicloGrupo));
   const htmlSeguimiento = ctx.renderGrupos();
-  assert(htmlSeguimiento.includes('Al día') && htmlSeguimiento.includes('Vencidos') && htmlSeguimiento.includes('Nunca contados'), 'con frecuencia definida, debe mostrar los tres contadores, obtuvo: '+htmlSeguimiento);
+  assert(htmlSeguimiento.includes('Contados en este ciclo') && htmlSeguimiento.includes('Pendientes de este ciclo') && htmlSeguimiento.includes('Ciclo del grupo'), 'con frecuencia definida, debe mostrar el avance del ciclo propio del grupo, obtuvo: '+htmlSeguimiento);
 
-  // Sin frecuencia definida: solo "contado alguna vez" vs "nunca contado" (sin poder decir si
-  // está "vencido", porque no hay con qué comparar).
+  // Sin frecuencia definida: solo "contado alguna vez" vs "nunca contado" (sin ciclo posible,
+  // porque no hay frecuencia con la que calcular una fecha de término).
   gruposConteoFixture = [{id:'grupo-seg-sf', nombre:'Sin Frecuencia Seg', frecuencia_dias:null, activo:true, miembros:[{count:2}]}];
   gruposMiembrosFixture = { 'grupo-seg-sf': [
     {id:'gs4', sku_code:'SEG-D', bodega:'SB1'},
@@ -4124,10 +4140,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-seg-sf');
   const segB = ctx.__appstate.grupos.seguimiento;
-  assert(segB.totalMiembros===2 && segB.nuncaContados===1 && segB.alDia===1 && segB.vencidos===0 && segB.tieneFrecuencia===false, 'sin frecuencia, todo lo contado alguna vez cuenta como "al día" (no hay vencido posible), obtuvo: '+JSON.stringify(segB));
+  assert(segB.totalMiembros===2 && segB.nuncaContados===1 && segB.contadosCiclo===0 && segB.pendientesCiclo===0 && segB.tieneFrecuencia===false && segB.cicloGrupo===null, 'sin frecuencia, no debe calcular ciclo propio del grupo (no hay con qué calcular la fecha de término), obtuvo: '+JSON.stringify(segB));
   const htmlSeguimientoSinFrecuencia = ctx.renderGrupos();
   assert(htmlSeguimientoSinFrecuencia.includes('1 de 2 material'), 'sin frecuencia, debe mostrar el resumen simple "X de Y contados", obtuvo: '+htmlSeguimientoSinFrecuencia);
-  assert(!htmlSeguimientoSinFrecuencia.includes('Vencidos'), 'sin frecuencia, no debe hablar de "vencidos" (no hay con qué comparar), obtuvo: '+htmlSeguimientoSinFrecuencia);
+  assert(!htmlSeguimientoSinFrecuencia.includes('Pendientes de este ciclo'), 'sin frecuencia, no debe hablar del ciclo del grupo (no hay con qué calcularlo), obtuvo: '+htmlSeguimientoSinFrecuencia);
 
   // ===== Grupo automático "Crítico" (automatico_critico): su membresía ES skus.critico=true --
   // no se cura a mano, reusa toda la maquinaria de Grupos (seguimiento/vista previa/plan) apuntada
@@ -4156,9 +4172,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Abrir un grupo automático: cargarMiembrosGrupo NO debe tocar skus_grupos_conteo (no hay nada
   // que listar ahí) y cargarSeguimientoGrupo debe leer directo de skus.critico=true.
-  const haceMuchoCrit = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // vencido (>90 días) -- fuera de esta semana/mes
-  const ahoraCrit = new Date().toISOString(); // al día, y cae SIEMPRE dentro de esta semana y este mes (sin depender de qué día es hoy)
-  gruposConteoFixture = [{id:'grupo-critico', nombre:'Críticos', frecuencia_dias:90, activo:true, automatico_critico:true, miembros:[{count:0}]}];
+  const haceMuchoCrit = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // antes de que arrancara el ciclo del grupo (hace 30 días) -- pendiente de este ciclo, y fuera de esta semana/mes
+  const ahoraCrit = new Date().toISOString(); // dentro del ciclo del grupo, y cae SIEMPRE dentro de esta semana y este mes (sin depender de qué día es hoy)
+  const fechaInicioGrupoCritico = ctx.fechaISO(ctx.sumarDias(new Date(), -30));
+  gruposConteoFixture = [{id:'grupo-critico', nombre:'Críticos', frecuencia_dias:90, activo:true, automatico_critico:true, fecha_inicio: fechaInicioGrupoCritico, miembros:[{count:0}]}];
   criticosAutomaticoFixture = [
     {sku_code:'CRIT-A', bodega:'B501', ubicacion:'0100', storage_bin:'A-01', ultimo_conteo_fecha: haceMuchoCrit},
     {sku_code:'CRIT-B', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: ahoraCrit},
@@ -4181,7 +4198,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&critico=eq.true&select=')), 'el seguimiento de un grupo automático debe consultar skus.critico=true, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.miembros.length===0, 'un grupo automático no debe traer una lista de miembros curada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.miembros));
   const segC = ctx.__appstate.grupos.seguimiento;
-  assert(segC.totalMiembros===3 && segC.nuncaContados===1 && segC.alDia===1 && segC.vencidos===1 && segC.tieneFrecuencia===true, 'el seguimiento de un grupo automático debe distinguir al día/vencido/nunca contado igual que uno curado a mano, obtuvo: '+JSON.stringify(segC));
+  assert(segC.totalMiembros===3 && segC.nuncaContados===1 && segC.contadosCiclo===1 && segC.pendientesCiclo===2 && segC.tieneFrecuencia===true, 'el seguimiento de un grupo automático debe distinguir contados/pendientes del ciclo propio del grupo igual que uno curado a mano, obtuvo: '+JSON.stringify(segC));
   assert(segC.cicloActual===null, 'sin ningún ciclo marcado como actual en el fixture, no debe mostrar período (ver el mock por defecto que devuelve []), obtuvo: '+JSON.stringify(segC.cicloActual));
 
   // Con un ciclo actual real (fecha de inicio elegida a mano, hace 5 días), debe calcular y
@@ -4221,7 +4238,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlFormularioSinCheckbox.includes('grupo-automatico-critico'), 'con un grupo automático ya activo, no debe ofrecerse el checkbox para crear otro, obtuvo: '+htmlFormularioSinCheckbox);
   ctx.setState({grupos:{...ctx.__appstate.grupos, creando:false}});
 
+  // ===== Historial de ciclos cerrados del grupo (cargarHistorialCiclosGrupo /
+  // alternarDetalleHistorialCiclo) -- a pedido de Joel: cuando el cron cierra un ciclo vencido
+  // (ver cerrar_ciclos_grupo_vencidos), guarda una foto de quién quedó contado y quién no antes
+  // de resetear el ciclo; acá se verifica que la app la muestre y permita ver el detalle por
+  // material. =====
+  historialCiclosFixture = [
+    {fecha_inicio:'2026-06-01', fecha_termino:'2026-08-29', total_miembros:9, contados:6},
+  ];
+  historialDetalleFixture = [
+    {sku_code:'SEG-A', bodega:'SB1', contado:true, fecha_conteo:'2026-08-10T12:00:00Z'},
+    {sku_code:'SEG-B', bodega:'SB1', contado:false, fecha_conteo:null},
+  ];
+  calls.length = 0;
   await ctx.abrirGrupo('grupo-critico');
+  assert(calls.some(c=>c.url.includes('/historial_ciclos_grupo_resumen?grupo_id=eq.grupo-critico')), 'al abrir un grupo, debe pedir su historial de ciclos cerrados, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.historial.length===1 && ctx.__appstate.grupos.historial[0].contados===6, 'debe guardar las filas de historial devueltas por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.historial));
+  const htmlConHistorial = ctx.renderGrupos();
+  assert(htmlConHistorial.includes('Historial de ciclos cerrados') && htmlConHistorial.includes('6 de 9 contados'), 'debe mostrar el historial de ciclos cerrados con su resumen, obtuvo: '+htmlConHistorial);
+
+  // Al expandir un ciclo cerrado, debe pedir y mostrar el detalle por material.
+  calls.length = 0;
+  await ctx.alternarDetalleHistorialCiclo('grupo-critico', '2026-06-01', '2026-08-29');
+  assert(calls.some(c=>c.url.includes('/historial_ciclos_grupo?grupo_id=eq.grupo-critico') && c.url.includes('fecha_inicio=eq.2026-06-01') && c.url.includes('fecha_termino=eq.2026-08-29')), 'debe pedir el detalle del ciclo elegido, filtrado por grupo y fechas exactas, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.historialAbierto==='2026-06-01|2026-08-29', 'debe marcar ese ciclo como el expandido, obtuvo: '+ctx.__appstate.grupos.historialAbierto);
+  const htmlHistorialExpandido = ctx.renderGrupos();
+  assert(htmlHistorialExpandido.includes('SEG-A') && htmlHistorialExpandido.includes('✓ contado') && htmlHistorialExpandido.includes('SEG-B') && htmlHistorialExpandido.includes('no contado'), 'debe mostrar el detalle por material del ciclo expandido, obtuvo: '+htmlHistorialExpandido);
+
+  // Volver a tocar el mismo ciclo lo colapsa, sin volver a pedir el detalle.
+  calls.length = 0;
+  await ctx.alternarDetalleHistorialCiclo('grupo-critico', '2026-06-01', '2026-08-29');
+  assert(ctx.__appstate.grupos.historialAbierto===null, 'tocar de nuevo el mismo ciclo debe colapsarlo, obtuvo: '+ctx.__appstate.grupos.historialAbierto);
+  assert(!calls.some(c=>c.url.includes('/historial_ciclos_grupo?')), 'al colapsar no debe volver a pedir el detalle, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  historialCiclosFixture = null;
+  historialDetalleFixture = null;
 
   // calcularVistaPreviaPlanGrupo para un grupo automático: debe leer directo de skus.critico=true
   // (sin pasar por skus_grupos_conteo) y filtrar vencidos exactamente igual que uno curado a mano.

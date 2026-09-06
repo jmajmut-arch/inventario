@@ -504,7 +504,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false },
+  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -1259,7 +1259,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1784,12 +1784,12 @@ async function crearGrupo(nombre, frecuenciaDias, automaticoCritico){
 }
 
 function abrirGrupo(id){
-  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null}});
-  return Promise.all([cargarMiembrosGrupo(id), cargarSeguimientoGrupo(id)]);
+  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[]}});
+  return Promise.all([cargarMiembrosGrupo(id), cargarSeguimientoGrupo(id), cargarHistorialCiclosGrupo(id)]);
 }
 
 function volverAListaGrupos(){
-  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null}});
+  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[]}});
 }
 
 // Seguimiento del grupo: cuántos de sus materiales están al día vs vencidos según su frecuencia
@@ -1837,16 +1837,28 @@ async function cargarSeguimientoGrupo(grupoId){
       dias: Math.max(1, Math.floor((Date.now() - new Date(ciclosActuales[0].fecha_inicio+'T00:00:00').getTime()) / (24*60*60*1000)) + 1),
     } : null;
 
+    // El ciclo PROPIO del grupo (a pedido de Joel: 5S cada 60 días, Críticos cada 90, cada uno
+    // con su fecha de inicio -- independiente del período general de la empresa de arriba). Se
+    // cierra solo cuando pasa la fecha de término (ver cron cerrar_ciclos_grupo_vencidos, que
+    // guarda el resultado en historial_ciclos_grupo y arranca el ciclo siguiente): mientras el
+    // ciclo sigue abierto, un material cuenta como "contado en este ciclo" si su conteo más
+    // reciente cae en o después de la fecha de inicio del grupo.
     const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
+    const inicioGrupoMs = tieneFrecuencia ? new Date(grupo.fecha_inicio+'T00:00:00').getTime() : null;
+    const cicloGrupo = tieneFrecuencia ? {
+      dia: Math.max(1, Math.floor((Date.now() - inicioGrupoMs) / (24*60*60*1000)) + 1),
+      totalDias: grupo.frecuencia_dias,
+      fechaTermino: fechaISO(sumarDias(new Date(grupo.fecha_inicio+'T00:00:00'), grupo.frecuencia_dias-1)),
+    } : null;
+
     const inicioSemanaActual = inicioSemana(new Date());
     const inicioMesActual = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const resumen = {totalMiembros: miembros.length, nuncaContados:0, alDia:0, vencidos:0, tieneFrecuencia, contadosSemana:0, contadosMes:0, cicloActual};
+    const resumen = {totalMiembros: miembros.length, nuncaContados:0, contadosCiclo:0, pendientesCiclo:0, tieneFrecuencia, contadosSemana:0, contadosMes:0, cicloActual, cicloGrupo};
     if(miembros.length){
-      const limiteMs = tieneFrecuencia ? Date.now() - grupo.frecuencia_dias*24*60*60*1000 : null;
       miembros.forEach(m=>{
         // Un material puede tener varias filas activas (por batch/ubicación/bin) -- se usa la
-        // fecha de conteo MÁS RECIENTE entre todas ellas para decidir si el material (código+
-        // bodega) está al día, no una fila cualquiera.
+        // fecha de conteo MÁS RECIENTE entre todas ellas para decidir el estado del material
+        // (código+bodega), no una fila cualquiera.
         let masReciente = null;
         filas.forEach(f=>{
           if(f.sku_code===m.sku_code && (f.bodega||'')===(m.bodega||'') && f.ultimo_conteo_fecha){
@@ -1854,11 +1866,13 @@ async function cargarSeguimientoGrupo(grupoId){
           }
         });
         if(!masReciente) resumen.nuncaContados++;
-        else if(tieneFrecuencia && new Date(masReciente).getTime() < limiteMs) resumen.vencidos++;
-        else resumen.alDia++;
-        // Ritmo reciente -- no reemplaza al día/vencido/nunca contado, solo da una referencia de
-        // avance esta semana/mes (a pedido de Joel: "algo que no sea tanta información, pero que
-        // sí entregue referencia de dónde estás"). Usa la misma fecha más reciente ya calculada.
+        if(tieneFrecuencia){
+          if(masReciente && new Date(masReciente).getTime() >= inicioGrupoMs) resumen.contadosCiclo++;
+          else resumen.pendientesCiclo++;
+        }
+        // Ritmo reciente -- no reemplaza el avance del ciclo, solo da una referencia de avance
+        // esta semana/mes (a pedido de Joel: "algo que no sea tanta información, pero que sí
+        // entregue referencia de dónde estás"). Usa la misma fecha más reciente ya calculada.
         if(masReciente){
           const fechaReciente = new Date(masReciente);
           if(fechaReciente >= inicioSemanaActual) resumen.contadosSemana++;
@@ -1869,6 +1883,39 @@ async function cargarSeguimientoGrupo(grupoId){
     setState({grupos: {...state.grupos, seguimientoCargando:false, seguimiento: resumen}});
   }catch(e){
     setState({grupos: {...state.grupos, seguimientoCargando:false}});
+    toast(e.message,'err');
+  }
+}
+
+// Historial de ciclos ya cerrados del grupo (ver cerrar_ciclos_grupo_vencidos, el cron diario que
+// guarda esta foto antes de resetear el ciclo): se lee de la vista resumen (agregada en el
+// servidor) para no traer, por ejemplo, los 757 materiales de Críticos por cada ciclo cerrado solo
+// para mostrar un conteo -- el detalle por material se pide aparte, y solo si se expande.
+async function cargarHistorialCiclosGrupo(grupoId){
+  setState({grupos: {...state.grupos, historialCargando:true, historial:[]}});
+  try{
+    const rows = await rest(`/historial_ciclos_grupo_resumen?grupo_id=eq.${grupoId}&select=fecha_inicio,fecha_termino,total_miembros,contados&order=fecha_inicio.desc`) || [];
+    setState({grupos: {...state.grupos, historialCargando:false, historial: rows}});
+  }catch(e){
+    setState({grupos: {...state.grupos, historialCargando:false}});
+    toast(e.message,'err');
+  }
+}
+
+function claveHistorialCiclo(fechaInicio, fechaTermino){ return `${fechaInicio}|${fechaTermino}`; }
+
+async function alternarDetalleHistorialCiclo(grupoId, fechaInicio, fechaTermino){
+  const clave = claveHistorialCiclo(fechaInicio, fechaTermino);
+  if(state.grupos.historialAbierto === clave){
+    setState({grupos: {...state.grupos, historialAbierto:null, historialDetalle:[]}});
+    return;
+  }
+  setState({grupos: {...state.grupos, historialAbierto: clave, historialDetalle:[], historialDetalleCargando:true}});
+  try{
+    const rows = await rest(`/historial_ciclos_grupo?grupo_id=eq.${grupoId}&fecha_inicio=eq.${fechaInicio}&fecha_termino=eq.${fechaTermino}&select=sku_code,bodega,contado,fecha_conteo&order=sku_code.asc`) || [];
+    setState({grupos: {...state.grupos, historialDetalleCargando:false, historialDetalle: rows}});
+  }catch(e){
+    setState({grupos: {...state.grupos, historialDetalleCargando:false}});
     toast(e.message,'err');
   }
 }
@@ -7172,17 +7219,42 @@ function renderDetalleGrupo(){
       ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : `
       ${g.seguimiento.cicloActual ? `<div class="hint" style="margin-bottom:10px">Período actual: <strong>${esc(g.seguimiento.cicloActual.nombre)}</strong> · día ${g.seguimiento.cicloActual.dias}</div>` : ''}
       ${g.seguimiento.totalMiembros===0 ? `<div class="empty" style="padding:10px 8px">Sin materiales todavía.</div>` : g.seguimiento.tieneFrecuencia ? `
+      <div class="hint" style="margin-bottom:8px">Ciclo del grupo: día ${g.seguimiento.cicloGrupo.dia} de ${g.seguimiento.cicloGrupo.totalDias} · termina el ${fmtFecha(g.seguimiento.cicloGrupo.fechaTermino)}</div>
       <div style="display:flex;gap:20px;flex-wrap:wrap">
-        <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.alDia}</div><div class="hint">Al día</div></div>
-        <div><div style="font-size:22px;font-weight:700;color:var(--danger)">${g.seguimiento.vencidos}</div><div class="hint">Vencidos</div></div>
-        <div><div style="font-size:22px;font-weight:700;color:var(--text-dim)">${g.seguimiento.nuncaContados}</div><div class="hint">Nunca contados</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.contadosCiclo}</div><div class="hint">Contados en este ciclo</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--warn)">${g.seguimiento.pendientesCiclo}</div><div class="hint">Pendientes de este ciclo</div></div>
       </div>
-      ` : `<div class="hint">${g.seguimiento.alDia} de ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'} contado${g.seguimiento.totalMiembros===1?'':'s'} alguna vez${g.seguimiento.nuncaContados? ` (${g.seguimiento.nuncaContados} nunca contado${g.seguimiento.nuncaContados===1?'':'s'})` : ''}. Define una frecuencia en este grupo para distinguir "al día" de "vencido".</div>`}
+      <div class="hint" style="margin-top:6px">Al cerrar el ciclo (solo cuando pasa la fecha de término) se guarda quién quedó contado y quién no, y todos vuelven a partir en cero para el ciclo siguiente.</div>
+      ` : `<div class="hint">${g.seguimiento.totalMiembros - g.seguimiento.nuncaContados} de ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'} contado${g.seguimiento.totalMiembros===1?'':'s'} alguna vez${g.seguimiento.nuncaContados? ` (${g.seguimiento.nuncaContados} nunca contado${g.seguimiento.nuncaContados===1?'':'s'})` : ''}. Define una frecuencia en este grupo para llevar un ciclo con fecha de inicio y término.</div>`}
       ${g.seguimiento.totalMiembros>0 ? `
       <div class="hint" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">Ritmo reciente -- Esta semana: <strong>${g.seguimiento.contadosSemana}</strong> de ${g.seguimiento.totalMiembros} · Este mes: <strong>${g.seguimiento.contadosMes}</strong> de ${g.seguimiento.totalMiembros}</div>
       ` : ''}
       `}
     </div>
+    ${grupo && grupo.frecuencia_dias ? `
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:8px">Historial de ciclos cerrados</div>
+      ${g.historialCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : g.historial.length? g.historial.map(h=>{
+        const clave = claveHistorialCiclo(h.fecha_inicio, h.fecha_termino);
+        const abierto = g.historialAbierto === clave;
+        return `
+        <div style="border-bottom:1px solid var(--line);padding:6px 0">
+          <button type="button" data-toggle-historial-ciclo="${esc(h.fecha_inicio)}|${esc(h.fecha_termino)}" style="display:flex;justify-content:space-between;align-items:center;width:100%;gap:8px;background:none;border:none;padding:4px;cursor:pointer;text-align:left">
+            <span>${fmtFecha(h.fecha_inicio)} – ${fmtFecha(h.fecha_termino)}</span>
+            <span class="hint">${h.contados} de ${h.total_miembros} contados</span>
+          </button>
+          ${abierto ? `<div style="margin-top:6px;padding-left:4px">
+            ${g.historialDetalleCargando? `<div class="hint">Cargando…</div>` : g.historialDetalle.map(f=>`
+              <div class="hint" style="display:flex;justify-content:space-between;gap:8px;padding:2px 0">
+                <span>${esc(f.sku_code)}${f.bodega? ` · ${esc(f.bodega)}` : ''}</span>
+                <span style="color:${f.contado?'var(--ok)':'var(--text-dim)'}">${f.contado? '✓ contado' : 'no contado'}</span>
+              </div>
+            `).join('')}
+          </div>` : ''}
+        </div>
+      `;}).join('') : `<div class="empty" style="padding:10px 8px">Todavía no se ha cerrado ningún ciclo de este grupo.</div>`}
+    </div>
+    ` : ''}
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Materiales de este grupo</div>
       ${grupo && grupo.automatico_critico ? `<div class="hint">Automático: incluye todos los materiales marcados como Crítico${g.seguimiento? ` (actualmente ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'})` : ''}. Para agregar o quitar materiales, actualiza el campo Crítico desde Carga masiva o Cargar SKU -- no se agregan a mano acá.</div>` :
@@ -7913,6 +7985,12 @@ function bind(){
       document.getElementById('btn-volver-grupos').addEventListener('click', volverAListaGrupos);
       document.querySelectorAll('[data-quitar-miembro-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> quitarMiembroGrupo(btn.dataset.quitarMiembroGrupo));
+      });
+      document.querySelectorAll('[data-toggle-historial-ciclo]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const [fechaInicio, fechaTermino] = btn.dataset.toggleHistorialCiclo.split('|');
+          alternarDetalleHistorialCiclo(state.grupos.grupoAbierto, fechaInicio, fechaTermino);
+        });
       });
       const candidatoTexto = document.getElementById('candidato-texto');
       if(candidatoTexto) candidatoTexto.addEventListener('input', e=> escribirCandidatoTextoGrupo(e.target.value));
