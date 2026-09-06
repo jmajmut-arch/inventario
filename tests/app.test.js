@@ -2900,6 +2900,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!ctx.__appstate.session && ctx.__appstate.session.access_token==='token-refrescado', 'restaurarSesionGuardada debe refrescar el token guardado y restaurar la sesión, obtuvo: '+JSON.stringify(ctx.__appstate.session));
   assert(!!ctx.__appstate.perfil && ctx.__appstate.perfil.nombre==='Joel Restaurado', 'restaurarSesionGuardada debe volver a cargar el perfil, obtuvo: '+JSON.stringify(ctx.__appstate.perfil));
 
+  // Sentry #278: si cargarPerfil() falla por un corte de red genuino al pedir el perfil (no el
+  // chequeo de empresa bloqueada, que ya se atrapa aparte), restaurarSesionGuardada NO debe
+  // dejar escapar el error sin capturar -- antes esto llegaba sin manejar hasta iniciarApp()
+  // (que no tiene try/catch) en vez de un aviso específico, y además dejaba sin ejecutar el
+  // render() final de iniciarApp(). Tampoco debe borrar la sesión guardada: es un problema de
+  // conexión momentáneo, no una sesión inválida.
+  ctx.__appstate.session = null;
+  ctx.__appstate.perfil = null;
+  const fetchOriginalPerfil = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/usuarios' && u.search.includes('auth_user_id=eq.')) throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalPerfil(url, opts);
+  };
+  const toastRootPerfil = elements['toast-root'];
+  const toastsAntesPerfil = toastRootPerfil ? toastRootPerfil.hijos.length : 0;
+  let noLanzoExcepcion = true;
+  try{ await ctx.restaurarSesionGuardada(); }catch(e){ noLanzoExcepcion = false; }
+  ctx.fetch = fetchOriginalPerfil;
+  assert(noLanzoExcepcion, 'restaurarSesionGuardada NO debe dejar escapar el error de cargarPerfil() sin capturar, se escapó: '+noLanzoExcepcion);
+  assert(!!ctx.__appstate.session && ctx.__appstate.session.access_token==='token-refrescado', 'la sesión (ya refrescada antes de que fallara el perfil) debe seguir viva, no se debe cerrar sesión por un corte de red momentáneo, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  assert(!!ctx.localStorage.getItem('sesion_inventario'), 'la sesión guardada en localStorage NO debe borrarse ante un fallo de red al cargar el perfil (forzaría un re-login innecesario), obtuvo: '+ctx.localStorage.getItem('sesion_inventario'));
+  const toastsPerfil = toastRootPerfil.hijos.slice(toastsAntesPerfil);
+  assert(toastsPerfil.some(t=>t.textContent==='No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.'), 'debe avisar con el mensaje específico de sin conexión, no dejar que caiga a la red de seguridad genérica, obtuvo: '+JSON.stringify(toastsPerfil.map(t=>t.textContent)));
+
   // handleLogin: si tengo_otra_sesion_activa() dice que sí (con "Single session per user"
   // activado, esta cuenta ya tenía otra sesión abierta en otro dispositivo, que quedará
   // invalidada en su próximo refresh), se lo avisamos a quien recién entró en vez del
@@ -3800,13 +3825,56 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDetalleGrupo.includes('SKU-100') && htmlDetalleGrupo.includes('B501'), 'el detalle del grupo debe mostrar sus miembros actuales, obtuvo: '+htmlDetalleGrupo);
   assert(htmlDetalleGrupo.includes('data-quitar-miembro-grupo="miembro-1"'), 'cada miembro debe ofrecer un botón para quitarlo, obtuvo: '+htmlDetalleGrupo);
 
-  // Buscar candidatos para agregar: dos filas del mismo código+bodega en el fixture (simulando
+  // Buscar candidatos para agregar: a pedido de Joel ("que cuando uno escriba el SKU sea como en
+  // tomar inventario"), debe aparecer solo mientras se tipea -- mismo patrón de debounce + umbral
+  // de 2 letras + repintado aislado que el buscador libre de Contar (ver escribirBuscadorLibre) --
+  // sin apretar ningún botón "Buscar". Dos filas del mismo código+bodega en el fixture (simulando
   // dos batches distintos de `skus`) deben quedar deduplicadas a una sola.
   calls.length = 0;
-  ctx.__appstate.grupos.candidatoTexto = 'correa';
-  await ctx.buscarCandidatosGrupo();
-  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('sku_code.ilike.*correa*')), 'buscarCandidatosGrupo debe filtrar por el texto ingresado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.escribirCandidatoTextoGrupo('c');
+  assert(ctx.__appstate.grupos.candidatoTexto==='c', 'debe reflejar el texto tecleado de inmediato, obtuvo: '+ctx.__appstate.grupos.candidatoTexto);
+  assert(ctx.__appstate.grupos.buscandoCandidatos===false, 'con menos de 2 letras no debe marcar "buscando" (mismo umbral que el buscador libre de Contar), obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.length===0, 'con menos de 2 letras no debe disparar ninguna consulta, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  ctx.escribirCandidatoTextoGrupo('correa');
+  assert(ctx.__appstate.grupos.buscandoCandidatos===true, 'con 2+ letras debe marcar "buscando" de inmediato en el estado, obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
+  assert(elements['candidatos-grupo-resultados'].innerHTML.includes('Buscando…'), 'el contenedor de resultados (#candidatos-grupo-resultados) debe repintarse solo con el hint "Buscando…" mientras se resuelve, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+  assert(!calls.some(c=>c.url.includes('sku_code.ilike')), 'no debe disparar la consulta de inmediato: el debounce todavía no se cumplió, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('sku_code.ilike.*correa*')), 'tras el debounce debe filtrar por el texto ingresado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.candidatos.length===2, 'debe deduplicar candidatos repetidos por código+bodega (2 filas de SKU-CAND-1 -> 1, más SKU-CAND-2), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(ctx.__appstate.grupos.buscandoCandidatos===false, 'al llegar la respuesta debe salir de "buscando", obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
+  assert(elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-1') && elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-2'), 'el contenedor de resultados debe reflejar los candidatos encontrados, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+
+  // Teclear varias veces seguidas, antes de que se cumpla el debounce de cada una, debe descartar
+  // las respuestas intermedias (mismo peticionId que el buscador libre de Contar) y quedarse solo
+  // con el resultado de la última búsqueda.
+  calls.length = 0;
+  candidatosGrupoFixture = [{sku_code:'SKU-COR-X', descripcion:'Correa X', bodega:'B900'}];
+  ctx.escribirCandidatoTextoGrupo('co');
+  ctx.escribirCandidatoTextoGrupo('cor');
+  ctx.escribirCandidatoTextoGrupo('corx');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.filter(c=>c.url.includes('sku_code.ilike')).length===1, 'debe descartar las búsquedas intermedias y disparar una sola consulta tras dejar de tipear, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.candidatos.length===1 && ctx.__appstate.grupos.candidatos[0].sku_code==='SKU-COR-X', 'debe quedarse con el resultado de la última búsqueda tipeada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  candidatosGrupoFixture = null;
+
+  // Buscar por bodega (sin texto) también debe disparar la búsqueda automática, con el mismo
+  // umbral de 2 letras.
+  calls.length = 0;
+  ctx.escribirCandidatoTextoGrupo('');
+  ctx.escribirCandidatoBodegaGrupo('B501');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('bodega=ilike.*B501*') && !c.url.includes('sku_code.ilike')), 'buscar solo por bodega (sin texto) también debe disparar la consulta automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.escribirCandidatoBodegaGrupo('');
+
+  // Volver a buscar antes de agregar, para poder comprobar que el candidato agregado desaparece
+  // del listado de resultados de inmediato -- a pedido de Joel, que lo veía seguir apareciendo
+  // ahí (ofreciendo agregarlo de nuevo) después de ya haberlo agregado.
+  ctx.escribirCandidatoTextoGrupo('xx');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-CAND-2'), 'antes de agregar, SKU-CAND-2 debe estar en los resultados de la búsqueda, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
 
   // Agregar un candidato al grupo abierto.
   calls.length = 0;
@@ -3816,6 +3884,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const cuerpoMiembro = JSON.parse(postMiembro.opts.body)[0];
   assert(cuerpoMiembro.grupo_id==='grupo-1' && cuerpoMiembro.sku_code==='SKU-CAND-2' && cuerpoMiembro.bodega==='B502', 'debe mandar el grupo abierto, el código y la bodega elegidos, obtuvo: '+JSON.stringify(cuerpoMiembro));
   assert(calls.filter(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-1&select=id,sku_code,bodega')).length===1, 'tras agregar un miembro, debe refrescar la lista de miembros del grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-CAND-2'), 'tras agregarlo, debe desaparecer del listado de resultados de la búsqueda, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(!elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-2'), 'el contenedor de resultados repintado tampoco debe mostrar el material recién agregado, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+  assert(ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-CAND-1'), 'el resto de los resultados de la búsqueda debe seguir ahí, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
 
   // Agregar un material que ya está en el grupo: la base rechaza por el índice único, y en vez
   // del mensaje crudo de Postgres se avisa algo entendible.
