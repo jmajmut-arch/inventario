@@ -3794,6 +3794,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(JSON.parse(rpcCiclo.opts.body).ciclo_id==='ciclo-2', 'debe mandar el id del ciclo elegido como ciclo_id, obtuvo: '+JSON.stringify(rpcCiclo));
   assert(!calls.some(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo')), 'ya no debe hacer PATCH directos a /ciclos_conteo desde el frontend, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+  // Editar la fecha de inicio de un período ya creado (a pedido de Joel: antes solo se podía
+  // elegir al crear el ciclo, sin forma de corregirla después).
+  ctx.__appstate.cicloEditandoId = null;
+  const htmlCiclosSinEditar = ctx.renderCiclos();
+  assert(htmlCiclosSinEditar.includes('data-editar-fecha-ciclo="ciclo-1"'), 'cada período listado debe ofrecer un botón para editar su fecha de inicio, obtuvo: '+htmlCiclosSinEditar);
+  assert(!htmlCiclosSinEditar.includes('id="ciclo-fecha-inicio-editar"'), 'sin haber elegido editar ningún período, no debe mostrarse el campo de edición, obtuvo: '+htmlCiclosSinEditar);
+
+  ctx.__appstate.cicloEditandoId = 'ciclo-1';
+  const htmlCiclosEditando = ctx.renderCiclos();
+  assert(htmlCiclosEditando.includes('id="ciclo-fecha-inicio-editar"') && htmlCiclosEditando.includes('value="2027-01-05"'), 'al elegir editar un período, debe mostrarse el campo de fecha precargado con su valor actual, obtuvo: '+htmlCiclosEditando);
+  assert(htmlCiclosEditando.includes('data-guardar-fecha-ciclo="ciclo-1"') && htmlCiclosEditando.includes('data-cancelar-editar-ciclo'), 'debe ofrecer botones de Guardar y Cancelar mientras se edita, obtuvo: '+htmlCiclosEditando);
+
+  calls.length = 0;
+  await ctx.editarFechaInicioCiclo('ciclo-1', '2027-02-10');
+  const patchFechaCiclo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo?id=eq.ciclo-1'));
+  assert(!!patchFechaCiclo && JSON.parse(patchFechaCiclo.opts.body).fecha_inicio==='2027-02-10', 'editarFechaInicioCiclo debe hacer PATCH a /ciclos_conteo con la nueva fecha, obtuvo: '+JSON.stringify(patchFechaCiclo));
+  assert(calls.some(c=>c.url.includes('/ciclos_conteo?select=')), 'después de guardar debe recargar la lista de ciclos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.cicloEditandoId===null, 'al guardar, debe cerrarse el modo edición, obtuvo: '+ctx.__appstate.cicloEditandoId);
+
+  // Sin fecha (campo vacío), no debe hacer nada -- ni PATCH, ni cerrar el formulario.
+  ctx.__appstate.cicloEditandoId = 'ciclo-2';
+  calls.length = 0;
+  await ctx.editarFechaInicioCiclo('ciclo-2', '');
+  assert(!calls.some(c=>c.opts && c.opts.method==='PATCH'), 'sin fecha elegida, editarFechaInicioCiclo no debe hacer ningún PATCH, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.cicloEditandoId==='ciclo-2', 'sin fecha elegida, debe mantenerse en modo edición, obtuvo: '+ctx.__appstate.cicloEditandoId);
+
   // ===== Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, independientes de
   // "Crítico", armadas a mano con un buscador -- NO por carga masiva. Ver conversación con Joel:
   // la pertenencia se guarda por código+bodega (no por fila exacta de skus), para sobrevivir
