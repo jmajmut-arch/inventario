@@ -1901,6 +1901,11 @@ async function agregarMiembroGrupo(sku_code, bodega){
       empresa_id: state.perfil.empresa_id, grupo_id: grupoId, sku_code, bodega: bodega||null,
     }], prefer:'return=minimal'});
     toast('Material agregado al grupo');
+    // Ya quedó agregado: lo sacamos de los resultados de búsqueda de inmediato (sin esperar a una
+    // nueva búsqueda) para que no siga apareciendo ahí ofreciendo agregarlo de nuevo -- a pedido
+    // de Joel, que lo veía repetido en el listado de abajo después de agregarlo.
+    state.grupos.candidatos = state.grupos.candidatos.filter(c=> !(c.sku_code===sku_code && (c.bodega||'')===(bodega||'')));
+    actualizarResultadosCandidatosGrupoEnPantalla();
     cargarMiembrosGrupo(grupoId);
     cargarGrupos();
     cargarSeguimientoGrupo(grupoId);

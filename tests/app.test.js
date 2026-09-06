@@ -3869,6 +3869,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('bodega=ilike.*B501*') && !c.url.includes('sku_code.ilike')), 'buscar solo por bodega (sin texto) también debe disparar la consulta automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   ctx.escribirCandidatoBodegaGrupo('');
 
+  // Volver a buscar antes de agregar, para poder comprobar que el candidato agregado desaparece
+  // del listado de resultados de inmediato -- a pedido de Joel, que lo veía seguir apareciendo
+  // ahí (ofreciendo agregarlo de nuevo) después de ya haberlo agregado.
+  ctx.escribirCandidatoTextoGrupo('xx');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-CAND-2'), 'antes de agregar, SKU-CAND-2 debe estar en los resultados de la búsqueda, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+
   // Agregar un candidato al grupo abierto.
   calls.length = 0;
   await ctx.agregarMiembroGrupo('SKU-CAND-2', 'B502');
@@ -3877,6 +3884,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const cuerpoMiembro = JSON.parse(postMiembro.opts.body)[0];
   assert(cuerpoMiembro.grupo_id==='grupo-1' && cuerpoMiembro.sku_code==='SKU-CAND-2' && cuerpoMiembro.bodega==='B502', 'debe mandar el grupo abierto, el código y la bodega elegidos, obtuvo: '+JSON.stringify(cuerpoMiembro));
   assert(calls.filter(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-1&select=id,sku_code,bodega')).length===1, 'tras agregar un miembro, debe refrescar la lista de miembros del grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-CAND-2'), 'tras agregarlo, debe desaparecer del listado de resultados de la búsqueda, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(!elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-2'), 'el contenedor de resultados repintado tampoco debe mostrar el material recién agregado, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+  assert(ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-CAND-1'), 'el resto de los resultados de la búsqueda debe seguir ahí, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
 
   // Agregar un material que ya está en el grupo: la base rechaza por el índice único, y en vez
   // del mensaje crudo de Postgres se avisa algo entendible.
