@@ -1784,6 +1784,10 @@ async function cargarSeguimientoGrupo(grupoId){
   const grupo = state.grupos.lista.find(g=>g.id===grupoId);
   setState({grupos: {...state.grupos, seguimientoCargando:true, seguimiento:null}});
   try{
+    // El período actual (ciclo_actual) se pide en paralelo -- es un dato de contexto ("¿cuántos
+    // días llevamos?"), no depende de los miembros del grupo. Si no hay ninguno marcado como
+    // actual, simplemente no se muestra esa línea (mismo criterio que el resto de la app).
+    const pedidoCiclo = rest('/ciclos_conteo?es_actual=eq.true&select=nombre,created_at&limit=1');
     let miembros, filas;
     if(grupo && grupo.automatico_critico){
       // Automático: la membresía ES el propio universo de skus.critico=true -- alcanza una sola
@@ -1804,8 +1808,16 @@ async function cargarSeguimientoGrupo(grupoId){
         filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
       }
     }
+    const ciclosActuales = await pedidoCiclo || [];
+    const cicloActual = ciclosActuales[0] ? {
+      nombre: ciclosActuales[0].nombre,
+      dias: Math.max(1, Math.floor((Date.now() - new Date(ciclosActuales[0].created_at).getTime()) / (24*60*60*1000)) + 1),
+    } : null;
+
     const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
-    const resumen = {totalMiembros: miembros.length, nuncaContados:0, alDia:0, vencidos:0, tieneFrecuencia};
+    const inicioSemanaActual = inicioSemana(new Date());
+    const inicioMesActual = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const resumen = {totalMiembros: miembros.length, nuncaContados:0, alDia:0, vencidos:0, tieneFrecuencia, contadosSemana:0, contadosMes:0, cicloActual};
     if(miembros.length){
       const limiteMs = tieneFrecuencia ? Date.now() - grupo.frecuencia_dias*24*60*60*1000 : null;
       miembros.forEach(m=>{
@@ -1821,6 +1833,14 @@ async function cargarSeguimientoGrupo(grupoId){
         if(!masReciente) resumen.nuncaContados++;
         else if(tieneFrecuencia && new Date(masReciente).getTime() < limiteMs) resumen.vencidos++;
         else resumen.alDia++;
+        // Ritmo reciente -- no reemplaza al día/vencido/nunca contado, solo da una referencia de
+        // avance esta semana/mes (a pedido de Joel: "algo que no sea tanta información, pero que
+        // sí entregue referencia de dónde estás"). Usa la misma fecha más reciente ya calculada.
+        if(masReciente){
+          const fechaReciente = new Date(masReciente);
+          if(fechaReciente >= inicioSemanaActual) resumen.contadosSemana++;
+          if(fechaReciente >= inicioMesActual) resumen.contadosMes++;
+        }
       });
     }
     setState({grupos: {...state.grupos, seguimientoCargando:false, seguimiento: resumen}});
@@ -7089,13 +7109,19 @@ function renderDetalleGrupo(){
     <button type="button" id="btn-volver-grupos" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;margin-bottom:12px">← Volver a grupos</button>
     <div class="card">
       <div class="hint" style="margin-bottom:8px">Seguimiento</div>
-      ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : g.seguimiento.totalMiembros===0 ? `<div class="empty" style="padding:10px 8px">Sin materiales todavía.</div>` : g.seguimiento.tieneFrecuencia ? `
+      ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : `
+      ${g.seguimiento.cicloActual ? `<div class="hint" style="margin-bottom:10px">Período actual: <strong>${esc(g.seguimiento.cicloActual.nombre)}</strong> · día ${g.seguimiento.cicloActual.dias}</div>` : ''}
+      ${g.seguimiento.totalMiembros===0 ? `<div class="empty" style="padding:10px 8px">Sin materiales todavía.</div>` : g.seguimiento.tieneFrecuencia ? `
       <div style="display:flex;gap:20px;flex-wrap:wrap">
         <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.alDia}</div><div class="hint">Al día</div></div>
         <div><div style="font-size:22px;font-weight:700;color:var(--danger)">${g.seguimiento.vencidos}</div><div class="hint">Vencidos</div></div>
         <div><div style="font-size:22px;font-weight:700;color:var(--text-dim)">${g.seguimiento.nuncaContados}</div><div class="hint">Nunca contados</div></div>
       </div>
       ` : `<div class="hint">${g.seguimiento.alDia} de ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'} contado${g.seguimiento.totalMiembros===1?'':'s'} alguna vez${g.seguimiento.nuncaContados? ` (${g.seguimiento.nuncaContados} nunca contado${g.seguimiento.nuncaContados===1?'':'s'})` : ''}. Define una frecuencia en este grupo para distinguir "al día" de "vencido".</div>`}
+      ${g.seguimiento.totalMiembros>0 ? `
+      <div class="hint" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">Ritmo reciente -- Esta semana: <strong>${g.seguimiento.contadosSemana}</strong> de ${g.seguimiento.totalMiembros} · Este mes: <strong>${g.seguimiento.contadosMes}</strong> de ${g.seguimiento.totalMiembros}</div>
+      ` : ''}
+      `}
     </div>
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Materiales de este grupo</div>
