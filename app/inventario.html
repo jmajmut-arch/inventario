@@ -518,6 +518,7 @@ let state = {
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
   equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
   ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
+  cicloEditandoId: null,  // id del ciclo cuya fecha de inicio se está editando en Períodos, o null
   opcionesCategorias: [], // valores de categoría ya usados por la empresa (sugerencia en "Cargar SKU")
   opcionesBatches: [], // valores de batch/lote ya usados por la empresa (idem)
   opcionesUnidades: [],   // valores de unidad de medida ya usados por la empresa (idem)
@@ -1258,7 +1259,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1288,10 +1289,6 @@ function manejarSesionInvalida(){
    ======================================================================= */
 async function cargarTodo(){
   const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
-  // El checklist de primeros pasos (ver renderChecklistPrimerosPasos) necesita saber si ya hay
-  // equipo invitado -- se pide solo para admin/súper-admin, los únicos que ven el checklist (un
-  // operador nunca llega a Dashboard, ver VISTAS_SOLO_ADMIN).
-  if(state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin)) tareas.push(cargarEquipo());
   await Promise.all(tareas);
 }
 
@@ -1713,6 +1710,16 @@ async function crearCiclo(nombre, fechaInicio){
       fecha_inicio: fechaInicio || fechaISO(new Date()),
     }], prefer:'return=minimal'});
     toast('Ciclo creado');
+    cargarCiclos();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function editarFechaInicioCiclo(id, fechaInicio){
+  if(!fechaInicio || !perfilCargado()) return;
+  try{
+    await rest(`/ciclos_conteo?id=eq.${encodeURIComponent(id)}`, {method:'PATCH', body:{fecha_inicio: fechaInicio}, prefer:'return=minimal'});
+    toast('Fecha de inicio actualizada');
+    setState({cicloEditandoId: null});
     cargarCiclos();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -5498,51 +5505,6 @@ function renderAdherenciaPlan(){
   ` : `<div class="empty">Sin plan creado para este período.</div>`);
 }
 
-// Checklist de "primeros pasos" para una empresa nueva (a pedido de Joel): guía los pasos
-// iniciales para dejar la app operativa. Se descarta a mano por empresa (localStorage, mismo
-// patrón que tema_app) -- no hace falta guardarlo en el servidor, es puramente una conveniencia
-// de la persona que lo cierra en su propio navegador.
-function checklistPrimerosPasosOculto(empresaId){
-  try{ return localStorage.getItem(`checklist_oculto_${empresaId}`) === '1'; }catch(e){ return false; }
-}
-function ocultarChecklistPrimerosPasos(){
-  try{ localStorage.setItem(`checklist_oculto_${state.perfil.empresa_id}`, '1'); }catch(e){ /* localStorage no disponible (modo privado, etc.) */ }
-  render();
-}
-
-// Solo tiene sentido para admin/súper-admin: un operador nunca llega a Dashboard (ver
-// VISTAS_SOLO_ADMIN), así que si esto se está pintando ya sabemos que el rol es el correcto.
-// Se oculta sola apenas los tres pasos están completos -- no hace falta que la persona la
-// descarte a mano si ya terminó.
-function renderChecklistPrimerosPasos(){
-  if(!state.perfil || checklistPrimerosPasosOculto(state.perfil.empresa_id)) return '';
-  const pasos = [
-    { hecho: state.skus.length>0, texto:'Carga tus SKU', detalle:'Sube tu maestro de materiales desde Carga masiva.', vista:'carga' },
-    { hecho: state.equipo.personas.some(p=>p.id!==state.perfil.id), texto:'Invita a tu equipo', detalle:'Suma a las personas que van a contar, desde Configuraciones.', vista:'config' },
-    { hecho: state.ciclos.length>0, texto:'Crea tu primer período de conteo', detalle:'Define un ciclo (ej. "T1 2027") para agrupar y comparar tus conteos.', vista:'ciclos' },
-  ];
-  if(pasos.every(p=>p.hecho)) return '';
-  return `
-    <div class="card" style="margin-bottom:14px;border-color:var(--amber)">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <h2 style="font-size:15px;margin:0">Primeros pasos</h2>
-        <button type="button" id="btn-ocultar-checklist" style="background:none;border:none;color:var(--text-dim);font-size:12px;padding:2px;cursor:pointer">Ocultar</button>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-        ${pasos.map(p=>`
-          <button type="button" class="checklist-paso" data-ir-vista="${p.vista}" style="display:flex;align-items:flex-start;gap:10px;text-align:left;background:none;border:none;padding:6px 4px;cursor:pointer;border-radius:8px;${p.hecho?'opacity:.55':''}">
-            <span aria-hidden="true" style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid ${p.hecho?'var(--ok)':'var(--line)'};background:${p.hecho?'var(--ok)':'transparent'};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;margin-top:1px">${p.hecho?'✓':''}</span>
-            <span>
-              <span style="display:block;font-weight:600;font-size:13.5px;color:var(--text);${p.hecho?'text-decoration:line-through':''}">${esc(p.texto)}</span>
-              <span style="display:block;font-size:12px;color:var(--text-dim)">${esc(p.detalle)}</span>
-            </span>
-          </button>
-        `).join('')}
-      </div>
-    </div>
-  `;
-}
-
 function renderDashboard(){
   const periodTable = (rows, keyLabel, keyField, formatKey=fmtFecha) => {
     if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
@@ -5631,7 +5593,6 @@ function renderDashboard(){
   `;
 
   return `
-    ${renderChecklistPrimerosPasos()}
     <div class="section-head">
       <div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div>
       <button class="btn btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${ejecutivoIncluido?'':'disabled title="Disponible en el plan Profesional"'}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
@@ -7113,11 +7074,21 @@ function renderCiclos(){
         <input type="date" id="ciclo-fecha-inicio" value="${esc(fechaISO(new Date()))}" required>
         <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear ciclo</button></div>
       </form>
-      ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=>`
+      ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=> c.id===state.cicloEditandoId? `
+        <div class="plan-item" style="padding:8px 0;align-items:flex-end;flex-wrap:wrap;gap:8px">
+          <div style="flex:1;min-width:160px">
+            <div class="plan-item-ubic" style="font-weight:500">${esc(c.nombre)}</div>
+            <label for="ciclo-fecha-inicio-editar" style="margin-top:6px">Fecha de inicio</label>
+            <input type="date" id="ciclo-fecha-inicio-editar" value="${esc(c.fecha_inicio||'')}" required>
+          </div>
+          <button type="button" class="btn btn-secondary" data-guardar-fecha-ciclo="${esc(c.id)}" style="width:auto;padding:6px 12px;font-size:12px">Guardar</button>
+          <button type="button" class="btn btn-secondary" data-cancelar-editar-ciclo style="width:auto;padding:6px 12px;font-size:12px">Cancelar</button>
+        </div>
+      ` : `
         <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500">${esc(c.nombre)}</div>
-            ${c.fecha_inicio? `<div class="hint" style="margin-top:2px">Inicio: ${esc(c.fecha_inicio)}</div>` : ''}
+            ${c.fecha_inicio? `<div class="hint" style="margin-top:2px">Inicio: ${esc(c.fecha_inicio)} <button type="button" class="link-btn" data-editar-fecha-ciclo="${esc(c.id)}" style="margin-left:4px">Editar</button></div>` : ''}
           </div>
           ${c.es_actual? `<span class="badge badge-ok">Actual</span>` : `<button type="button" class="btn btn-secondary" data-marcar-ciclo-actual="${esc(c.id)}" style="width:auto;padding:6px 12px;font-size:12px">Marcar como actual</button>`}
         </div>
@@ -7908,6 +7879,18 @@ function bind(){
     document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
       btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
     });
+    document.querySelectorAll('[data-editar-fecha-ciclo]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({cicloEditandoId: btn.dataset.editarFechaCiclo}));
+    });
+    document.querySelectorAll('[data-cancelar-editar-ciclo]').forEach(btn=>{
+      btn.addEventListener('click', ()=> setState({cicloEditandoId: null}));
+    });
+    document.querySelectorAll('[data-guardar-fecha-ciclo]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const inputFecha = document.getElementById('ciclo-fecha-inicio-editar');
+        editarFechaInicioCiclo(btn.dataset.guardarFechaCiclo, inputFecha.value);
+      });
+    });
   }
 
   if(state.view==='grupos'){
@@ -7986,11 +7969,6 @@ function bind(){
   }
 
   if(state.view==='dashboard'){
-    const btnOcultarChecklist = document.getElementById('btn-ocultar-checklist');
-    if(btnOcultarChecklist) btnOcultarChecklist.addEventListener('click', ocultarChecklistPrimerosPasos);
-    document.querySelectorAll('[data-ir-vista]').forEach(btn=>{
-      btn.addEventListener('click', ()=> setState({view: btn.dataset.irVista}));
-    });
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         const rutas = JSON.parse(btn.dataset.verFotos);

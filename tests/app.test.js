@@ -1616,32 +1616,6 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlDashOperativo = ctx.renderDashboard();
   assert(htmlDashOperativo.includes('Materiales contados (ciclo actual)'), 'la lista de materiales contados (vista Operativo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDashOperativo);
 
-  // ===== Checklist de "primeros pasos" (a pedido de Joel): guía a una empresa nueva a cargar
-  // SKU, invitar equipo y crear su primer período. Se oculta sola apenas los tres pasos están
-  // completos, o si la persona la descarta a mano (localStorage, por empresa). =====
-  ctx.__appstate.perfil = { id:'admin-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-checklist', empresas:{nombre:'Minera Andes'} };
-  ctx.__appstate.skus = [];
-  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}] };
-  ctx.__appstate.ciclos = [];
-  ctx.localStorage.removeItem('checklist_oculto_emp-checklist');
-  const htmlChecklistNada = ctx.renderDashboard();
-  assert(htmlChecklistNada.includes('Primeros pasos') && htmlChecklistNada.includes('Carga tus SKU') && htmlChecklistNada.includes('Invita a tu equipo') && htmlChecklistNada.includes('Crea tu primer período de conteo'), 'con una empresa recién creada (sin SKU, sin equipo, sin ciclos) debe mostrarse el checklist completo, obtuvo: '+htmlChecklistNada);
-
-  ctx.__appstate.skus = [{id:'s1', sku_code:'A1'}];
-  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}, {id:'op-1', nombre:'Beto', rol:'operador', activo:true}] };
-  ctx.__appstate.ciclos = [{id:'c1', nombre:'T1 2027', es_actual:true}];
-  const htmlChecklistCompleto = ctx.renderDashboard();
-  assert(!htmlChecklistCompleto.includes('Primeros pasos'), 'con los tres pasos completos, el checklist debe ocultarse solo, sin que la persona tenga que descartarlo, obtuvo: '+htmlChecklistCompleto);
-
-  ctx.__appstate.skus = [];
-  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}] };
-  ctx.__appstate.ciclos = [];
-  ctx.ocultarChecklistPrimerosPasos();
-  const htmlChecklistDescartado = ctx.renderDashboard();
-  assert(!htmlChecklistDescartado.includes('Primeros pasos'), 'al descartarlo a mano, el checklist no debe volver a aparecer aunque falten pasos, obtuvo: '+htmlChecklistDescartado);
-  assert(ctx.localStorage.getItem('checklist_oculto_emp-checklist')==='1', 'debe persistir el descarte en localStorage, por empresa, obtuvo: '+ctx.localStorage.getItem('checklist_oculto_emp-checklist'));
-  ctx.localStorage.removeItem('checklist_oculto_emp-checklist');
-
   // Pedido del usuario: en el Dashboard operativo, Semanal debe mostrar el número de semana (no
   // la fecha cruda del lunes) y Mensual el nombre del mes (no la fecha cruda del día 1). Diario
   // debe paginar de a 15 filas (a pedido de Joel) con botón Siguiente/Anterior, en vez de listar
@@ -3819,6 +3793,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!rpcCiclo, 'marcarCicloActual debe llamar a la RPC marcar_ciclo_actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(JSON.parse(rpcCiclo.opts.body).ciclo_id==='ciclo-2', 'debe mandar el id del ciclo elegido como ciclo_id, obtuvo: '+JSON.stringify(rpcCiclo));
   assert(!calls.some(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo')), 'ya no debe hacer PATCH directos a /ciclos_conteo desde el frontend, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Editar la fecha de inicio de un período ya creado (a pedido de Joel: antes solo se podía
+  // elegir al crear el ciclo, sin forma de corregirla después).
+  ctx.__appstate.cicloEditandoId = null;
+  const htmlCiclosSinEditar = ctx.renderCiclos();
+  assert(htmlCiclosSinEditar.includes('data-editar-fecha-ciclo="ciclo-1"'), 'cada período listado debe ofrecer un botón para editar su fecha de inicio, obtuvo: '+htmlCiclosSinEditar);
+  assert(!htmlCiclosSinEditar.includes('id="ciclo-fecha-inicio-editar"'), 'sin haber elegido editar ningún período, no debe mostrarse el campo de edición, obtuvo: '+htmlCiclosSinEditar);
+
+  ctx.__appstate.cicloEditandoId = 'ciclo-1';
+  const htmlCiclosEditando = ctx.renderCiclos();
+  assert(htmlCiclosEditando.includes('id="ciclo-fecha-inicio-editar"') && htmlCiclosEditando.includes('value="2027-01-05"'), 'al elegir editar un período, debe mostrarse el campo de fecha precargado con su valor actual, obtuvo: '+htmlCiclosEditando);
+  assert(htmlCiclosEditando.includes('data-guardar-fecha-ciclo="ciclo-1"') && htmlCiclosEditando.includes('data-cancelar-editar-ciclo'), 'debe ofrecer botones de Guardar y Cancelar mientras se edita, obtuvo: '+htmlCiclosEditando);
+
+  calls.length = 0;
+  await ctx.editarFechaInicioCiclo('ciclo-1', '2027-02-10');
+  const patchFechaCiclo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo?id=eq.ciclo-1'));
+  assert(!!patchFechaCiclo && JSON.parse(patchFechaCiclo.opts.body).fecha_inicio==='2027-02-10', 'editarFechaInicioCiclo debe hacer PATCH a /ciclos_conteo con la nueva fecha, obtuvo: '+JSON.stringify(patchFechaCiclo));
+  assert(calls.some(c=>c.url.includes('/ciclos_conteo?select=')), 'después de guardar debe recargar la lista de ciclos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.cicloEditandoId===null, 'al guardar, debe cerrarse el modo edición, obtuvo: '+ctx.__appstate.cicloEditandoId);
+
+  // Sin fecha (campo vacío), no debe hacer nada -- ni PATCH, ni cerrar el formulario.
+  ctx.__appstate.cicloEditandoId = 'ciclo-2';
+  calls.length = 0;
+  await ctx.editarFechaInicioCiclo('ciclo-2', '');
+  assert(!calls.some(c=>c.opts && c.opts.method==='PATCH'), 'sin fecha elegida, editarFechaInicioCiclo no debe hacer ningún PATCH, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.cicloEditandoId==='ciclo-2', 'sin fecha elegida, debe mantenerse en modo edición, obtuvo: '+ctx.__appstate.cicloEditandoId);
 
   // ===== Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, independientes de
   // "Crítico", armadas a mano con un buscador -- NO por carga masiva. Ver conversación con Joel:
