@@ -36,6 +36,7 @@ let gruposMiembrosFixture = {}; // por grupo_id: filas de skus_grupos_conteo
 let candidatosGrupoFixture = null; // filas que devuelve el buscador de candidatos (skus)
 let gruposMiembroDuplicado = false; // simula el rechazo del índice único al agregar dos veces
 let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de vencidos (ver calcularVistaPreviaPlanGrupo)
+let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -653,6 +654,12 @@ const fakeFetchImpl = async (url, opts) => {
     };
     const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
+  }
+  // Universo de una zona para el generador de plan por grupo (ver confirmarVistaPreviaComoPlan):
+  // bodega/ubicación de prueba dedicadas, sin filtro de storage_bin.
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BGRP') && path.includes('ubicacion=eq.UGRP') && !path.includes('storage_bin=eq.')){
+    const filas = universoZonaGrupoFixture || [];
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
@@ -3879,6 +3886,78 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSinFrecuencia = ctx.renderGrupos();
   assert(htmlSinFrecuencia.includes('no tiene una frecuencia definida'), 'el detalle de un grupo sin frecuencia debe avisar en vez de ofrecer calcular la vista previa, obtuvo: '+htmlSinFrecuencia);
   assert(!htmlSinFrecuencia.includes('btn-calcular-vista-previa'), 'sin frecuencia, no debe ofrecer el botón de calcular vista previa, obtuvo: '+htmlSinFrecuencia);
+
+  // ===== Confirmar la vista previa como plan real (confirmarVistaPreviaComoPlan) =====
+
+  // Guardia: una zona sin ubicación específica no se puede acotar de forma segura (ver
+  // comentario en el código) -- debe avisar y NO pedir confirmación ni escribir nada.
+  gruposConteoFixture = [{id:'grupo-sin-ubic', nombre:'Sin ubicación', frecuencia_dias:30, activo:true, miembros:[{count:1}]}];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-sin-ubic');
+  ctx.__appstate.grupos.vistaPreviaSemanas = [{materiales:1, zonas:[{bodega:'BGRP', ubicacion:null, materiales:[{sku_code:'X', storage_bin:null}]}]}];
+  const toastRootSinUbic = elements['toast-root'];
+  const toastsAntesSinUbic = toastRootSinUbic.hijos.length;
+  const confirmLlamadasAntes = confirmLlamadas.length;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(confirmLlamadas.length===confirmLlamadasAntes, 'una zona sin ubicación específica no debe ni llegar a pedir confirmación, obtuvo llamadas nuevas: '+JSON.stringify(confirmLlamadas.slice(confirmLlamadasAntes)));
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'no debe escribir nada en plan_semanal si no hay ninguna zona acotable, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const toastsSinUbic = toastRootSinUbic.hijos.slice(toastsAntesSinUbic);
+  assert(toastsSinUbic.some(t=>/no se puede generar el plan/.test(t.textContent)), 'debe avisar que no se puede generar el plan automáticamente, obtuvo: '+JSON.stringify(toastsSinUbic.map(t=>t.textContent)));
+
+  // Camino real: dos materiales del grupo (VENC-A, VENC-B) vencidos en BGRP/UGRP, que comparten
+  // esa misma ubicación con otros dos materiales que NO son del grupo (OTRO-1, OTRO-2) -- estos
+  // últimos deben quedar excluidos de la entrada generada, no contados dentro del grupo.
+  gruposConteoFixture = [{id:'grupo-plan-real', nombre:'Grupo Plan Real', frecuencia_dias:30, activo:true, miembros:[{count:2}]}];
+  gruposMiembrosFixture = { 'grupo-plan-real': [
+    {id:'gm1', sku_code:'VENC-A', bodega:'BGRP'},
+    {id:'gm2', sku_code:'VENC-B', bodega:'BGRP'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01', ultimo_conteo_fecha:null},
+    {sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02', ultimo_conteo_fecha:null},
+  ];
+  universoZonaGrupoFixture = [
+    {id:'u1', sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01'},
+    {id:'u2', sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
+    {id:'u3', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-03'},
+    {id:'u4', sku_code:'OTRO-2', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-04'},
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-plan-real');
+  ctx.__appstate.grupos.cupoSemanal = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2 && ctx.__appstate.grupos.vistaPreviaSemanas.length===1, 'la vista previa de este escenario debe dar 2 materiales en 1 semana, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
+
+  // Si la persona cancela el confirm(), no debe escribirse nada.
+  confirmRespuesta = false;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'al cancelar el confirm(), no debe crear ninguna entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.vistaPreviaSemanas!==null, 'al cancelar, la vista previa calculada debe seguir disponible (no se descarta), obtuvo: '+ctx.__appstate.grupos.vistaPreviaSemanas);
+
+  // Confirmando de verdad: debe pedir el universo de la zona, crear UNA entrada de plan_semanal
+  // sin responsable, con nota indicando el grupo, y excluir a OTRO-1/OTRO-2 (los que no son del
+  // grupo) -- nunca a VENC-A/VENC-B.
+  confirmRespuesta = true;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(/Grupo Plan Real/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe mencionar el nombre del grupo, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
+  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP')), 'debe pedir el universo real de la zona antes de crear la entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const postPlanGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(!!postPlanGrupo, 'debe crear la entrada de plan_semanal para la zona, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoPlanGrupo = JSON.parse(postPlanGrupo.opts.body)[0];
+  assert(cuerpoPlanGrupo.bodega==='BGRP' && cuerpoPlanGrupo.ubicacion==='UGRP', 'la entrada debe quedar en la zona correcta, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
+  assert(cuerpoPlanGrupo.responsable_id===null, 'la entrada generada NO debe traer responsable asignado -- el reparto es manual, a pedido de Joel, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
+  assert(/Grupo Plan Real/.test(cuerpoPlanGrupo.nota||''), 'la nota debe indicar que viene del grupo, para que quede trazable en Planificación, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
+  assert(cuerpoPlanGrupo.fecha===ctx.fechaISO(ctx.inicioSemana(new Date())), 'la fecha de la semana 1 debe ser el inicio de esta semana, obtuvo: '+cuerpoPlanGrupo.fecha+' esperado: '+ctx.fechaISO(ctx.inicioSemana(new Date())));
+  const postExclusionGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
+  assert(!!postExclusionGrupo, 'debe excluir del universo lo que no pertenece al grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const codigosExcluidosGrupo = JSON.parse(postExclusionGrupo.opts.body).map(f=>f.sku_code).sort();
+  assert(JSON.stringify(codigosExcluidosGrupo)===JSON.stringify(['OTRO-1','OTRO-2']), 'deben excluirse exactamente OTRO-1 y OTRO-2 (los que no son del grupo), nunca VENC-A/VENC-B, obtuvo: '+JSON.stringify(codigosExcluidosGrupo));
+
+  // Tras confirmar, la vista previa se limpia (para no volver a crearla dos veces sin recalcular).
+  assert(ctx.__appstate.grupos.vistaPreviaSemanas===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
 
   // ===== Planificación vinculada a ciclos de conteo (períodos) =====
 
