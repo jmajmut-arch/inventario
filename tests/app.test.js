@@ -3885,6 +3885,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.grupos.buscandoCandidatos===false, 'al llegar la respuesta debe salir de "buscando", obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
   assert(elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-1') && elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-2'), 'el contenedor de resultados debe reflejar los candidatos encontrados, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
 
+  // Un material que YA está en el grupo no debe aparecer en los resultados de búsqueda -- ni la
+  // primera vez ni al volver a buscar (reportado por Joel: seguía apareciendo abajo ofreciendo
+  // agregarlo de nuevo). Se compara por código+bodega contra los miembros ya cargados
+  // (state.grupos.miembros, ver abirGrupo más arriba: SKU-100/B501 ya es miembro de grupo-1).
+  candidatosGrupoFixture = [
+    {sku_code:'SKU-100', descripcion:'Ya es miembro', bodega:'B501'}, // ya pertenece al grupo
+    {sku_code:'SKU-100', descripcion:'Mismo código, OTRA bodega', bodega:'B999'}, // no es miembro en esta bodega
+    {sku_code:'SKU-NUEVO', descripcion:'Todavía no está en el grupo', bodega:'B501'},
+  ];
+  ctx.escribirCandidatoTextoGrupo('sk');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(ctx.__appstate.grupos.candidatos.length===2, 'debe excluir solo el par código+bodega que ya es miembro (SKU-100/B501), no el resto, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(!ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-100' && c.bodega==='B501'), 'SKU-100/B501 (ya miembro) no debe aparecer en los resultados, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-100' && c.bodega==='B999'), 'el mismo código en OTRA bodega (no es miembro ahí) SÍ debe seguir apareciendo, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(!elements['candidatos-grupo-resultados'].innerHTML.includes('Ya es miembro'), 'el contenedor de resultados repintado tampoco debe mostrar el material que ya es miembro, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+
   // Teclear varias veces seguidas, antes de que se cumpla el debounce de cada una, debe descartar
   // las respuestas intermedias (mismo peticionId que el buscador libre de Contar) y quedarse solo
   // con el resultado de la última búsqueda.

@@ -1947,7 +1947,13 @@ async function buscarCandidatosGrupo(){
     if(miPeticion !== candidatosGrupoPeticionId) return; // respuesta obsoleta: se siguió escribiendo
     const porIdentidad = new Map();
     rows.forEach(r=> porIdentidad.set(`${r.sku_code}::${r.bodega||''}`, r));
-    state.grupos.candidatos = Array.from(porIdentidad.values()).slice(0,30);
+    // No mostrar materiales que ya están en el grupo (reportado por Joel: al volver a buscar,
+    // seguían apareciendo como candidatos ofreciendo agregarlos de nuevo) -- se compara por
+    // código+bodega contra los miembros ya cargados del grupo abierto.
+    const yaMiembros = new Set((state.grupos.miembros||[]).map(m=>`${m.sku_code}::${m.bodega||''}`));
+    state.grupos.candidatos = Array.from(porIdentidad.values())
+      .filter(c=> !yaMiembros.has(`${c.sku_code}::${c.bodega||''}`))
+      .slice(0,30);
     state.grupos.buscandoCandidatos = false;
     actualizarResultadosCandidatosGrupoEnPantalla();
   }catch(e){
