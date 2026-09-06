@@ -504,7 +504,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false },
+  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -1258,7 +1258,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1746,17 +1746,22 @@ async function cargarGrupos(){
   }
 }
 
-async function crearGrupo(nombre, frecuenciaDias){
+async function crearGrupo(nombre, frecuenciaDias, automaticoCritico){
   if(!nombre || !perfilCargado()) return;
   try{
     await rest('/grupos_conteo', {method:'POST', body:[{
       empresa_id: state.perfil.empresa_id, nombre,
       frecuencia_dias: frecuenciaDias!=='' && frecuenciaDias!=null ? Number(frecuenciaDias) : null,
+      automatico_critico: !!automaticoCritico,
     }], prefer:'return=minimal'});
     toast('Grupo creado');
-    setState({grupos: {...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:''}});
+    setState({grupos: {...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false}});
     cargarGrupos();
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){
+    // Ya existe un grupo automático de críticos activo (índice único idx_grupos_conteo_automatico_
+    // critico_unico) -- a lo más uno por empresa, para no tener dos compitiendo por el mismo criterio.
+    toast(/idx_grupos_conteo_automatico_critico_unico/i.test(e.message||'') ? 'Ya existe un grupo automático de Crítico activo' : e.message, 'err');
+  }
 }
 
 function abrirGrupo(id){
@@ -1779,12 +1784,29 @@ async function cargarSeguimientoGrupo(grupoId){
   const grupo = state.grupos.lista.find(g=>g.id===grupoId);
   setState({grupos: {...state.grupos, seguimientoCargando:true, seguimiento:null}});
   try{
-    const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
+    let miembros, filas;
+    if(grupo && grupo.automatico_critico){
+      // Automático: la membresía ES el propio universo de skus.critico=true -- alcanza una sola
+      // consulta (ya trae la fecha), a diferencia de un grupo curado a mano que necesita cruzar
+      // skus_grupos_conteo con skus por separado (ver la rama de abajo).
+      filas = await rest(`/skus?activo=eq.true&critico=eq.true&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
+      const vistos = new Set();
+      miembros = [];
+      filas.forEach(f=>{
+        const clave = `${f.sku_code}::${f.bodega||''}`;
+        if(!vistos.has(clave)){ vistos.add(clave); miembros.push({sku_code:f.sku_code, bodega:f.bodega}); }
+      });
+    }else{
+      miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
+      filas = [];
+      if(miembros.length){
+        const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
+        filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
+      }
+    }
     const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
     const resumen = {totalMiembros: miembros.length, nuncaContados:0, alDia:0, vencidos:0, tieneFrecuencia};
     if(miembros.length){
-      const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
-      const filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
       const limiteMs = tieneFrecuencia ? Date.now() - grupo.frecuencia_dias*24*60*60*1000 : null;
       miembros.forEach(m=>{
         // Un material puede tener varias filas activas (por batch/ubicación/bin) -- se usa la
@@ -1809,6 +1831,13 @@ async function cargarSeguimientoGrupo(grupoId){
 }
 
 async function cargarMiembrosGrupo(grupoId){
+  const grupo = state.grupos.lista.find(g=>g.id===grupoId);
+  if(grupo && grupo.automatico_critico){
+    // Automático: no hay una lista curada que pedir ni mostrar acá -- la membresía es "todo lo
+    // marcado como Crítico" (ver renderDetalleGrupo, que usa el conteo de Seguimiento en su lugar).
+    setState({grupos: {...state.grupos, miembros:[], cargandoMiembros:false}});
+    return;
+  }
   setState({grupos: {...state.grupos, cargandoMiembros:true}});
   try{
     const rows = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=id,sku_code,bodega&order=sku_code.asc`);
@@ -1937,21 +1966,25 @@ async function calcularVistaPreviaPlanGrupo(){
   if(!grupo || !grupo.frecuencia_dias) return;
   setState({grupos: {...state.grupos, vistaPreviaCalculando:true}});
   try{
-    const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
-    let filasVencidas = [];
-    if(miembros.length){
-      // Un mismo código puede repetirse en más de una bodega -- se piden todas las filas activas
-      // de esos códigos y se filtra acá a las que de verdad son miembros (código+bodega exactos),
-      // porque PostgREST no permite filtrar por pares (código,bodega) en un solo pedido.
-      const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
-      const filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
-      const clavesMiembros = new Set(miembros.map(m=>`${m.sku_code}::${m.bodega||''}`));
-      const limiteMs = Date.now() - grupo.frecuencia_dias*24*60*60*1000;
-      filasVencidas = filas.filter(f=>
-        clavesMiembros.has(`${f.sku_code}::${f.bodega||''}`) &&
-        (!f.ultimo_conteo_fecha || new Date(f.ultimo_conteo_fecha).getTime() < limiteMs)
-      );
+    let filas;
+    if(grupo.automatico_critico){
+      // Automático: el universo ES skus.critico=true -- no hay membresía que cruzar aparte.
+      filas = await rest(`/skus?activo=eq.true&critico=eq.true&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
+    }else{
+      const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
+      filas = [];
+      if(miembros.length){
+        // Un mismo código puede repetirse en más de una bodega -- se piden todas las filas activas
+        // de esos códigos y se filtra acá a las que de verdad son miembros (código+bodega exactos),
+        // porque PostgREST no permite filtrar por pares (código,bodega) en un solo pedido.
+        const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
+        const filasCrudas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
+        const clavesMiembros = new Set(miembros.map(m=>`${m.sku_code}::${m.bodega||''}`));
+        filas = filasCrudas.filter(f=> clavesMiembros.has(`${f.sku_code}::${f.bodega||''}`));
+      }
     }
+    const limiteMs = Date.now() - grupo.frecuencia_dias*24*60*60*1000;
+    const filasVencidas = filas.filter(f=> !f.ultimo_conteo_fecha || new Date(f.ultimo_conteo_fecha).getTime() < limiteMs);
     const semanas = armarVistaPreviaSemanasGrupo(filasVencidas, Number(state.grupos.cupoSemanal)||20);
     setState({grupos: {...state.grupos, vistaPreviaCalculando:false, vistaPreviaSemanas:semanas, vistaPreviaTotalPendientes:filasVencidas.length}});
   }catch(e){
@@ -7002,6 +7035,11 @@ function renderGrupos(){
           <input type="text" id="grupo-nombre" placeholder="Ej. IE" required value="${esc(g.nombreNuevo)}">
           <label for="grupo-frecuencia" style="margin-top:8px">Frecuencia de conteo (días, opcional)</label>
           <input type="number" id="grupo-frecuencia" min="1" placeholder="Ej. 90" value="${esc(g.frecuenciaNuevaDias)}">
+          ${g.lista.some(x=>x.automatico_critico)? '' : `
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-top:10px">
+            <input type="checkbox" id="grupo-automatico-critico" ${g.automaticoCriticoNuevo?'checked':''}>
+            Automático: incluye todos los materiales marcados como Crítico (no se agregan a mano)
+          </label>`}
           <div style="display:flex;gap:8px;margin-top:10px">
             <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear grupo</button>
             <button type="button" id="btn-cancelar-grupo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Cancelar</button>
@@ -7010,11 +7048,12 @@ function renderGrupos(){
       ` : `<button type="button" id="btn-nuevo-grupo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear grupo</button>`}
       ${g.cargando? `<div class="hint" style="text-align:center;padding:24px 0">Cargando…</div>` : g.lista.length? `<div style="margin-top:14px">${g.lista.map(grupo=>{
         const cantidad = (grupo.miembros && grupo.miembros[0] && grupo.miembros[0].count) || 0;
+        const descripcionCantidad = grupo.automatico_critico ? 'Automático (Crítico)' : `${cantidad} material${cantidad===1?'':'es'}`;
         return `
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500">${esc(grupo.nombre)}</div>
-            <div class="hint" style="margin-top:2px">${cantidad} material${cantidad===1?'':'es'}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''}</div>
+            <div class="hint" style="margin-top:2px">${descripcionCantidad}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''}</div>
           </div>
           <button type="button" class="btn btn-secondary" data-ver-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver</button>
         </div>
@@ -7046,7 +7085,7 @@ function renderDetalleGrupo(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
   return `
-    <div class="section-head"><div><span class="eyebrow">Grupo</span><h2>${esc(grupo? grupo.nombre : '')}</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Grupo${grupo && grupo.automatico_critico? ' · Automático' : ''}</span><h2>${esc(grupo? grupo.nombre : '')}</h2></div></div>
     <button type="button" id="btn-volver-grupos" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;margin-bottom:12px">← Volver a grupos</button>
     <div class="card">
       <div class="hint" style="margin-bottom:8px">Seguimiento</div>
@@ -7060,13 +7099,15 @@ function renderDetalleGrupo(){
     </div>
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Materiales de este grupo</div>
-      ${g.cargandoMiembros? `<div class="hint" style="text-align:center;padding:16px 0">Cargando…</div>` : g.miembros.length? g.miembros.map(m=>`
+      ${grupo && grupo.automatico_critico ? `<div class="hint">Automático: incluye todos los materiales marcados como Crítico${g.seguimiento? ` (actualmente ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'})` : ''}. Para agregar o quitar materiales, actualiza el campo Crítico desde Carga masiva o Cargar SKU -- no se agregan a mano acá.</div>` :
+      g.cargandoMiembros? `<div class="hint" style="text-align:center;padding:16px 0">Cargando…</div>` : g.miembros.length? g.miembros.map(m=>`
         <div class="plan-item" style="padding:6px 0;align-items:center;gap:8px">
           <div style="flex:1">${esc(m.sku_code)}${m.bodega? ` · ${esc(m.bodega)}` : ' · sin bodega'}</div>
           <button type="button" class="btn btn-secondary" data-quitar-miembro-grupo="${esc(m.id)}" style="width:auto;padding:5px 10px;font-size:12px">Quitar</button>
         </div>
       `).join('') : `<div class="empty" style="padding:10px 8px">Todavía no hay materiales en este grupo.</div>`}
     </div>
+    ${grupo && grupo.automatico_critico ? '' : `
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Agregar materiales</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -7075,6 +7116,7 @@ function renderDetalleGrupo(){
       </div>
       <div id="candidatos-grupo-resultados">${renderResultadosCandidatosGrupo()}</div>
     </div>
+    `}
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Vista previa del plan (según la frecuencia del grupo)</div>
       ${!grupo || !grupo.frecuencia_dias ? `<div class="empty" style="padding:10px 8px">Este grupo no tiene una frecuencia definida todavía.</div>` : `
@@ -7762,7 +7804,8 @@ function bind(){
       const formCrearGrupo = document.getElementById('form-crear-grupo');
       if(formCrearGrupo) formCrearGrupo.addEventListener('submit', e=>{
         e.preventDefault();
-        crearGrupo(document.getElementById('grupo-nombre').value.trim(), document.getElementById('grupo-frecuencia').value.trim());
+        const chkAutomatico = document.getElementById('grupo-automatico-critico');
+        crearGrupo(document.getElementById('grupo-nombre').value.trim(), document.getElementById('grupo-frecuencia').value.trim(), chkAutomatico && chkAutomatico.checked);
       });
       document.querySelectorAll('[data-ver-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> abrirGrupo(btn.dataset.verGrupo));
