@@ -6708,6 +6708,10 @@ function renderPlanificacion(){
   }));
   const totalSemana = datosPorDia.reduce((s,d)=>s+d.cantidad, 0);
   const responsablesResumen = resumenPorResponsable(p.entradas, p.universos);
+  // A pedido de Joel: con datos reales, más de la mitad de las entradas planificadas quedaban sin
+  // responsable asignado y pasaba desapercibido -- este aviso lo pone al frente en vez de tener
+  // que notar cada fila suelta o buscarlo en el ranking de abajo.
+  const entradasSinResponsable = p.entradas.filter(e=>!e.responsable_id).length;
   // El formulario "Agregar a la planificación" debe abrir en el día de hoy (lo más probable
   // es que estés planificando para hoy), no en el lunes de la semana — pero si estás navegando
   // una semana distinta a la actual, hoy cae fuera de [semanaInicio, finSemana] y hay que
@@ -6742,6 +6746,15 @@ function renderPlanificacion(){
       <button class="btn btn-secondary" id="plan-semana-next" style="width:auto;padding:8px 12px;flex:none">›</button>
     </div>
     `}
+
+    ${entradasSinResponsable>0? `
+    <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="badge badge-warn">${entradasSinResponsable}</span>
+        <span>${entradasSinResponsable===1?'entrada planificada no tiene':'entradas planificadas no tienen'} responsable asignado${p.cicloFiltro? '' : ' en esta semana'}.</span>
+      </div>
+    </div>
+    ` : ''}
 
     <div class="card">
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
@@ -7533,8 +7546,8 @@ function renderShell(){
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
           <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs">${ICONS.skus.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-ir-calendario" class="btn-icon-header" aria-label="Calendario">${ICONS.calendario.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
-          <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           ${esAdminShell? `<button id="btn-ir-grupos" class="btn-icon-header" aria-label="Grupos de conteo">${ICONS.grupos.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>` : ''}
+          <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel">${ICONS.download.replace('style="width:15px;height:15px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
           <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
         </div>

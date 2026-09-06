@@ -4314,6 +4314,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // avisar en vez de reasignar a ciegas -- esto se prueba a nivel de bind(), no de la función en
   // sí (reasignarResponsableSeleccionPlan siempre actúa con lo que reciba).
 
+  // Aviso de entradas sin responsable asignado (a pedido de Joel: con datos reales de Escondida,
+  // más de la mitad de las entradas planificadas quedaban sin responsable y pasaba desapercibido
+  // -- este aviso lo pone al frente en vez de tener que notar cada fila suelta).
+  ctx.__appstate.plan.entradas = [
+    {id:'sr1', fecha:'2026-09-10', bodega:'B501', ubicacion:'0100', responsable_id:'resp-A', ciclo_nombre:null},
+    {id:'sr2', fecha:'2026-09-10', bodega:'B501', ubicacion:'0101', responsable_id:null, ciclo_nombre:null},
+    {id:'sr3', fecha:'2026-09-11', bodega:'B501', ubicacion:'0102', responsable_id:null, ciclo_nombre:null},
+  ];
+  ctx.__appstate.plan.seleccionados = [];
+  const htmlAvisoSinResponsable = ctx.renderPlanificacion();
+  assert(htmlAvisoSinResponsable.includes('>2<') && htmlAvisoSinResponsable.includes('entradas planificadas no tienen responsable asignado'), 'con entradas sin responsable, debe mostrar un aviso destacado con la cantidad exacta, obtuvo: '+htmlAvisoSinResponsable);
+
+  ctx.__appstate.plan.entradas = [
+    {id:'sr4', fecha:'2026-09-10', bodega:'B501', ubicacion:'0100', responsable_id:'resp-A', ciclo_nombre:null},
+  ];
+  const htmlSinAviso = ctx.renderPlanificacion();
+  assert(!htmlSinAviso.includes('no tienen responsable asignado') && !htmlSinAviso.includes('no tiene responsable asignado'), 'con todas las entradas asignadas, no debe mostrar el aviso, obtuvo: '+htmlSinAviso);
+
+  ctx.__appstate.plan.entradas = [
+    {id:'sr5', fecha:'2026-09-10', bodega:'B501', ubicacion:'0100', responsable_id:null, ciclo_nombre:null},
+  ];
+  const htmlAvisoSingular = ctx.renderPlanificacion();
+  assert(htmlAvisoSingular.includes('entrada planificada no tiene responsable asignado'), 'con una sola entrada sin responsable, el aviso debe estar en singular, obtuvo: '+htmlAvisoSingular);
+
   // ===== Planificación vinculada a ciclos de conteo (períodos) =====
 
   // Con ciclos ya cargados, el selector "Período" de arriba de la página (para navegar por
