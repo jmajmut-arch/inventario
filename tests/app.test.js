@@ -39,7 +39,8 @@ let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de venci
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
-let cicloActualFixture; // fila del ciclo actual con created_at (ver cargarSeguimientoGrupo) -- undefined = ninguno
+let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
+let contarCriticosDistintosFixture = 0; // respuesta del RPC contar_criticos_distintos (ver cargarGrupos)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -189,16 +190,19 @@ const fakeFetchImpl = async (url, opts) => {
     const conConteo = ids.filter(id => id === 'sku-con-conteo');
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conConteo.map(id=>({sku_id:id}))) };
   }
-  // cargarSeguimientoGrupo pide el ciclo actual aparte (con created_at, para calcular "día X del
-  // período") -- chequear antes del matcher genérico de /ciclos_conteo de abajo, que no trae ese
-  // campo y devuelve dos ciclos fijos (rompería el cálculo de días).
-  if(path.startsWith('/rest/v1/ciclos_conteo?es_actual=eq.true&select=nombre,created_at')){
+  // cargarSeguimientoGrupo pide el ciclo actual aparte (con fecha_inicio, para calcular "día X
+  // del período") -- chequear antes del matcher genérico de /ciclos_conteo de abajo, que no trae
+  // ese campo y devuelve dos ciclos fijos (rompería el cálculo de días).
+  if(path.startsWith('/rest/v1/ciclos_conteo?es_actual=eq.true&select=nombre,fecha_inicio')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cicloActualFixture!==undefined ? cicloActualFixture : []) };
+  }
+  if(path==='/rest/v1/ciclos_conteo' && opts && opts.method==='POST'){
+    return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   if(path.startsWith('/rest/v1/ciclos_conteo')){
     const filas = [
-      {id:'ciclo-1', nombre:'T1 2027', es_actual:true},
-      {id:'ciclo-2', nombre:'T4 2026', es_actual:false},
+      {id:'ciclo-1', nombre:'T1 2027', es_actual:true, fecha_inicio:'2027-01-05'},
+      {id:'ciclo-2', nombre:'T4 2026', es_actual:false, fecha_inicio:'2026-10-01'},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -219,6 +223,11 @@ const fakeFetchImpl = async (url, opts) => {
   // membresía ES el universo de skus.critico=true -- no pasa por skus_grupos_conteo.
   if(path.startsWith('/rest/v1/skus?activo=eq.true&critico=eq.true&select=')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(criticosAutomaticoFixture||[]) };
+  }
+  // Conteo real de materiales críticos (código+bodega distintos, no filas) para mostrar en la
+  // lista de Grupos junto al grupo automático (ver cargarGrupos).
+  if(path.startsWith('/rest/v1/rpc/contar_criticos_distintos')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(contarCriticosDistintosFixture) };
   }
   if(path.startsWith('/rest/v1/skus_grupos_conteo?grupo_id=eq.')){
     const grupoId = (path.match(/grupo_id=eq\.([^&]+)/)||[])[1];
@@ -3782,11 +3791,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlCiclos = ctx.renderCiclos();
   assert(htmlCiclos.includes('T1 2027') && htmlCiclos.includes('T4 2026'), 'Períodos (renderCiclos) debe listar los ciclos existentes, obtuvo: '+htmlCiclos);
   assert(htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-2"') && !htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-1"'), 'solo el ciclo que no es el actual debe ofrecer el botón de "marcar como actual" (ciclo-1 ya lo es), obtuvo: '+htmlCiclos);
+  // Fecha de inicio real, elegible al crear (a pedido de Joel: "día X del período" debe basarse
+  // en cuándo arrancó de verdad el conteo, no en cuándo se creó el registro) -- se muestra por
+  // cada período de la lista y el formulario ofrece el campo para elegirla.
+  assert(htmlCiclos.includes('id="ciclo-fecha-inicio"'), 'el formulario de crear período debe ofrecer un campo de fecha de inicio, obtuvo: '+htmlCiclos);
+  assert(htmlCiclos.includes('Inicio: 2027-01-05') && htmlCiclos.includes('Inicio: 2026-10-01'), 'cada período listado debe mostrar su fecha de inicio, obtuvo: '+htmlCiclos);
 
   calls.length = 0;
-  await ctx.crearCiclo('T2 2027');
+  await ctx.crearCiclo('T2 2027', '2027-04-01');
   const postCiclo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/ciclos_conteo'));
-  assert(!!postCiclo && JSON.parse(postCiclo.opts.body)[0].nombre==='T2 2027', 'crearCiclo debe hacer POST a /ciclos_conteo con el nombre, obtuvo: '+JSON.stringify(postCiclo));
+  assert(!!postCiclo && JSON.parse(postCiclo.opts.body)[0].nombre==='T2 2027' && JSON.parse(postCiclo.opts.body)[0].fecha_inicio==='2027-04-01', 'crearCiclo debe hacer POST a /ciclos_conteo con el nombre y la fecha de inicio elegida, obtuvo: '+JSON.stringify(postCiclo));
+
+  // Sin elegir fecha (por si el campo llegara vacío), debe usar hoy como respaldo -- nunca mandar
+  // fecha_inicio vacía o nula.
+  calls.length = 0;
+  await ctx.crearCiclo('T3 2027', '');
+  const postCicloSinFecha = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/ciclos_conteo'));
+  assert(!!postCicloSinFecha && JSON.parse(postCicloSinFecha.opts.body)[0].fecha_inicio===ctx.fechaISO(new Date()), 'sin fecha elegida, debe usar la fecha de hoy como respaldo, obtuvo: '+JSON.stringify(postCicloSinFecha));
 
   calls.length = 0;
   await ctx.marcarCicloActual('ciclo-2');
@@ -3863,6 +3884,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.grupos.candidatos.length===2, 'debe deduplicar candidatos repetidos por código+bodega (2 filas de SKU-CAND-1 -> 1, más SKU-CAND-2), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
   assert(ctx.__appstate.grupos.buscandoCandidatos===false, 'al llegar la respuesta debe salir de "buscando", obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
   assert(elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-1') && elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-2'), 'el contenedor de resultados debe reflejar los candidatos encontrados, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
+
+  // Un material que YA está en el grupo no debe aparecer en los resultados de búsqueda -- ni la
+  // primera vez ni al volver a buscar (reportado por Joel: seguía apareciendo abajo ofreciendo
+  // agregarlo de nuevo). Se compara por código+bodega contra los miembros ya cargados
+  // (state.grupos.miembros, ver abirGrupo más arriba: SKU-100/B501 ya es miembro de grupo-1).
+  candidatosGrupoFixture = [
+    {sku_code:'SKU-100', descripcion:'Ya es miembro', bodega:'B501'}, // ya pertenece al grupo
+    {sku_code:'SKU-100', descripcion:'Mismo código, OTRA bodega', bodega:'B999'}, // no es miembro en esta bodega
+    {sku_code:'SKU-NUEVO', descripcion:'Todavía no está en el grupo', bodega:'B501'},
+  ];
+  ctx.escribirCandidatoTextoGrupo('sk');
+  await new Promise(r=>setTimeout(r, 400));
+  assert(ctx.__appstate.grupos.candidatos.length===2, 'debe excluir solo el par código+bodega que ya es miembro (SKU-100/B501), no el resto, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(!ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-100' && c.bodega==='B501'), 'SKU-100/B501 (ya miembro) no debe aparecer en los resultados, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(ctx.__appstate.grupos.candidatos.some(c=>c.sku_code==='SKU-100' && c.bodega==='B999'), 'el mismo código en OTRA bodega (no es miembro ahí) SÍ debe seguir apareciendo, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+  assert(!elements['candidatos-grupo-resultados'].innerHTML.includes('Ya es miembro'), 'el contenedor de resultados repintado tampoco debe mostrar el material que ya es miembro, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
 
   // Teclear varias veces seguidas, antes de que se cumpla el debounce de cada una, debe descartar
   // las respuestas intermedias (mismo peticionId que el buscador libre de Contar) y quedarse solo
@@ -4127,7 +4164,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     {sku_code:'CRIT-B', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: ahoraCrit},
     {sku_code:'CRIT-C', bodega:'B501', ubicacion:'0100', storage_bin:'A-03', ultimo_conteo_fecha: null}, // nunca contado
   ];
+  // La lista de grupos debe mostrar la cantidad real de materiales críticos (RPC
+  // contar_criticos_distintos) junto con "Automático (Crítico)" -- reportado por Joel: antes solo
+  // se veía la etiqueta, sin cantidad (a diferencia de un grupo curado a mano, que sí la muestra).
+  contarCriticosDistintosFixture = 757;
+  calls.length = 0;
   await ctx.cargarGrupos();
+  assert(calls.some(c=>c.url.includes('/rpc/contar_criticos_distintos')), 'cargarGrupos debe pedir el conteo real de críticos para el grupo automático, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.volverAListaGrupos(); // por si quedó abierto el detalle de otro grupo de una prueba anterior
+  const htmlListaConCriticos = ctx.renderGrupos();
+  assert(htmlListaConCriticos.includes('757 materiales') && htmlListaConCriticos.includes('Automático (Crítico)') && htmlListaConCriticos.includes('cada 90 días'), 'la lista debe mostrar la cantidad de materiales, que es automático, y la frecuencia, obtuvo: '+htmlListaConCriticos);
+
   calls.length = 0;
   await ctx.abrirGrupo('grupo-critico');
   assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-critico')), 'un grupo automático no debe consultar skus_grupos_conteo para sus miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
@@ -4137,8 +4184,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(segC.totalMiembros===3 && segC.nuncaContados===1 && segC.alDia===1 && segC.vencidos===1 && segC.tieneFrecuencia===true, 'el seguimiento de un grupo automático debe distinguir al día/vencido/nunca contado igual que uno curado a mano, obtuvo: '+JSON.stringify(segC));
   assert(segC.cicloActual===null, 'sin ningún ciclo marcado como actual en el fixture, no debe mostrar período (ver el mock por defecto que devuelve []), obtuvo: '+JSON.stringify(segC.cicloActual));
 
-  // Con un ciclo actual real (creado hace 5 días), debe calcular y mostrar "día X del período".
-  cicloActualFixture = [{nombre:'T1 2027', created_at: new Date(Date.now() - 5*24*60*60*1000).toISOString()}];
+  // Con un ciclo actual real (fecha de inicio elegida a mano, hace 5 días), debe calcular y
+  // mostrar "día X del período" a partir de esa fecha -- NO de created_at (ver conversación con
+  // Joel: el período puede cargarse en la app días después de que el conteo arrancó de verdad).
+  cicloActualFixture = [{nombre:'T1 2027', fecha_inicio: ctx.fechaISO(ctx.sumarDias(new Date(), -5))}];
   await ctx.cargarSeguimientoGrupo('grupo-critico');
   assert(ctx.__appstate.grupos.seguimiento.cicloActual && ctx.__appstate.grupos.seguimiento.cicloActual.nombre==='T1 2027' && ctx.__appstate.grupos.seguimiento.cicloActual.dias===6, 'con un ciclo actual creado hace 5 días, debe calcular el día 6 del período, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento.cicloActual));
   const htmlConPeriodo = ctx.renderGrupos();
@@ -6044,26 +6093,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlBuscarClaseAbc.includes('id="b-clase-abc"') && htmlBuscarClaseAbc.includes('Clase ABC'), 'debe mostrar el selector de Clase ABC, obtuvo: '+htmlBuscarClaseAbc);
   ctx.__appstate.busqueda.claseAbc = '';
 
-  // ===== Buscar: filtro por Grupo de conteo curado a mano (a pedido de Joel: "buscar por
-  // grupos"). El grupo automático de Crítico NO aparece en este selector -- ya se cubre con "Solo
-  // críticos" (filtro directo, sin join). skus_busqueda no tiene columna de grupo, así que se
-  // resuelve trayendo los pares código+bodega del grupo (skus_grupos_conteo) y armando un OR
-  // exacto -- ver filtroGrupoBuscar/buscarConteos. =====
+  // ===== Buscar: filtro por Grupo de conteo (a pedido de Joel: "buscar por grupos"). El selector
+  // ofrece TODOS los grupos activos, curados a mano o automáticos (ej. "Críticos") -- reportado
+  // por Joel que el automático no aparecía. Un grupo curado a mano se resuelve trayendo sus pares
+  // código+bodega (skus_grupos_conteo) y armando un OR exacto; el automático de Crítico se
+  // resuelve igual que el checkbox "Solo críticos" (directo, sin join) -- ver
+  // filtroGrupoBuscar/construirParametrosBusquedaRpc/buscarConteos. =====
   ctx.__appstate.grupos.lista = [
     {id:'grupo-ie', nombre:'IE', automatico_critico:false, activo:true},
     {id:'grupo-critico-buscar', nombre:'Críticos', automatico_critico:true, activo:true},
+    {id:'grupo-vacio', nombre:'Vacío', automatico_critico:false, activo:true},
   ];
-  assert(JSON.stringify(ctx.gruposManualesBuscar().map(g=>g.id))===JSON.stringify(['grupo-ie']), 'el selector de grupo en Buscar debe excluir el grupo automático de Crítico, obtuvo: '+JSON.stringify(ctx.gruposManualesBuscar()));
+  assert(JSON.stringify(ctx.gruposParaFiltroBuscar().map(g=>g.id))===JSON.stringify(['grupo-ie','grupo-critico-buscar','grupo-vacio']), 'el selector de grupo en Buscar debe ofrecer todos los grupos activos, incluido el automático, obtuvo: '+JSON.stringify(ctx.gruposParaFiltroBuscar()));
   const htmlSelectorGrupo = ctx.renderBuscar();
-  assert(htmlSelectorGrupo.includes('id="b-grupo"') && htmlSelectorGrupo.includes('>IE<') && !htmlSelectorGrupo.includes('>Críticos<'), 'debe ofrecer un <select> de grupo con solo los grupos curados a mano, obtuvo: '+htmlSelectorGrupo);
+  assert(htmlSelectorGrupo.includes('id="b-grupo"') && htmlSelectorGrupo.includes('>IE<') && htmlSelectorGrupo.includes('>Críticos<'), 'debe ofrecer un <select> de grupo con TODOS los grupos, incluido el automático de Crítico, obtuvo: '+htmlSelectorGrupo);
 
   // Sin grupo elegido: no debe agregar ningún filtro ni tocar el RPC.
   assert(!ctx.construirPathBusqueda(0).includes('sku_id=eq.') , 'sin grupo elegido, no debe agregar el filtro de grupo, obtuvo: '+ctx.construirPathBusqueda(0));
   assert(ctx.construirParametrosBusquedaRpc().p_grupo_id===null, 'sin grupo elegido, el RPC debe recibir p_grupo_id null, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
 
-  // Con un grupo elegido: buscarConteos debe traer primero los pares código+bodega del grupo,
-  // guardarlos, y usarlos para armar el filtro exacto (código Y bodega, no solo código -- un
-  // mismo código puede estar en otra bodega que no es del grupo) -- y mandar p_grupo_id al RPC.
+  // Con un grupo curado a mano elegido: buscarConteos debe traer primero los pares código+bodega
+  // del grupo, guardarlos, y usarlos para armar el filtro exacto (código Y bodega, no solo código
+  // -- un mismo código puede estar en otra bodega que no es del grupo) -- y mandar p_grupo_id al RPC.
   gruposMiembrosFixture['grupo-ie'] = [
     {sku_code:'IE-100', bodega:'B501'},
     {sku_code:'IE-200', bodega:null}, // material del grupo sin bodega asignada
@@ -6080,7 +6131,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const pathConGrupo = ctx.construirPathBusqueda(0);
   assert(pathConGrupo.includes('or=(and(sku_code.eq.IE-100,bodega.eq.B501),and(sku_code.eq.IE-200,bodega.is.null))'), 'debe armar un OR de pares exactos código+bodega, respetando bodega nula, obtuvo: '+pathConGrupo);
   const rpcCallGrupo = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
-  assert(!!rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body).p_grupo_id==='grupo-ie', 'el RPC debe recibir el mismo grupo elegido en p_grupo_id, obtuvo: '+JSON.stringify(rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body)));
+  assert(!!rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body).p_grupo_id==='grupo-ie' && JSON.parse(rpcCallGrupo.opts.body).p_solo_criticos===false, 'el RPC debe recibir el mismo grupo elegido en p_grupo_id (y no forzar p_solo_criticos), obtuvo: '+JSON.stringify(rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body)));
 
   // Grupo sin materiales: no debe generar un "or=()" vacío (PostgREST lo rechazaría) -- debe usar
   // un filtro que garantice cero resultados, sin necesidad de pedirle nada a skus_busqueda.
@@ -6091,6 +6142,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.buscarConteos();
   assert(JSON.stringify(ctx.__appstate.busqueda.gruposPares)===JSON.stringify([]), 'un grupo sin materiales debe dejar gruposPares vacío, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.gruposPares));
   assert(ctx.construirPathBusqueda(0).includes('sku_id=eq.00000000-0000-0000-0000-000000000000'), 'un grupo sin materiales debe usar un filtro que nunca hace match, no un or=() vacío, obtuvo: '+ctx.construirPathBusqueda(0));
+
+  // Grupo automático de Crítico elegido desde el <select>: se resuelve igual que "Solo críticos"
+  // (critico=eq.true, sin join) -- no debe pedir skus_grupos_conteo para nada.
+  ctx.__appstate.busqueda.grupoId = 'grupo-critico-buscar';
+  ctx.__appstate.busqueda.gruposPares = [];
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo')), 'el grupo automático de Crítico no debe consultar skus_grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.stringify(ctx.__appstate.busqueda.gruposPares)===JSON.stringify([]), 'el grupo automático no necesita pares, gruposPares debe quedar vacío, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.gruposPares));
+  const pathGrupoAutomatico = ctx.construirPathBusqueda(0);
+  assert(pathGrupoAutomatico.includes('critico=eq.true') && !pathGrupoAutomatico.includes('sku_id=eq.'), 'el grupo automático debe filtrar por critico=eq.true, igual que el checkbox, obtuvo: '+pathGrupoAutomatico);
+  const rpcCallGrupoAutomatico = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
+  assert(!!rpcCallGrupoAutomatico && JSON.parse(rpcCallGrupoAutomatico.opts.body).p_solo_criticos===true && JSON.parse(rpcCallGrupoAutomatico.opts.body).p_grupo_id===null, 'el RPC debe recibir p_solo_criticos:true y p_grupo_id:null para el grupo automático, obtuvo: '+JSON.stringify(rpcCallGrupoAutomatico && JSON.parse(rpcCallGrupoAutomatico.opts.body)));
+
   ctx.__appstate.busqueda.grupoId = '';
   ctx.__appstate.busqueda.gruposPares = [];
 
