@@ -37,6 +37,8 @@ let candidatosGrupoFixture = null; // filas que devuelve el buscador de candidat
 let gruposMiembroDuplicado = false; // simula el rechazo del índice único al agregar dos veces
 let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de vencidos (ver calcularVistaPreviaPlanGrupo)
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
+let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
+let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -201,7 +203,15 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path==='/rest/v1/grupos_conteo' && opts && opts.method==='POST'){
+    if(grupoAutomaticoDuplicado){
+      return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "idx_grupos_conteo_automatico_critico_unico"'}) };
+    }
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  // Grupo automático "Crítico" (ver cargarSeguimientoGrupo/calcularVistaPreviaPlanGrupo): la
+  // membresía ES el universo de skus.critico=true -- no pasa por skus_grupos_conteo.
+  if(path.startsWith('/rest/v1/skus?activo=eq.true&critico=eq.true&select=')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(criticosAutomaticoFixture||[]) };
   }
   if(path.startsWith('/rest/v1/skus_grupos_conteo?grupo_id=eq.')){
     const grupoId = (path.match(/grupo_id=eq\.([^&]+)/)||[])[1];
@@ -4069,6 +4079,82 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSeguimientoSinFrecuencia = ctx.renderGrupos();
   assert(htmlSeguimientoSinFrecuencia.includes('1 de 2 material'), 'sin frecuencia, debe mostrar el resumen simple "X de Y contados", obtuvo: '+htmlSeguimientoSinFrecuencia);
   assert(!htmlSeguimientoSinFrecuencia.includes('Vencidos'), 'sin frecuencia, no debe hablar de "vencidos" (no hay con qué comparar), obtuvo: '+htmlSeguimientoSinFrecuencia);
+
+  // ===== Grupo automático "Crítico" (automatico_critico): su membresía ES skus.critico=true --
+  // no se cura a mano, reusa toda la maquinaria de Grupos (seguimiento/vista previa/plan) apuntada
+  // a ese campo en vez de a skus_grupos_conteo. Pedido de Joel: darle su propio calendario a los
+  // materiales críticos sin tocar el campo Crítico en sí. =====
+
+  // crearGrupo debe mandar automatico_critico como booleano.
+  calls.length = 0;
+  await ctx.crearGrupo('Críticos', '60', true);
+  const postGrupoAutomatico = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
+  assert(!!postGrupoAutomatico && JSON.parse(postGrupoAutomatico.opts.body)[0].automatico_critico===true, 'crearGrupo con automaticoCritico=true debe mandar automatico_critico:true, obtuvo: '+JSON.stringify(postGrupoAutomatico));
+  calls.length = 0;
+  await ctx.crearGrupo('IE', '60', false);
+  const postGrupoManual = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
+  assert(JSON.parse(postGrupoManual.opts.body)[0].automatico_critico===false, 'sin marcar el checkbox, debe mandar automatico_critico:false, obtuvo: '+JSON.stringify(postGrupoManual));
+
+  // Ya existe un grupo automático activo: el índice único lo rechaza, y se avisa con un mensaje
+  // entendible (no el error crudo de Postgres) -- mismo patrón que el índice de miembro duplicado.
+  grupoAutomaticoDuplicado = true;
+  const toastRootGrupoAuto = elements['toast-root'];
+  const toastsAntesGrupoAuto = toastRootGrupoAuto.hijos.length;
+  await ctx.crearGrupo('Otro Automático', '', true);
+  const toastsGrupoAuto = toastRootGrupoAuto.hijos.slice(toastsAntesGrupoAuto);
+  assert(toastsGrupoAuto.length===1 && toastsGrupoAuto[0].textContent==='Ya existe un grupo automático de Crítico activo', 'debe avisar con un mensaje claro si ya hay un grupo automático activo, obtuvo: '+JSON.stringify(toastsGrupoAuto.map(t=>t.textContent)));
+  grupoAutomaticoDuplicado = false;
+
+  // Abrir un grupo automático: cargarMiembrosGrupo NO debe tocar skus_grupos_conteo (no hay nada
+  // que listar ahí) y cargarSeguimientoGrupo debe leer directo de skus.critico=true.
+  const haceMuchoCrit = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // vencido (>90 días)
+  const hacePocoCrit = new Date(Date.now() - 5*24*60*60*1000).toISOString(); // al día
+  gruposConteoFixture = [{id:'grupo-critico', nombre:'Críticos', frecuencia_dias:90, activo:true, automatico_critico:true, miembros:[{count:0}]}];
+  criticosAutomaticoFixture = [
+    {sku_code:'CRIT-A', bodega:'B501', ubicacion:'0100', storage_bin:'A-01', ultimo_conteo_fecha: haceMuchoCrit},
+    {sku_code:'CRIT-B', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: hacePocoCrit},
+    {sku_code:'CRIT-C', bodega:'B501', ubicacion:'0100', storage_bin:'A-03', ultimo_conteo_fecha: null}, // nunca contado
+  ];
+  await ctx.cargarGrupos();
+  calls.length = 0;
+  await ctx.abrirGrupo('grupo-critico');
+  assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-critico')), 'un grupo automático no debe consultar skus_grupos_conteo para sus miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&critico=eq.true&select=')), 'el seguimiento de un grupo automático debe consultar skus.critico=true, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.miembros.length===0, 'un grupo automático no debe traer una lista de miembros curada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.miembros));
+  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:3, nuncaContados:1, alDia:1, vencidos:1, tieneFrecuencia:true}), 'el seguimiento de un grupo automático debe distinguir al día/vencido/nunca contado igual que uno curado a mano, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+
+  // El detalle no debe ofrecer "Agregar materiales" (no se agrega a mano) y debe explicar que es
+  // automático, con el conteo real de materiales críticos.
+  const htmlGrupoAutomatico = ctx.renderGrupos();
+  assert(htmlGrupoAutomatico.includes('Automático') && htmlGrupoAutomatico.includes('marcados como Crítico'), 'el detalle debe indicar que el grupo es automático, obtuvo: '+htmlGrupoAutomatico);
+  assert(htmlGrupoAutomatico.includes('actualmente 3 material'), 'debe mostrar el conteo real de materiales críticos usando el seguimiento ya cargado, obtuvo: '+htmlGrupoAutomatico);
+  assert(!htmlGrupoAutomatico.includes('candidato-texto') && !htmlGrupoAutomatico.includes('Agregar materiales'), 'un grupo automático no debe ofrecer el buscador para agregar materiales a mano, obtuvo: '+htmlGrupoAutomatico);
+  assert(!htmlGrupoAutomatico.includes('data-quitar-miembro-grupo'), 'un grupo automático no debe ofrecer "Quitar" (la membresía no se edita a mano), obtuvo: '+htmlGrupoAutomatico);
+
+  // La lista de grupos debe mostrar "Automático (Crítico)" en vez de un conteo de miembros (que
+  // siempre sería 0, porque no hay filas en skus_grupos_conteo para un grupo automático).
+  const htmlListaGrupos = (()=>{ ctx.volverAListaGrupos(); return ctx.renderGrupos(); })();
+  assert(htmlListaGrupos.includes('Automático (Crítico)'), 'la lista de grupos debe distinguir el grupo automático, obtuvo: '+htmlListaGrupos);
+
+  // Ya habiendo un grupo automático activo (grupo-critico), el formulario de "Crear grupo" no
+  // debe volver a ofrecer el checkbox -- evita el viaje redondo de intentarlo y chocar con el
+  // índice único (ver el aviso ya probado arriba).
+  ctx.setState({grupos:{...ctx.__appstate.grupos, creando:true}});
+  const htmlFormularioSinCheckbox = ctx.renderGrupos();
+  assert(!htmlFormularioSinCheckbox.includes('grupo-automatico-critico'), 'con un grupo automático ya activo, no debe ofrecerse el checkbox para crear otro, obtuvo: '+htmlFormularioSinCheckbox);
+  ctx.setState({grupos:{...ctx.__appstate.grupos, creando:false}});
+
+  await ctx.abrirGrupo('grupo-critico');
+
+  // calcularVistaPreviaPlanGrupo para un grupo automático: debe leer directo de skus.critico=true
+  // (sin pasar por skus_grupos_conteo) y filtrar vencidos exactamente igual que uno curado a mano.
+  calls.length = 0;
+  ctx.__appstate.grupos.cupoSemanal = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo')), 'la vista previa de un grupo automático no debe consultar skus_grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&critico=eq.true&select=')), 'la vista previa de un grupo automático debe consultar skus.critico=true, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2, 'CRIT-A (vencido hace 200 días) y CRIT-C (nunca contado) deben quedar pendientes -- CRIT-B está al día (contado hace 5 días), obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
+  criticosAutomaticoFixture = null;
 
   // ===== Reasignación masiva de responsable en Planificación (reasignarResponsableSeleccionPlan) =====
 
