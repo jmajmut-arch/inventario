@@ -913,7 +913,20 @@ async function restaurarSesionGuardada(){
   state.session = guardada;
   const ok = await refrescarSesion();
   if(!ok){ state.session = null; borrarSesionGuardada(); return; }
-  await cargarPerfil();
+  try{
+    await cargarPerfil();
+  }catch(e){
+    // Sentry #278: cargarPerfil() puede fallar por un corte de red genuino al pedir el perfil
+    // (aparte del chequeo de empresa bloqueada, que ya se atrapa dentro de la propia función) --
+    // sin este try/catch, el error se escapaba sin capturar hasta iniciarApp() (que no tiene
+    // ninguno) y terminaba en la red de seguridad global (ver Sentry #227) en vez de un manejo
+    // específico -- y además dejaba sin ejecutar el render() final de iniciarApp(), con la
+    // pantalla pegada en el splash inicial. No se borra la sesión guardada acá: es un problema
+    // de conexión momentáneo, no una sesión inválida -- borrarla forzaría un re-login
+    // innecesario apenas vuelva la señal.
+    toast(mensajeParaRechazoNoCapturado(e), 'err');
+    return;
+  }
   if(state.empresaBloqueada) return; // sesión sigue viva: se muestra la pantalla de cuenta bloqueada
   if(!state.perfil){ state.session = null; borrarSesionGuardada(); return; }
   state.view = vistaInicialParaPerfil();

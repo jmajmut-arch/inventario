@@ -2900,6 +2900,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!ctx.__appstate.session && ctx.__appstate.session.access_token==='token-refrescado', 'restaurarSesionGuardada debe refrescar el token guardado y restaurar la sesión, obtuvo: '+JSON.stringify(ctx.__appstate.session));
   assert(!!ctx.__appstate.perfil && ctx.__appstate.perfil.nombre==='Joel Restaurado', 'restaurarSesionGuardada debe volver a cargar el perfil, obtuvo: '+JSON.stringify(ctx.__appstate.perfil));
 
+  // Sentry #278: si cargarPerfil() falla por un corte de red genuino al pedir el perfil (no el
+  // chequeo de empresa bloqueada, que ya se atrapa aparte), restaurarSesionGuardada NO debe
+  // dejar escapar el error sin capturar -- antes esto llegaba sin manejar hasta iniciarApp()
+  // (que no tiene try/catch) en vez de un aviso específico, y además dejaba sin ejecutar el
+  // render() final de iniciarApp(). Tampoco debe borrar la sesión guardada: es un problema de
+  // conexión momentáneo, no una sesión inválida.
+  ctx.__appstate.session = null;
+  ctx.__appstate.perfil = null;
+  const fetchOriginalPerfil = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/usuarios' && u.search.includes('auth_user_id=eq.')) throw new ctx.__TypeError('Failed to fetch');
+    return fetchOriginalPerfil(url, opts);
+  };
+  const toastRootPerfil = elements['toast-root'];
+  const toastsAntesPerfil = toastRootPerfil ? toastRootPerfil.hijos.length : 0;
+  let noLanzoExcepcion = true;
+  try{ await ctx.restaurarSesionGuardada(); }catch(e){ noLanzoExcepcion = false; }
+  ctx.fetch = fetchOriginalPerfil;
+  assert(noLanzoExcepcion, 'restaurarSesionGuardada NO debe dejar escapar el error de cargarPerfil() sin capturar, se escapó: '+noLanzoExcepcion);
+  assert(!!ctx.__appstate.session && ctx.__appstate.session.access_token==='token-refrescado', 'la sesión (ya refrescada antes de que fallara el perfil) debe seguir viva, no se debe cerrar sesión por un corte de red momentáneo, obtuvo: '+JSON.stringify(ctx.__appstate.session));
+  assert(!!ctx.localStorage.getItem('sesion_inventario'), 'la sesión guardada en localStorage NO debe borrarse ante un fallo de red al cargar el perfil (forzaría un re-login innecesario), obtuvo: '+ctx.localStorage.getItem('sesion_inventario'));
+  const toastsPerfil = toastRootPerfil.hijos.slice(toastsAntesPerfil);
+  assert(toastsPerfil.some(t=>t.textContent==='No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.'), 'debe avisar con el mensaje específico de sin conexión, no dejar que caiga a la red de seguridad genérica, obtuvo: '+JSON.stringify(toastsPerfil.map(t=>t.textContent)));
+
   // handleLogin: si tengo_otra_sesion_activa() dice que sí (con "Single session per user"
   // activado, esta cuenta ya tenía otra sesión abierta en otro dispositivo, que quedará
   // invalidada en su próximo refresh), se lo avisamos a quien recién entró en vez del
