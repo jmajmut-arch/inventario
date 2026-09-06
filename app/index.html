@@ -501,6 +501,10 @@ let state = {
   // dash.avancePlanPorCiclo (que ya trae todos los períodos).
   dashPeriodo: '',
   plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
+  // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
+  // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
+  // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
+  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -670,7 +674,7 @@ const BODEGA_VACIA = '__bodega_vacia__';
 // Pestañas de la barra inferior a las que un operador (rol !== admin, sin ser super-admin) no
 // tiene acceso — a pedido: se muestran igual (con un candado) en vez de ocultarlas o dejarlas
 // entrar, para que quede claro que la función existe pero es solo para administradores.
-const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos'];
+const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos', 'grupos'];
 // Vistas con tablas/gráficos densos pensadas para admin/súper-admin en pantalla grande (ver
 // main.ancho) -- las VISTAS_SOLO_ADMIN de arriba, más Configuraciones (equipo, panel de
 // súper-admin), a diferencia de Contar/Reconteo/Buscar que se usan sobre todo desde el celular
@@ -1241,7 +1245,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1708,6 +1712,273 @@ async function marcarCicloActual(id){
     toast('Ciclo actual actualizado');
     cargarCiclos();
   }catch(e){ toast(e.message,'err'); }
+}
+
+/* =======================================================================
+   GRUPOS DE CONTEO
+   Listas curadas de materiales (ej. "IE", "5S"), armadas a mano con filtros -- no por carga
+   masiva. La pertenencia se guarda por código+bodega (ver migración skus_grupos_conteo), no
+   por la fila exacta de `skus`, para que sobreviva cambios de storage bin/ubicación/batch.
+   ======================================================================= */
+async function cargarGrupos(){
+  setState({grupos: {...state.grupos, cargando:true}});
+  try{
+    // El embed "miembros:skus_grupos_conteo(count)" trae la cantidad de materiales de cada
+    // grupo sin tener que pedirla aparte por grupo (evita N+1 consultas).
+    const rows = await rest('/grupos_conteo?select=*,miembros:skus_grupos_conteo(count)&activo=eq.true&order=nombre.asc');
+    setState({grupos: {...state.grupos, lista: rows||[], cargado:true, cargando:false}});
+  }catch(e){
+    setState({grupos: {...state.grupos, cargando:false}});
+    toast(e.message,'err');
+  }
+}
+
+async function crearGrupo(nombre, frecuenciaDias){
+  if(!nombre || !perfilCargado()) return;
+  try{
+    await rest('/grupos_conteo', {method:'POST', body:[{
+      empresa_id: state.perfil.empresa_id, nombre,
+      frecuencia_dias: frecuenciaDias!=='' && frecuenciaDias!=null ? Number(frecuenciaDias) : null,
+    }], prefer:'return=minimal'});
+    toast('Grupo creado');
+    setState({grupos: {...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:''}});
+    cargarGrupos();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+function abrirGrupo(id){
+  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], candidatos:[], candidatoTexto:'', candidatoBodega:'', vistaPreviaSemanas:null, seguimiento:null}});
+  return Promise.all([cargarMiembrosGrupo(id), cargarSeguimientoGrupo(id)]);
+}
+
+function volverAListaGrupos(){
+  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], candidatos:[], vistaPreviaSemanas:null, seguimiento:null}});
+}
+
+// Seguimiento del grupo: cuántos de sus materiales están al día vs vencidos según su frecuencia
+// (o, si todavía no tiene frecuencia definida, cuántos se han contado alguna vez) -- ver
+// conversación con Joel sobre llevar un avance separado por grupo. Deliberadamente vive acá, en
+// el detalle del grupo, y no como una dimensión nueva en el Dashboard: agregar "grupo" a las
+// vistas/RPC del Dashboard es un cambio de mayor riesgo (toca reportes ya en producción) que
+// prefiero dejar aparte si en algún momento hace falta -- esto ya da visibilidad real hoy sin
+// tocar una sola consulta existente del Dashboard.
+async function cargarSeguimientoGrupo(grupoId){
+  const grupo = state.grupos.lista.find(g=>g.id===grupoId);
+  setState({grupos: {...state.grupos, seguimientoCargando:true, seguimiento:null}});
+  try{
+    const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
+    const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
+    const resumen = {totalMiembros: miembros.length, nuncaContados:0, alDia:0, vencidos:0, tieneFrecuencia};
+    if(miembros.length){
+      const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
+      const filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
+      const limiteMs = tieneFrecuencia ? Date.now() - grupo.frecuencia_dias*24*60*60*1000 : null;
+      miembros.forEach(m=>{
+        // Un material puede tener varias filas activas (por batch/ubicación/bin) -- se usa la
+        // fecha de conteo MÁS RECIENTE entre todas ellas para decidir si el material (código+
+        // bodega) está al día, no una fila cualquiera.
+        let masReciente = null;
+        filas.forEach(f=>{
+          if(f.sku_code===m.sku_code && (f.bodega||'')===(m.bodega||'') && f.ultimo_conteo_fecha){
+            if(!masReciente || new Date(f.ultimo_conteo_fecha) > new Date(masReciente)) masReciente = f.ultimo_conteo_fecha;
+          }
+        });
+        if(!masReciente) resumen.nuncaContados++;
+        else if(tieneFrecuencia && new Date(masReciente).getTime() < limiteMs) resumen.vencidos++;
+        else resumen.alDia++;
+      });
+    }
+    setState({grupos: {...state.grupos, seguimientoCargando:false, seguimiento: resumen}});
+  }catch(e){
+    setState({grupos: {...state.grupos, seguimientoCargando:false}});
+    toast(e.message,'err');
+  }
+}
+
+async function cargarMiembrosGrupo(grupoId){
+  setState({grupos: {...state.grupos, cargandoMiembros:true}});
+  try{
+    const rows = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=id,sku_code,bodega&order=sku_code.asc`);
+    setState({grupos: {...state.grupos, miembros: rows||[], cargandoMiembros:false}});
+  }catch(e){
+    setState({grupos: {...state.grupos, cargandoMiembros:false}});
+    toast(e.message,'err');
+  }
+}
+
+// Busca materiales candidatos para agregar a un grupo, por texto (código/descripción) y bodega.
+// Deduplica por código+bodega (un mismo código puede repetirse en varias filas de `skus` por
+// batch/ubicación/bin distintos) -- acá no importa esa combinación fina, ver comentario arriba.
+async function buscarCandidatosGrupo(){
+  const { candidatoTexto, candidatoBodega } = state.grupos;
+  setState({grupos: {...state.grupos, buscandoCandidatos:true}});
+  try{
+    let filtro = `/skus?activo=eq.true&select=sku_code,descripcion,bodega&order=sku_code.asc&limit=200`;
+    const texto = sanearTextoFiltro(candidatoTexto);
+    if(texto) filtro += `&or=(sku_code.ilike.*${encodeURIComponent(texto)}*,descripcion.ilike.*${encodeURIComponent(texto)}*)`;
+    const bodega = sanearTextoFiltro(candidatoBodega);
+    if(bodega) filtro += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
+    const rows = await rest(filtro) || [];
+    const porIdentidad = new Map();
+    rows.forEach(r=> porIdentidad.set(`${r.sku_code}::${r.bodega||''}`, r));
+    setState({grupos: {...state.grupos, candidatos: Array.from(porIdentidad.values()).slice(0,30), buscandoCandidatos:false}});
+  }catch(e){
+    setState({grupos: {...state.grupos, buscandoCandidatos:false}});
+    toast(e.message,'err');
+  }
+}
+
+async function agregarMiembroGrupo(sku_code, bodega){
+  const grupoId = state.grupos.grupoAbierto;
+  if(!grupoId || !perfilCargado()) return;
+  try{
+    await rest('/skus_grupos_conteo', {method:'POST', body:[{
+      empresa_id: state.perfil.empresa_id, grupo_id: grupoId, sku_code, bodega: bodega||null,
+    }], prefer:'return=minimal'});
+    toast('Material agregado al grupo');
+    cargarMiembrosGrupo(grupoId);
+    cargarGrupos();
+    cargarSeguimientoGrupo(grupoId);
+  }catch(e){
+    // Ya pertenece al grupo (índice único skus_grupos_conteo_unico) -- no es un error real para
+    // la persona, solo lo avisamos sin ruido en vez del mensaje crudo de la base.
+    toast(/skus_grupos_conteo_unico/i.test(e.message||'') ? 'Ese material ya está en el grupo' : e.message, 'err');
+  }
+}
+
+async function quitarMiembroGrupo(miembroId){
+  const grupoId = state.grupos.grupoAbierto;
+  try{
+    await rest(`/skus_grupos_conteo?id=eq.${miembroId}`, {method:'DELETE'});
+    toast('Material quitado del grupo');
+    cargarMiembrosGrupo(grupoId);
+    cargarGrupos();
+    cargarSeguimientoGrupo(grupoId);
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Vista previa del plan por grupo (según su frecuencia): SOLO calcula y muestra -- no crea nada
+// en plan_semanal todavía (ver conversación con Joel: primero se revisa el resultado antes de
+// escribir cualquier cosa en Planificación/Calendario). "Vencido" = nunca contado, o contado
+// hace más de la frecuencia del grupo -- ver skus.ultimo_conteo_fecha, ya usado en toda la app.
+async function calcularVistaPreviaPlanGrupo(){
+  const grupoId = state.grupos.grupoAbierto;
+  const grupo = state.grupos.lista.find(g=>g.id===grupoId);
+  if(!grupo || !grupo.frecuencia_dias) return;
+  setState({grupos: {...state.grupos, vistaPreviaCalculando:true}});
+  try{
+    const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
+    let filasVencidas = [];
+    if(miembros.length){
+      // Un mismo código puede repetirse en más de una bodega -- se piden todas las filas activas
+      // de esos códigos y se filtra acá a las que de verdad son miembros (código+bodega exactos),
+      // porque PostgREST no permite filtrar por pares (código,bodega) en un solo pedido.
+      const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
+      const filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
+      const clavesMiembros = new Set(miembros.map(m=>`${m.sku_code}::${m.bodega||''}`));
+      const limiteMs = Date.now() - grupo.frecuencia_dias*24*60*60*1000;
+      filasVencidas = filas.filter(f=>
+        clavesMiembros.has(`${f.sku_code}::${f.bodega||''}`) &&
+        (!f.ultimo_conteo_fecha || new Date(f.ultimo_conteo_fecha).getTime() < limiteMs)
+      );
+    }
+    const semanas = armarVistaPreviaSemanasGrupo(filasVencidas, Number(state.grupos.cupoSemanal)||20);
+    setState({grupos: {...state.grupos, vistaPreviaCalculando:false, vistaPreviaSemanas:semanas, vistaPreviaTotalPendientes:filasVencidas.length}});
+  }catch(e){
+    setState({grupos: {...state.grupos, vistaPreviaCalculando:false}});
+    toast(e.message,'err');
+  }
+}
+
+// Agrupa los materiales vencidos por bodega+ubicación (misma zona física = misma visita) y los
+// reparte en semanas respetando un cupo -- sin cortar una zona a la mitad entre dos semanas (ver
+// conversación: la persona no debe visitar la misma ubicación dos veces por partir el cupo justo
+// a la mitad). Dentro de cada zona, ordenados por storage bin -- ahí sigue el orden físico real
+// de la bodega, según confirmó Joel, así que sirve como orden de recorrido sin inventar nada.
+function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
+  const zonas = new Map();
+  filasVencidas.forEach(f=>{
+    const clave = `${f.bodega||''}::${f.ubicacion||''}`;
+    if(!zonas.has(clave)) zonas.set(clave, {bodega:f.bodega, ubicacion:f.ubicacion, materiales:[]});
+    zonas.get(clave).materiales.push(f);
+  });
+  const zonasOrdenadas = Array.from(zonas.values()).sort((a,b)=>
+    (a.bodega||'').localeCompare(b.bodega||'') || (a.ubicacion||'').localeCompare(b.ubicacion||''));
+  zonasOrdenadas.forEach(z=> z.materiales.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'')));
+
+  const semanas = [];
+  let semanaActual = null;
+  zonasOrdenadas.forEach(z=>{
+    if(!semanaActual || (semanaActual.materiales + z.materiales.length > cupoSemanal && semanaActual.zonas.length)){
+      semanaActual = { materiales:0, zonas:[] };
+      semanas.push(semanaActual);
+    }
+    semanaActual.zonas.push(z);
+    semanaActual.materiales += z.materiales.length;
+  });
+  return semanas;
+}
+
+// Convierte la vista previa YA CALCULADA en entradas reales de plan_semanal -- una por zona y
+// semana, reutilizando crearPlanEntrada (misma función que usa el formulario manual de
+// Planificación, con el mismo refresco de plan/calendario) en vez de escribir la tabla a mano.
+// Cubre SOLO los materiales del grupo en esa zona: se pide el universo completo de esa
+// bodega+ubicación (skusDeUbicacion, la misma función que ya usa Planificación) y se excluye
+// todo lo que NO sea del grupo -- igual mecánica que "Storage bin" con SKU puntuales en el
+// formulario manual (ver el submit de #form-plan). Sin responsable asignado -- a pedido de
+// Joel, el reparto entre personas queda manual.
+async function confirmarVistaPreviaComoPlan(){
+  const g = state.grupos;
+  const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
+  if(!grupo || !g.vistaPreviaSemanas || !g.vistaPreviaSemanas.length || !perfilCargado()) return;
+
+  // Una zona sin ubicación específica (ubicacion IS NULL) no se puede acotar de forma segura:
+  // skusDeUbicacion no filtra por "ubicación nula", así que pedir su universo traería TODAS las
+  // ubicaciones de esa bodega -- se generaría una entrada mucho más amplia que el grupo real.
+  // Se excluyen esas zonas del generador (en vez de arriesgar una entrada mal acotada) y se avisa.
+  const zonasValidas = [];
+  const zonasOmitidas = [];
+  g.vistaPreviaSemanas.forEach(semana=> semana.zonas.forEach(z=>{
+    if(z.ubicacion) zonasValidas.push(z); else zonasOmitidas.push(z);
+  }));
+  if(!zonasValidas.length){
+    toast('Ninguna zona pendiente tiene una ubicación específica -- no se puede generar el plan automáticamente todavía','err');
+    return;
+  }
+
+  const totalMateriales = zonasValidas.reduce((n,z)=>n+z.materiales.length, 0);
+  const avisoOmitidas = zonasOmitidas.length ? ` (${zonasOmitidas.length} zona${zonasOmitidas.length===1?'':'s'} sin ubicación específica quedará${zonasOmitidas.length===1?'':'n'} fuera, hay que agregarla${zonasOmitidas.length===1?'':'s'} a mano)` : '';
+  if(!confirm(`¿Crear ${zonasValidas.length} entrada${zonasValidas.length===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})${avisoOmitidas}? Quedan sin responsable asignado -- lo repartes tú después.`)) return;
+
+  setState({grupos: {...state.grupos, generandoPlan:true}});
+  const inicioHoy = inicioSemana(new Date());
+  try{
+    let creadas = 0;
+    for(let i=0; i<g.vistaPreviaSemanas.length; i++){
+      const fecha = fechaISO(sumarDias(inicioHoy, i*7));
+      for(const z of g.vistaPreviaSemanas[i].zonas){
+        if(!z.ubicacion) continue;
+        // bodega null (skus.bodega IS NULL) se manda como '' -- convención de esta app para
+        // distinguir "el grupo sin bodega asignada" de "sin filtro, cualquier bodega" (ver
+        // filtroBodega/BODEGA_VACIA, ya usado en Planificación manual).
+        const bodegaParaZona = z.bodega===null || z.bodega===undefined ? '' : z.bodega;
+        const universo = await skusDeUbicacion({bodega: bodegaParaZona, ubicacion: z.ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false});
+        const codigosDelGrupo = new Set(z.materiales.map(m=>m.sku_code));
+        const skusExcluidos = universo.map(s=>s.sku_code).filter(code=>!codigosDelGrupo.has(code));
+        await crearPlanEntrada({
+          fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storageBins:[], skusExcluidos,
+          soloSinUbicacion:false, cicloId:'', responsableId:'',
+          nota: `Generado automáticamente por el grupo "${grupo.nombre}"`,
+        });
+        creadas++;
+      }
+    }
+    toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}`);
+    setState({grupos: {...state.grupos, generandoPlan:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0}});
+  }catch(e){
+    setState({grupos: {...state.grupos, generandoPlan:false}});
+    toast(e.message,'err');
+  }
 }
 
 async function actualizarNombreEmpresa(nombre){
@@ -2300,6 +2571,22 @@ async function confirmarYBorrarSeleccionPlan(){
   if(confirm(`¿Eliminar ${ids.length} entrada${ids.length>1?'s':''} del plan? Se pierde la ubicación, el responsable y la nota de cada una.`)){
     await borrarPlanEntradas(ids);
   }
+}
+
+// Reasignar responsable sobre varias entradas seleccionadas a la vez -- hermano de "Eliminar
+// selección" (misma selección múltiple). Pensado para repartir de una el plan generado
+// automáticamente por un grupo de conteo (que queda sin responsable a propósito, ver
+// confirmarVistaPreviaComoPlan), sin tener que ir entrada por entrada. responsableId==='' vacía
+// el responsable (queda "Sin asignar"), igual convención que el selector de una sola entrada.
+async function reasignarResponsableSeleccionPlan(responsableId){
+  const ids = state.plan.seleccionados;
+  if(!ids.length) return;
+  try{
+    await rest(`/plan_semanal?id=in.(${ids.join(',')})`, {method:'PATCH', body:{responsable_id: responsableId||null}, prefer:'return=minimal'});
+    toast(`Responsable actualizado en ${ids.length} entrada${ids.length>1?'s':''}`);
+    setState({plan: {...state.plan, seleccionados:[]}});
+    cargarPlanSemanal();
+  }catch(e){ toast(e.message,'err'); }
 }
 
 async function cargarOpcionesGenerales(){
@@ -4032,6 +4319,7 @@ const ICONS = {
   alerta:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
   ciclos:'<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h13l-3 4 3 4H5"/></svg>',
   info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>',
+  grupos:'<svg viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>',
 };
 
 // Ícono "i" junto al título/etiqueta de un panel del Dashboard: qué considera exactamente ese
@@ -6306,7 +6594,13 @@ function renderPlanificacion(){
           ${p.seleccionados.length? `${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}` : 'Seleccionar todo'}
         </label>
         ${p.seleccionados.length? `
-          <div style="display:flex;gap:8px;flex:none">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;flex:none">
+            <select id="plan-reasignar-select" style="width:auto">
+              <option value="__elegir__" selected>Reasignar a…</option>
+              <option value="">Sin asignar</option>
+              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+            </select>
+            <button class="btn btn-secondary" id="btn-reasignar-seleccion-plan" style="width:auto;padding:8px 12px">Reasignar</button>
             <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
             <button class="btn" id="btn-borrar-seleccion-plan" style="width:auto;padding:8px 12px;background:var(--danger);color:#fff">${ICONS.papelera.replace('style="width:15px;height:15px"','style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Eliminar</button>
           </div>
@@ -6622,6 +6916,112 @@ function renderCiclos(){
   `;
 }
 
+// Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales para llevar un seguimiento
+// separado de crítico/no crítico. Se arman a mano acá, con un buscador simple (texto+bodega)
+// -- NO por carga masiva (ver conversación con Joel). "Crítico" es totalmente independiente.
+function renderGrupos(){
+  const g = state.grupos;
+  if(g.grupoAbierto) return renderDetalleGrupo();
+  return `
+    <div class="section-head"><div><span class="eyebrow">Empresa</span><h2>Grupos de conteo</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Listas de materiales para llevar un seguimiento separado del resto (ej. "IE" para insumos estratégicos, "5S"). Independiente de "Crítico".</div>
+      ${g.creando? `
+        <form id="form-crear-grupo">
+          <label for="grupo-nombre">Nombre del grupo</label>
+          <input type="text" id="grupo-nombre" placeholder="Ej. IE" required value="${esc(g.nombreNuevo)}">
+          <label for="grupo-frecuencia" style="margin-top:8px">Frecuencia de conteo (días, opcional)</label>
+          <input type="number" id="grupo-frecuencia" min="1" placeholder="Ej. 90" value="${esc(g.frecuenciaNuevaDias)}">
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear grupo</button>
+            <button type="button" id="btn-cancelar-grupo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Cancelar</button>
+          </div>
+        </form>
+      ` : `<button type="button" id="btn-nuevo-grupo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear grupo</button>`}
+      ${g.cargando? `<div class="hint" style="text-align:center;padding:24px 0">Cargando…</div>` : g.lista.length? `<div style="margin-top:14px">${g.lista.map(grupo=>{
+        const cantidad = (grupo.miembros && grupo.miembros[0] && grupo.miembros[0].count) || 0;
+        return `
+        <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="flex:1">
+            <div class="plan-item-ubic" style="font-weight:500">${esc(grupo.nombre)}</div>
+            <div class="hint" style="margin-top:2px">${cantidad} material${cantidad===1?'':'es'}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''}</div>
+          </div>
+          <button type="button" class="btn btn-secondary" data-ver-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver</button>
+        </div>
+      `;}).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay grupos creados.</div>`}
+    </div>
+  `;
+}
+
+function renderDetalleGrupo(){
+  const g = state.grupos;
+  const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
+  return `
+    <div class="section-head"><div><span class="eyebrow">Grupo</span><h2>${esc(grupo? grupo.nombre : '')}</h2></div></div>
+    <button type="button" id="btn-volver-grupos" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;margin-bottom:12px">← Volver a grupos</button>
+    <div class="card">
+      <div class="hint" style="margin-bottom:8px">Seguimiento</div>
+      ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : g.seguimiento.totalMiembros===0 ? `<div class="empty" style="padding:10px 8px">Sin materiales todavía.</div>` : g.seguimiento.tieneFrecuencia ? `
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.alDia}</div><div class="hint">Al día</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--danger)">${g.seguimiento.vencidos}</div><div class="hint">Vencidos</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--text-dim)">${g.seguimiento.nuncaContados}</div><div class="hint">Nunca contados</div></div>
+      </div>
+      ` : `<div class="hint">${g.seguimiento.alDia} de ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'} contado${g.seguimiento.totalMiembros===1?'':'s'} alguna vez${g.seguimiento.nuncaContados? ` (${g.seguimiento.nuncaContados} nunca contado${g.seguimiento.nuncaContados===1?'':'s'})` : ''}. Define una frecuencia en este grupo para distinguir "al día" de "vencido".</div>`}
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:8px">Materiales de este grupo</div>
+      ${g.cargandoMiembros? `<div class="hint" style="text-align:center;padding:16px 0">Cargando…</div>` : g.miembros.length? g.miembros.map(m=>`
+        <div class="plan-item" style="padding:6px 0;align-items:center;gap:8px">
+          <div style="flex:1">${esc(m.sku_code)}${m.bodega? ` · ${esc(m.bodega)}` : ' · sin bodega'}</div>
+          <button type="button" class="btn btn-secondary" data-quitar-miembro-grupo="${esc(m.id)}" style="width:auto;padding:5px 10px;font-size:12px">Quitar</button>
+        </div>
+      `).join('') : `<div class="empty" style="padding:10px 8px">Todavía no hay materiales en este grupo.</div>`}
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:8px">Agregar materiales</div>
+      <form id="form-buscar-candidatos-grupo" style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" id="candidato-texto" placeholder="Código o descripción" value="${esc(g.candidatoTexto)}" style="flex:1;min-width:160px">
+        <input type="text" id="candidato-bodega" placeholder="Bodega" value="${esc(g.candidatoBodega)}" style="width:120px">
+        <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Buscar</button>
+      </form>
+      ${g.buscandoCandidatos? `<div class="hint" style="text-align:center;padding:16px 0">Buscando…</div>` : g.candidatos.length? `<div style="margin-top:10px">${g.candidatos.map(c=>`
+        <div class="plan-item" style="padding:6px 0;align-items:center;gap:8px">
+          <div style="flex:1">${esc(c.sku_code)} — ${esc(c.descripcion||'')}${c.bodega? ` · ${esc(c.bodega)}` : ' · sin bodega'}</div>
+          <button type="button" class="btn btn-secondary" data-agregar-miembro-grupo="${esc(c.sku_code)}" data-agregar-miembro-bodega="${esc(c.bodega||'')}" style="width:auto;padding:5px 10px;font-size:12px">+ Agregar</button>
+        </div>
+      `).join('')}</div>` : ''}
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:8px">Vista previa del plan (según la frecuencia del grupo)</div>
+      ${!grupo || !grupo.frecuencia_dias ? `<div class="empty" style="padding:10px 8px">Este grupo no tiene una frecuencia definida todavía.</div>` : `
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <label for="grupo-cupo-semanal">Materiales por semana</label>
+          <input type="number" id="grupo-cupo-semanal" min="1" value="${esc(g.cupoSemanal||20)}" style="width:110px">
+        </div>
+        <button type="button" id="btn-calcular-vista-previa" class="btn btn-secondary" style="width:auto;padding:8px 14px">Calcular vista previa</button>
+      </div>
+      ${g.vistaPreviaCalculando? `<div class="hint" style="text-align:center;padding:16px 0">Calculando…</div>` : g.vistaPreviaSemanas? (
+        g.vistaPreviaSemanas.length? `
+        <div class="hint" style="margin:10px 0">${g.vistaPreviaTotalPendientes} material${g.vistaPreviaTotalPendientes===1?'':'es'} pendiente${g.vistaPreviaTotalPendientes===1?'':'s'} de contar, repartidos en ${g.vistaPreviaSemanas.length} semana${g.vistaPreviaSemanas.length===1?'':'s'}.</div>
+        ${g.vistaPreviaSemanas.map((semana,i)=>`
+          <div class="plan-item" style="padding:8px 0;align-items:flex-start;gap:4px;flex-direction:column">
+            <div style="font-weight:500">Semana ${i+1} — ${semana.materiales} material${semana.materiales===1?'':'es'}</div>
+            <div class="hint">${semana.zonas.map(z=>`${esc(z.bodega||'Sin bodega')} · ${esc(z.ubicacion||'Sin ubicación')} (${z.materiales.length})`).join(', ')}</div>
+          </div>
+        `).join('')}
+        <div style="margin-top:12px">
+          <button type="button" id="btn-confirmar-plan-grupo" class="btn btn-primary" style="width:auto;padding:8px 14px" ${g.generandoPlan?'disabled':''}>${g.generandoPlan? 'Creando…' : 'Confirmar y crear plan'}</button>
+        </div>
+        <div class="hint" style="margin-top:8px;font-style:italic">Se crean sin responsable asignado -- lo repartes tú después en Planificación.</div>
+        ` : `<div class="empty" style="padding:10px 8px">No hay materiales pendientes de contar en este grupo -- todos están dentro de la frecuencia definida.</div>`
+      ) : `<div class="hint" style="margin-top:10px;font-style:italic">Calcula la vista previa primero -- no se crea nada en Planificación hasta que la confirmes.</div>`}
+      `}
+    </div>
+  `;
+}
+
 // Calendario mensual: planificado/contado/recontado/pendiente por día (ver resumen_calendario_mes
 // -- alcance por rol lo resuelve el propio RPC, acá solo se pinta lo que llega). Semana de lunes a
 // domingo, igual convención que Planificación (ver inicioSemana).
@@ -6817,7 +7217,7 @@ function renderConfiguraciones(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo'}[v];
 }
 
 function renderShell(){
@@ -6832,9 +7232,11 @@ function renderShell(){
     plan: renderPlanificacion,
     ciclos: renderCiclos,
     calendario: renderCalendario,
+    grupos: renderGrupos,
   }[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
+  const esAdminShell = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
 
   return `
     <div class="topbar">
@@ -6849,6 +7251,7 @@ function renderShell(){
           <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs">${ICONS.skus.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-ir-calendario" class="btn-icon-header" aria-label="Calendario">${ICONS.calendario.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
+          ${esAdminShell? `<button id="btn-ir-grupos" class="btn-icon-header" aria-label="Grupos de conteo">${ICONS.grupos.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>` : ''}
           <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel">${ICONS.download.replace('style="width:15px;height:15px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
           <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
         </div>
@@ -7096,6 +7499,8 @@ function bind(){
   document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
   document.getElementById('btn-ir-skus').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'skus'}); });
   document.getElementById('btn-ir-calendario').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'calendario'}); });
+  const btnIrGrupos = document.getElementById('btn-ir-grupos');
+  if(btnIrGrupos) btnIrGrupos.addEventListener('click', ()=>{ detenerEscaner(); setState({view:'grupos'}); });
   document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=> setState({exportarModal:true}));
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
@@ -7262,6 +7667,48 @@ function bind(){
     document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{
       btn.addEventListener('click', ()=> marcarCicloActual(btn.dataset.marcarCicloActual));
     });
+  }
+
+  if(state.view==='grupos'){
+    if(!state.grupos.cargado && !state.grupos.cargando) cargarGrupos();
+    if(!state.grupos.grupoAbierto){
+      const btnNuevoGrupo = document.getElementById('btn-nuevo-grupo');
+      if(btnNuevoGrupo) btnNuevoGrupo.addEventListener('click', ()=> setState({grupos:{...state.grupos, creando:true}}));
+      const btnCancelarGrupo = document.getElementById('btn-cancelar-grupo');
+      if(btnCancelarGrupo) btnCancelarGrupo.addEventListener('click', ()=> setState({grupos:{...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:''}}));
+      const formCrearGrupo = document.getElementById('form-crear-grupo');
+      if(formCrearGrupo) formCrearGrupo.addEventListener('submit', e=>{
+        e.preventDefault();
+        crearGrupo(document.getElementById('grupo-nombre').value.trim(), document.getElementById('grupo-frecuencia').value.trim());
+      });
+      document.querySelectorAll('[data-ver-grupo]').forEach(btn=>{
+        btn.addEventListener('click', ()=> abrirGrupo(btn.dataset.verGrupo));
+      });
+    }else{
+      document.getElementById('btn-volver-grupos').addEventListener('click', volverAListaGrupos);
+      document.querySelectorAll('[data-quitar-miembro-grupo]').forEach(btn=>{
+        btn.addEventListener('click', ()=> quitarMiembroGrupo(btn.dataset.quitarMiembroGrupo));
+      });
+      const formBuscarCandidatos = document.getElementById('form-buscar-candidatos-grupo');
+      if(formBuscarCandidatos) formBuscarCandidatos.addEventListener('submit', e=>{
+        e.preventDefault();
+        setState({grupos:{...state.grupos,
+          candidatoTexto: document.getElementById('candidato-texto').value,
+          candidatoBodega: document.getElementById('candidato-bodega').value,
+        }});
+        buscarCandidatosGrupo();
+      });
+      document.querySelectorAll('[data-agregar-miembro-grupo]').forEach(btn=>{
+        btn.addEventListener('click', ()=> agregarMiembroGrupo(btn.dataset.agregarMiembroGrupo, btn.dataset.agregarMiembroBodega));
+      });
+      const btnCalcularVistaPrevia = document.getElementById('btn-calcular-vista-previa');
+      if(btnCalcularVistaPrevia) btnCalcularVistaPrevia.addEventListener('click', ()=>{
+        setState({grupos:{...state.grupos, cupoSemanal: document.getElementById('grupo-cupo-semanal').value}});
+        calcularVistaPreviaPlanGrupo();
+      });
+      const btnConfirmarPlanGrupo = document.getElementById('btn-confirmar-plan-grupo');
+      if(btnConfirmarPlanGrupo) btnConfirmarPlanGrupo.addEventListener('click', confirmarVistaPreviaComoPlan);
+    }
   }
 
   if(state.view==='calendario'){
@@ -7958,6 +8405,12 @@ function bind(){
     if(btnBorrarSeleccion) btnBorrarSeleccion.addEventListener('click', async ()=>{
       await confirmarYBorrarSeleccionPlan();
       await refrescarCascadaTrasAgregar();
+    });
+    const btnReasignarSeleccion = document.getElementById('btn-reasignar-seleccion-plan');
+    if(btnReasignarSeleccion) btnReasignarSeleccion.addEventListener('click', ()=>{
+      const sel = document.getElementById('plan-reasignar-select');
+      if(sel.value==='__elegir__'){ toast('Elige a quién reasignar primero','err'); return; }
+      reasignarResponsableSeleccionPlan(sel.value);
     });
     const btnCancelarSeleccion = document.getElementById('btn-cancelar-seleccion-plan');
     if(btnCancelarSeleccion) btnCancelarSeleccion.addEventListener('click', ()=> setState({plan:{...state.plan, seleccionados:[]}}));

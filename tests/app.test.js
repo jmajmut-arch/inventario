@@ -31,6 +31,12 @@ let mfaChallengeRespuesta = { id:'challenge-1' };
 let mfaVerifyRespuesta = { access_token:'tok-aal2', refresh_token:'ref-aal2', user:{id:'user-1', email:'joel@test.com'} };
 let mfaVerifyError = null; // {status, error} para simular un código incorrecto
 let conteosExportablesFixture = [];
+let gruposConteoFixture = null; // filas de grupos_conteo (con miembros:[{count}] embebido)
+let gruposMiembrosFixture = {}; // por grupo_id: filas de skus_grupos_conteo
+let candidatosGrupoFixture = null; // filas que devuelve el buscador de candidatos (skus)
+let gruposMiembroDuplicado = false; // simula el rechazo del índice único al agregar dos veces
+let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de vencidos (ver calcularVistaPreviaPlanGrupo)
+let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -186,6 +192,45 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'ciclo-2', nombre:'T4 2026', es_actual:false},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Grupos de conteo (ej. "IE", "5S") -- ver renderGrupos/cargarGrupos.
+  if(path.startsWith('/rest/v1/grupos_conteo?select=')){
+    const filas = gruposConteoFixture || [
+      {id:'grupo-1', nombre:'IE', frecuencia_dias:180, activo:true, miembros:[{count:2}]},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path==='/rest/v1/grupos_conteo' && opts && opts.method==='POST'){
+    return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  if(path.startsWith('/rest/v1/skus_grupos_conteo?grupo_id=eq.')){
+    const grupoId = (path.match(/grupo_id=eq\.([^&]+)/)||[])[1];
+    const filas = gruposMiembrosFixture[grupoId] || [];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path==='/rest/v1/skus_grupos_conteo' && opts && opts.method==='POST'){
+    if(gruposMiembroDuplicado){
+      return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_grupos_conteo_unico"'}) };
+    }
+    return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  if(path.startsWith('/rest/v1/skus_grupos_conteo?id=eq.') && opts && opts.method==='DELETE'){
+    return { status:204, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  // Buscador de candidatos para agregar a un grupo (ver buscarCandidatosGrupo) -- dos filas con
+  // el mismo código+bodega a propósito, para probar que se deduplican.
+  if(path.startsWith('/rest/v1/skus?activo=eq.true&select=sku_code,descripcion,bodega')){
+    const filas = candidatosGrupoFixture || [
+      {sku_code:'SKU-CAND-1', descripcion:'Correa transportadora', bodega:'B501'},
+      {sku_code:'SKU-CAND-1', descripcion:'Correa transportadora', bodega:'B501'},
+      {sku_code:'SKU-CAND-2', descripcion:'Rodamiento', bodega:'B502'},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Vista previa del plan por grupo (ver calcularVistaPreviaPlanGrupo): trae las filas activas
+  // de skus que coinciden con los códigos de los miembros, para filtrar acá cuáles ya vencieron.
+  if(path.startsWith('/rest/v1/skus?activo=eq.true&sku_code=in.')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filasVencidasGrupoFixture||[]) };
   }
   // Buscar: skus_busqueda (un renglón por SKU, contado o no) — 34 filas en total en el fixture
   // por defecto; honra el "limit=" real del pedido (30 para "cargar más", TOPE_CARGA_TOTAL_BUSQUEDA
@@ -609,6 +654,12 @@ const fakeFetchImpl = async (url, opts) => {
     };
     const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
+  }
+  // Universo de una zona para el generador de plan por grupo (ver confirmarVistaPreviaComoPlan):
+  // bodega/ubicación de prueba dedicadas, sin filtro de storage_bin.
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BGRP') && path.includes('ubicacion=eq.UGRP') && !path.includes('storage_bin=eq.')){
+    const filas = universoZonaGrupoFixture || [];
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida')){
     const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
@@ -3706,6 +3757,278 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(JSON.parse(rpcCiclo.opts.body).ciclo_id==='ciclo-2', 'debe mandar el id del ciclo elegido como ciclo_id, obtuvo: '+JSON.stringify(rpcCiclo));
   assert(!calls.some(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/ciclos_conteo')), 'ya no debe hacer PATCH directos a /ciclos_conteo desde el frontend, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+  // ===== Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, independientes de
+  // "Crítico", armadas a mano con un buscador -- NO por carga masiva. Ver conversación con Joel:
+  // la pertenencia se guarda por código+bodega (no por fila exacta de skus), para sobrevivir
+  // cambios de storage bin/ubicación/batch en cargas masivas posteriores. =====
+  calls.length = 0;
+  gruposConteoFixture = [
+    {id:'grupo-1', nombre:'IE', frecuencia_dias:180, activo:true, miembros:[{count:2}]},
+  ];
+  await ctx.cargarGrupos();
+  assert(calls.some(c=>c.url.includes('/grupos_conteo?select=')), 'cargarGrupos debe pedir /grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.lista.length===1 && ctx.__appstate.grupos.lista[0].nombre==='IE', 'debe guardar los grupos devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.lista));
+
+  const htmlGrupos = ctx.renderGrupos();
+  assert(htmlGrupos.includes('IE') && htmlGrupos.includes('2 materiales') && htmlGrupos.includes('cada 180 días'), 'renderGrupos debe listar el grupo con su cantidad de miembros y frecuencia, obtuvo: '+htmlGrupos);
+  assert(htmlGrupos.includes('data-ver-grupo="grupo-1"'), 'debe ofrecer un botón para ver el detalle de cada grupo, obtuvo: '+htmlGrupos);
+
+  // Crear grupo: manda nombre y frecuencia_dias como número.
+  calls.length = 0;
+  await ctx.crearGrupo('5S', '30');
+  const postGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
+  assert(!!postGrupo, 'crearGrupo debe hacer POST a /grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoGrupo = JSON.parse(postGrupo.opts.body)[0];
+  assert(cuerpoGrupo.nombre==='5S' && cuerpoGrupo.frecuencia_dias===30, 'crearGrupo debe mandar nombre y frecuencia_dias como número, obtuvo: '+JSON.stringify(cuerpoGrupo));
+
+  // Sin frecuencia (campo vacío) -> null, no 0 ni string vacío (ver conversación: nadie la
+  // consume todavía, pero el dato debe quedar limpio para cuando el generador la use).
+  calls.length = 0;
+  await ctx.crearGrupo('Sin frecuencia', '');
+  const postGrupoSinFrec = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
+  assert(JSON.parse(postGrupoSinFrec.opts.body)[0].frecuencia_dias===null, 'sin frecuencia, crearGrupo debe mandar null, obtuvo: '+JSON.stringify(JSON.parse(postGrupoSinFrec.opts.body)));
+
+  // Ver el detalle de un grupo: carga sus miembros actuales.
+  gruposMiembrosFixture = { 'grupo-1': [ {id:'miembro-1', sku_code:'SKU-100', bodega:'B501'} ] };
+  calls.length = 0;
+  await ctx.abrirGrupo('grupo-1');
+  assert(ctx.__appstate.grupos.grupoAbierto==='grupo-1', 'abrirGrupo debe marcar el grupo como abierto, obtuvo: '+ctx.__appstate.grupos.grupoAbierto);
+  assert(calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-1')), 'abrirGrupo debe pedir los miembros de ese grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.miembros.length===1 && ctx.__appstate.grupos.miembros[0].sku_code==='SKU-100', 'debe guardar los miembros devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.miembros));
+
+  const htmlDetalleGrupo = ctx.renderGrupos();
+  assert(htmlDetalleGrupo.includes('SKU-100') && htmlDetalleGrupo.includes('B501'), 'el detalle del grupo debe mostrar sus miembros actuales, obtuvo: '+htmlDetalleGrupo);
+  assert(htmlDetalleGrupo.includes('data-quitar-miembro-grupo="miembro-1"'), 'cada miembro debe ofrecer un botón para quitarlo, obtuvo: '+htmlDetalleGrupo);
+
+  // Buscar candidatos para agregar: dos filas del mismo código+bodega en el fixture (simulando
+  // dos batches distintos de `skus`) deben quedar deduplicadas a una sola.
+  calls.length = 0;
+  ctx.__appstate.grupos.candidatoTexto = 'correa';
+  await ctx.buscarCandidatosGrupo();
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('sku_code.ilike.*correa*')), 'buscarCandidatosGrupo debe filtrar por el texto ingresado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.candidatos.length===2, 'debe deduplicar candidatos repetidos por código+bodega (2 filas de SKU-CAND-1 -> 1, más SKU-CAND-2), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+
+  // Agregar un candidato al grupo abierto.
+  calls.length = 0;
+  await ctx.agregarMiembroGrupo('SKU-CAND-2', 'B502');
+  const postMiembro = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/skus_grupos_conteo'));
+  assert(!!postMiembro, 'agregarMiembroGrupo debe hacer POST a /skus_grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoMiembro = JSON.parse(postMiembro.opts.body)[0];
+  assert(cuerpoMiembro.grupo_id==='grupo-1' && cuerpoMiembro.sku_code==='SKU-CAND-2' && cuerpoMiembro.bodega==='B502', 'debe mandar el grupo abierto, el código y la bodega elegidos, obtuvo: '+JSON.stringify(cuerpoMiembro));
+  assert(calls.filter(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-1&select=id,sku_code,bodega')).length===1, 'tras agregar un miembro, debe refrescar la lista de miembros del grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Agregar un material que ya está en el grupo: la base rechaza por el índice único, y en vez
+  // del mensaje crudo de Postgres se avisa algo entendible.
+  gruposMiembroDuplicado = true;
+  const toastRootGrupo = elements['toast-root'];
+  const toastsAntesGrupo = toastRootGrupo ? toastRootGrupo.hijos.length : 0;
+  await ctx.agregarMiembroGrupo('SKU-CAND-2', 'B502');
+  const toastsGrupo = toastRootGrupo.hijos.slice(toastsAntesGrupo);
+  assert(toastsGrupo.length===1 && toastsGrupo[0].textContent==='Ese material ya está en el grupo', 'un material duplicado debe avisar con un mensaje claro, no el error crudo de la base, obtuvo: '+JSON.stringify(toastsGrupo.map(t=>t.textContent)));
+  gruposMiembroDuplicado = false;
+
+  // Quitar un miembro del grupo.
+  calls.length = 0;
+  await ctx.quitarMiembroGrupo('miembro-1');
+  assert(calls.some(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/skus_grupos_conteo?id=eq.miembro-1')), 'quitarMiembroGrupo debe hacer DELETE del miembro elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Volver a la lista cierra el detalle.
+  ctx.volverAListaGrupos();
+  assert(ctx.__appstate.grupos.grupoAbierto===null, 'volverAListaGrupos debe cerrar el detalle del grupo, obtuvo: '+ctx.__appstate.grupos.grupoAbierto);
+
+  // ===== Vista previa del plan por grupo (SOLO calcula -- no escribe en plan_semanal) =====
+
+  // armarVistaPreviaSemanasGrupo: agrupa por zona (bodega+ubicación) y nunca corta una zona a
+  // la mitad entre dos semanas, aunque eso implique pasarse un poco del cupo -- ver conversación
+  // con Joel: la persona no debe visitar la misma ubicación dos veces por partir justo el cupo.
+  const zonaGrande = Array.from({length:5}, (_,i)=>({sku_code:'Z1-'+i, bodega:'B501', ubicacion:'0100', storage_bin:'A-0'+i}));
+  const zonaChica = [{sku_code:'Z2-0', bodega:'B501', ubicacion:'0101', storage_bin:'B-01'}];
+  const semanasArmadas = ctx.armarVistaPreviaSemanasGrupo([...zonaGrande, ...zonaChica], 3);
+  assert(semanasArmadas.length===2, 'con cupo 3 y una zona de 5 (que no se puede cortar) más una de 1, deben quedar 2 semanas, obtuvo: '+JSON.stringify(semanasArmadas.map(s=>s.materiales)));
+  assert(semanasArmadas[0].materiales===5 && semanasArmadas[0].zonas.length===1, 'la primera semana debe llevarse la zona grande completa aunque supere el cupo, obtuvo: '+JSON.stringify(semanasArmadas[0]));
+  assert(semanasArmadas[1].materiales===1, 'la zona chica debe quedar en su propia semana, obtuvo: '+JSON.stringify(semanasArmadas[1]));
+  // Dentro de cada zona, los materiales quedan ordenados por storage bin (orden físico real de
+  // la bodega, según confirmó Joel -- sirve de orden de recorrido sin inventar nada nuevo).
+  assert(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin).join(',')==='A-00,A-01,A-02,A-03,A-04', 'los materiales de una zona deben quedar ordenados por storage bin, obtuvo: '+JSON.stringify(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin)));
+
+  // calcularVistaPreviaPlanGrupo: de punta a punta contra el mock de red -- filtra por
+  // código+bodega exactos (no solo código) y por vencimiento según la frecuencia del grupo.
+  const haceMucho = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // vencido para un grupo trimestral (90 días)
+  const haceUnDia = new Date(Date.now() - 1*24*60*60*1000).toISOString(); // no vencido
+  gruposConteoFixture = [{id:'grupo-trimestral', nombre:'IE', frecuencia_dias:90, activo:true, miembros:[{count:3}]}];
+  gruposMiembrosFixture = { 'grupo-trimestral': [
+    {id:'m1', sku_code:'VENC-1', bodega:'B501'},
+    {id:'m2', sku_code:'VENC-1', bodega:'B502'}, // mismo código, OTRA bodega -- no debe confundirse con m1
+    {id:'m3', sku_code:'NOVENC-1', bodega:'B501'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'VENC-1', bodega:'B501', ubicacion:'0100', storage_bin:'A-01', ultimo_conteo_fecha: haceMucho},
+    {sku_code:'VENC-1', bodega:'B999', ubicacion:'0200', storage_bin:'C-01', ultimo_conteo_fecha: null}, // mismo código, bodega que NO es miembro -> debe descartarse
+    {sku_code:'NOVENC-1', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: haceUnDia},
+    {sku_code:'NUNCA-CONTADO', bodega:'B501', ubicacion:'0100', storage_bin:'A-03', ultimo_conteo_fecha: null}, // no es miembro del grupo -> debe descartarse igual
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-trimestral');
+  calls.length = 0;
+  ctx.__appstate.grupos.cupoSemanal = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&sku_code=in.')), 'calcularVistaPreviaPlanGrupo debe consultar /skus por los códigos de los miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===1, 'solo VENC-1::B501 debe contar como pendiente (vencido Y miembro real del grupo por código+bodega exactos), obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
+  assert(ctx.__appstate.grupos.vistaPreviaSemanas.length===1 && ctx.__appstate.grupos.vistaPreviaSemanas[0].zonas[0].bodega==='B501', 'la única semana debe cubrir la zona B501/0100, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+
+  // Sin frecuencia definida, no debe intentar calcular nada (no tiene con qué comparar).
+  gruposConteoFixture = [{id:'grupo-sin-frecuencia', nombre:'Sin frecuencia', frecuencia_dias:null, activo:true, miembros:[{count:1}]}];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-sin-frecuencia');
+  calls.length = 0;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-sin-frecuencia&select=sku_code')), 'sin frecuencia definida, calcularVistaPreviaPlanGrupo no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const htmlSinFrecuencia = ctx.renderGrupos();
+  assert(htmlSinFrecuencia.includes('no tiene una frecuencia definida'), 'el detalle de un grupo sin frecuencia debe avisar en vez de ofrecer calcular la vista previa, obtuvo: '+htmlSinFrecuencia);
+  assert(!htmlSinFrecuencia.includes('btn-calcular-vista-previa'), 'sin frecuencia, no debe ofrecer el botón de calcular vista previa, obtuvo: '+htmlSinFrecuencia);
+
+  // ===== Confirmar la vista previa como plan real (confirmarVistaPreviaComoPlan) =====
+
+  // Guardia: una zona sin ubicación específica no se puede acotar de forma segura (ver
+  // comentario en el código) -- debe avisar y NO pedir confirmación ni escribir nada.
+  gruposConteoFixture = [{id:'grupo-sin-ubic', nombre:'Sin ubicación', frecuencia_dias:30, activo:true, miembros:[{count:1}]}];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-sin-ubic');
+  ctx.__appstate.grupos.vistaPreviaSemanas = [{materiales:1, zonas:[{bodega:'BGRP', ubicacion:null, materiales:[{sku_code:'X', storage_bin:null}]}]}];
+  const toastRootSinUbic = elements['toast-root'];
+  const toastsAntesSinUbic = toastRootSinUbic.hijos.length;
+  const confirmLlamadasAntes = confirmLlamadas.length;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(confirmLlamadas.length===confirmLlamadasAntes, 'una zona sin ubicación específica no debe ni llegar a pedir confirmación, obtuvo llamadas nuevas: '+JSON.stringify(confirmLlamadas.slice(confirmLlamadasAntes)));
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'no debe escribir nada en plan_semanal si no hay ninguna zona acotable, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const toastsSinUbic = toastRootSinUbic.hijos.slice(toastsAntesSinUbic);
+  assert(toastsSinUbic.some(t=>/no se puede generar el plan/.test(t.textContent)), 'debe avisar que no se puede generar el plan automáticamente, obtuvo: '+JSON.stringify(toastsSinUbic.map(t=>t.textContent)));
+
+  // Camino real: dos materiales del grupo (VENC-A, VENC-B) vencidos en BGRP/UGRP, que comparten
+  // esa misma ubicación con otros dos materiales que NO son del grupo (OTRO-1, OTRO-2) -- estos
+  // últimos deben quedar excluidos de la entrada generada, no contados dentro del grupo.
+  gruposConteoFixture = [{id:'grupo-plan-real', nombre:'Grupo Plan Real', frecuencia_dias:30, activo:true, miembros:[{count:2}]}];
+  gruposMiembrosFixture = { 'grupo-plan-real': [
+    {id:'gm1', sku_code:'VENC-A', bodega:'BGRP'},
+    {id:'gm2', sku_code:'VENC-B', bodega:'BGRP'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01', ultimo_conteo_fecha:null},
+    {sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02', ultimo_conteo_fecha:null},
+  ];
+  universoZonaGrupoFixture = [
+    {id:'u1', sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01'},
+    {id:'u2', sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
+    {id:'u3', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-03'},
+    {id:'u4', sku_code:'OTRO-2', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-04'},
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-plan-real');
+  ctx.__appstate.grupos.cupoSemanal = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2 && ctx.__appstate.grupos.vistaPreviaSemanas.length===1, 'la vista previa de este escenario debe dar 2 materiales en 1 semana, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
+
+  // Si la persona cancela el confirm(), no debe escribirse nada.
+  confirmRespuesta = false;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'al cancelar el confirm(), no debe crear ninguna entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.vistaPreviaSemanas!==null, 'al cancelar, la vista previa calculada debe seguir disponible (no se descarta), obtuvo: '+ctx.__appstate.grupos.vistaPreviaSemanas);
+
+  // Confirmando de verdad: debe pedir el universo de la zona, crear UNA entrada de plan_semanal
+  // sin responsable, con nota indicando el grupo, y excluir a OTRO-1/OTRO-2 (los que no son del
+  // grupo) -- nunca a VENC-A/VENC-B.
+  confirmRespuesta = true;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(/Grupo Plan Real/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe mencionar el nombre del grupo, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
+  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP')), 'debe pedir el universo real de la zona antes de crear la entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const postPlanGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(!!postPlanGrupo, 'debe crear la entrada de plan_semanal para la zona, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoPlanGrupo = JSON.parse(postPlanGrupo.opts.body)[0];
+  assert(cuerpoPlanGrupo.bodega==='BGRP' && cuerpoPlanGrupo.ubicacion==='UGRP', 'la entrada debe quedar en la zona correcta, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
+  assert(cuerpoPlanGrupo.responsable_id===null, 'la entrada generada NO debe traer responsable asignado -- el reparto es manual, a pedido de Joel, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
+  assert(/Grupo Plan Real/.test(cuerpoPlanGrupo.nota||''), 'la nota debe indicar que viene del grupo, para que quede trazable en Planificación, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
+  assert(cuerpoPlanGrupo.fecha===ctx.fechaISO(ctx.inicioSemana(new Date())), 'la fecha de la semana 1 debe ser el inicio de esta semana, obtuvo: '+cuerpoPlanGrupo.fecha+' esperado: '+ctx.fechaISO(ctx.inicioSemana(new Date())));
+  const postExclusionGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
+  assert(!!postExclusionGrupo, 'debe excluir del universo lo que no pertenece al grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const codigosExcluidosGrupo = JSON.parse(postExclusionGrupo.opts.body).map(f=>f.sku_code).sort();
+  assert(JSON.stringify(codigosExcluidosGrupo)===JSON.stringify(['OTRO-1','OTRO-2']), 'deben excluirse exactamente OTRO-1 y OTRO-2 (los que no son del grupo), nunca VENC-A/VENC-B, obtuvo: '+JSON.stringify(codigosExcluidosGrupo));
+
+  // Tras confirmar, la vista previa se limpia (para no volver a crearla dos veces sin recalcular).
+  assert(ctx.__appstate.grupos.vistaPreviaSemanas===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+
+  // ===== Seguimiento del grupo (cargarSeguimientoGrupo) =====
+
+  // Con frecuencia definida: distingue al día / vencido / nunca contado.
+  const haceMuchoSeg = new Date(Date.now() - 200*24*60*60*1000).toISOString();
+  const hacePocoSeg = new Date(Date.now() - 10*24*60*60*1000).toISOString();
+  gruposConteoFixture = [{id:'grupo-seguimiento', nombre:'Seguimiento Test', frecuencia_dias:90, activo:true, miembros:[{count:3}]}];
+  gruposMiembrosFixture = { 'grupo-seguimiento': [
+    {id:'gs1', sku_code:'SEG-A', bodega:'SB1'},
+    {id:'gs2', sku_code:'SEG-B', bodega:'SB1'},
+    {id:'gs3', sku_code:'SEG-C', bodega:'SB1'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'SEG-A', bodega:'SB1', ultimo_conteo_fecha: haceMuchoSeg}, // vencido (>90 días)
+    {sku_code:'SEG-B', bodega:'SB1', ultimo_conteo_fecha: hacePocoSeg}, // al día
+    // SEG-C no tiene fila -> nunca contado
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-seguimiento');
+  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:3, nuncaContados:1, alDia:1, vencidos:1, tieneFrecuencia:true}), 'el seguimiento debe distinguir al día/vencido/nunca contado según la frecuencia, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+  const htmlSeguimiento = ctx.renderGrupos();
+  assert(htmlSeguimiento.includes('Al día') && htmlSeguimiento.includes('Vencidos') && htmlSeguimiento.includes('Nunca contados'), 'con frecuencia definida, debe mostrar los tres contadores, obtuvo: '+htmlSeguimiento);
+
+  // Sin frecuencia definida: solo "contado alguna vez" vs "nunca contado" (sin poder decir si
+  // está "vencido", porque no hay con qué comparar).
+  gruposConteoFixture = [{id:'grupo-seg-sf', nombre:'Sin Frecuencia Seg', frecuencia_dias:null, activo:true, miembros:[{count:2}]}];
+  gruposMiembrosFixture = { 'grupo-seg-sf': [
+    {id:'gs4', sku_code:'SEG-D', bodega:'SB1'},
+    {id:'gs5', sku_code:'SEG-E', bodega:'SB1'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'SEG-D', bodega:'SB1', ultimo_conteo_fecha: hacePocoSeg},
+    // SEG-E no tiene fila -> nunca contado
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-seg-sf');
+  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:2, nuncaContados:1, alDia:1, vencidos:0, tieneFrecuencia:false}), 'sin frecuencia, todo lo contado alguna vez cuenta como "al día" (no hay vencido posible), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+  const htmlSeguimientoSinFrecuencia = ctx.renderGrupos();
+  assert(htmlSeguimientoSinFrecuencia.includes('1 de 2 material'), 'sin frecuencia, debe mostrar el resumen simple "X de Y contados", obtuvo: '+htmlSeguimientoSinFrecuencia);
+  assert(!htmlSeguimientoSinFrecuencia.includes('Vencidos'), 'sin frecuencia, no debe hablar de "vencidos" (no hay con qué comparar), obtuvo: '+htmlSeguimientoSinFrecuencia);
+
+  // ===== Reasignación masiva de responsable en Planificación (reasignarResponsableSeleccionPlan) =====
+
+  ctx.__appstate.plan.entradas = [
+    {id:'rp1', fecha:'2026-09-10', bodega:'B501', ubicacion:'0100', responsable_id:null, ciclo_nombre:null},
+    {id:'rp2', fecha:'2026-09-10', bodega:'B501', ubicacion:'0101', responsable_id:null, ciclo_nombre:null},
+  ];
+  ctx.__appstate.plan.responsables = [{id:'resp-A', nombre:'Nasib'}, {id:'resp-B', nombre:'Excelente'}];
+  ctx.__appstate.plan.seleccionados = ['rp1','rp2'];
+  const htmlPlanSeleccion = ctx.renderPlanificacion();
+  assert(htmlPlanSeleccion.includes('id="plan-reasignar-select"') && htmlPlanSeleccion.includes('id="btn-reasignar-seleccion-plan"'), 'con entradas seleccionadas, debe ofrecer el selector y botón de reasignar responsable, junto al de eliminar, obtuvo: '+htmlPlanSeleccion);
+  assert(htmlPlanSeleccion.includes('>Nasib<') && htmlPlanSeleccion.includes('>Excelente<'), 'el selector de reasignar debe listar los responsables disponibles, obtuvo: '+htmlPlanSeleccion);
+
+  calls.length = 0;
+  await ctx.reasignarResponsableSeleccionPlan('resp-A');
+  const patchReasignar = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(rp1,rp2)'));
+  assert(!!patchReasignar, 'reasignarResponsableSeleccionPlan debe hacer PATCH a las entradas seleccionadas, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.parse(patchReasignar.opts.body).responsable_id==='resp-A', 'debe mandar el responsable elegido, obtuvo: '+patchReasignar.opts.body);
+  assert(ctx.__appstate.plan.seleccionados.length===0, 'tras reasignar, la selección debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+
+  // "Sin asignar" (value vacío) debe mandar null, no la cadena vacía.
+  ctx.__appstate.plan.seleccionados = ['rp1'];
+  calls.length = 0;
+  await ctx.reasignarResponsableSeleccionPlan('');
+  const patchSinAsignar = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(rp1)'));
+  assert(!!patchSinAsignar && JSON.parse(patchSinAsignar.opts.body).responsable_id===null, '"Sin asignar" debe mandar responsable_id null, obtuvo: '+JSON.stringify(patchSinAsignar && patchSinAsignar.opts.body));
+
+  // Sin selección hecha en el <select> (queda en el placeholder "Reasignar a…"), el botón debe
+  // avisar en vez de reasignar a ciegas -- esto se prueba a nivel de bind(), no de la función en
+  // sí (reasignarResponsableSeleccionPlan siempre actúa con lo que reciba).
+
   // ===== Planificación vinculada a ciclos de conteo (períodos) =====
 
   // Con ciclos ya cargados, el selector "Período" de arriba de la página (para navegar por
@@ -5882,6 +6205,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.vistaBloqueadaParaRol('ciclos')===true, 'un operador debe tener bloqueada la vista Períodos (ciclos), igual que Dashboard/Plan/Carga');
   const htmlTabOperadorCiclos = ctx.tabBtn('ciclos', 'Períodos');
   assert(htmlTabOperadorCiclos.includes('tab-bloqueada') && htmlTabOperadorCiclos.includes('tab-candado'), 'el tab Períodos de un operador debe mostrar el candado, obtuvo: '+htmlTabOperadorCiclos);
+
+  // Grupos de conteo: vista solo-admin igual que Períodos (ver VISTAS_SOLO_ADMIN) -- el ícono
+  // de acceso en la barra superior ya queda oculto para un operador (ver renderShell), pero la
+  // vista en sí también debe quedar bloqueada por si acaso.
+  assert(ctx.vistaBloqueadaParaRol('grupos')===true, 'un operador debe tener bloqueada la vista Grupos, igual que Períodos');
+  const htmlTabOperadorGrupos = ctx.tabBtn('grupos', 'Grupos');
+  assert(htmlTabOperadorGrupos.includes('tab-bloqueada') && htmlTabOperadorGrupos.includes('tab-candado'), 'el tab Grupos de un operador debe mostrar el candado, obtuvo: '+htmlTabOperadorGrupos);
   ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   assert(ctx.vistaBloqueadaParaRol('ciclos')===false, 'un admin NO debe tener bloqueada la vista Períodos');
   assert(ctx.viewTitle('ciclos')==='Períodos de conteo', 'el título de la vista ciclos debe ser "Períodos de conteo", obtuvo: '+ctx.viewTitle('ciclos'));
