@@ -3815,7 +3815,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!postMiembro, 'agregarMiembroGrupo debe hacer POST a /skus_grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const cuerpoMiembro = JSON.parse(postMiembro.opts.body)[0];
   assert(cuerpoMiembro.grupo_id==='grupo-1' && cuerpoMiembro.sku_code==='SKU-CAND-2' && cuerpoMiembro.bodega==='B502', 'debe mandar el grupo abierto, el código y la bodega elegidos, obtuvo: '+JSON.stringify(cuerpoMiembro));
-  assert(calls.filter(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-1&select=')).length===1, 'tras agregar un miembro, debe refrescar la lista de miembros del grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.filter(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-1&select=id,sku_code,bodega')).length===1, 'tras agregar un miembro, debe refrescar la lista de miembros del grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Agregar un material que ya está en el grupo: la base rechaza por el índice único, y en vez
   // del mensaje crudo de Postgres se avisa algo entendible.
@@ -3958,6 +3958,76 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Tras confirmar, la vista previa se limpia (para no volver a crearla dos veces sin recalcular).
   assert(ctx.__appstate.grupos.vistaPreviaSemanas===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+
+  // ===== Seguimiento del grupo (cargarSeguimientoGrupo) =====
+
+  // Con frecuencia definida: distingue al día / vencido / nunca contado.
+  const haceMuchoSeg = new Date(Date.now() - 200*24*60*60*1000).toISOString();
+  const hacePocoSeg = new Date(Date.now() - 10*24*60*60*1000).toISOString();
+  gruposConteoFixture = [{id:'grupo-seguimiento', nombre:'Seguimiento Test', frecuencia_dias:90, activo:true, miembros:[{count:3}]}];
+  gruposMiembrosFixture = { 'grupo-seguimiento': [
+    {id:'gs1', sku_code:'SEG-A', bodega:'SB1'},
+    {id:'gs2', sku_code:'SEG-B', bodega:'SB1'},
+    {id:'gs3', sku_code:'SEG-C', bodega:'SB1'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'SEG-A', bodega:'SB1', ultimo_conteo_fecha: haceMuchoSeg}, // vencido (>90 días)
+    {sku_code:'SEG-B', bodega:'SB1', ultimo_conteo_fecha: hacePocoSeg}, // al día
+    // SEG-C no tiene fila -> nunca contado
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-seguimiento');
+  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:3, nuncaContados:1, alDia:1, vencidos:1, tieneFrecuencia:true}), 'el seguimiento debe distinguir al día/vencido/nunca contado según la frecuencia, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+  const htmlSeguimiento = ctx.renderGrupos();
+  assert(htmlSeguimiento.includes('Al día') && htmlSeguimiento.includes('Vencidos') && htmlSeguimiento.includes('Nunca contados'), 'con frecuencia definida, debe mostrar los tres contadores, obtuvo: '+htmlSeguimiento);
+
+  // Sin frecuencia definida: solo "contado alguna vez" vs "nunca contado" (sin poder decir si
+  // está "vencido", porque no hay con qué comparar).
+  gruposConteoFixture = [{id:'grupo-seg-sf', nombre:'Sin Frecuencia Seg', frecuencia_dias:null, activo:true, miembros:[{count:2}]}];
+  gruposMiembrosFixture = { 'grupo-seg-sf': [
+    {id:'gs4', sku_code:'SEG-D', bodega:'SB1'},
+    {id:'gs5', sku_code:'SEG-E', bodega:'SB1'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'SEG-D', bodega:'SB1', ultimo_conteo_fecha: hacePocoSeg},
+    // SEG-E no tiene fila -> nunca contado
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-seg-sf');
+  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:2, nuncaContados:1, alDia:1, vencidos:0, tieneFrecuencia:false}), 'sin frecuencia, todo lo contado alguna vez cuenta como "al día" (no hay vencido posible), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+  const htmlSeguimientoSinFrecuencia = ctx.renderGrupos();
+  assert(htmlSeguimientoSinFrecuencia.includes('1 de 2 material'), 'sin frecuencia, debe mostrar el resumen simple "X de Y contados", obtuvo: '+htmlSeguimientoSinFrecuencia);
+  assert(!htmlSeguimientoSinFrecuencia.includes('Vencidos'), 'sin frecuencia, no debe hablar de "vencidos" (no hay con qué comparar), obtuvo: '+htmlSeguimientoSinFrecuencia);
+
+  // ===== Reasignación masiva de responsable en Planificación (reasignarResponsableSeleccionPlan) =====
+
+  ctx.__appstate.plan.entradas = [
+    {id:'rp1', fecha:'2026-09-10', bodega:'B501', ubicacion:'0100', responsable_id:null, ciclo_nombre:null},
+    {id:'rp2', fecha:'2026-09-10', bodega:'B501', ubicacion:'0101', responsable_id:null, ciclo_nombre:null},
+  ];
+  ctx.__appstate.plan.responsables = [{id:'resp-A', nombre:'Nasib'}, {id:'resp-B', nombre:'Excelente'}];
+  ctx.__appstate.plan.seleccionados = ['rp1','rp2'];
+  const htmlPlanSeleccion = ctx.renderPlanificacion();
+  assert(htmlPlanSeleccion.includes('id="plan-reasignar-select"') && htmlPlanSeleccion.includes('id="btn-reasignar-seleccion-plan"'), 'con entradas seleccionadas, debe ofrecer el selector y botón de reasignar responsable, junto al de eliminar, obtuvo: '+htmlPlanSeleccion);
+  assert(htmlPlanSeleccion.includes('>Nasib<') && htmlPlanSeleccion.includes('>Excelente<'), 'el selector de reasignar debe listar los responsables disponibles, obtuvo: '+htmlPlanSeleccion);
+
+  calls.length = 0;
+  await ctx.reasignarResponsableSeleccionPlan('resp-A');
+  const patchReasignar = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(rp1,rp2)'));
+  assert(!!patchReasignar, 'reasignarResponsableSeleccionPlan debe hacer PATCH a las entradas seleccionadas, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.parse(patchReasignar.opts.body).responsable_id==='resp-A', 'debe mandar el responsable elegido, obtuvo: '+patchReasignar.opts.body);
+  assert(ctx.__appstate.plan.seleccionados.length===0, 'tras reasignar, la selección debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+
+  // "Sin asignar" (value vacío) debe mandar null, no la cadena vacía.
+  ctx.__appstate.plan.seleccionados = ['rp1'];
+  calls.length = 0;
+  await ctx.reasignarResponsableSeleccionPlan('');
+  const patchSinAsignar = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(rp1)'));
+  assert(!!patchSinAsignar && JSON.parse(patchSinAsignar.opts.body).responsable_id===null, '"Sin asignar" debe mandar responsable_id null, obtuvo: '+JSON.stringify(patchSinAsignar && patchSinAsignar.opts.body));
+
+  // Sin selección hecha en el <select> (queda en el placeholder "Reasignar a…"), el botón debe
+  // avisar en vez de reasignar a ciegas -- esto se prueba a nivel de bind(), no de la función en
+  // sí (reasignarResponsableSeleccionPlan siempre actúa con lo que reciba).
 
   // ===== Planificación vinculada a ciclos de conteo (períodos) =====
 

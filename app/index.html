@@ -504,7 +504,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, generandoPlan:false },
+  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, cupoSemanal:20, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -1245,7 +1245,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,cupoSemanal:20,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1747,12 +1747,52 @@ async function crearGrupo(nombre, frecuenciaDias){
 }
 
 function abrirGrupo(id){
-  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], candidatos:[], candidatoTexto:'', candidatoBodega:'', vistaPreviaSemanas:null}});
-  return cargarMiembrosGrupo(id);
+  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], candidatos:[], candidatoTexto:'', candidatoBodega:'', vistaPreviaSemanas:null, seguimiento:null}});
+  return Promise.all([cargarMiembrosGrupo(id), cargarSeguimientoGrupo(id)]);
 }
 
 function volverAListaGrupos(){
-  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], candidatos:[], vistaPreviaSemanas:null}});
+  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], candidatos:[], vistaPreviaSemanas:null, seguimiento:null}});
+}
+
+// Seguimiento del grupo: cuántos de sus materiales están al día vs vencidos según su frecuencia
+// (o, si todavía no tiene frecuencia definida, cuántos se han contado alguna vez) -- ver
+// conversación con Joel sobre llevar un avance separado por grupo. Deliberadamente vive acá, en
+// el detalle del grupo, y no como una dimensión nueva en el Dashboard: agregar "grupo" a las
+// vistas/RPC del Dashboard es un cambio de mayor riesgo (toca reportes ya en producción) que
+// prefiero dejar aparte si en algún momento hace falta -- esto ya da visibilidad real hoy sin
+// tocar una sola consulta existente del Dashboard.
+async function cargarSeguimientoGrupo(grupoId){
+  const grupo = state.grupos.lista.find(g=>g.id===grupoId);
+  setState({grupos: {...state.grupos, seguimientoCargando:true, seguimiento:null}});
+  try{
+    const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
+    const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
+    const resumen = {totalMiembros: miembros.length, nuncaContados:0, alDia:0, vencidos:0, tieneFrecuencia};
+    if(miembros.length){
+      const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
+      const filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
+      const limiteMs = tieneFrecuencia ? Date.now() - grupo.frecuencia_dias*24*60*60*1000 : null;
+      miembros.forEach(m=>{
+        // Un material puede tener varias filas activas (por batch/ubicación/bin) -- se usa la
+        // fecha de conteo MÁS RECIENTE entre todas ellas para decidir si el material (código+
+        // bodega) está al día, no una fila cualquiera.
+        let masReciente = null;
+        filas.forEach(f=>{
+          if(f.sku_code===m.sku_code && (f.bodega||'')===(m.bodega||'') && f.ultimo_conteo_fecha){
+            if(!masReciente || new Date(f.ultimo_conteo_fecha) > new Date(masReciente)) masReciente = f.ultimo_conteo_fecha;
+          }
+        });
+        if(!masReciente) resumen.nuncaContados++;
+        else if(tieneFrecuencia && new Date(masReciente).getTime() < limiteMs) resumen.vencidos++;
+        else resumen.alDia++;
+      });
+    }
+    setState({grupos: {...state.grupos, seguimientoCargando:false, seguimiento: resumen}});
+  }catch(e){
+    setState({grupos: {...state.grupos, seguimientoCargando:false}});
+    toast(e.message,'err');
+  }
 }
 
 async function cargarMiembrosGrupo(grupoId){
@@ -1798,6 +1838,7 @@ async function agregarMiembroGrupo(sku_code, bodega){
     toast('Material agregado al grupo');
     cargarMiembrosGrupo(grupoId);
     cargarGrupos();
+    cargarSeguimientoGrupo(grupoId);
   }catch(e){
     // Ya pertenece al grupo (índice único skus_grupos_conteo_unico) -- no es un error real para
     // la persona, solo lo avisamos sin ruido en vez del mensaje crudo de la base.
@@ -1812,6 +1853,7 @@ async function quitarMiembroGrupo(miembroId){
     toast('Material quitado del grupo');
     cargarMiembrosGrupo(grupoId);
     cargarGrupos();
+    cargarSeguimientoGrupo(grupoId);
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2529,6 +2571,22 @@ async function confirmarYBorrarSeleccionPlan(){
   if(confirm(`¿Eliminar ${ids.length} entrada${ids.length>1?'s':''} del plan? Se pierde la ubicación, el responsable y la nota de cada una.`)){
     await borrarPlanEntradas(ids);
   }
+}
+
+// Reasignar responsable sobre varias entradas seleccionadas a la vez -- hermano de "Eliminar
+// selección" (misma selección múltiple). Pensado para repartir de una el plan generado
+// automáticamente por un grupo de conteo (que queda sin responsable a propósito, ver
+// confirmarVistaPreviaComoPlan), sin tener que ir entrada por entrada. responsableId==='' vacía
+// el responsable (queda "Sin asignar"), igual convención que el selector de una sola entrada.
+async function reasignarResponsableSeleccionPlan(responsableId){
+  const ids = state.plan.seleccionados;
+  if(!ids.length) return;
+  try{
+    await rest(`/plan_semanal?id=in.(${ids.join(',')})`, {method:'PATCH', body:{responsable_id: responsableId||null}, prefer:'return=minimal'});
+    toast(`Responsable actualizado en ${ids.length} entrada${ids.length>1?'s':''}`);
+    setState({plan: {...state.plan, seleccionados:[]}});
+    cargarPlanSemanal();
+  }catch(e){ toast(e.message,'err'); }
 }
 
 async function cargarOpcionesGenerales(){
@@ -6536,7 +6594,13 @@ function renderPlanificacion(){
           ${p.seleccionados.length? `${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}` : 'Seleccionar todo'}
         </label>
         ${p.seleccionados.length? `
-          <div style="display:flex;gap:8px;flex:none">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;flex:none">
+            <select id="plan-reasignar-select" style="width:auto">
+              <option value="__elegir__" selected>Reasignar a…</option>
+              <option value="">Sin asignar</option>
+              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+            </select>
+            <button class="btn btn-secondary" id="btn-reasignar-seleccion-plan" style="width:auto;padding:8px 12px">Reasignar</button>
             <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
             <button class="btn" id="btn-borrar-seleccion-plan" style="width:auto;padding:8px 12px;background:var(--danger);color:#fff">${ICONS.papelera.replace('style="width:15px;height:15px"','style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Eliminar</button>
           </div>
@@ -6896,6 +6960,16 @@ function renderDetalleGrupo(){
     <div class="section-head"><div><span class="eyebrow">Grupo</span><h2>${esc(grupo? grupo.nombre : '')}</h2></div></div>
     <button type="button" id="btn-volver-grupos" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;margin-bottom:12px">← Volver a grupos</button>
     <div class="card">
+      <div class="hint" style="margin-bottom:8px">Seguimiento</div>
+      ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : g.seguimiento.totalMiembros===0 ? `<div class="empty" style="padding:10px 8px">Sin materiales todavía.</div>` : g.seguimiento.tieneFrecuencia ? `
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.alDia}</div><div class="hint">Al día</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--danger)">${g.seguimiento.vencidos}</div><div class="hint">Vencidos</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--text-dim)">${g.seguimiento.nuncaContados}</div><div class="hint">Nunca contados</div></div>
+      </div>
+      ` : `<div class="hint">${g.seguimiento.alDia} de ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'} contado${g.seguimiento.totalMiembros===1?'':'s'} alguna vez${g.seguimiento.nuncaContados? ` (${g.seguimiento.nuncaContados} nunca contado${g.seguimiento.nuncaContados===1?'':'s'})` : ''}. Define una frecuencia en este grupo para distinguir "al día" de "vencido".</div>`}
+    </div>
+    <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Materiales de este grupo</div>
       ${g.cargandoMiembros? `<div class="hint" style="text-align:center;padding:16px 0">Cargando…</div>` : g.miembros.length? g.miembros.map(m=>`
         <div class="plan-item" style="padding:6px 0;align-items:center;gap:8px">
@@ -8331,6 +8405,12 @@ function bind(){
     if(btnBorrarSeleccion) btnBorrarSeleccion.addEventListener('click', async ()=>{
       await confirmarYBorrarSeleccionPlan();
       await refrescarCascadaTrasAgregar();
+    });
+    const btnReasignarSeleccion = document.getElementById('btn-reasignar-seleccion-plan');
+    if(btnReasignarSeleccion) btnReasignarSeleccion.addEventListener('click', ()=>{
+      const sel = document.getElementById('plan-reasignar-select');
+      if(sel.value==='__elegir__'){ toast('Elige a quién reasignar primero','err'); return; }
+      reasignarResponsableSeleccionPlan(sel.value);
     });
     const btnCancelarSeleccion = document.getElementById('btn-cancelar-seleccion-plan');
     if(btnCancelarSeleccion) btnCancelarSeleccion.addEventListener('click', ()=> setState({plan:{...state.plan, seleccionados:[]}}));
