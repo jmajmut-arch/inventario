@@ -39,6 +39,7 @@ let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de venci
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
+let cicloActualFixture; // fila del ciclo actual con created_at (ver cargarSeguimientoGrupo) -- undefined = ninguno
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -187,6 +188,12 @@ const fakeFetchImpl = async (url, opts) => {
     const ids = match ? match[1].split(',') : [];
     const conConteo = ids.filter(id => id === 'sku-con-conteo');
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conConteo.map(id=>({sku_id:id}))) };
+  }
+  // cargarSeguimientoGrupo pide el ciclo actual aparte (con created_at, para calcular "día X del
+  // período") -- chequear antes del matcher genérico de /ciclos_conteo de abajo, que no trae ese
+  // campo y devuelve dos ciclos fijos (rompería el cálculo de días).
+  if(path.startsWith('/rest/v1/ciclos_conteo?es_actual=eq.true&select=nombre,created_at')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cicloActualFixture!==undefined ? cicloActualFixture : []) };
   }
   if(path.startsWith('/rest/v1/ciclos_conteo')){
     const filas = [
@@ -4058,7 +4065,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-seguimiento');
-  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:3, nuncaContados:1, alDia:1, vencidos:1, tieneFrecuencia:true}), 'el seguimiento debe distinguir al día/vencido/nunca contado según la frecuencia, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+  // Se comparan los campos uno a uno (no todo el objeto contra un literal) porque contadosSemana/
+  // contadosMes/cicloActual dependen de la fecha real de hoy -- ver el bloque del grupo automático
+  // más abajo, que sí los prueba con fechas controladas ("ahora" vs "hace 200 días").
+  const segA = ctx.__appstate.grupos.seguimiento;
+  assert(segA.totalMiembros===3 && segA.nuncaContados===1 && segA.alDia===1 && segA.vencidos===1 && segA.tieneFrecuencia===true, 'el seguimiento debe distinguir al día/vencido/nunca contado según la frecuencia, obtuvo: '+JSON.stringify(segA));
   const htmlSeguimiento = ctx.renderGrupos();
   assert(htmlSeguimiento.includes('Al día') && htmlSeguimiento.includes('Vencidos') && htmlSeguimiento.includes('Nunca contados'), 'con frecuencia definida, debe mostrar los tres contadores, obtuvo: '+htmlSeguimiento);
 
@@ -4075,7 +4086,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-seg-sf');
-  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:2, nuncaContados:1, alDia:1, vencidos:0, tieneFrecuencia:false}), 'sin frecuencia, todo lo contado alguna vez cuenta como "al día" (no hay vencido posible), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+  const segB = ctx.__appstate.grupos.seguimiento;
+  assert(segB.totalMiembros===2 && segB.nuncaContados===1 && segB.alDia===1 && segB.vencidos===0 && segB.tieneFrecuencia===false, 'sin frecuencia, todo lo contado alguna vez cuenta como "al día" (no hay vencido posible), obtuvo: '+JSON.stringify(segB));
   const htmlSeguimientoSinFrecuencia = ctx.renderGrupos();
   assert(htmlSeguimientoSinFrecuencia.includes('1 de 2 material'), 'sin frecuencia, debe mostrar el resumen simple "X de Y contados", obtuvo: '+htmlSeguimientoSinFrecuencia);
   assert(!htmlSeguimientoSinFrecuencia.includes('Vencidos'), 'sin frecuencia, no debe hablar de "vencidos" (no hay con qué comparar), obtuvo: '+htmlSeguimientoSinFrecuencia);
@@ -4107,12 +4119,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Abrir un grupo automático: cargarMiembrosGrupo NO debe tocar skus_grupos_conteo (no hay nada
   // que listar ahí) y cargarSeguimientoGrupo debe leer directo de skus.critico=true.
-  const haceMuchoCrit = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // vencido (>90 días)
-  const hacePocoCrit = new Date(Date.now() - 5*24*60*60*1000).toISOString(); // al día
+  const haceMuchoCrit = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // vencido (>90 días) -- fuera de esta semana/mes
+  const ahoraCrit = new Date().toISOString(); // al día, y cae SIEMPRE dentro de esta semana y este mes (sin depender de qué día es hoy)
   gruposConteoFixture = [{id:'grupo-critico', nombre:'Críticos', frecuencia_dias:90, activo:true, automatico_critico:true, miembros:[{count:0}]}];
   criticosAutomaticoFixture = [
     {sku_code:'CRIT-A', bodega:'B501', ubicacion:'0100', storage_bin:'A-01', ultimo_conteo_fecha: haceMuchoCrit},
-    {sku_code:'CRIT-B', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: hacePocoCrit},
+    {sku_code:'CRIT-B', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: ahoraCrit},
     {sku_code:'CRIT-C', bodega:'B501', ubicacion:'0100', storage_bin:'A-03', ultimo_conteo_fecha: null}, // nunca contado
   ];
   await ctx.cargarGrupos();
@@ -4121,7 +4133,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-critico')), 'un grupo automático no debe consultar skus_grupos_conteo para sus miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&critico=eq.true&select=')), 'el seguimiento de un grupo automático debe consultar skus.critico=true, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.miembros.length===0, 'un grupo automático no debe traer una lista de miembros curada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.miembros));
-  assert(JSON.stringify(ctx.__appstate.grupos.seguimiento)===JSON.stringify({totalMiembros:3, nuncaContados:1, alDia:1, vencidos:1, tieneFrecuencia:true}), 'el seguimiento de un grupo automático debe distinguir al día/vencido/nunca contado igual que uno curado a mano, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento));
+  const segC = ctx.__appstate.grupos.seguimiento;
+  assert(segC.totalMiembros===3 && segC.nuncaContados===1 && segC.alDia===1 && segC.vencidos===1 && segC.tieneFrecuencia===true, 'el seguimiento de un grupo automático debe distinguir al día/vencido/nunca contado igual que uno curado a mano, obtuvo: '+JSON.stringify(segC));
+  assert(segC.cicloActual===null, 'sin ningún ciclo marcado como actual en el fixture, no debe mostrar período (ver el mock por defecto que devuelve []), obtuvo: '+JSON.stringify(segC.cicloActual));
+
+  // Con un ciclo actual real (creado hace 5 días), debe calcular y mostrar "día X del período".
+  cicloActualFixture = [{nombre:'T1 2027', created_at: new Date(Date.now() - 5*24*60*60*1000).toISOString()}];
+  await ctx.cargarSeguimientoGrupo('grupo-critico');
+  assert(ctx.__appstate.grupos.seguimiento.cicloActual && ctx.__appstate.grupos.seguimiento.cicloActual.nombre==='T1 2027' && ctx.__appstate.grupos.seguimiento.cicloActual.dias===6, 'con un ciclo actual creado hace 5 días, debe calcular el día 6 del período, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento.cicloActual));
+  const htmlConPeriodo = ctx.renderGrupos();
+  assert(htmlConPeriodo.includes('Período actual') && htmlConPeriodo.includes('T1 2027') && htmlConPeriodo.includes('día 6'), 'el detalle debe mostrar el período actual y el día que va, obtuvo: '+htmlConPeriodo);
+  cicloActualFixture = undefined;
+
+  // Ritmo reciente ("Esta semana"/"Este mes"): CRIT-B contado ahora mismo debe contar en ambos;
+  // CRIT-A (vencido hace 200 días) y CRIT-C (nunca contado) no deben contar en ninguno.
+  assert(segC.contadosSemana===1 && segC.contadosMes===1, 'CRIT-B (contado ahora) debe ser el único que cuenta esta semana y este mes, obtuvo: '+JSON.stringify({contadosSemana:segC.contadosSemana, contadosMes:segC.contadosMes}));
+  const htmlRitmoCritico = ctx.renderGrupos();
+  assert(htmlRitmoCritico.includes('Esta semana') && htmlRitmoCritico.includes('Este mes'), 'el detalle debe mostrar el ritmo reciente (esta semana/este mes), obtuvo: '+htmlRitmoCritico);
 
   // El detalle no debe ofrecer "Agregar materiales" (no se agrega a mano) y debe explicar que es
   // automático, con el conteo real de materiales críticos.
