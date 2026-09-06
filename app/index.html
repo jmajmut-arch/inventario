@@ -1685,7 +1685,7 @@ async function cargarResponsables(){
 // "actual" (ver trigger asignar_ciclo_conteo); acá solo se listan/gestionan.
 async function cargarCiclos(){
   try{
-    const rows = await rest('/ciclos_conteo?select=id,nombre,es_actual&order=created_at.desc');
+    const rows = await rest('/ciclos_conteo?select=id,nombre,es_actual,fecha_inicio&order=created_at.desc');
     setState({ciclos: rows||[]});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1705,10 +1705,13 @@ async function cargarCalendario(mes){
   }
 }
 
-async function crearCiclo(nombre){
+async function crearCiclo(nombre, fechaInicio){
   if(!nombre || !perfilCargado()) return;
   try{
-    await rest('/ciclos_conteo', {method:'POST', body:[{empresa_id: state.perfil.empresa_id, nombre}], prefer:'return=minimal'});
+    await rest('/ciclos_conteo', {method:'POST', body:[{
+      empresa_id: state.perfil.empresa_id, nombre,
+      fecha_inicio: fechaInicio || fechaISO(new Date()),
+    }], prefer:'return=minimal'});
     toast('Ciclo creado');
     cargarCiclos();
   }catch(e){ toast(e.message,'err'); }
@@ -1787,7 +1790,7 @@ async function cargarSeguimientoGrupo(grupoId){
     // El período actual (ciclo_actual) se pide en paralelo -- es un dato de contexto ("¿cuántos
     // días llevamos?"), no depende de los miembros del grupo. Si no hay ninguno marcado como
     // actual, simplemente no se muestra esa línea (mismo criterio que el resto de la app).
-    const pedidoCiclo = rest('/ciclos_conteo?es_actual=eq.true&select=nombre,created_at&limit=1');
+    const pedidoCiclo = rest('/ciclos_conteo?es_actual=eq.true&select=nombre,fecha_inicio&limit=1');
     let miembros, filas;
     if(grupo && grupo.automatico_critico){
       // Automático: la membresía ES el propio universo de skus.critico=true -- alcanza una sola
@@ -1809,9 +1812,13 @@ async function cargarSeguimientoGrupo(grupoId){
       }
     }
     const ciclosActuales = await pedidoCiclo || [];
+    // fecha_inicio es una fecha elegida a mano al crear el período (ver renderCiclos/crearCiclo),
+    // no cuándo se creó el registro -- para que "día X" refleje cuándo arrancó de verdad el
+    // conteo en terreno, aunque el período se cargue en la app unos días después (pedido de Joel).
+    // Se interpreta a medianoche LOCAL (mismo criterio que instantesFiltroFecha), no UTC.
     const cicloActual = ciclosActuales[0] ? {
       nombre: ciclosActuales[0].nombre,
-      dias: Math.max(1, Math.floor((Date.now() - new Date(ciclosActuales[0].created_at).getTime()) / (24*60*60*1000)) + 1),
+      dias: Math.max(1, Math.floor((Date.now() - new Date(ciclosActuales[0].fecha_inicio+'T00:00:00').getTime()) / (24*60*60*1000)) + 1),
     } : null;
 
     const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
@@ -7087,11 +7094,16 @@ function renderCiclos(){
       <form id="form-crear-ciclo">
         <label for="ciclo-nombre">Nombre del ciclo</label>
         <input type="text" id="ciclo-nombre" placeholder="Ej. T1 2027" required>
+        <label for="ciclo-fecha-inicio" style="margin-top:8px">Fecha de inicio</label>
+        <input type="date" id="ciclo-fecha-inicio" value="${esc(fechaISO(new Date()))}" required>
         <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear ciclo</button></div>
       </form>
       ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=>`
         <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
-          <div class="plan-item-ubic" style="font-weight:500;flex:1">${esc(c.nombre)}</div>
+          <div style="flex:1">
+            <div class="plan-item-ubic" style="font-weight:500">${esc(c.nombre)}</div>
+            ${c.fecha_inicio? `<div class="hint" style="margin-top:2px">Inicio: ${esc(c.fecha_inicio)}</div>` : ''}
+          </div>
           ${c.es_actual? `<span class="badge badge-ok">Actual</span>` : `<button type="button" class="btn btn-secondary" data-marcar-ciclo-actual="${esc(c.id)}" style="width:auto;padding:6px 12px;font-size:12px">Marcar como actual</button>`}
         </div>
       `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay ciclos creados. Mientras no crees uno, los conteos se guardan sin período asignado.</div>`}
@@ -7872,7 +7884,8 @@ function bind(){
     if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
       e.preventDefault();
       const input = document.getElementById('ciclo-nombre');
-      crearCiclo(input.value.trim());
+      const inputFecha = document.getElementById('ciclo-fecha-inicio');
+      crearCiclo(input.value.trim(), inputFecha.value);
       input.value = '';
     });
     document.querySelectorAll('[data-marcar-ciclo-actual]').forEach(btn=>{

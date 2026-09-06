@@ -39,7 +39,7 @@ let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de venci
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
-let cicloActualFixture; // fila del ciclo actual con created_at (ver cargarSeguimientoGrupo) -- undefined = ninguno
+let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -189,16 +189,19 @@ const fakeFetchImpl = async (url, opts) => {
     const conConteo = ids.filter(id => id === 'sku-con-conteo');
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conConteo.map(id=>({sku_id:id}))) };
   }
-  // cargarSeguimientoGrupo pide el ciclo actual aparte (con created_at, para calcular "día X del
-  // período") -- chequear antes del matcher genérico de /ciclos_conteo de abajo, que no trae ese
-  // campo y devuelve dos ciclos fijos (rompería el cálculo de días).
-  if(path.startsWith('/rest/v1/ciclos_conteo?es_actual=eq.true&select=nombre,created_at')){
+  // cargarSeguimientoGrupo pide el ciclo actual aparte (con fecha_inicio, para calcular "día X
+  // del período") -- chequear antes del matcher genérico de /ciclos_conteo de abajo, que no trae
+  // ese campo y devuelve dos ciclos fijos (rompería el cálculo de días).
+  if(path.startsWith('/rest/v1/ciclos_conteo?es_actual=eq.true&select=nombre,fecha_inicio')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cicloActualFixture!==undefined ? cicloActualFixture : []) };
+  }
+  if(path==='/rest/v1/ciclos_conteo' && opts && opts.method==='POST'){
+    return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   if(path.startsWith('/rest/v1/ciclos_conteo')){
     const filas = [
-      {id:'ciclo-1', nombre:'T1 2027', es_actual:true},
-      {id:'ciclo-2', nombre:'T4 2026', es_actual:false},
+      {id:'ciclo-1', nombre:'T1 2027', es_actual:true, fecha_inicio:'2027-01-05'},
+      {id:'ciclo-2', nombre:'T4 2026', es_actual:false, fecha_inicio:'2026-10-01'},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -3782,11 +3785,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlCiclos = ctx.renderCiclos();
   assert(htmlCiclos.includes('T1 2027') && htmlCiclos.includes('T4 2026'), 'Períodos (renderCiclos) debe listar los ciclos existentes, obtuvo: '+htmlCiclos);
   assert(htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-2"') && !htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-1"'), 'solo el ciclo que no es el actual debe ofrecer el botón de "marcar como actual" (ciclo-1 ya lo es), obtuvo: '+htmlCiclos);
+  // Fecha de inicio real, elegible al crear (a pedido de Joel: "día X del período" debe basarse
+  // en cuándo arrancó de verdad el conteo, no en cuándo se creó el registro) -- se muestra por
+  // cada período de la lista y el formulario ofrece el campo para elegirla.
+  assert(htmlCiclos.includes('id="ciclo-fecha-inicio"'), 'el formulario de crear período debe ofrecer un campo de fecha de inicio, obtuvo: '+htmlCiclos);
+  assert(htmlCiclos.includes('Inicio: 2027-01-05') && htmlCiclos.includes('Inicio: 2026-10-01'), 'cada período listado debe mostrar su fecha de inicio, obtuvo: '+htmlCiclos);
 
   calls.length = 0;
-  await ctx.crearCiclo('T2 2027');
+  await ctx.crearCiclo('T2 2027', '2027-04-01');
   const postCiclo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/ciclos_conteo'));
-  assert(!!postCiclo && JSON.parse(postCiclo.opts.body)[0].nombre==='T2 2027', 'crearCiclo debe hacer POST a /ciclos_conteo con el nombre, obtuvo: '+JSON.stringify(postCiclo));
+  assert(!!postCiclo && JSON.parse(postCiclo.opts.body)[0].nombre==='T2 2027' && JSON.parse(postCiclo.opts.body)[0].fecha_inicio==='2027-04-01', 'crearCiclo debe hacer POST a /ciclos_conteo con el nombre y la fecha de inicio elegida, obtuvo: '+JSON.stringify(postCiclo));
+
+  // Sin elegir fecha (por si el campo llegara vacío), debe usar hoy como respaldo -- nunca mandar
+  // fecha_inicio vacía o nula.
+  calls.length = 0;
+  await ctx.crearCiclo('T3 2027', '');
+  const postCicloSinFecha = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/ciclos_conteo'));
+  assert(!!postCicloSinFecha && JSON.parse(postCicloSinFecha.opts.body)[0].fecha_inicio===ctx.fechaISO(new Date()), 'sin fecha elegida, debe usar la fecha de hoy como respaldo, obtuvo: '+JSON.stringify(postCicloSinFecha));
 
   calls.length = 0;
   await ctx.marcarCicloActual('ciclo-2');
@@ -4137,8 +4152,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(segC.totalMiembros===3 && segC.nuncaContados===1 && segC.alDia===1 && segC.vencidos===1 && segC.tieneFrecuencia===true, 'el seguimiento de un grupo automático debe distinguir al día/vencido/nunca contado igual que uno curado a mano, obtuvo: '+JSON.stringify(segC));
   assert(segC.cicloActual===null, 'sin ningún ciclo marcado como actual en el fixture, no debe mostrar período (ver el mock por defecto que devuelve []), obtuvo: '+JSON.stringify(segC.cicloActual));
 
-  // Con un ciclo actual real (creado hace 5 días), debe calcular y mostrar "día X del período".
-  cicloActualFixture = [{nombre:'T1 2027', created_at: new Date(Date.now() - 5*24*60*60*1000).toISOString()}];
+  // Con un ciclo actual real (fecha de inicio elegida a mano, hace 5 días), debe calcular y
+  // mostrar "día X del período" a partir de esa fecha -- NO de created_at (ver conversación con
+  // Joel: el período puede cargarse en la app días después de que el conteo arrancó de verdad).
+  cicloActualFixture = [{nombre:'T1 2027', fecha_inicio: ctx.fechaISO(ctx.sumarDias(new Date(), -5))}];
   await ctx.cargarSeguimientoGrupo('grupo-critico');
   assert(ctx.__appstate.grupos.seguimiento.cicloActual && ctx.__appstate.grupos.seguimiento.cicloActual.nombre==='T1 2027' && ctx.__appstate.grupos.seguimiento.cicloActual.dias===6, 'con un ciclo actual creado hace 5 días, debe calcular el día 6 del período, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.seguimiento.cicloActual));
   const htmlConPeriodo = ctx.renderGrupos();
