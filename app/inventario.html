@@ -2938,8 +2938,19 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
 // skus_grupos_conteo (state.busqueda.gruposPares, ver buscarConteos) armando un OR de pares
 // exactos, igual mecánica que ya usa calcularVistaPreviaPlanGrupo. El grupo automático de
 // Crítico NO pasa por acá -- ya se cubre con "Solo críticos" (critico=eq.true, sin join).
+// El grupo elegido en el <select> de Buscar (ver gruposParaFiltroBuscar) -- null si no hay
+// ninguno elegido, o si state.grupos.lista todavía no cargó ese id.
+function grupoBuscarSeleccionado(){
+  if(!state.busqueda.grupoId) return null;
+  return (state.grupos.lista || []).find(g=>g.id===state.busqueda.grupoId) || null;
+}
+
 function filtroGrupoBuscar(){
-  if(!state.busqueda.grupoId) return '';
+  const grupo = grupoBuscarSeleccionado();
+  if(!grupo) return '';
+  // Automático (ej. "Críticos"): se resuelve igual que el checkbox "Solo críticos" -- directo por
+  // skus_busqueda.critico, sin pasar por skus_grupos_conteo (ese grupo no tiene filas ahí).
+  if(grupo.automatico_critico) return '&critico=eq.true';
   const pares = state.busqueda.gruposPares || [];
   // Grupo sin materiales: ningún resultado puede coincidir -- se arma un filtro que nunca hace
   // match (en vez de mandar un "or=()" vacío, que PostgREST rechazaría) para no pedir de más.
@@ -2979,18 +2990,22 @@ function instantesFiltroFechaBusqueda(){
 // tiene filtros (ver PR de optimización de Buscar para la medición).
 function construirParametrosBusquedaRpc(){
   const { desde, hasta } = instantesFiltroFechaBusqueda();
+  const grupo = grupoBuscarSeleccionado();
   return {
     p_texto: sanearTextoFiltro(state.busqueda.texto) || null,
     p_bodega: sanearTextoFiltro(state.busqueda.bodega) || null,
     p_estado: state.busqueda.estado || null,
     p_ciclo: state.busqueda.ciclo || null,
     p_solo_fuera_de_plan: !!state.busqueda.soloFueraDePlan,
-    p_solo_criticos: !!state.busqueda.soloCriticos,
+    // El grupo automático de Crítico se resuelve como "solo críticos" (ver filtroGrupoBuscar) --
+    // así el RPC del total usa el mismo camino, sin join, tanto si viene del checkbox como del
+    // <select> de Grupo.
+    p_solo_criticos: !!state.busqueda.soloCriticos || !!(grupo && grupo.automatico_critico),
     p_clase_abc: state.busqueda.claseAbc || null,
     p_fecha_desde: desde,
     p_fecha_hasta: hasta,
     p_usuario_id: state.busqueda.usuarioId || null,
-    p_grupo_id: state.busqueda.grupoId || null,
+    p_grupo_id: (grupo && !grupo.automatico_critico) ? grupo.id : null,
   };
 }
 
@@ -3055,8 +3070,9 @@ async function buscarConteos(){
     // exacto en construirPathBusqueda/construirParametrosBusquedaRpc. Se guarda en el estado
     // (gruposPares) para que "cargar más" y exportar reutilicen el mismo snapshot sin volver a
     // pedirlo -- igual criterio que el resto de los filtros de Buscar.
-    state.busqueda.gruposPares = state.busqueda.grupoId
-      ? (await rest(`/skus_grupos_conteo?grupo_id=eq.${encodeURIComponent(state.busqueda.grupoId)}&select=sku_code,bodega`) || [])
+    const grupoParaBuscar = grupoBuscarSeleccionado();
+    state.busqueda.gruposPares = (grupoParaBuscar && !grupoParaBuscar.automatico_critico)
+      ? (await rest(`/skus_grupos_conteo?grupo_id=eq.${encodeURIComponent(grupoParaBuscar.id)}&select=sku_code,bodega`) || [])
       : [];
     const [data, total] = await Promise.all([
       rest(construirPathBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA)),
@@ -6282,11 +6298,12 @@ function renderReconteo(){
    ======================================================================= */
 // Encabezado ordenable de la tabla de Buscar (ver toggleOrdenBusqueda): muestra una flecha
 // cuando esa columna es la que ordena ahora mismo (▲ ascendente, ▼ descendente).
-// Grupos que se pueden elegir como filtro en Buscar: solo los curados a mano (skus_grupos_conteo).
-// El grupo automático de Crítico queda afuera -- ese ya se filtra con "Solo críticos" (más directo,
-// sin depender de que state.grupos esté cargado).
-function gruposManualesBuscar(){
-  return (state.grupos.lista || []).filter(g=>!g.automatico_critico);
+// Grupos que se pueden elegir como filtro en Buscar -- TODOS los activos, curados a mano o
+// automáticos (ej. "Críticos"). El automático internamente se resuelve como critico=eq.true (ver
+// filtroGrupoBuscar/construirParametrosBusquedaRpc), sin pasar por skus_grupos_conteo -- pero
+// tiene que aparecer acá igual, si no la persona no lo encuentra (reportado por Joel).
+function gruposParaFiltroBuscar(){
+  return state.grupos.lista || [];
 }
 
 function thOrdenBuscar(campo, etiqueta, claseExtra){
@@ -6357,11 +6374,11 @@ function renderBuscar(){
           ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${b.ciclo===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
         </select>
         ` : ''}
-        ${gruposManualesBuscar().length? `
+        ${gruposParaFiltroBuscar().length? `
         <label for="b-grupo" style="margin-top:12px">Grupo de conteo</label>
         <select id="b-grupo">
           <option value="">Todos</option>
-          ${gruposManualesBuscar().map(g=>`<option value="${esc(g.id)}" ${b.grupoId===g.id?'selected':''}>${esc(g.nombre)}</option>`).join('')}
+          ${gruposParaFiltroBuscar().map(g=>`<option value="${esc(g.id)}" ${b.grupoId===g.id?'selected':''}>${esc(g.nombre)}</option>`).join('')}
         </select>
         ` : ''}
         <label for="b-clase-abc">Clase ABC</label>
@@ -8215,7 +8232,7 @@ function bind(){
 
   if(state.view==='buscar'){
     // Mismo patrón que Grupos/Períodos: cargar la lista una sola vez, en segundo plano, para
-    // tener con qué llenar el <select> de "Grupo de conteo" (ver gruposManualesBuscar).
+    // tener con qué llenar el <select> de "Grupo de conteo" (ver gruposParaFiltroBuscar).
     if(!state.grupos.cargado && !state.grupos.cargando) cargarGrupos();
     document.getElementById('form-buscar').addEventListener('submit', e=>{
       e.preventDefault();
