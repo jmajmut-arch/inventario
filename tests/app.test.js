@@ -6044,6 +6044,56 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlBuscarClaseAbc.includes('id="b-clase-abc"') && htmlBuscarClaseAbc.includes('Clase ABC'), 'debe mostrar el selector de Clase ABC, obtuvo: '+htmlBuscarClaseAbc);
   ctx.__appstate.busqueda.claseAbc = '';
 
+  // ===== Buscar: filtro por Grupo de conteo curado a mano (a pedido de Joel: "buscar por
+  // grupos"). El grupo automático de Crítico NO aparece en este selector -- ya se cubre con "Solo
+  // críticos" (filtro directo, sin join). skus_busqueda no tiene columna de grupo, así que se
+  // resuelve trayendo los pares código+bodega del grupo (skus_grupos_conteo) y armando un OR
+  // exacto -- ver filtroGrupoBuscar/buscarConteos. =====
+  ctx.__appstate.grupos.lista = [
+    {id:'grupo-ie', nombre:'IE', automatico_critico:false, activo:true},
+    {id:'grupo-critico-buscar', nombre:'Críticos', automatico_critico:true, activo:true},
+  ];
+  assert(JSON.stringify(ctx.gruposManualesBuscar().map(g=>g.id))===JSON.stringify(['grupo-ie']), 'el selector de grupo en Buscar debe excluir el grupo automático de Crítico, obtuvo: '+JSON.stringify(ctx.gruposManualesBuscar()));
+  const htmlSelectorGrupo = ctx.renderBuscar();
+  assert(htmlSelectorGrupo.includes('id="b-grupo"') && htmlSelectorGrupo.includes('>IE<') && !htmlSelectorGrupo.includes('>Críticos<'), 'debe ofrecer un <select> de grupo con solo los grupos curados a mano, obtuvo: '+htmlSelectorGrupo);
+
+  // Sin grupo elegido: no debe agregar ningún filtro ni tocar el RPC.
+  assert(!ctx.construirPathBusqueda(0).includes('sku_id=eq.') , 'sin grupo elegido, no debe agregar el filtro de grupo, obtuvo: '+ctx.construirPathBusqueda(0));
+  assert(ctx.construirParametrosBusquedaRpc().p_grupo_id===null, 'sin grupo elegido, el RPC debe recibir p_grupo_id null, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
+
+  // Con un grupo elegido: buscarConteos debe traer primero los pares código+bodega del grupo,
+  // guardarlos, y usarlos para armar el filtro exacto (código Y bodega, no solo código -- un
+  // mismo código puede estar en otra bodega que no es del grupo) -- y mandar p_grupo_id al RPC.
+  gruposMiembrosFixture['grupo-ie'] = [
+    {sku_code:'IE-100', bodega:'B501'},
+    {sku_code:'IE-200', bodega:null}, // material del grupo sin bodega asignada
+  ];
+  ctx.__appstate.busqueda = {
+    texto:'', bodega:'', estado:'', ciclo:'', grupoId:'grupo-ie', gruposPares:[], soloConFotos:false,
+    soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'',
+    resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0,
+  };
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-ie&select=sku_code,bodega')), 'buscarConteos debe traer los pares código+bodega del grupo elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.stringify(ctx.__appstate.busqueda.gruposPares)===JSON.stringify([{sku_code:'IE-100',bodega:'B501'},{sku_code:'IE-200',bodega:null}]), 'debe guardar los pares traídos en el estado (para "cargar más"/exportar), obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.gruposPares));
+  const pathConGrupo = ctx.construirPathBusqueda(0);
+  assert(pathConGrupo.includes('or=(and(sku_code.eq.IE-100,bodega.eq.B501),and(sku_code.eq.IE-200,bodega.is.null))'), 'debe armar un OR de pares exactos código+bodega, respetando bodega nula, obtuvo: '+pathConGrupo);
+  const rpcCallGrupo = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
+  assert(!!rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body).p_grupo_id==='grupo-ie', 'el RPC debe recibir el mismo grupo elegido en p_grupo_id, obtuvo: '+JSON.stringify(rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body)));
+
+  // Grupo sin materiales: no debe generar un "or=()" vacío (PostgREST lo rechazaría) -- debe usar
+  // un filtro que garantice cero resultados, sin necesidad de pedirle nada a skus_busqueda.
+  ctx.__appstate.busqueda.grupoId = 'grupo-vacio';
+  ctx.__appstate.busqueda.gruposPares = [];
+  gruposMiembrosFixture['grupo-vacio'] = [];
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(JSON.stringify(ctx.__appstate.busqueda.gruposPares)===JSON.stringify([]), 'un grupo sin materiales debe dejar gruposPares vacío, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.gruposPares));
+  assert(ctx.construirPathBusqueda(0).includes('sku_id=eq.00000000-0000-0000-0000-000000000000'), 'un grupo sin materiales debe usar un filtro que nunca hace match, no un or=() vacío, obtuvo: '+ctx.construirPathBusqueda(0));
+  ctx.__appstate.busqueda.grupoId = '';
+  ctx.__appstate.busqueda.gruposPares = [];
+
   // ===== Buscar: el RPC contar_busqueda_skus (total real, pedido en paralelo a las filas -- ver
   // buscarConteos) debe recibir EXACTAMENTE los mismos filtros que construirPathBusqueda usa para
   // pedir las filas. En particular las fechas: deben viajar como el instante (timestamptz) que el
