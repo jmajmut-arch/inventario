@@ -1288,10 +1288,6 @@ function manejarSesionInvalida(){
    ======================================================================= */
 async function cargarTodo(){
   const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
-  // El checklist de primeros pasos (ver renderChecklistPrimerosPasos) necesita saber si ya hay
-  // equipo invitado -- se pide solo para admin/súper-admin, los únicos que ven el checklist (un
-  // operador nunca llega a Dashboard, ver VISTAS_SOLO_ADMIN).
-  if(state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin)) tareas.push(cargarEquipo());
   await Promise.all(tareas);
 }
 
@@ -5498,51 +5494,6 @@ function renderAdherenciaPlan(){
   ` : `<div class="empty">Sin plan creado para este período.</div>`);
 }
 
-// Checklist de "primeros pasos" para una empresa nueva (a pedido de Joel): guía los pasos
-// iniciales para dejar la app operativa. Se descarta a mano por empresa (localStorage, mismo
-// patrón que tema_app) -- no hace falta guardarlo en el servidor, es puramente una conveniencia
-// de la persona que lo cierra en su propio navegador.
-function checklistPrimerosPasosOculto(empresaId){
-  try{ return localStorage.getItem(`checklist_oculto_${empresaId}`) === '1'; }catch(e){ return false; }
-}
-function ocultarChecklistPrimerosPasos(){
-  try{ localStorage.setItem(`checklist_oculto_${state.perfil.empresa_id}`, '1'); }catch(e){ /* localStorage no disponible (modo privado, etc.) */ }
-  render();
-}
-
-// Solo tiene sentido para admin/súper-admin: un operador nunca llega a Dashboard (ver
-// VISTAS_SOLO_ADMIN), así que si esto se está pintando ya sabemos que el rol es el correcto.
-// Se oculta sola apenas los tres pasos están completos -- no hace falta que la persona la
-// descarte a mano si ya terminó.
-function renderChecklistPrimerosPasos(){
-  if(!state.perfil || checklistPrimerosPasosOculto(state.perfil.empresa_id)) return '';
-  const pasos = [
-    { hecho: state.skus.length>0, texto:'Carga tus SKU', detalle:'Sube tu maestro de materiales desde Carga masiva.', vista:'carga' },
-    { hecho: state.equipo.personas.some(p=>p.id!==state.perfil.id), texto:'Invita a tu equipo', detalle:'Suma a las personas que van a contar, desde Configuraciones.', vista:'config' },
-    { hecho: state.ciclos.length>0, texto:'Crea tu primer período de conteo', detalle:'Define un ciclo (ej. "T1 2027") para agrupar y comparar tus conteos.', vista:'ciclos' },
-  ];
-  if(pasos.every(p=>p.hecho)) return '';
-  return `
-    <div class="card" style="margin-bottom:14px;border-color:var(--amber)">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <h2 style="font-size:15px;margin:0">Primeros pasos</h2>
-        <button type="button" id="btn-ocultar-checklist" style="background:none;border:none;color:var(--text-dim);font-size:12px;padding:2px;cursor:pointer">Ocultar</button>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-        ${pasos.map(p=>`
-          <button type="button" class="checklist-paso" data-ir-vista="${p.vista}" style="display:flex;align-items:flex-start;gap:10px;text-align:left;background:none;border:none;padding:6px 4px;cursor:pointer;border-radius:8px;${p.hecho?'opacity:.55':''}">
-            <span aria-hidden="true" style="flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid ${p.hecho?'var(--ok)':'var(--line)'};background:${p.hecho?'var(--ok)':'transparent'};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;margin-top:1px">${p.hecho?'✓':''}</span>
-            <span>
-              <span style="display:block;font-weight:600;font-size:13.5px;color:var(--text);${p.hecho?'text-decoration:line-through':''}">${esc(p.texto)}</span>
-              <span style="display:block;font-size:12px;color:var(--text-dim)">${esc(p.detalle)}</span>
-            </span>
-          </button>
-        `).join('')}
-      </div>
-    </div>
-  `;
-}
-
 function renderDashboard(){
   const periodTable = (rows, keyLabel, keyField, formatKey=fmtFecha) => {
     if(!rows.length) return `<div class="empty">Sin datos todavía.</div>`;
@@ -5631,7 +5582,6 @@ function renderDashboard(){
   `;
 
   return `
-    ${renderChecklistPrimerosPasos()}
     <div class="section-head">
       <div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div>
       <button class="btn btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${ejecutivoIncluido?'':'disabled title="Disponible en el plan Profesional"'}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
@@ -7986,11 +7936,6 @@ function bind(){
   }
 
   if(state.view==='dashboard'){
-    const btnOcultarChecklist = document.getElementById('btn-ocultar-checklist');
-    if(btnOcultarChecklist) btnOcultarChecklist.addEventListener('click', ocultarChecklistPrimerosPasos);
-    document.querySelectorAll('[data-ir-vista]').forEach(btn=>{
-      btn.addEventListener('click', ()=> setState({view: btn.dataset.irVista}));
-    });
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         const rutas = JSON.parse(btn.dataset.verFotos);

@@ -1616,32 +1616,6 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlDashOperativo = ctx.renderDashboard();
   assert(htmlDashOperativo.includes('Materiales contados (ciclo actual)'), 'la lista de materiales contados (vista Operativo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDashOperativo);
 
-  // ===== Checklist de "primeros pasos" (a pedido de Joel): guía a una empresa nueva a cargar
-  // SKU, invitar equipo y crear su primer período. Se oculta sola apenas los tres pasos están
-  // completos, o si la persona la descarta a mano (localStorage, por empresa). =====
-  ctx.__appstate.perfil = { id:'admin-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-checklist', empresas:{nombre:'Minera Andes'} };
-  ctx.__appstate.skus = [];
-  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}] };
-  ctx.__appstate.ciclos = [];
-  ctx.localStorage.removeItem('checklist_oculto_emp-checklist');
-  const htmlChecklistNada = ctx.renderDashboard();
-  assert(htmlChecklistNada.includes('Primeros pasos') && htmlChecklistNada.includes('Carga tus SKU') && htmlChecklistNada.includes('Invita a tu equipo') && htmlChecklistNada.includes('Crea tu primer período de conteo'), 'con una empresa recién creada (sin SKU, sin equipo, sin ciclos) debe mostrarse el checklist completo, obtuvo: '+htmlChecklistNada);
-
-  ctx.__appstate.skus = [{id:'s1', sku_code:'A1'}];
-  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}, {id:'op-1', nombre:'Beto', rol:'operador', activo:true}] };
-  ctx.__appstate.ciclos = [{id:'c1', nombre:'T1 2027', es_actual:true}];
-  const htmlChecklistCompleto = ctx.renderDashboard();
-  assert(!htmlChecklistCompleto.includes('Primeros pasos'), 'con los tres pasos completos, el checklist debe ocultarse solo, sin que la persona tenga que descartarlo, obtuvo: '+htmlChecklistCompleto);
-
-  ctx.__appstate.skus = [];
-  ctx.__appstate.equipo = { cargado:true, cargando:false, personas:[{id:'admin-1', nombre:'Ana', rol:'admin', activo:true}] };
-  ctx.__appstate.ciclos = [];
-  ctx.ocultarChecklistPrimerosPasos();
-  const htmlChecklistDescartado = ctx.renderDashboard();
-  assert(!htmlChecklistDescartado.includes('Primeros pasos'), 'al descartarlo a mano, el checklist no debe volver a aparecer aunque falten pasos, obtuvo: '+htmlChecklistDescartado);
-  assert(ctx.localStorage.getItem('checklist_oculto_emp-checklist')==='1', 'debe persistir el descarte en localStorage, por empresa, obtuvo: '+ctx.localStorage.getItem('checklist_oculto_emp-checklist'));
-  ctx.localStorage.removeItem('checklist_oculto_emp-checklist');
-
   // Pedido del usuario: en el Dashboard operativo, Semanal debe mostrar el número de semana (no
   // la fecha cruda del lunes) y Mensual el nombre del mes (no la fecha cruda del día 1). Diario
   // debe paginar de a 15 filas (a pedido de Joel) con botón Siguiente/Anterior, en vez de listar
