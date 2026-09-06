@@ -1740,9 +1740,18 @@ async function cargarGrupos(){
   setState({grupos: {...state.grupos, cargando:true}});
   try{
     // El embed "miembros:skus_grupos_conteo(count)" trae la cantidad de materiales de cada
-    // grupo sin tener que pedirla aparte por grupo (evita N+1 consultas).
-    const rows = await rest('/grupos_conteo?select=*,miembros:skus_grupos_conteo(count)&activo=eq.true&order=nombre.asc');
-    setState({grupos: {...state.grupos, lista: rows||[], cargado:true, cargando:false}});
+    // grupo sin tener que pedirla aparte por grupo (evita N+1 consultas). No sirve para el grupo
+    // automático de Crítico (no tiene filas en skus_grupos_conteo) -- para ese, aparte, se pide
+    // el conteo real vía RPC (contar_criticos_distintos, cuenta materiales, no filas -- rápida,
+    // usa el índice idx_skus_empresa_activo_critico) -- a lo más un grupo automático por empresa,
+    // así que es un solo pedido extra, no N+1.
+    const rows = await rest('/grupos_conteo?select=*,miembros:skus_grupos_conteo(count)&activo=eq.true&order=nombre.asc') || [];
+    const grupoAutomatico = rows.find(g=>g.automatico_critico);
+    if(grupoAutomatico){
+      const total = await rest('/rpc/contar_criticos_distintos', {method:'POST', body:{}});
+      grupoAutomatico.totalCriticos = Number(total) || 0;
+    }
+    setState({grupos: {...state.grupos, lista: rows, cargado:true, cargando:false}});
   }catch(e){
     setState({grupos: {...state.grupos, cargando:false}});
     toast(e.message,'err');
@@ -7140,7 +7149,9 @@ function renderGrupos(){
       ` : `<button type="button" id="btn-nuevo-grupo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear grupo</button>`}
       ${g.cargando? `<div class="hint" style="text-align:center;padding:24px 0">Cargando…</div>` : g.lista.length? `<div style="margin-top:14px">${g.lista.map(grupo=>{
         const cantidad = (grupo.miembros && grupo.miembros[0] && grupo.miembros[0].count) || 0;
-        const descripcionCantidad = grupo.automatico_critico ? 'Automático (Crítico)' : `${cantidad} material${cantidad===1?'':'es'}`;
+        const descripcionCantidad = grupo.automatico_critico
+          ? `${grupo.totalCriticos!=null ? `${grupo.totalCriticos} material${grupo.totalCriticos===1?'':'es'} · ` : ''}Automático (Crítico)`
+          : `${cantidad} material${cantidad===1?'':'es'}`;
         return `
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">

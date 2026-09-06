@@ -40,6 +40,7 @@ let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVist
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
 let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
+let contarCriticosDistintosFixture = 0; // respuesta del RPC contar_criticos_distintos (ver cargarGrupos)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
@@ -222,6 +223,11 @@ const fakeFetchImpl = async (url, opts) => {
   // membresía ES el universo de skus.critico=true -- no pasa por skus_grupos_conteo.
   if(path.startsWith('/rest/v1/skus?activo=eq.true&critico=eq.true&select=')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(criticosAutomaticoFixture||[]) };
+  }
+  // Conteo real de materiales críticos (código+bodega distintos, no filas) para mostrar en la
+  // lista de Grupos junto al grupo automático (ver cargarGrupos).
+  if(path.startsWith('/rest/v1/rpc/contar_criticos_distintos')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(contarCriticosDistintosFixture) };
   }
   if(path.startsWith('/rest/v1/skus_grupos_conteo?grupo_id=eq.')){
     const grupoId = (path.match(/grupo_id=eq\.([^&]+)/)||[])[1];
@@ -4142,7 +4148,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     {sku_code:'CRIT-B', bodega:'B501', ubicacion:'0100', storage_bin:'A-02', ultimo_conteo_fecha: ahoraCrit},
     {sku_code:'CRIT-C', bodega:'B501', ubicacion:'0100', storage_bin:'A-03', ultimo_conteo_fecha: null}, // nunca contado
   ];
+  // La lista de grupos debe mostrar la cantidad real de materiales críticos (RPC
+  // contar_criticos_distintos) junto con "Automático (Crítico)" -- reportado por Joel: antes solo
+  // se veía la etiqueta, sin cantidad (a diferencia de un grupo curado a mano, que sí la muestra).
+  contarCriticosDistintosFixture = 757;
+  calls.length = 0;
   await ctx.cargarGrupos();
+  assert(calls.some(c=>c.url.includes('/rpc/contar_criticos_distintos')), 'cargarGrupos debe pedir el conteo real de críticos para el grupo automático, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.volverAListaGrupos(); // por si quedó abierto el detalle de otro grupo de una prueba anterior
+  const htmlListaConCriticos = ctx.renderGrupos();
+  assert(htmlListaConCriticos.includes('757 materiales') && htmlListaConCriticos.includes('Automático (Crítico)') && htmlListaConCriticos.includes('cada 90 días'), 'la lista debe mostrar la cantidad de materiales, que es automático, y la frecuencia, obtuvo: '+htmlListaConCriticos);
+
   calls.length = 0;
   await ctx.abrirGrupo('grupo-critico');
   assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-critico')), 'un grupo automático no debe consultar skus_grupos_conteo para sus miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
