@@ -4516,6 +4516,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlVencido = ctx.renderGrupos();
   assert(htmlVencido.includes('vencido') && !htmlVencido.includes('día 60 de 60'), 'estando vencido, debe mostrar el aviso de vencido en vez de "día X de Y", obtuvo: '+htmlVencido);
 
+  // El mismo aviso de "vencido" (o el avance "día X de Y" cuando no está vencido) debe verse
+  // también en la LISTA de grupos, sin tener que entrar a cada uno -- pedido directo de Joel
+  // ("no lo veo") tras el fix del punto anterior.
+  ctx.volverAListaGrupos();
+  const htmlListaVencido = ctx.renderGrupos();
+  assert(htmlListaVencido.includes('Vencido Test') && htmlListaVencido.includes('vencido') && !htmlListaVencido.includes('cada 60 días'), 'la lista de grupos debe mostrar "vencido" para un grupo cuyo ciclo ya venció, en vez de solo la frecuencia, obtuvo: '+htmlListaVencido);
+
   // ===== Grupo automático "Crítico" (automatico_critico): su membresía ES skus.critico=true --
   // no se cura a mano, reusa toda la maquinaria de Grupos (seguimiento/vista previa/plan) apuntada
   // a ese campo en vez de a skus_grupos_conteo. Pedido de Joel: darle su propio calendario a los
@@ -4561,7 +4568,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/rpc/contar_criticos_distintos')), 'cargarGrupos debe pedir el conteo real de críticos para el grupo automático, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   ctx.volverAListaGrupos(); // por si quedó abierto el detalle de otro grupo de una prueba anterior
   const htmlListaConCriticos = ctx.renderGrupos();
-  assert(htmlListaConCriticos.includes('757 materiales') && htmlListaConCriticos.includes('Automático (Crítico)') && htmlListaConCriticos.includes('cada 90 días'), 'la lista debe mostrar la cantidad de materiales, que es automático, y la frecuencia, obtuvo: '+htmlListaConCriticos);
+  // Con frecuencia Y fecha de inicio, la lista muestra el avance del ciclo (día X de Y) en vez de
+  // solo la frecuencia -- a pedido de Joel, para ver el estado de cada grupo sin entrar a cada uno.
+  assert(htmlListaConCriticos.includes('757 materiales') && htmlListaConCriticos.includes('Automático (Crítico)') && htmlListaConCriticos.includes('día 31 de 90'), 'la lista debe mostrar la cantidad de materiales, que es automático, y el avance del ciclo, obtuvo: '+htmlListaConCriticos);
 
   calls.length = 0;
   await ctx.abrirGrupo('grupo-critico');

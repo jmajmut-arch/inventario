@@ -1884,6 +1884,28 @@ function volverAListaGrupos(){
   setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[], editandoFechaInicioId:null}});
 }
 
+// Ciclo PROPIO del grupo (a pedido de Joel: 5S cada 60 días, Críticos cada 90, cada uno con su
+// fecha de inicio -- independiente del período general de la empresa). Se cierra solo cuando pasa
+// la fecha de término (ver cron cerrar_ciclos_grupo_vencidos, que guarda el resultado en
+// historial_ciclos_grupo y arranca el ciclo siguiente). Se usa tanto en la lista de grupos (para
+// ver el avance sin entrar a cada uno) como en el detalle -- por eso vive aparte de
+// cargarSeguimientoGrupo, ya que solo necesita fecha_inicio/frecuencia_dias del grupo mismo, sin
+// pedir nada al servidor.
+function calcularCicloGrupo(grupo){
+  if(!grupo || !grupo.frecuencia_dias || !grupo.fecha_inicio) return null;
+  const inicioMs = new Date(grupo.fecha_inicio+'T00:00:00').getTime();
+  const diaCrudo = Math.max(1, Math.floor((Date.now() - inicioMs) / (24*60*60*1000)) + 1);
+  // Si diaCrudo > totalDias es que el ciclo ya venció en el calendario pero el cron nocturno
+  // todavía no corre para cerrarlo y arrancar el siguiente -- se muestra como "vencido" en vez de
+  // un día que no tendría sentido para el usuario (ej. "día 69 de 60").
+  return {
+    dia: Math.min(diaCrudo, grupo.frecuencia_dias),
+    totalDias: grupo.frecuencia_dias,
+    fechaTermino: fechaISO(sumarDias(new Date(grupo.fecha_inicio+'T00:00:00'), grupo.frecuencia_dias-1)),
+    vencido: diaCrudo > grupo.frecuencia_dias,
+  };
+}
+
 // Seguimiento del grupo: cuántos de sus materiales están al día vs vencidos según su frecuencia
 // (o, si todavía no tiene frecuencia definida, cuántos se han contado alguna vez) -- ver
 // conversación con Joel sobre llevar un avance separado por grupo. Deliberadamente vive acá, en
@@ -1935,19 +1957,11 @@ async function cargarSeguimientoGrupo(grupoId){
     // guarda el resultado en historial_ciclos_grupo y arranca el ciclo siguiente): mientras el
     // ciclo sigue abierto, un material cuenta como "contado en este ciclo" si su conteo más
     // reciente cae en o después de la fecha de inicio del grupo.
-    const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
+    const cicloGrupo = calcularCicloGrupo(grupo);
+    // Requiere fecha_inicio además de frecuencia_dias -- sin fecha de inicio no hay con qué
+    // calcular ni el día del ciclo ni qué cuenta como "contado en este ciclo" (ver más abajo).
+    const tieneFrecuencia = !!cicloGrupo;
     const inicioGrupoMs = tieneFrecuencia ? new Date(grupo.fecha_inicio+'T00:00:00').getTime() : null;
-    const diaCrudo = tieneFrecuencia ? Math.max(1, Math.floor((Date.now() - inicioGrupoMs) / (24*60*60*1000)) + 1) : null;
-    // Si diaCrudo > totalDias es que el ciclo propio del grupo ya venció en el calendario pero el
-    // cron nocturno (cerrar_ciclos_grupo_vencidos) todavía no corre para cerrarlo y arrancar el
-    // siguiente -- se muestra como "vencido" en vez de un día que no tendría sentido para el
-    // usuario (ej. "día 69 de 60"), a pedido de Joel.
-    const cicloGrupo = tieneFrecuencia ? {
-      dia: Math.min(diaCrudo, grupo.frecuencia_dias),
-      totalDias: grupo.frecuencia_dias,
-      fechaTermino: fechaISO(sumarDias(new Date(grupo.fecha_inicio+'T00:00:00'), grupo.frecuencia_dias-1)),
-      vencido: diaCrudo > grupo.frecuencia_dias,
-    } : null;
 
     const inicioSemanaActual = inicioSemana(new Date());
     const inicioMesActual = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -7580,11 +7594,15 @@ function renderGrupos(){
         const descripcionCantidad = grupo.automatico_critico
           ? `${grupo.totalCriticos!=null ? `${grupo.totalCriticos} material${grupo.totalCriticos===1?'':'es'} · ` : ''}Automático (Crítico)`
           : `${cantidad} material${cantidad===1?'':'es'}`;
+        const cicloListaGrupo = calcularCicloGrupo(grupo);
+        const descripcionCiclo = cicloListaGrupo
+          ? (cicloListaGrupo.vencido ? ` · <span style="color:var(--warn)">vencido</span>` : ` · día ${cicloListaGrupo.dia} de ${cicloListaGrupo.totalDias}`)
+          : (grupo.frecuencia_dias ? ` · cada ${grupo.frecuencia_dias} días` : '');
         return `
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500">${esc(grupo.nombre)}</div>
-            <div class="hint" style="margin-top:2px">${descripcionCantidad}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''}</div>
+            <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}</div>
           </div>
           <button type="button" class="btn btn-secondary" data-ver-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver</button>
         </div>
