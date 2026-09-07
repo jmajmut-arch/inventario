@@ -6494,7 +6494,7 @@ function renderReconteo(){
   const esAdmin = state.perfil && state.perfil.rol === 'admin';
   return `
     <div class="section-head"><div><span class="eyebrow">${rows.length}${state.reconteosHayMas?'+':''}</span><h2>Reconteo</h2></div></div>
-    <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo tuvo diferencia contra el stock de sistema <b>del momento en que se contaron</b>. Esa diferencia queda fija -- si el stock del maestro cambia después (por otra carga, venta, etc.) el material no sale solo de la lista. Recuenta para corregir o confirmar la diferencia.</div>
+    <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo tuvo diferencia contra el stock de sistema <b>del momento en que se contaron</b>. Esa diferencia queda fija -- si el stock del maestro cambia después (por otra carga, venta, etc.) el material no sale solo de la lista. Recuenta para corregir o confirmar la diferencia${esAdmin?', o descártala si el problema fue un error en el dato maestro':''}.</div>
     <div class="card">
       ${rows.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
