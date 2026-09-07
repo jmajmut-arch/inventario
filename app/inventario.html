@@ -7351,8 +7351,13 @@ function renderPlanificacion(){
   // es que estés planificando para hoy), no en el lunes de la semana — pero si estás navegando
   // una semana distinta a la actual, hoy cae fuera de [semanaInicio, finSemana] y hay que
   // quedarse con el lunes de esa semana para no violar los min/max del campo.
+  // Con un día puntual activo (desde Calendario), el formulario abre en ESE día -- es lo que se
+  // está mirando y lo más probable es que se quiera agregar ahí; además, cambiar esta Fecha
+  // navega al día elegido (ver bind()), así que sin límite mínimo de semana en ese modo.
   const hoyISO = fechaISO(new Date());
-  const fechaPlanDefault = (hoyISO >= p.semanaInicio && hoyISO <= fechaISO(finSemana)) ? hoyISO : p.semanaInicio;
+  const fechaPlanDefault = p.diaFiltro
+    ? p.diaFiltro
+    : (hoyISO >= p.semanaInicio && hoyISO <= fechaISO(finSemana)) ? hoyISO : p.semanaInicio;
   // El máximo seleccionable debe llegar al menos 7 días después de hoy, no solo hasta el fin
   // de la semana mostrada — si hoy cae cerca del fin de semana (ej. sábado), antes casi no
   // dejaba planificar hacia adelante. Si la semana mostrada ya llega más lejos (navegando a
@@ -7401,7 +7406,7 @@ function renderPlanificacion(){
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
-        <input type="date" id="p-fecha" value="${fechaPlanDefault}" min="${p.semanaInicio}" max="${maxFechaPlan}" required>
+        <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${p.diaFiltro? '' : `min="${p.semanaInicio}"`} max="${maxFechaPlan}" required>
         <label for="p-bodega">Ubicación general</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
@@ -9213,6 +9218,19 @@ function bind(){
       setState({plan:{...state.plan, diaFiltro:null}});
       // Con diaFiltro activo solo se cargó ese día (ver cargarPlanSemanal) -- al volver a la
       // semana/período completo hay que pedir el resto.
+      cargarPlanSemanal();
+    });
+    // Con un día puntual activo, cambiar la Fecha del formulario "Agregar" también navega a ese
+    // día -- reportado por Joel: viendo un día desde el Calendario, cambió esta Fecha esperando
+    // ver lo planificado para el día nuevo y "no actualizó nada" (la Fecha era solo la de la
+    // entrada nueva). Como en ese modo se está mirando un solo día, tiene sentido que la fecha
+    // que se elige para agregar sea la misma que se ve. Solo aplica en modo día: en modo
+    // semana/período la lista ya muestra todas las fechas del rango.
+    const inputFechaPlan = document.getElementById('p-fecha');
+    if(inputFechaPlan) inputFechaPlan.addEventListener('change', e=>{
+      const nueva = e.target.value;
+      if(!state.plan.diaFiltro || !nueva || nueva===state.plan.diaFiltro) return;
+      setState({plan:{...state.plan, diaFiltro:nueva, semanaInicio: fechaISO(inicioSemana(new Date(nueva+'T00:00:00')))}});
       cargarPlanSemanal();
     });
     document.getElementById('form-plan').addEventListener('submit', async e=>{

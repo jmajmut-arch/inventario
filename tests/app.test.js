@@ -7544,6 +7544,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlPlanDiaFiltro.includes('Viendo solo') && htmlPlanDiaFiltro.includes('id="btn-quitar-dia-filtro-plan"'), 'con diaFiltro activo, debe avisar qué día se está viendo y ofrecer volver a la semana completa, obtuvo: '+htmlPlanDiaFiltro);
   assert(htmlPlanDiaFiltro.includes('Interior Nave · A-02') && !htmlPlanDiaFiltro.includes('Interior Nave · A-01'), 'debe listar solo la entrada del día elegido (A-02, 11-ago), no la del otro día de la semana (A-01, 10-ago), obtuvo: '+htmlPlanDiaFiltro);
   assert(htmlPlanDiaFiltro.includes('Resumen del día'), 'el resumen debe titularse "del día" cuando hay un día puntual elegido, obtuvo: '+htmlPlanDiaFiltro);
+  // Con un día puntual activo, el formulario "Agregar" debe abrir en ESE día (no en el lunes de
+  // la semana ni en hoy) y sin límite mínimo de semana -- cambiar esa Fecha navega al día elegido.
+  assert(/id="p-fecha"[^>]*value="2026-08-11"/.test(htmlPlanDiaFiltro), 'con diaFiltro activo, la Fecha del formulario debe abrir en el día que se está viendo, obtuvo: '+(htmlPlanDiaFiltro.match(/<input[^>]*id="p-fecha"[^>]*>/)||[])[0]);
+  assert(!/id="p-fecha"[^>]*min="/.test(htmlPlanDiaFiltro), 'con diaFiltro activo, la Fecha no debe tener mínimo de semana (permite navegar a cualquier día), obtuvo: '+(htmlPlanDiaFiltro.match(/<input[^>]*id="p-fecha"[^>]*>/)||[])[0]);
+  // Reportado por Joel: viendo un día desde el Calendario, cambió la Fecha del formulario
+  // esperando ver lo planificado para ese día nuevo y "no actualizó nada". En modo día, cambiar
+  // la Fecha debe mover la vista a ese día y recargarlo.
+  delete elements['p-fecha'];
+  ctx.bind();
+  const inputFechaPlanDia = elements['p-fecha'];
+  assert(!!inputFechaPlanDia, 'bind() debe haber consultado #p-fecha');
+  inputFechaPlanDia.value = '2026-08-12';
+  calls.length = 0;
+  inputFechaPlanDia.dispatch('change', {target: inputFechaPlanDia});
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.plan.diaFiltro==='2026-08-12' && ctx.__appstate.plan.semanaInicio==='2026-08-10', 'cambiar la Fecha con un día puntual activo debe mover la vista a ese día (y a su semana), obtuvo: '+JSON.stringify({diaFiltro:ctx.__appstate.plan.diaFiltro, semanaInicio:ctx.__appstate.plan.semanaInicio}));
+  const recargaPorFecha = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!recargaPorFecha && recargaPorFecha.url.includes('fecha=eq.2026-08-12'), 'debe recargar el día recién elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  await new Promise(r=>setTimeout(r, 20)); // deja terminar su recálculo de fondo
+  // Sin día puntual (modo semana/período), cambiar la Fecha del formulario no navega: la lista ya
+  // muestra todo el rango y la Fecha es solo la de la entrada nueva.
+  ctx.__appstate.plan.diaFiltro = null;
+  delete elements['p-fecha'];
+  ctx.bind();
+  const inputFechaPlanSemana = elements['p-fecha'];
+  inputFechaPlanSemana.value = '2026-08-13';
+  calls.length = 0;
+  inputFechaPlanSemana.dispatch('change', {target: inputFechaPlanSemana});
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.plan.diaFiltro===null && !calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'sin día puntual, cambiar la Fecha del formulario no debe navegar ni recargar, obtuvo: '+JSON.stringify({diaFiltro:ctx.__appstate.plan.diaFiltro, urls:calls.map(c=>c.url)}));
+  ctx.__appstate.plan.diaFiltro = '2026-08-11';
+  delete elements['btn-quitar-dia-filtro-plan'];
 
   // "Ver toda la semana" limpia diaFiltro y vuelve a mostrar ambos días.
   delete elements['btn-quitar-dia-filtro-plan'];
