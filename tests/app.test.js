@@ -4142,7 +4142,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   universoZonaGrupoFixture = [
     {id:'u1', sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01'},
-    {id:'u1b', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01'},
+    // OTRO-1 con DOS filas (dos batch) en el mismo bin -- bug real reportado por Joel: sin
+    // deduplicar por código, el POST a plan_semanal_exclusiones mandaba 'OTRO-1' dos veces y
+    // violaba la restricción única (plan_id, sku_code), tirando abajo esa entrada entera.
+    {id:'u1b', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01', batch:'LOTE-1'},
+    {id:'u1c', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01', batch:'LOTE-2'},
     {id:'u2', sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
     {id:'u2b', sku_code:'OTRO-2', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
   ];
