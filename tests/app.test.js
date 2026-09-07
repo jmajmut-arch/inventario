@@ -37,6 +37,7 @@ let candidatosGrupoFixture = null; // filas que devuelve el buscador de candidat
 let gruposMiembroDuplicado = false; // simula el rechazo del índice único al agregar dos veces
 let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de vencidos (ver calcularVistaPreviaPlanGrupo)
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
+let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
 let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
@@ -695,6 +696,13 @@ const fakeFetchImpl = async (url, opts) => {
   // bodega/ubicación de prueba dedicadas, sin filtro de storage_bin.
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BGRP') && path.includes('ubicacion=eq.UGRP') && !path.includes('storage_bin=eq.')){
     const filas = universoZonaGrupoFixture || [];
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Universo de una zona "sin ubicación específica" (bodega conocida, ubicación IS NULL) -- a
+  // pedido de Joel, esta zona ya se incluye en el plan real con el filtro explícito ubicacionEsNula
+  // (bodega=eq.X&ubicacion=is.null), no con "sin filtro" (que traería TODAS las ubicaciones).
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BSINUBIC') && path.includes('ubicacion=is.null')){
+    const filas = universoZonaSinUbicacionFixture || [];
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida')){
@@ -3973,18 +3981,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // ===== Vista previa del plan por grupo (SOLO calcula -- no escribe en plan_semanal) =====
 
-  // armarVistaPreviaSemanasGrupo: agrupa por zona (bodega+ubicación) y nunca corta una zona a
-  // la mitad entre dos semanas, aunque eso implique pasarse un poco del cupo -- ver conversación
-  // con Joel: la persona no debe visitar la misma ubicación dos veces por partir justo el cupo.
+  // armarVistaPreviaSemanasGrupo: agrupa por zona (bodega+ubicación) y, a pedido de Joel, PARTE
+  // una zona entre semanas cuando no cabe completa en el cupo (en vez de dejarla entera en una
+  // sola semana) -- así las semanas quedan parejas, al costo de que la persona puede volver a esa
+  // misma zona física la semana siguiente para terminarla.
   const zonaGrande = Array.from({length:5}, (_,i)=>({sku_code:'Z1-'+i, bodega:'B501', ubicacion:'0100', storage_bin:'A-0'+i}));
   const zonaChica = [{sku_code:'Z2-0', bodega:'B501', ubicacion:'0101', storage_bin:'B-01'}];
   const semanasArmadas = ctx.armarVistaPreviaSemanasGrupo([...zonaGrande, ...zonaChica], 3);
-  assert(semanasArmadas.length===2, 'con cupo 3 y una zona de 5 (que no se puede cortar) más una de 1, deben quedar 2 semanas, obtuvo: '+JSON.stringify(semanasArmadas.map(s=>s.materiales)));
-  assert(semanasArmadas[0].materiales===5 && semanasArmadas[0].zonas.length===1, 'la primera semana debe llevarse la zona grande completa aunque supere el cupo, obtuvo: '+JSON.stringify(semanasArmadas[0]));
-  assert(semanasArmadas[1].materiales===1, 'la zona chica debe quedar en su propia semana, obtuvo: '+JSON.stringify(semanasArmadas[1]));
-  // Dentro de cada zona, los materiales quedan ordenados por storage bin (orden físico real de
-  // la bodega, según confirmó Joel -- sirve de orden de recorrido sin inventar nada nuevo).
-  assert(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin).join(',')==='A-00,A-01,A-02,A-03,A-04', 'los materiales de una zona deben quedar ordenados por storage bin, obtuvo: '+JSON.stringify(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin)));
+  assert(semanasArmadas.length===2, 'con cupo 3, una zona de 5 (que ahora sí se puede partir) más una de 1 (total 6), deben quedar 2 semanas de 3, obtuvo: '+JSON.stringify(semanasArmadas.map(s=>s.materiales)));
+  assert(semanasArmadas[0].materiales===3 && semanasArmadas[0].zonas.length===1, 'la primera semana debe llenarse hasta el cupo con el primer fragmento de la zona grande, obtuvo: '+JSON.stringify(semanasArmadas[0]));
+  // Dentro de cada fragmento, los materiales quedan ordenados por storage bin (orden físico real
+  // de la bodega, según confirmó Joel -- sirve de orden de recorrido sin inventar nada nuevo), y
+  // el segundo fragmento continúa exactamente donde quedó el primero (sin saltarse ni repetir).
+  assert(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin).join(',')==='A-00,A-01,A-02', 'el primer fragmento de la zona grande debe respetar el orden por storage bin, obtuvo: '+JSON.stringify(semanasArmadas[0].zonas[0].materiales.map(m=>m.storage_bin)));
+  assert(semanasArmadas[1].materiales===3 && semanasArmadas[1].zonas.length===2, 'la segunda semana debe recibir el resto partido de la zona grande más la zona chica completa, obtuvo: '+JSON.stringify(semanasArmadas[1]));
+  assert(semanasArmadas[1].zonas[0].materiales.map(m=>m.storage_bin).join(',')==='A-03,A-04', 'el segundo fragmento debe continuar justo donde quedó el primero, obtuvo: '+JSON.stringify(semanasArmadas[1].zonas[0].materiales.map(m=>m.storage_bin)));
+  assert(semanasArmadas[1].zonas[1].bodega==='B501' && semanasArmadas[1].zonas[1].ubicacion==='0101' && semanasArmadas[1].zonas[1].materiales.length===1, 'la zona chica debe entrar completa en la semana que le quedó espacio, obtuvo: '+JSON.stringify(semanasArmadas[1].zonas[1]));
+
+  // Una zona que cabe justo en el cupo restante de la semana actual no debe forzar una semana
+  // nueva de más (regresión: confirmar que "espacio" se calcula sobre lo que YA hay en la semana).
+  const zonaJusta = ctx.armarVistaPreviaSemanasGrupo([
+    {sku_code:'J1', bodega:'B900', ubicacion:'Z1', storage_bin:'A'},
+    {sku_code:'J2', bodega:'B900', ubicacion:'Z2', storage_bin:'A'},
+  ], 2);
+  assert(zonaJusta.length===1 && zonaJusta[0].materiales===2, 'dos zonas de 1 material cada una con cupo 2 deben caber en una sola semana, obtuvo: '+JSON.stringify(zonaJusta));
 
   // calcularVistaPreviaPlanGrupo: de punta a punta contra el mock de red -- filtra por
   // código+bodega exactos (no solo código) y por vencimiento según la frecuencia del grupo.
@@ -4005,11 +4025,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-trimestral');
   calls.length = 0;
-  ctx.__appstate.grupos.cupoSemanal = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&sku_code=in.')), 'calcularVistaPreviaPlanGrupo debe consultar /skus por los códigos de los miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===1, 'solo VENC-1::B501 debe contar como pendiente (vencido Y miembro real del grupo por código+bodega exactos), obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
   assert(ctx.__appstate.grupos.vistaPreviaSemanas.length===1 && ctx.__appstate.grupos.vistaPreviaSemanas[0].zonas[0].bodega==='B501', 'la única semana debe cubrir la zona B501/0100, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+
+  // La vista previa debe ofrecer los tres campos de capacidad real (no un cupo puesto a ojo) y
+  // mostrar el cupo ya calculado a partir de ellos -- a pedido de Joel.
+  const htmlCapacidad = ctx.renderGrupos();
+  assert(htmlCapacidad.includes('id="grupo-personas"') && htmlCapacidad.includes('id="grupo-horas"') && htmlCapacidad.includes('id="grupo-ritmo"'), 'debe ofrecer los tres campos de capacidad real (personas, horas, ritmo), obtuvo: '+htmlCapacidad);
+  assert(htmlCapacidad.includes('Cupo semanal calculado: <strong>20</strong>'), 'debe mostrar el cupo calculado a partir de los tres campos (1×1×20=20), obtuvo: '+htmlCapacidad);
+  assert(!htmlCapacidad.includes('id="grupo-cupo-semanal"'), 'ya no debe existir el campo antiguo de "Materiales por semana" puesto a ojo, obtuvo: '+htmlCapacidad);
 
   // Sin frecuencia definida, no debe intentar calcular nada (no tiene con qué comparar).
   gruposConteoFixture = [{id:'grupo-sin-frecuencia', nombre:'Sin frecuencia', frecuencia_dias:null, activo:true, miembros:[{count:1}]}];
@@ -4024,21 +4051,58 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // ===== Confirmar la vista previa como plan real (confirmarVistaPreviaComoPlan) =====
 
-  // Guardia: una zona sin ubicación específica no se puede acotar de forma segura (ver
-  // comentario en el código) -- debe avisar y NO pedir confirmación ni escribir nada.
-  gruposConteoFixture = [{id:'grupo-sin-ubic', nombre:'Sin ubicación', frecuencia_dias:30, activo:true, miembros:[{count:1}]}];
+  // Zona "sin ubicación específica" (bodega conocida, ubicación IS NULL) -- a pedido de Joel, ya
+  // NO se excluye del plan real: se acota con el filtro explícito ubicacionEsNula (bodega=eq.X&
+  // ubicacion=is.null), nunca con "sin filtro de ubicación" (que traería TODAS las ubicaciones de
+  // esa bodega -- justo la inseguridad que hacía que antes se dejara fuera).
+  gruposConteoFixture = [{id:'grupo-sin-ubic', nombre:'Grupo Sin Ubicación', frecuencia_dias:30, activo:true, miembros:[{count:2}]}];
+  gruposMiembrosFixture = { 'grupo-sin-ubic': [
+    {id:'gsu1', sku_code:'SU-A', bodega:'BSINUBIC'},
+    {id:'gsu2', sku_code:'SU-B', bodega:'BSINUBIC'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'SU-A', bodega:'BSINUBIC', ubicacion:null, storage_bin:null, ultimo_conteo_fecha:null},
+    {sku_code:'SU-B', bodega:'BSINUBIC', ubicacion:null, storage_bin:null, ultimo_conteo_fecha:null},
+  ];
+  universoZonaSinUbicacionFixture = [
+    {id:'usu1', sku_code:'SU-A', bodega:'BSINUBIC', ubicacion:null, storage_bin:null},
+    {id:'usu2', sku_code:'SU-B', bodega:'BSINUBIC', ubicacion:null, storage_bin:null},
+    {id:'usu3', sku_code:'SU-OTRO', bodega:'BSINUBIC', ubicacion:null, storage_bin:null}, // no es del grupo -> debe excluirse
+  ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-sin-ubic');
-  ctx.__appstate.grupos.vistaPreviaSemanas = [{materiales:1, zonas:[{bodega:'BGRP', ubicacion:null, materiales:[{sku_code:'X', storage_bin:null}]}]}];
-  const toastRootSinUbic = elements['toast-root'];
-  const toastsAntesSinUbic = toastRootSinUbic.hijos.length;
-  const confirmLlamadasAntes = confirmLlamadas.length;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2, 'los dos materiales de la zona sin ubicación deben contar como pendientes, obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
+
+  confirmRespuesta = true;
   calls.length = 0;
   await ctx.confirmarVistaPreviaComoPlan();
-  assert(confirmLlamadas.length===confirmLlamadasAntes, 'una zona sin ubicación específica no debe ni llegar a pedir confirmación, obtuvo llamadas nuevas: '+JSON.stringify(confirmLlamadas.slice(confirmLlamadasAntes)));
-  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'no debe escribir nada en plan_semanal si no hay ninguna zona acotable, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const toastsSinUbic = toastRootSinUbic.hijos.slice(toastsAntesSinUbic);
-  assert(toastsSinUbic.some(t=>/no se puede generar el plan/.test(t.textContent)), 'debe avisar que no se puede generar el plan automáticamente, obtuvo: '+JSON.stringify(toastsSinUbic.map(t=>t.textContent)));
+  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BSINUBIC') && c.url.includes('ubicacion=is.null')), 'debe pedir el universo con el filtro explícito de ubicación nula, no un comodín sin filtro de ubicación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const postPlanSinUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(!!postPlanSinUbic, 'debe crear la entrada de plan_semanal para la zona sin ubicación específica, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoPlanSinUbic = JSON.parse(postPlanSinUbic.opts.body)[0];
+  assert(cuerpoPlanSinUbic.bodega==='BSINUBIC' && cuerpoPlanSinUbic.ubicacion===null && cuerpoPlanSinUbic.ubicacion_nula===true && cuerpoPlanSinUbic.solo_sin_ubicacion===false, 'la entrada debe marcar bodega conocida + ubicación nula explícitamente (no soloSinUbicacion, que exige bodega también nula), obtuvo: '+JSON.stringify(cuerpoPlanSinUbic));
+  const postExclusionSinUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
+  assert(!!postExclusionSinUbic && JSON.parse(postExclusionSinUbic.opts.body).map(f=>f.sku_code).includes('SU-OTRO'), 'debe excluir del universo lo que no es del grupo (SU-OTRO), obtuvo: '+JSON.stringify(postExclusionSinUbic && postExclusionSinUbic.opts.body));
+
+  // Zona totalmente sin bodega NI ubicación (ambas null): sigue cubierta por el mecanismo YA
+  // EXISTENTE y seguro "SKU sin ubicación" (soloSinUbicacion) -- también se incluye en el plan
+  // real ahora, en vez de omitirse junto con el caso anterior.
+  gruposConteoFixture = [{id:'grupo-total-suelto', nombre:'Grupo Total Suelto', frecuencia_dias:30, activo:true, miembros:[{count:1}]}];
+  gruposMiembrosFixture = { 'grupo-total-suelto': [{id:'gts1', sku_code:'TS-A', bodega:null}] };
+  filasVencidasGrupoFixture = [{sku_code:'TS-A', bodega:null, ubicacion:null, storage_bin:null, ultimo_conteo_fecha:null}];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-total-suelto');
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  confirmRespuesta = true;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  const postPlanTotalSuelto = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(!!postPlanTotalSuelto, 'debe crear la entrada para la zona totalmente sin bodega ni ubicación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoTotalSuelto = JSON.parse(postPlanTotalSuelto.opts.body)[0];
+  assert(cuerpoTotalSuelto.solo_sin_ubicacion===true && cuerpoTotalSuelto.bodega===null && cuerpoTotalSuelto.ubicacion===null && cuerpoTotalSuelto.ubicacion_nula===false, 'sin bodega ni ubicación debe usar el mecanismo existente soloSinUbicacion, no ubicacionEsNula, obtuvo: '+JSON.stringify(cuerpoTotalSuelto));
 
   // Camino real: dos materiales del grupo (VENC-A, VENC-B) vencidos en BGRP/UGRP, que comparten
   // esa misma ubicación con otros dos materiales que NO son del grupo (OTRO-1, OTRO-2) -- estos
@@ -4060,7 +4124,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-plan-real');
-  ctx.__appstate.grupos.cupoSemanal = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2 && ctx.__appstate.grupos.vistaPreviaSemanas.length===1, 'la vista previa de este escenario debe dar 2 materiales en 1 semana, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
 
@@ -4277,7 +4341,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // calcularVistaPreviaPlanGrupo para un grupo automático: debe leer directo de skus.critico=true
   // (sin pasar por skus_grupos_conteo) y filtrar vencidos exactamente igual que uno curado a mano.
   calls.length = 0;
-  ctx.__appstate.grupos.cupoSemanal = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo')), 'la vista previa de un grupo automático no debe consultar skus_grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&critico=eq.true&select=')), 'la vista previa de un grupo automático debe consultar skus.critico=true, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
