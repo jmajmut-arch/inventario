@@ -3953,6 +3953,43 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlCiclos.includes('id="ciclo-fecha-inicio"'), 'el formulario de crear período debe ofrecer un campo de fecha de inicio, obtuvo: '+htmlCiclos);
   assert(htmlCiclos.includes('Inicio: 2027-01-05') && htmlCiclos.includes('Inicio: 2026-10-01'), 'cada período listado debe mostrar su fecha de inicio, obtuvo: '+htmlCiclos);
 
+  // ===== Aviso previo de cambio de período programado (ver activar_periodos_programados, cron
+  // diario): si hay un período futuro pre-creado dentro de los próximos 14 días, se avisa sin
+  // bloquear nada -- el cambio en sí lo hace el cron solo, esto es puramente informativo. =====
+  const hoyTest = ctx.fechaISO(new Date());
+  const en5dias = ctx.fechaISO(ctx.sumarDias(new Date(), 5));
+  const en30dias = ctx.fechaISO(ctx.sumarDias(new Date(), 30));
+
+  ctx.__appstate.ciclos = [
+    {id:'ciclo-actual', nombre:'T2 2027', es_actual:true, fecha_inicio: hoyTest},
+    {id:'ciclo-proximo', nombre:'T3 2027', es_actual:false, fecha_inicio: en5dias},
+  ];
+  const htmlAvisoProximo = ctx.renderCiclos();
+  assert(htmlAvisoProximo.includes('T2 2027') && htmlAvisoProximo.includes('T3 2027') && /en 5 días/.test(htmlAvisoProximo) && htmlAvisoProximo.includes('pasará automáticamente'), 'con un período próximo dentro de 14 días, debe avisar mencionando el actual, el próximo y en cuántos días, obtuvo: '+htmlAvisoProximo);
+
+  // Fuera de la ventana de aviso (más de 14 días): no debe mostrar nada todavía.
+  ctx.__appstate.ciclos = [
+    {id:'ciclo-actual', nombre:'T2 2027', es_actual:true, fecha_inicio: hoyTest},
+    {id:'ciclo-lejano', nombre:'T4 2027', es_actual:false, fecha_inicio: en30dias},
+  ];
+  const htmlSinAvisoCiclo = ctx.renderCiclos();
+  assert(!htmlSinAvisoCiclo.includes('pasará automáticamente') && !htmlSinAvisoCiclo.includes('Se activará automáticamente'), 'un período a más de 14 días no debe mostrar el aviso todavía, obtuvo: '+htmlSinAvisoCiclo);
+
+  // Sin ningún período marcado como actual (ej. la empresa recién pre-creó su primer período),
+  // el aviso debe redactarse distinto: "se activará", no "el actual pasará a".
+  ctx.__appstate.ciclos = [
+    {id:'ciclo-proximo', nombre:'T1 2028', es_actual:false, fecha_inicio: en5dias},
+  ];
+  const htmlSinActual = ctx.renderCiclos();
+  assert(htmlSinActual.includes('Se activará automáticamente') && htmlSinActual.includes('T1 2028'), 'sin período actual todavía, el aviso debe decir que se activará (no que "el actual pasará"), obtuvo: '+htmlSinActual);
+
+  // Restaura el fixture original antes de seguir con las pruebas siguientes (marcarCicloActual
+  // más abajo espera encontrar ciclo-1/T1 2027 como el período actual real).
+  ctx.__appstate.ciclos = [
+    {id:'ciclo-1', nombre:'T1 2027', es_actual:true, fecha_inicio:'2027-01-05'},
+    {id:'ciclo-2', nombre:'T4 2026', es_actual:false, fecha_inicio:'2026-10-01'},
+  ];
+
   calls.length = 0;
   await ctx.crearCiclo('T2 2027', '2027-04-01');
   const postCiclo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/ciclos_conteo'));
