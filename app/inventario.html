@@ -7207,7 +7207,7 @@ function renderPlanificacion(){
     </div>
 
     ${p.entradas.length? `
-      <div class="section-head"><h2 style="font-size:15px">Resumen de la semana</h2></div>
+      <div class="section-head"><h2 style="font-size:15px">${p.cicloFiltro? 'Resumen del período' : 'Resumen de la semana'}</h2></div>
       <div class="card">
         <div class="hint" style="margin-bottom:8px">SKU a contar por día (${totalSemana} en total)</div>
         ${renderBarChart(datosPorDia, 'cantidad', 'var(--amber)', p.cicloFiltro? fmtDiaCorto : abrevDiaSemana, true)}
