@@ -1931,6 +1931,27 @@ async function cargarGrupos(){
       const total = await rest('/rpc/contar_criticos_distintos', {method:'POST', body:{}});
       grupoAutomatico.totalCriticos = Number(total) || 0;
     }
+    // Cuántas entradas de plan_semanal generó el plan automático de cada grupo (a pedido de Joel:
+    // ver de un vistazo el tamaño real del último plan generado -- ej. "332 entradas" -- sin tener
+    // que volver a generarlo para verlo). No hay una columna que vincule plan_semanal a
+    // grupos_conteo directamente; se identifica por la nota fija que pone
+    // confirmarVistaPreviaComoPlan. Un solo conteo (Range 0-0 + count=exact, sin traer filas) por
+    // grupo -- son pocos grupos (no las miles de entradas que sí eran el problema real), así que
+    // no es el patrón n+1 que causó el bug de las llamadas paralelas.
+    await Promise.all(rows.map(async grupo => {
+      const nota = `Generado automáticamente por el grupo "${grupo.nombre}"`;
+      try{
+        const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/plan_semanal?nota=eq.${encodeURIComponent(nota)}&select=id`, {
+          headers:{
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+            'Range-Unit': 'items', 'Range': '0-0', 'Prefer': 'count=exact',
+          },
+        });
+        const range = res.headers.get('content-range');
+        grupo.entradasPlan = range && range.includes('/') ? Number(range.split('/')[1]) : 0;
+      }catch(e){ grupo.entradasPlan = null; }
+    }));
     setState({grupos: {...state.grupos, lista: rows, cargado:true, cargando:false}});
   }catch(e){
     setState({grupos: {...state.grupos, cargando:false}});
@@ -7745,11 +7766,15 @@ function renderGrupos(){
         const descripcionCiclo = cicloListaGrupo
           ? (cicloListaGrupo.vencido ? ` · <span style="color:var(--warn)">vencido</span>` : ` · día ${cicloListaGrupo.dia} de ${cicloListaGrupo.totalDias}`)
           : (grupo.frecuencia_dias ? ` · cada ${grupo.frecuencia_dias} días` : '');
+        // Pedido de Joel: ver de un vistazo cuántas entradas de plan generó el último plan
+        // automático de este grupo (ej. "332 entradas de plan"), sin tener que volver a generarlo
+        // para verlo -- ver el conteo por nota en cargarGrupos.
+        const descripcionEntradas = grupo.entradasPlan? ` · ${grupo.entradasPlan} entrada${grupo.entradasPlan===1?'':'s'} de plan` : '';
         return `
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500">${esc(grupo.nombre)}</div>
-            <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}</div>
+            <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}${descripcionEntradas}</div>
           </div>
           <button type="button" class="btn btn-secondary" data-ver-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver</button>
         </div>

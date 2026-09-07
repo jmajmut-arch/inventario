@@ -32,6 +32,7 @@ let mfaVerifyRespuesta = { access_token:'tok-aal2', refresh_token:'ref-aal2', us
 let mfaVerifyError = null; // {status, error} para simular un código incorrecto
 let conteosExportablesFixture = [];
 let gruposConteoFixture = null; // filas de grupos_conteo (con miembros:[{count}] embebido)
+let entradasPlanGrupoFixture = {}; // por nombre de grupo: cantidad de plan_semanal generadas (ver cargarGrupos)
 let gruposMiembrosFixture = {}; // por grupo_id: filas de skus_grupos_conteo
 let candidatosGrupoFixture = null; // filas que devuelve el buscador de candidatos (skus)
 let gruposMiembroDuplicado = false; // simula el rechazo del índice único al agregar dos veces
@@ -246,6 +247,17 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'grupo-1', nombre:'IE', frecuencia_dias:180, activo:true, miembros:[{count:2}]},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Cuántas entradas de plan_semanal generó el plan automático de cada grupo (ver cargarGrupos,
+  // pedido de Joel: mostrar "332 entradas de plan" en el listado sin volver a generarlo). Se
+  // identifica por la nota fija que pone confirmarVistaPreviaComoPlan; solo pide el conteo
+  // (Range 0-0 + count=exact), no las filas.
+  if(path.startsWith('/rest/v1/plan_semanal?nota=eq.')){
+    const nota = decodeURIComponent(path.slice('/rest/v1/plan_semanal?nota=eq.'.length).split('&')[0]);
+    const match = nota.match(/^Generado automáticamente por el grupo "(.*)"$/);
+    const nombreGrupo = match ? match[1] : null;
+    const n = (nombreGrupo && entradasPlanGrupoFixture[nombreGrupo]) || 0;
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-0/${n}` : null}, text: async()=>'[]' };
   }
   if(path==='/rest/v1/grupos_conteo' && opts && opts.method==='POST'){
     if(grupoAutomaticoDuplicado){
@@ -4664,14 +4676,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // contar_criticos_distintos) junto con "Automático (Crítico)" -- reportado por Joel: antes solo
   // se veía la etiqueta, sin cantidad (a diferencia de un grupo curado a mano, que sí la muestra).
   contarCriticosDistintosFixture = 757;
+  // Pedido de Joel: ver de un vistazo cuántas entradas de plan generó el último plan automático
+  // de este grupo (ej. "332 entradas de plan"), sin tener que volver a generarlo -- ver el
+  // conteo por nota en cargarGrupos.
+  entradasPlanGrupoFixture = {'Críticos': 332};
   calls.length = 0;
   await ctx.cargarGrupos();
   assert(calls.some(c=>c.url.includes('/rpc/contar_criticos_distintos')), 'cargarGrupos debe pedir el conteo real de críticos para el grupo automático, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/plan_semanal?nota=eq.') && decodeURIComponent(c.url).includes('Críticos')), 'cargarGrupos debe pedir cuántas entradas de plan generó el grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   ctx.volverAListaGrupos(); // por si quedó abierto el detalle de otro grupo de una prueba anterior
   const htmlListaConCriticos = ctx.renderGrupos();
   // Con frecuencia Y fecha de inicio, la lista muestra el avance del ciclo (día X de Y) en vez de
   // solo la frecuencia -- a pedido de Joel, para ver el estado de cada grupo sin entrar a cada uno.
   assert(htmlListaConCriticos.includes('757 materiales') && htmlListaConCriticos.includes('Automático (Crítico)') && htmlListaConCriticos.includes('día 31 de 90'), 'la lista debe mostrar la cantidad de materiales, que es automático, y el avance del ciclo, obtuvo: '+htmlListaConCriticos);
+  assert(htmlListaConCriticos.includes('332 entradas de plan'), 'la lista debe mostrar cuántas entradas de plan generó el último plan automático, obtuvo: '+htmlListaConCriticos);
+  entradasPlanGrupoFixture = {};
 
   calls.length = 0;
   await ctx.abrirGrupo('grupo-critico');
