@@ -4098,6 +4098,52 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDetalleGrupo.includes('SKU-100') && htmlDetalleGrupo.includes('B501'), 'el detalle del grupo debe mostrar sus miembros actuales, obtuvo: '+htmlDetalleGrupo);
   assert(htmlDetalleGrupo.includes('data-quitar-miembro-grupo="miembro-1"'), 'cada miembro debe ofrecer un botón para quitarlo, obtuvo: '+htmlDetalleGrupo);
 
+  // "Materiales de este grupo" enriquecido con descripción/Crítico/estado del ciclo -- a pedido de
+  // Joel ("está pobre y poco informativo"). Un grupo CON ciclo (fecha_inicio hace 10 días) para
+  // probar "Contado"/"Pendiente" según si el último conteo cae dentro de la ventana actual.
+  const fechaInicioMatDetalle = ctx.fechaISO(ctx.sumarDias(new Date(), -10));
+  const haceMuchoMatDetalle = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // antes del ciclo -> pendiente
+  const hacePocoMatDetalle = new Date(Date.now() - 1*24*60*60*1000).toISOString(); // dentro del ciclo -> contado
+  gruposConteoFixture = [{id:'grupo-detalle-mat', nombre:'Detalle Materiales', frecuencia_dias:30, activo:true, fecha_inicio: fechaInicioMatDetalle, miembros:[{count:2}]}];
+  gruposMiembrosFixture = { 'grupo-detalle-mat': [
+    {id:'mm1', sku_code:'MAT-CRIT', bodega:'B501'},
+    {id:'mm2', sku_code:'MAT-PEND', bodega:'B501'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'MAT-CRIT', bodega:'B501', descripcion:'Correa crítica', critico:true, ultimo_conteo_fecha: hacePocoMatDetalle},
+    {sku_code:'MAT-PEND', bodega:'B501', descripcion:'Rodamiento común', critico:false, ultimo_conteo_fecha: haceMuchoMatDetalle},
+  ];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-detalle-mat');
+  const miembrosEnriquecidos = ctx.__appstate.grupos.miembros;
+  const matCrit = miembrosEnriquecidos.find(m=>m.sku_code==='MAT-CRIT');
+  const matPend = miembrosEnriquecidos.find(m=>m.sku_code==='MAT-PEND');
+  assert(matCrit && matCrit.descripcion==='Correa crítica' && matCrit.critico===true && matCrit.contadoEsteCiclo===true, 'debe traer descripción, marca de crítico y si está contado en el ciclo actual, obtuvo: '+JSON.stringify(matCrit));
+  assert(matPend && matPend.critico===false && matPend.contadoEsteCiclo===false && matPend.contadoAlgunaVez===true, 'un material contado antes de que arrancara el ciclo actual no cuenta como contado en este ciclo, obtuvo: '+JSON.stringify(matPend));
+  const htmlDetalleMat = ctx.renderGrupos();
+  assert(htmlDetalleMat.includes('Correa crítica') && htmlDetalleMat.includes('Rodamiento común'), 'debe mostrar la descripción de cada material, obtuvo: '+htmlDetalleMat);
+  assert(htmlDetalleMat.includes('>Crítico<'), 'debe marcar con una etiqueta los materiales críticos, obtuvo: '+htmlDetalleMat);
+  assert(htmlDetalleMat.includes('>Contado<') && htmlDetalleMat.includes('>Pendiente<'), 'debe mostrar el estado (Contado/Pendiente) de cada material según el ciclo actual del grupo, obtuvo: '+htmlDetalleMat);
+
+  // Sin ciclo (sin frecuencia), cae al estado simple "contado alguna vez / nunca contado".
+  gruposConteoFixture = [{id:'grupo-detalle-sin-ciclo', nombre:'Sin Ciclo', frecuencia_dias:null, activo:true, miembros:[{count:1}]}];
+  gruposMiembrosFixture = { 'grupo-detalle-sin-ciclo': [ {id:'mm3', sku_code:'MAT-NUNCA', bodega:'B501'} ] };
+  filasVencidasGrupoFixture = [{sku_code:'MAT-NUNCA', bodega:'B501', descripcion:'Nunca contado aún', critico:false, ultimo_conteo_fecha:null}];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-detalle-sin-ciclo');
+  const htmlSinCicloMat = ctx.renderGrupos();
+  assert(htmlSinCicloMat.includes('>Nunca contado<') && !htmlSinCicloMat.includes('>Pendiente<'), 'sin ciclo, debe usar el estado simple "Nunca contado" en vez de "Pendiente" (que implica un ciclo con fecha de término), obtuvo: '+htmlSinCicloMat);
+
+  // Deja todo como estaba (grupo-1 abierto, con su miembro original) para las pruebas siguientes,
+  // que asumen ese contexto -- las dos pruebas de arriba usaron grupos y fixtures aparte.
+  filasVencidasGrupoFixture = null;
+  gruposConteoFixture = [
+    {id:'grupo-1', nombre:'IE', frecuencia_dias:180, activo:true, miembros:[{count:2}]},
+  ];
+  gruposMiembrosFixture = { 'grupo-1': [ {id:'miembro-1', sku_code:'SKU-100', bodega:'B501'} ] };
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-1');
+
   // Buscar candidatos para agregar: a pedido de Joel ("que cuando uno escriba el SKU sea como en
   // tomar inventario"), debe aparecer solo mientras se tipea -- mismo patrón de debounce + umbral
   // de 2 letras + repintado aislado que el buscador libre de Contar (ver escribirBuscadorLibre) --
