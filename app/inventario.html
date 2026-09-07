@@ -660,6 +660,14 @@ const UMBRAL_GUARDADO_LENTO_MS = 4000;
 // dejar a la persona esperando indefinidamente. Bastante más alto que UMBRAL_GUARDADO_LENTO_MS
 // (ese solo cambia el aviso en pantalla; este de acá corta la espera de verdad).
 const UMBRAL_ABORTAR_GUARDADO_MS = 15000;
+// confirmarVistaPreviaComoPlan (plan automático de Grupos) excluye del universo de una entrada
+// todo SKU que no sea del grupo -- si esa entrada no queda acotada a un storage bin puntual (ver
+// más abajo), el universo es la bodega+ubicación ENTERA, que en una bodega grande puede tener
+// decenas de miles de SKU. Confirmado en terreno (con datos reales) que Supabase devuelve 431
+// "Request Header Fields Too Large" en algún punto entre 6500 y 7000 códigos en la URL -- este
+// límite deja margen de sobra debajo de eso, para no generar una entrada que después no se pueda
+// ni siquiera leer en Contar.
+const LIMITE_EXCLUSIONES_PLAN_AUTOMATICO = 3000;
 // Trazabilidad usa una página más chica: la tabla de auditoría es más densa de leer que las
 // otras listas paginadas, así que conviene una tanda menor por carga.
 const TAM_PAGINA_AUDITORIA = 20;
@@ -2178,11 +2186,23 @@ function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
 // fragmento de zona, si armarVistaPreviaSemanasGrupo la partió entre semanas) reutilizando
 // crearPlanEntrada (misma función que usa el formulario manual de Planificación, con el mismo
 // refresco de plan/calendario) en vez de escribir la tabla a mano. Cubre SOLO los materiales del
-// grupo en esa zona: se pide el universo completo de esa bodega+ubicación (skusDeUbicacion, la
-// misma función que ya usa Planificación) y se excluye todo lo que NO sea del grupo -- igual
-// mecánica que "Storage bin" con SKU puntuales en el formulario manual (ver el submit de
-// #form-plan). Sin responsable asignado -- a pedido de Joel, el reparto entre personas queda
-// manual.
+// grupo en esa zona: se pide el universo completo (skusDeUbicacion, la misma función que ya usa
+// Planificación) y se excluye todo lo que NO sea del grupo -- igual mecánica que "Storage bin"
+// con SKU puntuales en el formulario manual (ver el submit de #form-plan). Sin responsable
+// asignado -- a pedido de Joel, el reparto entre personas queda manual.
+//
+// Bug real encontrado con datos de Escondida: un grupo con pocos materiales (ej. "5S", 9 SKU)
+// puede tener todos esos materiales desperdigados en una bodega+ubicación con decenas de miles de
+// SKU (B501/0100 tiene 32.711 activos). Excluir "todo lo que no sea del grupo" ahí generaba una
+// lista de más de 30.000 códigos -- que después, al leerla de vuelta en Contar, Supabase la
+// rechazaba con 431 "Request Header Fields Too Large" (confirmado en terreno). La entrada se creaba
+// pero quedaba inservible. Fix: cuando la bodega+ubicación son conocidas, la entrada se acota al
+// storage bin puntual de cada material (igual mecánica que ya usa "Storage bin" en el formulario
+// manual) -- ahí el universo a excluir es solo lo que comparte ESE bin (decenas, no decenas de
+// miles). Los pocos materiales sin storage bin cargado siguen la lógica anterior (exclusión sobre
+// toda la bodega+ubicación), con un tope de seguridad (LIMITE_EXCLUSIONES_PLAN_AUTOMATICO): si el
+// universo a excluir lo supera, esa entrada se omite (avisando) en vez de crear una que después no
+// se pueda leer.
 async function confirmarVistaPreviaComoPlan(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
@@ -2196,6 +2216,7 @@ async function confirmarVistaPreviaComoPlan(){
   const inicioHoy = inicioSemana(new Date());
   try{
     let creadas = 0;
+    let materialesOmitidos = 0;
     for(let i=0; i<g.vistaPreviaSemanas.length; i++){
       const fecha = fechaISO(sumarDias(inicioHoy, i*7));
       for(const z of g.vistaPreviaSemanas[i].zonas){
@@ -2209,24 +2230,54 @@ async function confirmarVistaPreviaComoPlan(){
         // dentro de ella (a pedido de Joel: antes esta zona quedaba fuera del plan real): necesita
         // el filtro explícito "ubicación IS NULL" (ubicacionEsNula) -- sin él, pedir el universo
         // de solo la bodega traería TODAS sus ubicaciones, justo lo que hacía insegura a esta
-        // zona antes.
+        // zona antes. Ninguno de estos dos casos llega a los volúmenes de "bodega+ubicación
+        // completa" que motivaron el límite de abajo, así que siguen con exclusión de zona.
         const sinBodegaNiUbicacion = !bodegaConocida && !z.ubicacion;
         const ubicacionEsNula = bodegaConocida && !z.ubicacion;
-        const universo = await skusDeUbicacion({
-          bodega: bodegaParaZona, ubicacion: z.ubicacion||'', storage_bin:'', excluidos:[],
-          soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula,
+        if(sinBodegaNiUbicacion || ubicacionEsNula){
+          const universo = await skusDeUbicacion({
+            bodega: bodegaParaZona, ubicacion:'', storage_bin:'', excluidos:[],
+            soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula,
+          });
+          const codigosDelGrupo = new Set(z.materiales.map(m=>m.sku_code));
+          const skusExcluidos = universo.map(s=>s.sku_code).filter(code=>!codigosDelGrupo.has(code));
+          if(skusExcluidos.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += z.materiales.length; continue; }
+          await crearPlanEntrada({
+            fecha, bodega: bodegaParaZona, ubicacion: null, storageBins:[], skusExcluidos,
+            soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula, cicloId:'', responsableId:'',
+            nota: `Generado automáticamente por el grupo "${grupo.nombre}"`,
+          });
+          creadas++;
+          continue;
+        }
+        // Bodega+ubicación conocidas: una entrada POR storage bin (no una para toda la
+        // bodega+ubicación) -- ver el bug real explicado arriba. Los materiales del grupo sin
+        // storage bin cargado quedan en su propio grupo ('' como clave) y siguen la exclusión de
+        // zona completa, con el tope de seguridad.
+        const porBin = new Map();
+        z.materiales.forEach(m=>{
+          const bin = m.storage_bin || '';
+          if(!porBin.has(bin)) porBin.set(bin, []);
+          porBin.get(bin).push(m);
         });
-        const codigosDelGrupo = new Set(z.materiales.map(m=>m.sku_code));
-        const skusExcluidos = universo.map(s=>s.sku_code).filter(code=>!codigosDelGrupo.has(code));
-        await crearPlanEntrada({
-          fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion||null, storageBins:[], skusExcluidos,
-          soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula, cicloId:'', responsableId:'',
-          nota: `Generado automáticamente por el grupo "${grupo.nombre}"`,
-        });
-        creadas++;
+        for(const [bin, materialesBin] of porBin){
+          const universoBin = await skusDeUbicacion({
+            bodega: bodegaParaZona, ubicacion: z.ubicacion, storage_bin: bin, excluidos:[],
+          });
+          const codigosBin = new Set(materialesBin.map(m=>m.sku_code));
+          const skusExcluidosBin = universoBin.map(s=>s.sku_code).filter(code=>!codigosBin.has(code));
+          if(skusExcluidosBin.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += materialesBin.length; continue; }
+          await crearPlanEntrada({
+            fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storageBins: bin ? [bin] : [], skusExcluidos: skusExcluidosBin,
+            soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId:'',
+            nota: `Generado automáticamente por el grupo "${grupo.nombre}"`,
+          });
+          creadas++;
+        }
       }
     }
-    toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}`);
+    const avisoOmitidos = materialesOmitidos ? ` (${materialesOmitidos} material${materialesOmitidos===1?'':'es'} no se pudo${materialesOmitidos===1?'':'ieron'} planificar: la ubicación es demasiado grande para planificar sin storage bin -- cárgaselo y probá de nuevo)` : '';
+    toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}`, materialesOmitidos ? 'warn' : undefined);
     setState({grupos: {...state.grupos, generandoPlan:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0}});
   }catch(e){
     setState({grupos: {...state.grupos, generandoPlan:false}});

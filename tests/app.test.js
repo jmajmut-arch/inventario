@@ -38,6 +38,7 @@ let gruposMiembroDuplicado = false; // simula el rechazo del índice único al a
 let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de vencidos (ver calcularVistaPreviaPlanGrupo)
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
+let universoZonaGiganteLen = 0; // tamaño simulado del universo de BHUGE/UHUGE (ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
 let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
@@ -693,10 +694,28 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
   }
   // Universo de una zona para el generador de plan por grupo (ver confirmarVistaPreviaComoPlan):
-  // bodega/ubicación de prueba dedicadas, sin filtro de storage_bin.
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BGRP') && path.includes('ubicacion=eq.UGRP') && !path.includes('storage_bin=eq.')){
-    const filas = universoZonaGrupoFixture || [];
+  // bodega/ubicación de prueba dedicadas. Con storage_bin=eq.X (una entrada por bin, ver el fix
+  // del bug real de exclusiones gigantes) filtra la misma fixture por bin, igual que haría
+  // PostgREST de verdad -- sin bin, devuelve la zona completa (camino "sin bodega ni ubicación"
+  // no llega acá, ver universoZonaSinUbicacionFixture / soloSinUbicacion más abajo).
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BGRP') && path.includes('ubicacion=eq.UGRP')){
+    const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
+    const todas = universoZonaGrupoFixture || [];
+    const filas = binFiltro ? todas.filter(f=>f.storage_bin===binFiltro) : todas;
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
+  }
+  // Universo sintético de una zona "gigante" (BHUGE/UHUGE), generado sobre la marcha en vez de
+  // guardado en un array -- prueba el tope de seguridad LIMITE_EXCLUSIONES_PLAN_AUTOMATICO
+  // (bug real: excluir todo lo que no sea del grupo en una bodega+ubicación de decenas de miles de
+  // SKU rompía con 431 "Request Header Fields Too Large" al leerlo de vuelta). Pagina de verdad
+  // (respeta el header Range) porque el total supera el tamaño de página de skusDeUbicacion.
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BHUGE') && path.includes('ubicacion=eq.UHUGE')){
+    const total = universoZonaGiganteLen;
+    const rangeHeader = (opts && opts.headers && opts.headers.Range) || '0-999';
+    const [desde, hasta] = rangeHeader.split('-').map(Number);
+    const filas = [];
+    for(let i=desde; i<=hasta && i<total; i++) filas.push({id:'gig-'+i, sku_code:'GIG-'+i, bodega:'BHUGE', ubicacion:'UHUGE', storage_bin:null});
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `${desde}-${Math.min(hasta,total-1)}/${total}` : null}, text: async()=>JSON.stringify(filas) };
   }
   // Universo de una zona "sin ubicación específica" (bodega conocida, ubicación IS NULL) -- a
   // pedido de Joel, esta zona ya se incluye en el plan real con el filtro explícito ubicacionEsNula
@@ -4104,9 +4123,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const cuerpoTotalSuelto = JSON.parse(postPlanTotalSuelto.opts.body)[0];
   assert(cuerpoTotalSuelto.solo_sin_ubicacion===true && cuerpoTotalSuelto.bodega===null && cuerpoTotalSuelto.ubicacion===null && cuerpoTotalSuelto.ubicacion_nula===false, 'sin bodega ni ubicación debe usar el mecanismo existente soloSinUbicacion, no ubicacionEsNula, obtuvo: '+JSON.stringify(cuerpoTotalSuelto));
 
-  // Camino real: dos materiales del grupo (VENC-A, VENC-B) vencidos en BGRP/UGRP, que comparten
-  // esa misma ubicación con otros dos materiales que NO son del grupo (OTRO-1, OTRO-2) -- estos
-  // últimos deben quedar excluidos de la entrada generada, no contados dentro del grupo.
+  // Camino real: dos materiales del grupo (VENC-A, VENC-B) vencidos en BGRP/UGRP, cada uno en su
+  // propio storage bin (A-01/A-02), compartido con otro material que NO es del grupo (OTRO-1 en
+  // el mismo bin que VENC-A, OTRO-2 en el mismo bin que VENC-B) -- estos últimos deben quedar
+  // excluidos, no contados dentro del grupo. Bug real con datos de Escondida: antes se pedía el
+  // universo de TODA la bodega+ubicación para armar la exclusión (inviable si esa zona tiene
+  // decenas de miles de SKU, ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO) -- ahora cada material del
+  // grupo genera su propia entrada acotada a SU storage bin, así que la exclusión queda acotada a
+  // lo que comparte ESE bin, no a lo que comparte la bodega+ubicación entera.
   gruposConteoFixture = [{id:'grupo-plan-real', nombre:'Grupo Plan Real', frecuencia_dias:30, activo:true, miembros:[{count:2}]}];
   gruposMiembrosFixture = { 'grupo-plan-real': [
     {id:'gm1', sku_code:'VENC-A', bodega:'BGRP'},
@@ -4118,9 +4142,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   universoZonaGrupoFixture = [
     {id:'u1', sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01'},
+    {id:'u1b', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01'},
     {id:'u2', sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
-    {id:'u3', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-03'},
-    {id:'u4', sku_code:'OTRO-2', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-04'},
+    {id:'u2b', sku_code:'OTRO-2', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-plan-real');
@@ -4135,28 +4159,66 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'al cancelar el confirm(), no debe crear ninguna entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.vistaPreviaSemanas!==null, 'al cancelar, la vista previa calculada debe seguir disponible (no se descarta), obtuvo: '+ctx.__appstate.grupos.vistaPreviaSemanas);
 
-  // Confirmando de verdad: debe pedir el universo de la zona, crear UNA entrada de plan_semanal
-  // sin responsable, con nota indicando el grupo, y excluir a OTRO-1/OTRO-2 (los que no son del
-  // grupo) -- nunca a VENC-A/VENC-B.
+  // Confirmando de verdad: debe pedir el universo de cada storage bin (no el de toda la zona) y
+  // crear DOS entradas de plan_semanal (una por bin), sin responsable, con nota indicando el
+  // grupo, cada una excluyendo solo al material que NO es del grupo en SU bin -- nunca a
+  // VENC-A/VENC-B, y nunca mezclando la exclusión de un bin con la del otro.
   confirmRespuesta = true;
   calls.length = 0;
   await ctx.confirmarVistaPreviaComoPlan();
   assert(/Grupo Plan Real/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe mencionar el nombre del grupo, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
-  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP')), 'debe pedir el universo real de la zona antes de crear la entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const postPlanGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
-  assert(!!postPlanGrupo, 'debe crear la entrada de plan_semanal para la zona, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const cuerpoPlanGrupo = JSON.parse(postPlanGrupo.opts.body)[0];
-  assert(cuerpoPlanGrupo.bodega==='BGRP' && cuerpoPlanGrupo.ubicacion==='UGRP', 'la entrada debe quedar en la zona correcta, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
-  assert(cuerpoPlanGrupo.responsable_id===null, 'la entrada generada NO debe traer responsable asignado -- el reparto es manual, a pedido de Joel, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
-  assert(/Grupo Plan Real/.test(cuerpoPlanGrupo.nota||''), 'la nota debe indicar que viene del grupo, para que quede trazable en Planificación, obtuvo: '+JSON.stringify(cuerpoPlanGrupo));
-  assert(cuerpoPlanGrupo.fecha===ctx.fechaISO(ctx.inicioSemana(new Date())), 'la fecha de la semana 1 debe ser el inicio de esta semana, obtuvo: '+cuerpoPlanGrupo.fecha+' esperado: '+ctx.fechaISO(ctx.inicioSemana(new Date())));
-  const postExclusionGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
-  assert(!!postExclusionGrupo, 'debe excluir del universo lo que no pertenece al grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const codigosExcluidosGrupo = JSON.parse(postExclusionGrupo.opts.body).map(f=>f.sku_code).sort();
-  assert(JSON.stringify(codigosExcluidosGrupo)===JSON.stringify(['OTRO-1','OTRO-2']), 'deben excluirse exactamente OTRO-1 y OTRO-2 (los que no son del grupo), nunca VENC-A/VENC-B, obtuvo: '+JSON.stringify(codigosExcluidosGrupo));
+  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP') && c.url.includes('storage_bin=eq.A-01')), 'debe pedir el universo del bin A-01 (no el de toda la zona) antes de crear su entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP') && c.url.includes('storage_bin=eq.A-02')), 'debe pedir el universo del bin A-02 (no el de toda la zona) antes de crear su entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const postsPlanGrupo = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal'));
+  assert(postsPlanGrupo.length===2, 'debe crear una entrada de plan_semanal POR storage bin (no una para toda la zona), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerposPlanGrupo = postsPlanGrupo.map(c=>JSON.parse(c.opts.body)[0]);
+  const binsCreados = cuerposPlanGrupo.map(c=>c.storage_bin).sort();
+  assert(JSON.stringify(binsCreados)===JSON.stringify(['A-01','A-02']), 'las dos entradas deben quedar acotadas a los storage bin A-01 y A-02, obtuvo: '+JSON.stringify(binsCreados));
+  cuerposPlanGrupo.forEach(c=>{
+    assert(c.bodega==='BGRP' && c.ubicacion==='UGRP', 'cada entrada debe quedar en la zona correcta, obtuvo: '+JSON.stringify(c));
+    assert(c.responsable_id===null, 'la entrada generada NO debe traer responsable asignado -- el reparto es manual, a pedido de Joel, obtuvo: '+JSON.stringify(c));
+    assert(/Grupo Plan Real/.test(c.nota||''), 'la nota debe indicar que viene del grupo, para que quede trazable en Planificación, obtuvo: '+JSON.stringify(c));
+    assert(c.fecha===ctx.fechaISO(ctx.inicioSemana(new Date())), 'la fecha de la semana 1 debe ser el inicio de esta semana, obtuvo: '+c.fecha+' esperado: '+ctx.fechaISO(ctx.inicioSemana(new Date())));
+  });
+  const postsExclusionGrupo = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
+  assert(postsExclusionGrupo.length===2, 'debe excluir por separado en cada bin lo que no pertenece al grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  postsExclusionGrupo.forEach(c=>{
+    const codigos = JSON.parse(c.opts.body).map(f=>f.sku_code);
+    assert(codigos.length===1 && (codigos[0]==='OTRO-1' || codigos[0]==='OTRO-2'), 'cada bin debe excluir exactamente a su propio material ajeno al grupo (uno por bin), nunca a VENC-A/VENC-B, obtuvo: '+JSON.stringify(codigos));
+  });
+  const todosExcluidosGrupo = postsExclusionGrupo.flatMap(c=>JSON.parse(c.opts.body).map(f=>f.sku_code)).sort();
+  assert(JSON.stringify(todosExcluidosGrupo)===JSON.stringify(['OTRO-1','OTRO-2']), 'entre ambos bines deben excluirse exactamente OTRO-1 y OTRO-2, obtuvo: '+JSON.stringify(todosExcluidosGrupo));
 
   // Tras confirmar, la vista previa se limpia (para no volver a crearla dos veces sin recalcular).
   assert(ctx.__appstate.grupos.vistaPreviaSemanas===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+
+  // Tope de seguridad LIMITE_EXCLUSIONES_PLAN_AUTOMATICO: un material del grupo SIN storage bin
+  // cargado, en una bodega+ubicación con un universo gigante (3005 SKU, más que el límite de
+  // 3000) -- la entrada debe OMITIRSE (avisando) en vez de crearse con una lista de exclusión tan
+  // grande que después no se pueda ni leer (ver el bug real de B501/0100 con 32.711 SKU y el 431
+  // "Request Header Fields Too Large" confirmado en terreno).
+  gruposConteoFixture = [{id:'grupo-zona-gigante', nombre:'Grupo Zona Gigante', frecuencia_dias:30, activo:true, miembros:[{count:1}]}];
+  gruposMiembrosFixture = { 'grupo-zona-gigante': [
+    {id:'gm1', sku_code:'GRUPOGIGANTE-1', bodega:'BHUGE'},
+  ]};
+  filasVencidasGrupoFixture = [
+    {sku_code:'GRUPOGIGANTE-1', bodega:'BHUGE', ubicacion:'UHUGE', storage_bin:null, ultimo_conteo_fecha:null},
+  ];
+  universoZonaGiganteLen = 3005;
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-zona-gigante');
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  await ctx.calcularVistaPreviaPlanGrupo();
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===1, 'la vista previa debe mostrar el único material vencido del grupo, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
+  confirmRespuesta = true;
+  calls.length = 0;
+  const toastRootGigante = elements['toast-root'];
+  const toastsAntesGigante = toastRootGigante ? toastRootGigante.hijos.length : 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal')), 'con un universo a excluir por encima del límite de seguridad, NO debe crearse la entrada (quedaría inservible al leerla de vuelta), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones')), 'tampoco debe intentar escribir la lista de exclusión gigante, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const toastsGigante = toastRootGigante.hijos.slice(toastsAntesGigante);
+  assert(toastsGigante.length===1 && toastsGigante[0].className==='toast warn' && /1 material/.test(toastsGigante[0].textContent), 'debe avisar (warn) que el material quedó sin planificar automáticamente, obtuvo: '+JSON.stringify(toastsGigante.map(t=>({clase:t.className, texto:t.textContent}))));
 
   // ===== Seguimiento del grupo (cargarSeguimientoGrupo) =====
   // A pedido de Joel: cada grupo tiene su propio ciclo cerrado (fecha de inicio propia + su
