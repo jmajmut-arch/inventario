@@ -2217,6 +2217,13 @@ async function confirmarVistaPreviaComoPlan(){
   try{
     let creadas = 0;
     let materialesOmitidos = 0;
+    let entradasFallidas = 0;
+    // crearPlanEntrada se llama en silencioso:true acá -- puede ser una llamada por cada storage
+    // bin del grupo (varias decenas), así que muestra su propio toast/refresca Planificación y
+    // Calendario UNA sola vez al final, no una vez por bin. Un error de un bin puntual (ver más
+    // abajo el caso real: sku_code repetido por tener más de un batch en el mismo bin, que sin
+    // deduplicar violaba la restricción única de plan_semanal_exclusiones) no aborta el resto --
+    // se cuenta aparte y se avisa en el resumen final, en vez de perder lo demás.
     for(let i=0; i<g.vistaPreviaSemanas.length; i++){
       const fecha = fechaISO(sumarDias(inicioHoy, i*7));
       for(const z of g.vistaPreviaSemanas[i].zonas){
@@ -2240,14 +2247,19 @@ async function confirmarVistaPreviaComoPlan(){
             soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula,
           });
           const codigosDelGrupo = new Set(z.materiales.map(m=>m.sku_code));
-          const skusExcluidos = universo.map(s=>s.sku_code).filter(code=>!codigosDelGrupo.has(code));
+          // Set: un código ajeno al grupo puede aparecer más de una vez en el universo (más de un
+          // batch en la misma bodega+ubicación) -- sin deduplicar, se manda dos veces el mismo
+          // sku_code en el mismo POST a plan_semanal_exclusiones y viola su restricción única.
+          const skusExcluidos = [...new Set(universo.map(s=>s.sku_code).filter(code=>!codigosDelGrupo.has(code)))];
           if(skusExcluidos.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += z.materiales.length; continue; }
-          await crearPlanEntrada({
-            fecha, bodega: bodegaParaZona, ubicacion: null, storageBins:[], skusExcluidos,
-            soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula, cicloId:'', responsableId:'',
-            nota: `Generado automáticamente por el grupo "${grupo.nombre}"`,
-          });
-          creadas++;
+          try{
+            await crearPlanEntrada({
+              fecha, bodega: bodegaParaZona, ubicacion: null, storageBins:[], skusExcluidos,
+              soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula, cicloId:'', responsableId:'',
+              nota: `Generado automáticamente por el grupo "${grupo.nombre}"`, silencioso:true,
+            });
+            creadas++;
+          }catch(e){ entradasFallidas++; }
           continue;
         }
         // Bodega+ubicación conocidas: una entrada POR storage bin (no una para toda la
@@ -2265,19 +2277,23 @@ async function confirmarVistaPreviaComoPlan(){
             bodega: bodegaParaZona, ubicacion: z.ubicacion, storage_bin: bin, excluidos:[],
           });
           const codigosBin = new Set(materialesBin.map(m=>m.sku_code));
-          const skusExcluidosBin = universoBin.map(s=>s.sku_code).filter(code=>!codigosBin.has(code));
+          const skusExcluidosBin = [...new Set(universoBin.map(s=>s.sku_code).filter(code=>!codigosBin.has(code)))];
           if(skusExcluidosBin.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += materialesBin.length; continue; }
-          await crearPlanEntrada({
-            fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storageBins: bin ? [bin] : [], skusExcluidos: skusExcluidosBin,
-            soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId:'',
-            nota: `Generado automáticamente por el grupo "${grupo.nombre}"`,
-          });
-          creadas++;
+          try{
+            await crearPlanEntrada({
+              fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storageBins: bin ? [bin] : [], skusExcluidos: skusExcluidosBin,
+              soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId:'',
+              nota: `Generado automáticamente por el grupo "${grupo.nombre}"`, silencioso:true,
+            });
+            creadas++;
+          }catch(e){ entradasFallidas++; }
         }
       }
     }
-    const avisoOmitidos = materialesOmitidos ? ` (${materialesOmitidos} material${materialesOmitidos===1?'':'es'} no se pudo${materialesOmitidos===1?'':'ieron'} planificar: la ubicación es demasiado grande para planificar sin storage bin -- cárgaselo y probá de nuevo)` : '';
-    toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}`, materialesOmitidos ? 'warn' : undefined);
+    if(creadas){ cargarPlanSemanal(); refrescarOpcionesUbicacion(); invalidarCalendario(); }
+    const avisoOmitidos = materialesOmitidos ? ` -- ${materialesOmitidos} material${materialesOmitidos===1?'':'es'} no se pudo${materialesOmitidos===1?'':'ieron'} planificar (ubicación demasiado grande sin storage bin: cárgaselo y probá de nuevo)` : '';
+    const avisoFallidas = entradasFallidas ? ` -- ${entradasFallidas} entrada${entradasFallidas===1?'':'s'} ${entradasFallidas===1?'falló':'fallaron'} al guardarse, probá de nuevo` : '';
+    toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}${avisoFallidas}`, (materialesOmitidos || entradasFallidas) ? 'warn' : undefined);
     setState({grupos: {...state.grupos, generandoPlan:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0}});
   }catch(e){
     setState({grupos: {...state.grupos, generandoPlan:false}});
@@ -2763,8 +2779,13 @@ async function elegirCascadaContar(cambios){
   }
 }
 
-async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, ubicacionEsNula, cicloId}){
-  if(!fecha){ toast('Elige una fecha','err'); return; }
+// silencioso: usado por confirmarVistaPreviaComoPlan, que llama esta función UNA VEZ POR STORAGE
+// BIN del grupo (puede ser varias decenas) -- sin este flag, cada llamada mostraría su propio
+// toast de éxito y dispararía su propio refresco de Planificación/Calendario, multiplicado por
+// cada bin (lento y spam de toasts encimados). En silencioso, un error se relanza en vez de
+// mostrarse acá, para que el llamador lo cuente en su propio resumen final.
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, ubicacionEsNula, cicloId, silencioso}){
+  if(!fecha){ if(!silencioso) toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
   // "SKU sin ubicación" es una sola entrada (no tiene bodega/ubicación/bin que cascadear). Lo
   // mismo para "ubicación nula" (bodega conocida, sin ubicación específica dentro de ella).
@@ -2811,11 +2832,15 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
         }
       }
     }
+    if(silencioso) return;
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
     invalidarCalendario();
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){
+    if(silencioso) throw e;
+    toast(e.message,'err');
+  }
 }
 
 async function actualizarPlanEntrada(id, {fecha, responsableId, nota}){
