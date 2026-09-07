@@ -3921,6 +3921,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarCiclos();
   assert(calls.some(c=>c.url.includes('/ciclos_conteo?select=')), 'cargarCiclos debe pedir /ciclos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.ciclos.length===2 && ctx.__appstate.ciclos[0].nombre==='T1 2027', 'debe guardar los ciclos devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.ciclos));
+
+  // Semana de conteo: la primera vez que se conocen los períodos, el filtro de Planificación
+  // debe quedar seleccionado solo en el período actual (a pedido de Joel), no en "Todos los
+  // períodos" -- y debe recargar el plan filtrado por ese período de una vez. Se fuerza acá un
+  // estado "primera vez" real (cicloFiltroInicializado:false) en vez de depender de que este sea
+  // el primer cargarCiclos() del archivo -- marcarCicloActual ya lo dispara internamente en
+  // pruebas anteriores, así que para este punto ya podría estar inicializado por casualidad.
+  ctx.__appstate.plan.cicloFiltro = '';
+  ctx.__appstate.plan.cicloFiltroInicializado = false;
+  calls.length = 0;
+  await ctx.cargarCiclos();
+  assert(ctx.__appstate.plan.cicloFiltro==='ciclo-1', 'debe seleccionar el período actual por defecto en el filtro de Planificación, obtuvo: '+JSON.stringify(ctx.__appstate.plan.cicloFiltro));
+  assert(ctx.__appstate.plan.cicloFiltroInicializado===true, 'debe marcar el filtro como ya inicializado, para no repetir el autoselect después, obtuvo: '+JSON.stringify(ctx.__appstate.plan.cicloFiltroInicializado));
+  assert(calls.some(c=>c.url.includes('/plan_semanal_detalle?ciclo_id=eq.ciclo-1')), 'debe recargar el plan filtrado por el período recién seleccionado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Una vez inicializado, no debe volver a imponerse sobre lo que la persona elija después
+  // (incluido volver a "Todos los períodos" a mano) -- el autoselect es solo la primera vez.
+  ctx.__appstate.plan.cicloFiltro = '';
+  calls.length = 0;
+  await ctx.cargarCiclos();
+  assert(ctx.__appstate.plan.cicloFiltro==='', 'ya inicializado, cargarCiclos no debe volver a pisar la elección de la persona, obtuvo: '+JSON.stringify(ctx.__appstate.plan.cicloFiltro));
+  assert(!calls.some(c=>c.url.includes('/plan_semanal_detalle?ciclo_id=eq.')), 'sin reinicializar el filtro, no debe volver a pedir el plan por período, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
   const htmlCiclos = ctx.renderCiclos();
   assert(htmlCiclos.includes('T1 2027') && htmlCiclos.includes('T4 2026'), 'Períodos (renderCiclos) debe listar los ciclos existentes, obtuvo: '+htmlCiclos);
   assert(htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-2"') && !htmlCiclos.includes('data-marcar-ciclo-actual="ciclo-1"'), 'solo el ciclo que no es el actual debe ofrecer el botón de "marcar como actual" (ciclo-1 ya lo es), obtuvo: '+htmlCiclos);
