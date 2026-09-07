@@ -518,7 +518,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorPersona:10, ritmoPorHora:15, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
+  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorPersona:10, ritmoPorHora:15, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, progresoPlan:null, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -1306,7 +1306,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -2318,12 +2318,25 @@ async function confirmarVistaPreviaComoPlan(){
   const totalMateriales = g.vistaPreviaSemanas.reduce((n,s)=>n+s.materiales, 0);
   if(!confirm(`¿Crear ${totalZonas} entrada${totalZonas===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})? Quedan sin responsable asignado -- lo repartes tú después.`)) return;
 
-  setState({grupos: {...state.grupos, generandoPlan:true}});
+  // Barra de progreso (a pedido de Joel: con un grupo grande -- ej. "Críticos" con cientos de
+  // storage bin distintos -- esto tarda varios minutos, uno por uno, y sin nada en pantalla más
+  // que "Creando…" parece trabado). El total de pasos es el mismo conteo (1 por zona sin
+  // ubicación/bodega+ubicación nula, o 1 por storage bin distinto dentro de una zona conocida)
+  // que hace el loop de más abajo -- se precalcula acá para no duplicar la lógica de conteo con
+  // la de creación real.
+  let pasosTotales = 0;
+  g.vistaPreviaSemanas.forEach(semana => semana.zonas.forEach(z=>{
+    const bodegaConocida = z.bodega!==null && z.bodega!==undefined;
+    const sinUbicacionEspecifica = !bodegaConocida && !z.ubicacion || bodegaConocida && !z.ubicacion;
+    pasosTotales += sinUbicacionEspecifica ? 1 : new Set(z.materiales.map(m=>m.storage_bin||'')).size;
+  }));
+  setState({grupos: {...state.grupos, generandoPlan:true, progresoPlan:{hechos:0, total:pasosTotales}}});
   const inicioHoy = inicioSemana(new Date());
   try{
     let creadas = 0;
     let materialesOmitidos = 0;
     let entradasFallidas = 0;
+    const avanzarProgreso = () => setState({grupos: {...state.grupos, progresoPlan: {...state.grupos.progresoPlan, hechos: state.grupos.progresoPlan.hechos+1}}});
     // crearPlanEntrada se llama en silencioso:true acá -- puede ser una llamada por cada storage
     // bin del grupo (varias decenas), así que muestra su propio toast/refresca Planificación y
     // Calendario UNA sola vez al final, no una vez por bin. Un error de un bin puntual (ver más
@@ -2357,7 +2370,7 @@ async function confirmarVistaPreviaComoPlan(){
           // batch en la misma bodega+ubicación) -- sin deduplicar, se manda dos veces el mismo
           // sku_code en el mismo POST a plan_semanal_exclusiones y viola su restricción única.
           const skusExcluidos = [...new Set(universo.map(s=>s.sku_code).filter(code=>!codigosDelGrupo.has(code)))];
-          if(skusExcluidos.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += z.materiales.length; continue; }
+          if(skusExcluidos.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += z.materiales.length; avanzarProgreso(); continue; }
           try{
             await crearPlanEntrada({
               fecha, bodega: bodegaParaZona, ubicacion: null, storageBins:[], skusExcluidos,
@@ -2366,6 +2379,7 @@ async function confirmarVistaPreviaComoPlan(){
             });
             creadas++;
           }catch(e){ entradasFallidas++; }
+          avanzarProgreso();
           continue;
         }
         // Bodega+ubicación conocidas: una entrada POR storage bin (no una para toda la
@@ -2384,7 +2398,7 @@ async function confirmarVistaPreviaComoPlan(){
           });
           const codigosBin = new Set(materialesBin.map(m=>m.sku_code));
           const skusExcluidosBin = [...new Set(universoBin.map(s=>s.sku_code).filter(code=>!codigosBin.has(code)))];
-          if(skusExcluidosBin.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += materialesBin.length; continue; }
+          if(skusExcluidosBin.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += materialesBin.length; avanzarProgreso(); continue; }
           try{
             await crearPlanEntrada({
               fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storageBins: bin ? [bin] : [], skusExcluidos: skusExcluidosBin,
@@ -2393,6 +2407,7 @@ async function confirmarVistaPreviaComoPlan(){
             });
             creadas++;
           }catch(e){ entradasFallidas++; }
+          avanzarProgreso();
         }
       }
     }
@@ -2400,9 +2415,9 @@ async function confirmarVistaPreviaComoPlan(){
     const avisoOmitidos = materialesOmitidos ? ` -- ${materialesOmitidos} material${materialesOmitidos===1?'':'es'} no se pudo${materialesOmitidos===1?'':'ieron'} planificar (ubicación demasiado grande sin storage bin: cárgaselo y probá de nuevo)` : '';
     const avisoFallidas = entradasFallidas ? ` -- ${entradasFallidas} entrada${entradasFallidas===1?'':'s'} ${entradasFallidas===1?'falló':'fallaron'} al guardarse, probá de nuevo` : '';
     toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}${avisoFallidas}`, (materialesOmitidos || entradasFallidas) ? 'warn' : undefined);
-    setState({grupos: {...state.grupos, generandoPlan:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0}});
+    setState({grupos: {...state.grupos, generandoPlan:false, progresoPlan:null, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0}});
   }catch(e){
-    setState({grupos: {...state.grupos, generandoPlan:false}});
+    setState({grupos: {...state.grupos, generandoPlan:false, progresoPlan:null}});
     toast(e.message,'err');
   }
 }
@@ -7777,6 +7792,17 @@ function renderDetalleGrupo(){
         <div style="margin-top:12px">
           <button type="button" id="btn-confirmar-plan-grupo" class="btn btn-primary" style="width:auto;padding:8px 14px" ${g.generandoPlan?'disabled':''}>${g.generandoPlan? 'Creando…' : 'Confirmar y crear plan'}</button>
         </div>
+        ${g.generandoPlan && g.progresoPlan && g.progresoPlan.total ? (()=>{
+          const pct = Math.round(g.progresoPlan.hechos/g.progresoPlan.total*100);
+          return `
+        <div style="margin-top:10px">
+          <div class="hint" style="margin-bottom:4px">Creando… ${pct}% (${g.progresoPlan.hechos} de ${g.progresoPlan.total} entradas)</div>
+          <div style="height:6px;border-radius:3px;background:var(--line);overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:var(--amber);transition:width .2s"></div>
+          </div>
+        </div>
+          `;
+        })() : ''}
         <div class="hint" style="margin-top:8px;font-style:italic">Se crean sin responsable asignado -- lo repartes tú después en Planificación.</div>
         ` : `<div class="empty" style="padding:10px 8px">No hay materiales pendientes de contar en este grupo -- todos están dentro de la frecuencia definida.</div>`
       ) : `<div class="hint" style="margin-top:10px;font-style:italic">Calcula la vista previa primero -- no se crea nada en Planificación hasta que la confirmes.</div>`}

@@ -4413,7 +4413,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // VENC-A/VENC-B, y nunca mezclando la exclusión de un bin con la del otro.
   confirmRespuesta = true;
   calls.length = 0;
-  await ctx.confirmarVistaPreviaComoPlan();
+  // Barra de progreso (a pedido de Joel: con un grupo grande, como "Críticos" en producción con
+  // cientos de storage bin, esto puede tardar varios minutos sin nada más que "Creando…" en
+  // pantalla). El total se precalcula ANTES del primer await (2 bins acá: A-01 y A-02), así que
+  // debe verse ya listo apenas se llama, sin esperar nada -- y limpio (null) al terminar.
+  const promesaConfirmar = ctx.confirmarVistaPreviaComoPlan();
+  assert(ctx.__appstate.grupos.progresoPlan && ctx.__appstate.grupos.progresoPlan.total===2 && ctx.__appstate.grupos.progresoPlan.hechos===0, 'el total de pasos (2 storage bin) debe quedar precalculado desde el arranque, antes de crear la primera entrada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.progresoPlan));
+  const htmlMientrasCrea = ctx.renderGrupos();
+  assert(htmlMientrasCrea.includes('0 de 2 entradas') && htmlMientrasCrea.includes('Creando…'), 'mientras crea, debe mostrar la barra de progreso con el conteo actual, obtuvo: '+htmlMientrasCrea);
+  await promesaConfirmar;
+  assert(ctx.__appstate.grupos.progresoPlan===null, 'al terminar, la barra de progreso debe limpiarse, obtuvo: '+ctx.__appstate.grupos.progresoPlan);
   assert(/Grupo Plan Real/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe mencionar el nombre del grupo, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
   assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP') && c.url.includes('storage_bin=eq.A-01')), 'debe pedir el universo del bin A-01 (no el de toda la zona) antes de crear su entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP') && c.url.includes('storage_bin=eq.A-02')), 'debe pedir el universo del bin A-02 (no el de toda la zona) antes de crear su entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
