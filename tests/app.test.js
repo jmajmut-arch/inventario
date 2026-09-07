@@ -2409,6 +2409,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printCalled===0 && printInformeEl.innerHTML==='', 'plan básico: imprimirInformeGuardado no debe imprimir nada, obtuvo: '+printInformeEl.innerHTML);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
 
+  // ===== Cambiar de período advierte que cierra el anterior (pedido de Joel: "¿seguro que
+  // quiere cerrar?") -- cerrar un período genera su informe de cierre y no se puede deshacer,
+  // así que se pregunta ANTES de llamar al RPC, no después. =====
+  ctx.__appstate.ciclos = [{id:'ciclo-x', nombre:'Q3 2027', es_actual:true, fecha_inicio:'2027-07-01'}, {id:'ciclo-y', nombre:'Q4 2027', es_actual:false, fecha_inicio:'2027-10-01'}];
+  confirmLlamadas.length = 0;
+  confirmRespuesta = false;
+  calls.length = 0;
+  await ctx.marcarCicloActual('ciclo-y');
+  assert(confirmLlamadas.length===1 && /Q3 2027/.test(confirmLlamadas[0]) && /informe de cierre/i.test(confirmLlamadas[0]), 'debe advertir mencionando el período que se cierra y que se genera su informe de cierre, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(!calls.some(c=>c.url.includes('/rpc/marcar_ciclo_actual')), 'si se cancela la advertencia, no debe llamar al RPC (no debe cambiarse nada), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  confirmRespuesta = true;
+  calls.length = 0;
+  await ctx.marcarCicloActual('ciclo-y');
+  assert(calls.some(c=>c.url.includes('/rpc/marcar_ciclo_actual')), 'si se confirma la advertencia, sí debe llamar al RPC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Sin ningún período "actual" todavía (primera vez que se usa Períodos): no hay nada que
+  // cerrar, así que no debe preguntar nada -- solo se advierte cuando de verdad se va a cerrar algo.
+  ctx.__appstate.ciclos = [{id:'ciclo-z', nombre:'Q1 2028', es_actual:false, fecha_inicio:'2028-01-01'}];
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await ctx.marcarCicloActual('ciclo-z');
+  assert(confirmLlamadas.length===0, 'sin ningún período actual que cerrar, no debe preguntar nada, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(calls.some(c=>c.url.includes('/rpc/marcar_ciclo_actual')), 'sin nada que cerrar, debe proceder directo sin preguntar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T2 2027', es_actual:true, fecha_inicio:'2027-04-01'}];
+
   // marcarCicloActual: si la lista de informes ya estaba cargada en pantalla, se refresca sola
   // para mostrar el que se acaba de generar; si nadie la había abierto, no gasta una consulta de más.
   calls.length = 0;
@@ -3917,7 +3943,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!postCicloSinFecha && JSON.parse(postCicloSinFecha.opts.body)[0].fecha_inicio===ctx.fechaISO(new Date()), 'sin fecha elegida, debe usar la fecha de hoy como respaldo, obtuvo: '+JSON.stringify(postCicloSinFecha));
 
   calls.length = 0;
+  confirmLlamadas.length = 0;
   await ctx.marcarCicloActual('ciclo-2');
+  assert(confirmLlamadas.length===1 && /T1 2027/.test(confirmLlamadas[0]), 'al cambiarse a otro período real, debe advertir mencionando el nombre del que se cierra (T1 2027), obtuvo: '+JSON.stringify(confirmLlamadas));
   // marcarCicloActual usa la RPC atómica marcar_ciclo_actual (desmarcar el anterior + marcar el
   // nuevo en una sola transacción de función) en vez de dos PATCH separados — evita la ventana de
   // carrera donde dos ciclos podían quedar marcados "actuales" a la vez (respaldado además por un

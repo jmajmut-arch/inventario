@@ -1791,6 +1791,13 @@ async function editarFechaInicioCiclo(id, fechaInicio){
 
 async function marcarCicloActual(id){
   if(!perfilCargado()) return;
+  // Si hay un período actual distinto del que se va a activar, cambiarlo lo cierra de verdad
+  // (genera su informe de cierre en el mismo momento, ver marcar_ciclo_actual/informes_ciclo)
+  // -- se advierte antes, no después, porque no hay forma de deshacerlo una vez cerrado.
+  const actual = (state.ciclos||[]).find(c=>c.es_actual);
+  if(actual && actual.id!==id){
+    if(!confirm(`Cambiarte a este período cerrará "${actual.nombre}" y generará su informe de cierre automáticamente. ¿Seguro que quieres cerrarlo?`)) return;
+  }
   try{
     // Desmarcar el ciclo actual previo y marcar el nuevo ocurre en una sola transacción de RPC
     // (marcar_ciclo_actual), no en dos PATCH separados: así nunca queda una ventana donde dos
@@ -7453,11 +7460,11 @@ function renderCiclos(){
     <div class="card">
       <div class="hint" style="margin-bottom:10px">Ciclos de conteo (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</div>
       <form id="form-crear-ciclo">
-        <label for="ciclo-nombre">Nombre del ciclo</label>
+        <label for="ciclo-nombre">Nombre del período</label>
         <input type="text" id="ciclo-nombre" placeholder="Ej. T1 2027" required>
         <label for="ciclo-fecha-inicio" style="margin-top:8px">Fecha de inicio</label>
         <input type="date" id="ciclo-fecha-inicio" value="${esc(fechaISO(new Date()))}" required>
-        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear ciclo</button></div>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear período de conteo</button></div>
       </form>
       ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=> c.id===state.cicloEditandoId? `
         <div class="plan-item" style="padding:8px 0;align-items:flex-end;flex-wrap:wrap;gap:8px">
