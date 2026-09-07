@@ -4549,6 +4549,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(errorDeTimeout && errorDeTimeout.motivoTimeout===true, 'el error por timeout debe venir marcado con motivoTimeout=true, para distinguirlo de un fallo de red real, obtuvo: '+JSON.stringify(errorDeTimeout));
   assert(ctx.pareceFalloDeRed(errorDeTimeout)===true, 'pareceFalloDeRed debe seguir reconociendo el error por timeout como fallo de red (es un TypeError), para que los flujos offline lo encolen igual');
 
+  // fetchConTimeout: mismo mecanismo que rest() con timeoutMs, pero para skusDeUbicacion/
+  // contarUniversoUbicacion (llaman fetch() directo, no rest(), porque necesitan leer headers de
+  // paginación). Bug real reportado por Joel: "Confirmar y crear plan" (Grupos) quedaba pegado en
+  // "Creando…" para siempre con señal mala, porque nada cortaba la espera -- ver skusDeUbicacion.
+  const fetchOriginalFCT = ctx.fetch;
+  ctx.fetch = async (url, opts) => { void opts; return {ok:true, status:200, headers:{get:()=>null}, text: async()=>'[]'}; };
+  const resFCT = await ctx.fetchConTimeout('https://x/algo', {}, 5);
+  assert(resFCT && resFCT.ok===true, 'fetchConTimeout debe devolver la respuesta normal cuando el fetch resuelve antes del timeout, obtuvo: '+JSON.stringify(resFCT));
+  ctx.fetch = (url, opts) => new Promise((resolve, reject) => {
+    if(opts && opts.signal) opts.signal.addEventListener('abort', ()=>{
+      const err = new Error('The operation was aborted'); err.name = 'AbortError'; reject(err);
+    });
+  });
+  let errorDeFCT = null;
+  try{ await ctx.fetchConTimeout('https://x/algo-colgado', {}, 5); }catch(e){ errorDeFCT = e; }
+  ctx.fetch = fetchOriginalFCT;
+  assert(errorDeFCT instanceof ctx.__TypeError && errorDeFCT.message==='No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.' && errorDeFCT.motivoTimeout===true, 'ante un fetch colgado, fetchConTimeout debe abortarlo y relanzar el TypeError de sin conexión marcado con motivoTimeout, obtuvo: '+JSON.stringify(errorDeFCT));
+
   // Sin conexión (fetch rechaza con TypeError): guardarConteo debe encolar el conteo en
   // localStorage (con estado "pendiente") en vez de mostrar un error, guardar la(s) foto(s)
   // en IndexedDB (no se pierden), y limpiar el formulario igual que si hubiera guardado con éxito.
