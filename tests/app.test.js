@@ -7177,6 +7177,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlCal.includes('data-cal-dia="2026-09-01"') && htmlCal.includes('data-cal-dia="2026-09-15"') && htmlCal.includes('data-cal-dia="2026-09-30"'), 'debe generar un botón por cada día del mes con data-cal-dia, obtuvo: '+htmlCal.slice(0,3000));
   assert(htmlCal.includes('P 24') && htmlCal.includes('C 20') && htmlCal.includes('R 3'), 'un día con datos debe mostrar planificado/contado/recontado, obtuvo: '+htmlCal);
   assert(!htmlCal.includes('P 0') && !htmlCal.includes('C 0') && !htmlCal.includes('R 0'), 'los días sin actividad (o en cero) no deben mostrar esa métrica, obtuvo: '+htmlCal);
+  // Leyenda de las letras P/C/R -- a pedido de Joel ("para que el cliente sepa"), ya que las
+  // celdas del calendario no traen espacio para deletrear "Planificado/Contado/Recontado".
+  assert(htmlCal.includes('Planificado') && htmlCal.includes('Contado') && htmlCal.includes('Recontado'), 'debe mostrar una leyenda explicando qué significa cada letra (P/C/R), obtuvo: '+htmlCal);
 
   // Detalle del día elegido: "Ir a Contar ese día" para cualquier rol, "Ver en Planificación"
   // solo para admin/súper-admin (un operador no administra el plan, solo cuenta lo suyo).
