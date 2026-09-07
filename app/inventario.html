@@ -1937,10 +1937,16 @@ async function cargarSeguimientoGrupo(grupoId){
     // reciente cae en o después de la fecha de inicio del grupo.
     const tieneFrecuencia = !!(grupo && grupo.frecuencia_dias);
     const inicioGrupoMs = tieneFrecuencia ? new Date(grupo.fecha_inicio+'T00:00:00').getTime() : null;
+    const diaCrudo = tieneFrecuencia ? Math.max(1, Math.floor((Date.now() - inicioGrupoMs) / (24*60*60*1000)) + 1) : null;
+    // Si diaCrudo > totalDias es que el ciclo propio del grupo ya venció en el calendario pero el
+    // cron nocturno (cerrar_ciclos_grupo_vencidos) todavía no corre para cerrarlo y arrancar el
+    // siguiente -- se muestra como "vencido" en vez de un día que no tendría sentido para el
+    // usuario (ej. "día 69 de 60"), a pedido de Joel.
     const cicloGrupo = tieneFrecuencia ? {
-      dia: Math.max(1, Math.floor((Date.now() - inicioGrupoMs) / (24*60*60*1000)) + 1),
+      dia: Math.min(diaCrudo, grupo.frecuencia_dias),
       totalDias: grupo.frecuencia_dias,
       fechaTermino: fechaISO(sumarDias(new Date(grupo.fecha_inicio+'T00:00:00'), grupo.frecuencia_dias-1)),
+      vencido: diaCrudo > grupo.frecuencia_dias,
     } : null;
 
     const inicioSemanaActual = inicioSemana(new Date());
@@ -7627,7 +7633,10 @@ function renderDetalleGrupo(){
         <button type="button" class="btn btn-secondary" data-cancelar-fecha-inicio-grupo style="width:auto;padding:6px 12px;font-size:12px">Cancelar</button>
       </div>
       ` : `
-      <div class="hint" style="margin-bottom:8px">Ciclo del grupo: día ${g.seguimiento.cicloGrupo.dia} de ${g.seguimiento.cicloGrupo.totalDias} · termina el ${fmtFecha(g.seguimiento.cicloGrupo.fechaTermino)} <button type="button" class="link-btn" data-editar-fecha-inicio-grupo="${esc(grupo.id)}" style="margin-left:4px">Editar inicio</button></div>
+      <div class="hint" style="margin-bottom:8px">${g.seguimiento.cicloGrupo.vencido
+        ? `Ciclo del grupo: <strong style="color:var(--warn)">vencido</strong> (debía terminar el ${fmtFecha(g.seguimiento.cicloGrupo.fechaTermino)}) · se cerrará automáticamente en la próxima pasada nocturna`
+        : `Ciclo del grupo: día ${g.seguimiento.cicloGrupo.dia} de ${g.seguimiento.cicloGrupo.totalDias} · termina el ${fmtFecha(g.seguimiento.cicloGrupo.fechaTermino)}`
+      } <button type="button" class="link-btn" data-editar-fecha-inicio-grupo="${esc(grupo.id)}" style="margin-left:4px">Editar inicio</button></div>
       `}
       <div style="display:flex;gap:20px;flex-wrap:wrap">
         <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.contadosCiclo}</div><div class="hint">Contados en este ciclo</div></div>
