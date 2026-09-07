@@ -7257,6 +7257,42 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!calls.some(c=>c.url.includes('contado_por_id')), 'tras quitar el filtro, la nueva búsqueda no debe llevar contado_por_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
+  // bind(): "Ver en Planificación" desde un día puntual del Calendario -- a pedido de Joel
+  // ("que muestre ese día, no toda la planificación"), debe llegar a Planificación mostrando
+  // SOLO ese día (e2, 2026-08-11), no toda la semana (que también trae e1, 2026-08-10, según el
+  // fixture por defecto de /plan_semanal_detalle).
+  ctx.__appstate.view = 'calendario';
+  ctx.__appstate.calendario = { mes:'2026-08-01', cargando:false, cargado:true, dias:[], diaSeleccionado:'2026-08-11' };
+  ctx.__appstate.plan = {...ctx.__appstate.plan, diaFiltro:null};
+  delete elements['cal-ir-plan'];
+  ctx.bind();
+  const btnCalIrPlan = elements['cal-ir-plan'];
+  assert(!!btnCalIrPlan, 'bind() debe haber consultado #cal-ir-plan');
+  btnCalIrPlan.dispatch('click');
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.view==='plan' && ctx.__appstate.plan.diaFiltro==='2026-08-11', '"Ver en Planificación" debe navegar a Planificación dejando diaFiltro en el día elegido, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, diaFiltro:ctx.__appstate.plan.diaFiltro}));
+  const htmlPlanDiaFiltro = ctx.renderPlanificacion();
+  assert(htmlPlanDiaFiltro.includes('Viendo solo') && htmlPlanDiaFiltro.includes('id="btn-quitar-dia-filtro-plan"'), 'con diaFiltro activo, debe avisar qué día se está viendo y ofrecer volver a la semana completa, obtuvo: '+htmlPlanDiaFiltro);
+  assert(htmlPlanDiaFiltro.includes('Interior Nave · A-02') && !htmlPlanDiaFiltro.includes('Interior Nave · A-01'), 'debe listar solo la entrada del día elegido (A-02, 11-ago), no la del otro día de la semana (A-01, 10-ago), obtuvo: '+htmlPlanDiaFiltro);
+  assert(htmlPlanDiaFiltro.includes('Resumen del día'), 'el resumen debe titularse "del día" cuando hay un día puntual elegido, obtuvo: '+htmlPlanDiaFiltro);
+
+  // "Ver toda la semana" limpia diaFiltro y vuelve a mostrar ambos días.
+  delete elements['btn-quitar-dia-filtro-plan'];
+  ctx.bind();
+  const btnQuitarDiaFiltro = elements['btn-quitar-dia-filtro-plan'];
+  btnQuitarDiaFiltro.dispatch('click');
+  assert(ctx.__appstate.plan.diaFiltro===null, 'debe limpiar diaFiltro al volver a la semana completa, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+  const htmlPlanSinDiaFiltro = ctx.renderPlanificacion();
+  assert(htmlPlanSinDiaFiltro.includes('Interior Nave · A-02') && htmlPlanSinDiaFiltro.includes('Interior Nave · A-01'), 'sin diaFiltro, debe volver a listar ambos días de la semana, obtuvo: '+htmlPlanSinDiaFiltro);
+
+  // Navegar de semana con un diaFiltro activo también lo limpia (ya no aplica a la semana nueva).
+  ctx.__appstate.plan.diaFiltro = '2026-08-11';
+  delete elements['plan-semana-next'];
+  ctx.bind();
+  const btnPlanSemanaNextConFiltro = elements['plan-semana-next'];
+  btnPlanSemanaNextConFiltro.dispatch('click');
+  assert(ctx.__appstate.plan.diaFiltro===null, 'navegar a la semana siguiente debe limpiar diaFiltro, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+
   // Navegación de mes: "mes siguiente" pide el mes siguiente y limpia el día elegido (el detalle
   // de un día de otro mes ya no aplica).
   ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
