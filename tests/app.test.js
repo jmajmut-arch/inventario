@@ -365,6 +365,17 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  // skus_universo_entrada_plan_lote (ver skusUniversoEntradaPlanLote): variante "en lote" de la
+  // de abajo, usada por cargarPlanSemanal para pedir el universo/detalle de TODAS las entradas
+  // visibles en un solo viaje -- fix del bug real reportado por Joel: antes mandaba una llamada
+  // paralela POR ENTRADA, y con más de cien entradas reales eso saturaba el pool de conexiones y
+  // dejaba sin turno a otras pantallas (ej. el Dashboard) cargando en simultáneo. Cada fila del
+  // resultado trae su propio plan_id para poder agruparlas en el cliente.
+  if(path.startsWith('/rest/v1/rpc/skus_universo_entrada_plan_lote')){
+    const planIds = opts && opts.body ? JSON.parse(opts.body).p_plan_ids : [];
+    const filas = planIds.flatMap(id=> (universoEntradaPlanFixture[id]||[]).map(f=>({...f, plan_id:id})));
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${Math.max(filas.length-1,0)}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
+  }
   // skus_universo_entrada_plan (ver skusUniversoEntradaPlan): fix del bug real "Cargando SKU…"
   // (una entrada con miles de exclusiones armaba una URL gigante, sku_code=not.in.(...), que el
   // servidor rechazaba o tardaba en responder) -- ahora solo manda el plan_id, ver fixture arriba.
@@ -1383,7 +1394,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
   ctx.fetch = fetchOriginalPlanSuelto;
-  assert(calls.some(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && c.opts && JSON.parse(c.opts.body).p_plan_id==='e-suelto'), 'cargarPlanSemanal debe pedir el universo/detalle de una entrada solo_sin_ubicacion vía skus_universo_entrada_plan(p_plan_id), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/skus_universo_entrada_plan_lote') && c.opts && JSON.parse(c.opts.body).p_plan_ids.includes('e-suelto')), 'cargarPlanSemanal debe pedir el universo/detalle de una entrada solo_sin_ubicacion vía skus_universo_entrada_plan_lote(p_plan_ids), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.plan.universos['e-suelto']===1, 'el universo de la entrada de SKU sueltos debe calcularse con el filtro correcto, obtuvo: '+ctx.__appstate.plan.universos['e-suelto']);
   assert(Array.isArray(ctx.__appstate.plan.detalle['e-suelto']) && ctx.__appstate.plan.detalle['e-suelto'][0].sku_code==='SKU-SUELTO', 'el detalle de la entrada de SKU sueltos debe traer esos SKU, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle['e-suelto']));
 
@@ -1489,6 +1500,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const deleteMasivo = calls.find(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?id=in.('));
   assert(!!deleteMasivo, 'debe hacer un único DELETE con id=in.(...) para todas las seleccionadas, obtuvo: '+JSON.stringify(calls));
   assert(deleteMasivo.url.includes('e1') && deleteMasivo.url.includes('e2'), 'el DELETE masivo debe incluir ambos ids seleccionados, obtuvo: '+deleteMasivo.url);
+  // Deja terminar el cargarPlanSemanal() fire-and-forget que dispara borrarPlanEntradas, antes de
+  // seguir: si no, su propio viaje a skus_universo_entrada_plan_lote podría resolver en medio del
+  // siguiente bloque y confundirse con el de esa prueba (mismo motivo que el comentario de arriba).
+  await new Promise(resolve => setTimeout(resolve, 20));
   assert(!htmlSinDetalle.includes('data-toggle-detalle') && !htmlSinDetalle.includes('Ver SKU'), 'no debe requerir ningún botón/link para ver el SKU, obtuvo: '+htmlSinDetalle);
   assert(htmlSinDetalle.includes('plan-item-detalle') && htmlSinDetalle.includes('Cargando SKU…'), 'mientras se carga, el detalle debe mostrarse igual (sin clics) con "Cargando SKU…", obtuvo: '+htmlSinDetalle);
 
@@ -1542,8 +1557,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.plan.semanaInicio = '2026-08-10';
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
-  const skusCallE1 = calls.find(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && c.opts && JSON.parse(c.opts.body).p_plan_id==='e1');
-  assert(!!skusCallE1, 'cargarPlanSemanal debe consultar skus_universo_entrada_plan (detalle) para cada entrada automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const skusCallLote = calls.find(c=>c.url.includes('/rpc/skus_universo_entrada_plan_lote'));
+  const skusCallLoteIds = skusCallLote && JSON.parse(skusCallLote.opts.body).p_plan_ids;
+  assert(!!skusCallLote && skusCallLoteIds.includes('e1'), 'cargarPlanSemanal debe consultar skus_universo_entrada_plan_lote (detalle) para todas las entradas en un solo viaje, incluyendo e1, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(Array.isArray(ctx.__appstate.plan.detalle.e1) && ctx.__appstate.plan.detalle.e1[0].sku_code==='SKU-001', 'debe quedar cargado el detalle real de SKU (código/descripción) para A-01, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle.e1));
 
   const htmlConDetalle = ctx.renderPlanificacion();
@@ -1555,8 +1571,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // pero la exclusión real ya no se arma en la URL (bug real: con miles de exclusiones eso rompía
   // con "Cargando SKU…"/431, ver skusUniversoEntradaPlan). Ahora la resuelve el servidor a partir
   // del plan_id; acá solo queda verificar que se pida por ese id.
-  const skusCallE2 = calls.find(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && c.opts && JSON.parse(c.opts.body).p_plan_id==='e2');
-  assert(!!skusCallE2, 'cargarPlanSemanal debe consultar skus_universo_entrada_plan también para e2, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!skusCallLoteIds && skusCallLoteIds.includes('e2'), 'cargarPlanSemanal debe consultar skus_universo_entrada_plan_lote también para e2, en el mismo viaje, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.filter(c=>c.url.includes('/rpc/skus_universo_entrada_plan_lote')).length===1, 'cargarPlanSemanal debe hacer UN solo viaje para todas las entradas, no uno por entrada (bug real: cientos de llamadas paralelas saturaban el pool de conexiones), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.
   calls.length = 0;
