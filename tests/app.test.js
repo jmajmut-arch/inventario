@@ -48,6 +48,27 @@ let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alte
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
+// Universo/detalle por plan_id para el RPC skus_universo_entrada_plan (ver skusUniversoEntradaPlan):
+// reemplaza los viejos filtros armados en la URL (bodega=eq./ubicacion=eq./storage_bin=eq.) por un
+// solo parámetro p_plan_id -- acá se simula devolviendo, para cada id de plan_semanal ya usado en
+// los fixtures de este archivo, el mismo universo que antes se armaba a mano por bodega+bin.
+const universoEntradaPlanFixture = {
+  e1: [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20, critico:true, clase_abc:'A'}],
+  mp1: [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20, critico:true, clase_abc:'A'}],
+  e2: [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8, critico:false, clase_abc:'B'}],
+  mp2: [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8, critico:false, clase_abc:'B'}],
+  mp3: [{id:'id-sku-suelto', sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}],
+  'e-suelto': [{id:'id-sku-suelto', sku_code:'SKU-SUELTO', descripcion:'Repuesto suelto', storage_bin:null, unidad_medida:'UN'}],
+  mp4: [
+    {id:'id-p1', sku_code:'SKU-P1', descripcion:'Repuesto Piso 1', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+    {id:'id-p2', sku_code:'SKU-P2', descripcion:'Repuesto Piso 2', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+    {id:'id-p3', sku_code:'SKU-P3', descripcion:'Repuesto Piso 3 (ya en otra entrada)', bodega:null, ubicacion:'Piso', storage_bin:null, unidad_medida:'UN'},
+  ],
+  'mp-batch': [
+    {id:'id-batch-a', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'A', unidad_medida:'LT', stock_sistema:5},
+    {id:'id-batch-b', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'B', unidad_medida:'LT', stock_sistema:9},
+  ],
+};
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
 let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
 let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesCiclo); null = sin mockear (usa default vacío)
@@ -343,6 +364,14 @@ const fakeFetchImpl = async (url, opts) => {
       {fecha:'2026-09-03', planificado:0, contado:0, recontado:0, pendiente:0},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // skus_universo_entrada_plan (ver skusUniversoEntradaPlan): fix del bug real "Cargando SKU…"
+  // (una entrada con miles de exclusiones armaba una URL gigante, sku_code=not.in.(...), que el
+  // servidor rechazaba o tardaba en responder) -- ahora solo manda el plan_id, ver fixture arriba.
+  if(path.startsWith('/rest/v1/rpc/skus_universo_entrada_plan')){
+    const planId = opts && opts.body ? JSON.parse(opts.body).p_plan_id : null;
+    const filas = universoEntradaPlanFixture[planId] || [];
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${Math.max(filas.length-1,0)}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/skus_resumen_abc')){
     const filas = [
@@ -1338,7 +1367,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await new Promise(resolve => setTimeout(resolve, 20));
 
   // cargarPlanSemanal: una fila de plan_semanal_detalle con solo_sin_ubicacion:true debe traer
-  // su universo/detalle con el filtro is.null (no una lista sin filtrar de todas las ubicaciones).
+  // su universo/detalle con el RPC skus_universo_entrada_plan (p_plan_id, no un filtro armado en
+  // la URL -- ver el fix del bug real "Cargando SKU…"/431 con exclusiones grandes).
   const fetchOriginalPlanSuelto = ctx.fetch;
   ctx.fetch = async (url, opts) => {
     const u = new URL(url);
@@ -1353,7 +1383,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
   ctx.fetch = fetchOriginalPlanSuelto;
-  assert(calls.some(c=>c.url.includes('bodega=is.null')&&c.url.includes('ubicacion=is.null')), 'cargarPlanSemanal debe pedir el universo/detalle de una entrada solo_sin_ubicacion con el filtro is.null, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && c.opts && JSON.parse(c.opts.body).p_plan_id==='e-suelto'), 'cargarPlanSemanal debe pedir el universo/detalle de una entrada solo_sin_ubicacion vía skus_universo_entrada_plan(p_plan_id), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.plan.universos['e-suelto']===1, 'el universo de la entrada de SKU sueltos debe calcularse con el filtro correcto, obtuvo: '+ctx.__appstate.plan.universos['e-suelto']);
   assert(Array.isArray(ctx.__appstate.plan.detalle['e-suelto']) && ctx.__appstate.plan.detalle['e-suelto'][0].sku_code==='SKU-SUELTO', 'el detalle de la entrada de SKU sueltos debe traer esos SKU, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle['e-suelto']));
 
@@ -1512,8 +1542,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.plan.semanaInicio = '2026-08-10';
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
-  const skusCallE1 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=id,sku_code') && c.url.includes('storage_bin=eq.A-01'));
-  assert(!!skusCallE1, 'cargarPlanSemanal debe consultar /skus_planificables (detalle) para cada entrada automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const skusCallE1 = calls.find(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && c.opts && JSON.parse(c.opts.body).p_plan_id==='e1');
+  assert(!!skusCallE1, 'cargarPlanSemanal debe consultar skus_universo_entrada_plan (detalle) para cada entrada automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(Array.isArray(ctx.__appstate.plan.detalle.e1) && ctx.__appstate.plan.detalle.e1[0].sku_code==='SKU-001', 'debe quedar cargado el detalle real de SKU (código/descripción) para A-01, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle.e1));
 
   const htmlConDetalle = ctx.renderPlanificacion();
@@ -1521,12 +1551,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConDetalle.includes('class="icon-btn plan-sku-quitar" data-plan-id="e1" data-sku-code="SKU-001"'), 'cada SKU listado debe tener un botón para quitarlo de la planificación, obtuvo: '+htmlConDetalle);
   assert(/data-sku-code="SKU-001"[^>]*title="Quitar solo este SKU/.test(htmlConDetalle), 'el botón de quitar un SKU debe tener un title distinto al de eliminar toda la entrada, obtuvo: '+htmlConDetalle);
 
-  // La entrada e2 tiene SKU-002 excluido (skus_excluidos en la vista): tanto el conteo como el detalle
-  // deben pedirse con el filtro sku_code=not.in.(...) para no volver a mostrarlo.
-  const skusCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true&select=id,sku_code') && c.url.includes('storage_bin=eq.A-02'));
-  assert(!!skusCallE2 && skusCallE2.url.includes('sku_code=not.in.(SKU-002)'), 'la consulta de detalle para e2 debe excluir SKU-002, obtuvo: '+JSON.stringify(skusCallE2));
-  const universoCallE2 = calls.find(c=>c.url.includes('/skus_planificables?activo=eq.true') && !c.url.includes('select=id,sku_code') && c.url.includes('storage_bin=eq.A-02'));
-  assert(!!universoCallE2 && universoCallE2.url.includes('sku_code=not.in.(SKU-002)'), 'la consulta de conteo (universo) para e2 debe excluir SKU-002, obtuvo: '+JSON.stringify(universoCallE2));
+  // La entrada e2 tiene SKU-002 marcado como excluido (skus_excluidos en la vista, informativo) --
+  // pero la exclusión real ya no se arma en la URL (bug real: con miles de exclusiones eso rompía
+  // con "Cargando SKU…"/431, ver skusUniversoEntradaPlan). Ahora la resuelve el servidor a partir
+  // del plan_id; acá solo queda verificar que se pida por ese id.
+  const skusCallE2 = calls.find(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && c.opts && JSON.parse(c.opts.body).p_plan_id==='e2');
+  assert(!!skusCallE2, 'cargarPlanSemanal debe consultar skus_universo_entrada_plan también para e2, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.
   calls.length = 0;
@@ -6342,7 +6372,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const fetchOriginalCascadaOffline = ctx.fetch;
   ctx.fetch = async (url, opts) => {
     const u = new URL(url);
-    if(u.pathname==='/rest/v1/skus_planificables') throw new ctx.__TypeError('Failed to fetch');
+    if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan') throw new ctx.__TypeError('Failed to fetch');
     return fetchOriginalCascadaOffline(url, opts);
   };
   await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
@@ -6355,7 +6385,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const toastsAntesCascadaOffline = toastRootCascadaOffline ? toastRootCascadaOffline.hijos.length : 0;
   ctx.fetch = async (url, opts) => {
     const u = new URL(url);
-    if(u.pathname==='/rest/v1/skus_planificables') throw new ctx.__TypeError('Failed to fetch');
+    if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan') throw new ctx.__TypeError('Failed to fetch');
     return fetchOriginalCascadaOffline(url, opts);
   };
   await ctx.elegirCascadaContar({bodega:'__sin_ubicacion__', ubicacion:''});
