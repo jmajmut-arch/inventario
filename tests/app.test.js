@@ -1683,6 +1683,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.plan.entradas.some(e=>e.id==='e1') && ctx.__appstate.plan.semanaInicio==='2026-08-10', 'aunque la llamada vieja responda después, no debe pisar el estado de la llamada nueva, obtuvo: '+JSON.stringify(ctx.__appstate.plan));
   }
 
+  // Paginación de skusUniversoEntradaPlanLote a prueba de fallos. Bug real reportado por Joel:
+  // con 1254 filas de SKU (más que la página de 1000) el día quedaba con los SKU de la primera
+  // página nada más (82 en vez de 100). Debe seguir pidiendo páginas mientras vengan llenas
+  // aunque el servidor no informe el total (content-range "0-999/*"), y nunca contar dos veces
+  // una misma fila (plan_id + sku id) si el servidor la repitiera entre páginas.
+  {
+    const fetchOriginalPaginas = ctx.fetch;
+    const rangosPedidos = [];
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan_lote'){
+        const rango = opts.headers.Range;
+        rangosPedidos.push(rango);
+        const desde = Number(rango.split('-')[0]);
+        const filas = desde===0
+          ? Array.from({length:1000}, (_,i)=>({plan_id:'pg', id:'s'+i, sku_code:'S'+i}))
+          : [{plan_id:'pg', id:'s999', sku_code:'S999'}, {plan_id:'pg', id:'s1000', sku_code:'S1000'}, {plan_id:'pg', id:'s1001', sku_code:'S1001'}]; // s999 repetida a propósito
+        return { status:206, ok:true, headers:{get:(h)=> h==='content-range' ? `${desde}-${desde+filas.length-1}/*` : null}, text: async()=>JSON.stringify(filas) };
+      }
+      return fetchOriginalPaginas(url, opts);
+    };
+    const filasLote = await ctx.skusUniversoEntradaPlanLote(['pg']);
+    ctx.fetch = fetchOriginalPaginas;
+    assert(rangosPedidos.length===2 && rangosPedidos[0]==='0-999' && rangosPedidos[1]==='1000-1999', 'con la primera página llena y total desconocido (*), debe pedir la segunda página, obtuvo: '+JSON.stringify(rangosPedidos));
+    assert(filasLote.length===1002, 'debe juntar ambas páginas sin contar dos veces la fila repetida (1000 + 3 - 1 = 1002), obtuvo: '+filasLote.length);
+    assert(filasLote.some(f=>f.id==='s1001'), 'las filas de la segunda página deben estar incluidas, obtuvo: '+filasLote.length);
+  }
+
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.
   calls.length = 0;
   ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};
@@ -5001,6 +5029,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const getPlanPorCiclo = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
   assert(!!getPlanPorCiclo && getPlanPorCiclo.url.includes('ciclo_id=eq.ciclo-1') && !getPlanPorCiclo.url.includes('fecha=gte'), 'con un período elegido, cargarPlanSemanal debe filtrar por ciclo_id sin rango de fechas, obtuvo: '+JSON.stringify(getPlanPorCiclo));
 
+  // Con un día puntual elegido (diaFiltro, desde el Calendario) gana sobre el período: solo ese día.
+  ctx.__appstate.plan.diaFiltro = '2026-09-14';
+  calls.length = 0;
+  await ctx.cargarPlanSemanal();
+  const getPlanPorDia = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!getPlanPorDia && getPlanPorDia.url.includes('fecha=eq.2026-09-14') && !getPlanPorDia.url.includes('ciclo_id'), 'con diaFiltro activo, cargarPlanSemanal debe pedir solo ese día aunque haya un período elegido, obtuvo: '+JSON.stringify(getPlanPorDia));
+  ctx.__appstate.plan.diaFiltro = null;
+
   ctx.__appstate.plan.cicloFiltro = '';
   calls.length = 0;
   await ctx.cargarPlanSemanal();
@@ -7465,9 +7501,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.bind();
   const btnCalIrPlan = elements['cal-ir-plan'];
   assert(!!btnCalIrPlan, 'bind() debe haber consultado #cal-ir-plan');
+  ctx.__appstate.plan.cicloFiltro = 'ciclo-1'; // el período actual viene preseleccionado (ver cargarCiclos)
+  calls.length = 0;
   btnCalIrPlan.dispatch('click');
   await new Promise(r=>setTimeout(r, 0));
   assert(ctx.__appstate.view==='plan' && ctx.__appstate.plan.diaFiltro==='2026-08-11', '"Ver en Planificación" debe navegar a Planificación dejando diaFiltro en el día elegido, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, diaFiltro:ctx.__appstate.plan.diaFiltro}));
+  // Bug real reportado por Joel: con el período preseleccionado, venir del Calendario cargaba el
+  // período ENTERO (370 entradas / 1254 filas de SKU con datos reales) para mostrar un solo día:
+  // ~12 s de espera (dos páginas de un RPC de ~5 s) y el día quedaba con los SKU de la primera
+  // página nada más (82 en vez de 100). Con diaFiltro activo debe pedirse SOLO ese día.
+  const getPlanDia = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!getPlanDia && getPlanDia.url.includes('fecha=eq.2026-08-11') && !getPlanDia.url.includes('ciclo_id') && !getPlanDia.url.includes('fecha=gte'), 'con diaFiltro activo, cargarPlanSemanal debe pedir solo ese día (fecha=eq), no el período ni la semana, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const htmlPlanDiaFiltro = ctx.renderPlanificacion();
   assert(htmlPlanDiaFiltro.includes('Viendo solo') && htmlPlanDiaFiltro.includes('id="btn-quitar-dia-filtro-plan"'), 'con diaFiltro activo, debe avisar qué día se está viendo y ofrecer volver a la semana completa, obtuvo: '+htmlPlanDiaFiltro);
   assert(htmlPlanDiaFiltro.includes('Interior Nave · A-02') && !htmlPlanDiaFiltro.includes('Interior Nave · A-01'), 'debe listar solo la entrada del día elegido (A-02, 11-ago), no la del otro día de la semana (A-01, 10-ago), obtuvo: '+htmlPlanDiaFiltro);
@@ -7477,8 +7521,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   delete elements['btn-quitar-dia-filtro-plan'];
   ctx.bind();
   const btnQuitarDiaFiltro = elements['btn-quitar-dia-filtro-plan'];
+  calls.length = 0;
   btnQuitarDiaFiltro.dispatch('click');
+  await new Promise(r=>setTimeout(r, 0));
   assert(ctx.__appstate.plan.diaFiltro===null, 'debe limpiar diaFiltro al volver a la semana completa, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+  // Como con diaFiltro solo se cargó ese día, volver a la vista completa debe recargar (por
+  // período, que sigue preseleccionado) -- si no, la semana/período quedaría con un solo día.
+  const getPlanTrasQuitar = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!getPlanTrasQuitar && getPlanTrasQuitar.url.includes('ciclo_id=eq.ciclo-1') && !getPlanTrasQuitar.url.includes('fecha=eq'), 'al quitar el día puntual debe recargarse el período/semana completo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  await new Promise(r=>setTimeout(r, 20)); // deja terminar su recálculo de fondo antes de seguir
+  ctx.__appstate.plan.cicloFiltro = '';
   const htmlPlanSinDiaFiltro = ctx.renderPlanificacion();
   assert(htmlPlanSinDiaFiltro.includes('Interior Nave · A-02') && htmlPlanSinDiaFiltro.includes('Interior Nave · A-01'), 'sin diaFiltro, debe volver a listar ambos días de la semana, obtuvo: '+htmlPlanSinDiaFiltro);
 
