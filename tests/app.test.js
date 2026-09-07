@@ -49,6 +49,8 @@ let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
+let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
+let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesCiclo); null = sin mockear (usa default vacío)
 // Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
 // hace Postgres ante ON CONFLICT DO NOTHING) y la búsqueda de respaldo por idempotency_key
 // devuelve el id ya guardado, en vez del habitual {id:'conteo-nuevo-1'}.
@@ -78,6 +80,13 @@ const fakeFetchImpl = async (url, opts) => {
     // "Ya contado este período" en Contar (ver cargarVecesContadoPeriodo): función escalar
     // (RETURNS integer), valor crudo sin envolver, igual que ciclo_actual.
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conteosEnPeriodoRespuesta) };
+  }
+  if(path.startsWith('/rest/v1/informes_ciclo')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(informesCicloFixture||[]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/descartar_reconteo')){
+    if(descartarReconteoError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:descartarReconteoError}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -460,7 +469,7 @@ const fakeFetchImpl = async (url, opts) => {
     const total = 34; // fuerza que la 1ra página (30) diga "hay más" y la 2da (4) ya no
     const filas = [];
     for(let i=offset; i<Math.min(offset+30, total); i++){
-      filas.push({id:'r'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable: i===0?'Ubicación distinta':'Sin patrón detectado'});
+      filas.push({id:'r'+i, conteo_id:'conteo-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable: i===0?'Ubicación distinta':'Sin patrón detectado'});
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -2335,6 +2344,119 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printCalled===0, 'plan básico: imprimirInformeCiclo no debe llamar a window.print()');
   assert(printInformeEl.innerHTML==='', 'plan básico: imprimirInformeCiclo no debe escribir contenido en #print-informe');
 
+  // ===== Informes de cierre (ver marcar_ciclo_actual/informes_ciclo): snapshot automático que
+  // el servidor genera al momento exacto en que un ciclo deja de ser el actual -- distinto del
+  // informe ejecutivo manual de arriba (ese es en vivo, este es un registro histórico congelado,
+  // e incluye los reconteos que quedaron sin resolver al cerrar, a pedido de Joel). =====
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
+
+  // cargarInformesCiclo: trae la lista y la marca como cargada.
+  informesCicloFixture = [
+    {id:'inf-1', ciclo_nombre:'T1 2027', fecha_inicio:'2027-01-01', fecha_cierre:'2027-04-01T12:00:00Z', datos:{
+      avance_total:[{bodega:'Nave Mina', skus_universo:100, skus_contados:100, porcentaje_avance:100}],
+      exactitud_por_bodega:[{bodega:'Nave Mina', skus_contados:100, con_diferencia:10, sin_diferencia:90, ubicacion_correcta:95}],
+      diferencias_recientes:{sin_diferencia:90, con_diferencia:10},
+      ranking_responsable:[{nombre:'Ana Torres', cantidad:60}, {nombre:'Diego Muñoz', cantidad:40}],
+      valorizacion_diferencias:[{bodega:'Nave Mina', valor_contado:5000000, valor_perdidas:-200000, valor_excedentes:50000}],
+      reconteos_sin_resolver:[{sku_code:'SKU-PEND', descripcion:'Pendiente al cerrar', ultima_diferencia:-3, causa_probable:'Diferencia recurrente', ultimo_conteo_fecha:'2027-03-30T10:00:00Z'}],
+    }},
+  ];
+  await ctx.cargarInformesCiclo();
+  assert(ctx.__appstate.informesCiclo.cargado===true && ctx.__appstate.informesCiclo.lista.length===1, 'cargarInformesCiclo debe traer la lista y marcarla como cargada, obtuvo: '+JSON.stringify(ctx.__appstate.informesCiclo));
+
+  // renderCiclos: plan profesional -> muestra la sección con el ciclo, fechas y botón "Ver informe".
+  ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T2 2027', es_actual:true, fecha_inicio:'2027-04-01'}];
+  const htmlCiclosConInformes = ctx.renderCiclos();
+  assert(htmlCiclosConInformes.includes('Informes de cierre'), 'plan profesional debe mostrar la sección de informes de cierre, obtuvo: '+htmlCiclosConInformes);
+  assert(htmlCiclosConInformes.includes('data-ver-informe-ciclo="inf-1"') && htmlCiclosConInformes.includes('T1 2027'), 'debe listar el informe con su botón "Ver informe", obtuvo: '+htmlCiclosConInformes);
+
+  // Sin ningún ciclo cerrado todavía: estado vacío explícito, no la sección ausente.
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[]};
+  const htmlCiclosSinInformes = ctx.renderCiclos();
+  assert(htmlCiclosSinInformes.includes('Informes de cierre') && htmlCiclosSinInformes.includes('Todavía no se ha cerrado ningún ciclo'), 'sin informes, debe mostrar el estado vacío explícito, obtuvo: '+htmlCiclosSinInformes);
+
+  // Plan básico: la sección completa no debe mostrarse (mismo gate que el informe ejecutivo manual).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', dashboard_ejecutivo_habilitado:false}} };
+  const htmlCiclosBasico = ctx.renderCiclos();
+  assert(!htmlCiclosBasico.includes('Informes de cierre'), 'plan básico no debe mostrar la sección de informes de cierre, obtuvo: '+htmlCiclosBasico);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
+
+  // imprimirInformeGuardado: vuelca el snapshot congelado (no una consulta en vivo) en
+  // #print-informe, con título propio distinto del informe ejecutivo manual, e incluye los
+  // reconteos sin resolver al momento del cierre.
+  printInformeEl.innerHTML = '';
+  printCalled = 0;
+  ctx.imprimirInformeGuardado('inf-1');
+  assert(printCalled===1, 'imprimirInformeGuardado debe llamar a window.print()');
+  assert(printInformeEl.innerHTML.includes('Informe de cierre de ciclo'), 'debe tener un título propio distinto del informe ejecutivo manual, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('T1 2027') && printInformeEl.innerHTML.includes('Minera Andes'), 'el encabezado debe indicar la empresa y el ciclo cerrado, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('100.0%') && printInformeEl.innerHTML.includes('Nave Mina')===false, 'el avance final debe salir del snapshot (100%), no de una nueva consulta, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('SKU-PEND') && printInformeEl.innerHTML.includes('Diferencia recurrente'), 'debe listar los reconteos que quedaron sin resolver al cerrar, obtuvo: '+printInformeEl.innerHTML);
+
+  // Sin reconteos pendientes al cerrar: mensaje explícito, no una tabla vacía.
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[{...informesCicloFixture[0], datos:{...informesCicloFixture[0].datos, reconteos_sin_resolver:[]}}]};
+  printInformeEl.innerHTML = '';
+  ctx.imprimirInformeGuardado('inf-1');
+  assert(printInformeEl.innerHTML.includes('Ninguno'), 'sin reconteos pendientes al cerrar, debe decirlo explícitamente, obtuvo: '+printInformeEl.innerHTML);
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
+
+  // Plan básico: imprimirInformeGuardado tampoco debe hacer nada (mismo gate).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', dashboard_ejecutivo_habilitado:false}} };
+  printInformeEl.innerHTML = '';
+  printCalled = 0;
+  ctx.imprimirInformeGuardado('inf-1');
+  assert(printCalled===0 && printInformeEl.innerHTML==='', 'plan básico: imprimirInformeGuardado no debe imprimir nada, obtuvo: '+printInformeEl.innerHTML);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
+
+  // ===== Cambiar de período advierte que cierra el anterior (pedido de Joel: "¿seguro que
+  // quiere cerrar?") -- cerrar un período genera su informe de cierre y no se puede deshacer,
+  // así que se pregunta ANTES de llamar al RPC, no después. =====
+  ctx.__appstate.ciclos = [{id:'ciclo-x', nombre:'Q3 2027', es_actual:true, fecha_inicio:'2027-07-01'}, {id:'ciclo-y', nombre:'Q4 2027', es_actual:false, fecha_inicio:'2027-10-01'}];
+  confirmLlamadas.length = 0;
+  confirmRespuesta = false;
+  calls.length = 0;
+  await ctx.marcarCicloActual('ciclo-y');
+  assert(confirmLlamadas.length===1 && /Q3 2027/.test(confirmLlamadas[0]) && /informe de cierre/i.test(confirmLlamadas[0]), 'debe advertir mencionando el período que se cierra y que se genera su informe de cierre, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(!calls.some(c=>c.url.includes('/rpc/marcar_ciclo_actual')), 'si se cancela la advertencia, no debe llamar al RPC (no debe cambiarse nada), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  confirmRespuesta = true;
+  calls.length = 0;
+  await ctx.marcarCicloActual('ciclo-y');
+  assert(calls.some(c=>c.url.includes('/rpc/marcar_ciclo_actual')), 'si se confirma la advertencia, sí debe llamar al RPC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Sin ningún período "actual" todavía (primera vez que se usa Períodos): no hay nada que
+  // cerrar, así que no debe preguntar nada -- solo se advierte cuando de verdad se va a cerrar algo.
+  ctx.__appstate.ciclos = [{id:'ciclo-z', nombre:'Q1 2028', es_actual:false, fecha_inicio:'2028-01-01'}];
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await ctx.marcarCicloActual('ciclo-z');
+  assert(confirmLlamadas.length===0, 'sin ningún período actual que cerrar, no debe preguntar nada, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(calls.some(c=>c.url.includes('/rpc/marcar_ciclo_actual')), 'sin nada que cerrar, debe proceder directo sin preguntar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T2 2027', es_actual:true, fecha_inicio:'2027-04-01'}];
+
+  // marcarCicloActual: si la lista de informes ya estaba cargada en pantalla, se refresca sola
+  // para mostrar el que se acaba de generar; si nadie la había abierto, no gasta una consulta de más.
+  calls.length = 0;
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[]};
+  await ctx.marcarCicloActual('ciclo-1');
+  await new Promise(r=>setTimeout(r, 0)); // deja resolver el cargarCiclos() interno (no awaited) antes de mirar `calls`
+  assert(calls.filter(c=>c.url.includes('/informes_ciclo')).length===1, 'con la lista ya cargada, marcarCicloActual debe recargar informes_ciclo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Fuera de la vista "ciclos" para aislar la llamada explícita de marcarCicloActual del
+  // autocargado perezoso de bind() (que también dispara cargarInformesCiclo() al renderizar esa
+  // vista si todavía no está cargada, sin relación con lo que se prueba acá) -- el flush de abajo
+  // debe completarse ANTES de volver a la vista "ciclos", para que ningún cargarCiclos() interno
+  // pendiente dispare ese autocargado por accidente mientras la vista sigue siendo otra.
+  calls.length = 0;
+  ctx.__appstate.view = 'dashboard';
+  ctx.__appstate.informesCiclo = {cargado:false, cargando:false, lista:[]};
+  await ctx.marcarCicloActual('ciclo-1');
+  await new Promise(r=>setTimeout(r, 0));
+  assert(!calls.some(c=>c.url.includes('/informes_ciclo')), 'sin la lista cargada todavía, marcarCicloActual no debe pedirla de más, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.view = 'ciclos';
+  informesCicloFixture = null;
+
   // ===== Flow.cl: sección "Plan y facturación" en Configuraciones =====
 
   // Plan básico sin suscripción activa (flow_subscription_status null): debe ofrecer suscribirse.
@@ -3821,7 +3943,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!postCicloSinFecha && JSON.parse(postCicloSinFecha.opts.body)[0].fecha_inicio===ctx.fechaISO(new Date()), 'sin fecha elegida, debe usar la fecha de hoy como respaldo, obtuvo: '+JSON.stringify(postCicloSinFecha));
 
   calls.length = 0;
+  confirmLlamadas.length = 0;
   await ctx.marcarCicloActual('ciclo-2');
+  assert(confirmLlamadas.length===1 && /T1 2027/.test(confirmLlamadas[0]), 'al cambiarse a otro período real, debe advertir mencionando el nombre del que se cierra (T1 2027), obtuvo: '+JSON.stringify(confirmLlamadas));
   // marcarCicloActual usa la RPC atómica marcar_ciclo_actual (desmarcar el anterior + marcar el
   // nuevo en una sola transacción de función) en vez de dos PATCH separados — evita la ventana de
   // carrera donde dos ciclos podían quedar marcados "actuales" a la vez (respaldado además por un
@@ -5143,6 +5267,59 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // etiquetaNumeroConteo: 1 es el conteo original, 2+ son reconteos (numerados desde 1).
   assert(ctx.etiquetaNumeroConteo(1)==='Conteo' && ctx.etiquetaNumeroConteo(2)==='Reconteo 1' && ctx.etiquetaNumeroConteo(3)==='Reconteo 2', 'etiquetaNumeroConteo debe distinguir el conteo original de cada reconteo, obtuvo: '+JSON.stringify([ctx.etiquetaNumeroConteo(1), ctx.etiquetaNumeroConteo(2), ctx.etiquetaNumeroConteo(3)]));
+
+  // ===== Reconteo: botón "Descartar" (solo admin) -- saca un material de la lista sin recontarlo
+  // físicamente, para cuando el problema fue un error en el dato maestro (ver descartar_reconteo,
+  // RPC que valida el rol en el servidor). Pedido de Joel tras revisar el comportamiento congelado.
+  ctx.__appstate.reconteos = [
+    { id:'sku-d1', conteo_id:'conteo-d1', sku_code:'SKU-DESCARTAR', descripcion:'Con error de maestro', stock_sistema:5, ultima_cantidad_contada:5, ultima_diferencia:1, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', fotos:[] },
+  ];
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlDescartarAdmin = ctx.renderReconteo();
+  assert(htmlDescartarAdmin.includes('data-descartar-reconteo="conteo-d1"'), 'un admin debe ver el botón Descartar con el id del conteo (no del SKU), obtuvo: '+htmlDescartarAdmin);
+  assert(htmlDescartarAdmin.includes('data-descartar-reconteo-sku="SKU-DESCARTAR"'), 'el botón Descartar debe llevar el sku_code para mostrarlo en el modal, obtuvo: '+htmlDescartarAdmin);
+
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlDescartarOperador = ctx.renderReconteo();
+  assert(!htmlDescartarOperador.includes('data-descartar-reconteo='), 'un operador NO debe ver el botón Descartar (acción solo de admin), obtuvo: '+htmlDescartarOperador);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // Sin motivo: no debe llamar al RPC.
+  calls.length = 0;
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'   ', guardando:false };
+  await ctx.descartarReconteo();
+  assert(!calls.some(c=>c.url.includes('/rpc/descartar_reconteo')), 'sin motivo no debe llamarse al RPC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.descartarReconteoModal !== null, 'sin motivo el modal debe seguir abierto, obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+
+  // Con motivo: llama al RPC con el conteo_id y el motivo, cierra el modal y recarga la lista.
+  calls.length = 0;
+  descartarReconteoError = null;
+  ctx.__appstate.reconteos = [];
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'Error de tipeo en el maestro', guardando:false };
+  await ctx.descartarReconteo();
+  const descartarCall = calls.find(c=>c.url.includes('/rpc/descartar_reconteo'));
+  assert(!!descartarCall, 'debe llamar al RPC descartar_reconteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const descartarBody = descartarCall && JSON.parse(descartarCall.opts.body);
+  assert(descartarBody && descartarBody.p_conteo_id==='conteo-d1' && descartarBody.p_motivo==='Error de tipeo en el maestro', 'debe enviar p_conteo_id y p_motivo (con el texto sin recortar de más), obtuvo: '+JSON.stringify(descartarBody));
+  assert(ctx.__appstate.descartarReconteoModal === null, 'al descartar con éxito el modal debe cerrarse, obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+  assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=')), 'al descartar con éxito debe recargar la lista de reconteos (cargarReconteos), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si el servidor rechaza (ej. no es admin, o ya lo descartó otra persona): el modal se mantiene
+  // abierto, deja de "guardando" y no borra el motivo ya escrito, para que la persona pueda reintentar.
+  calls.length = 0;
+  descartarReconteoError = 'Solo un administrador puede descartar un reconteo pendiente';
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'Otro intento', guardando:false };
+  await ctx.descartarReconteo();
+  assert(ctx.__appstate.descartarReconteoModal !== null && ctx.__appstate.descartarReconteoModal.guardando===false, 'si el RPC falla, el modal debe seguir abierto y no quedar trabado en "guardando", obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+  assert(ctx.__appstate.descartarReconteoModal.motivo==='Otro intento', 'si falla, no debe perderse el motivo ya escrito, obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+  descartarReconteoError = null;
+
+  // Modal: renderDescartarReconteoModal muestra el sku y precarga el motivo si ya se había escrito.
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'Ya escrito antes', guardando:false };
+  const htmlModalDescartar = ctx.renderDescartarReconteoModal();
+  assert(htmlModalDescartar.includes('SKU-DESCARTAR') && htmlModalDescartar.includes('Ya escrito antes'), 'el modal debe mostrar el SKU y precargar el motivo ya escrito, obtuvo: '+htmlModalDescartar);
+  ctx.__appstate.descartarReconteoModal = null;
+  assert(ctx.renderDescartarReconteoModal()==='', 'sin modal abierto, renderDescartarReconteoModal debe devolver vacío, obtuvo: '+JSON.stringify(ctx.renderDescartarReconteoModal()));
 
   // ===== Conteo ciego: ocultarStockOperador() decide según rol + el flag de la empresa. Un
   // admin siempre ve el stock; un operador solo lo ve si su empresa NO tiene el flag activo. =====
