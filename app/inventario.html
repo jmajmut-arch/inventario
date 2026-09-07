@@ -533,6 +533,7 @@ let state = {
   equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
   ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
   cicloEditandoId: null,  // id del ciclo cuya fecha de inicio se está editando en Períodos, o null
+  informesCiclo: { cargado:false, cargando:false, lista:[] }, // informes de cierre (ver marcar_ciclo_actual/informes_ciclo): un snapshot automático por cada ciclo ya cerrado
   opcionesCategorias: [], // valores de categoría ya usados por la empresa (sugerencia en "Cargar SKU")
   opcionesBatches: [], // valores de batch/lote ya usados por la empresa (idem)
   opcionesUnidades: [],   // valores de unidad de medida ya usados por la empresa (idem)
@@ -1299,7 +1300,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1734,6 +1735,23 @@ async function cargarCiclos(){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Informes de cierre (ver marcar_ciclo_actual/informes_ciclo): un snapshot automático por
+// cada ciclo ya cerrado -- se carga aparte de cargarCiclos (perezoso, al entrar a la pestaña)
+// porque es un historial que crece con el tiempo y la mayoría de las visitas a Períodos no
+// lo necesitan.
+async function cargarInformesCiclo(){
+  state.informesCiclo = {...state.informesCiclo, cargando:true};
+  render();
+  try{
+    const rows = await rest('/informes_ciclo?select=id,ciclo_nombre,fecha_inicio,fecha_cierre,datos&order=fecha_cierre.desc');
+    state.informesCiclo = {cargado:true, cargando:false, lista: rows||[]};
+  }catch(e){
+    state.informesCiclo = {...state.informesCiclo, cargando:false};
+    toast(e.message,'err');
+  }
+  render();
+}
+
 // Calendario mensual: planificado/contado/recontado/pendiente por día vía el RPC
 // resumen_calendario_mes (RLS + el rol dentro de la función deciden el alcance -- admin/
 // súper-admin ven toda la empresa, un operador solo lo suyo -- no hay nada que filtrar acá).
@@ -1781,6 +1799,10 @@ async function marcarCicloActual(id){
     await rest('/rpc/marcar_ciclo_actual', {method:'POST', body:{ciclo_id:id}});
     toast('Ciclo actual actualizado');
     cargarCiclos();
+    // El ciclo que se acaba de dejar de ser actual queda con su informe de cierre recién
+    // generado (ver marcar_ciclo_actual/informes_ciclo) -- si la lista ya estaba cargada en
+    // pantalla, se refresca para mostrarlo sin que la persona tenga que salir y volver a entrar.
+    if(state.informesCiclo.cargado) cargarInformesCiclo();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -6864,6 +6886,112 @@ function imprimirInformeCiclo(){
   window.print();
 }
 
+// Informe de CIERRE (distinto del de arriba): un snapshot automático generado por el servidor
+// al momento exacto en que el ciclo dejó de ser el actual (ver marcar_ciclo_actual/
+// informes_ciclo), no una consulta en vivo -- por eso es más simple que renderInformeEjecutivo
+// (sin ABC, adherencia al plan ni proyección de término: esas viven del estado en curso del
+// ciclo actual, no tienen sentido "congeladas" para uno ya cerrado). Incluye a propósito los
+// reconteos pendientes que quedaron sin resolver al cerrar (pedido de Joel).
+function renderCuerpoInformeGuardado(datos){
+  const avance = datos.avance_total||[];
+  const totUniverso = avance.reduce((s,r)=>s+(Number(r.skus_universo)||0),0);
+  const totContados = avance.reduce((s,r)=>s+(Number(r.skus_contados)||0),0);
+  const avanceGlobal = totUniverso? (totContados/totUniverso*100) : 0;
+
+  const exact = datos.exactitud_por_bodega||[];
+  const exactContados = exact.reduce((s,r)=>s+(Number(r.skus_contados)||0),0);
+  const exactSinDif = exact.reduce((s,r)=>s+(Number(r.sin_diferencia)||0),0);
+  const exactUbicOk = exact.reduce((s,r)=>s+(Number(r.ubicacion_correcta)||0),0);
+  const exactitudUnidades = exactContados? (exactSinDif/exactContados*100) : 0;
+  const exactitudUbicacion = exactContados? (exactUbicOk/exactContados*100) : 0;
+
+  const dif = datos.diferencias_recientes || {sin_diferencia:0, con_diferencia:0};
+
+  const valoriz = datos.valorizacion_diferencias||[];
+  const valorContado = valoriz.reduce((s,r)=>s+(Number(r.valor_contado)||0),0);
+  const valorPerdidas = valoriz.reduce((s,r)=>s+(Number(r.valor_perdidas)||0),0);
+  const valorExcedentes = valoriz.reduce((s,r)=>s+(Number(r.valor_excedentes)||0),0);
+  const valorNeto = valorPerdidas + valorExcedentes;
+
+  const ranking = datos.ranking_responsable||[];
+  const reconteos = datos.reconteos_sin_resolver||[];
+
+  return `
+    <div class="kpi-grid">
+      <div class="tag-card">
+        <div class="kpi-label">Avance final</div>
+        <div class="kpi-value">${pct(avanceGlobal)}%</div>
+        <div class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</div>
+      </div>
+      <div class="tag-card">
+        <div class="kpi-label">Diferencias (último conteo de cada SKU)</div>
+        <div class="kpi-value">${Number(dif.con_diferencia)||0}</div>
+        <div class="kpi-sub">con diferencia, de ${(Number(dif.sin_diferencia)||0)+(Number(dif.con_diferencia)||0)} contados</div>
+      </div>
+    </div>
+
+    <div class="section-head"><div><span class="eyebrow">Sobre el último conteo de cada SKU</span><h2 style="font-size:17px">Exactitud</h2></div></div>
+    <div class="kpi-grid" style="margin-bottom:14px">
+      <div class="tag-card">
+        <div class="kpi-label">De unidades</div>
+        <div class="kpi-value">${pct(exactitudUnidades)}%</div>
+        <div class="kpi-sub">${exactSinDif.toLocaleString('es-CL')} de ${exactContados.toLocaleString('es-CL')} SKU sin diferencia</div>
+      </div>
+      <div class="tag-card">
+        <div class="kpi-label">De ubicación</div>
+        <div class="kpi-value">${pct(exactitudUbicacion)}%</div>
+        <div class="kpi-sub">${exactUbicOk.toLocaleString('es-CL')} de ${exactContados.toLocaleString('es-CL')} contados donde dice el maestro</div>
+      </div>
+    </div>
+
+    ${valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0? `
+      <div class="section-head"><div><span class="eyebrow">Con costo unitario cargado</span><h2 style="font-size:17px">Valorización de diferencias</h2></div></div>
+      <div class="kpi-grid" style="margin-bottom:14px">
+        <div class="tag-card"><div class="kpi-label">Valor contado</div><div class="kpi-value" style="font-size:20px">${clp(valorContado)}</div></div>
+        <div class="tag-card"><div class="kpi-label">Pérdidas</div><div class="kpi-value" style="font-size:20px;color:var(--danger)">${clp(valorPerdidas)}</div></div>
+        <div class="tag-card"><div class="kpi-label">Excedentes</div><div class="kpi-value" style="font-size:20px;color:var(--ok)">${clp(valorExcedentes)}</div></div>
+        <div class="tag-card"><div class="kpi-label">Neto</div><div class="kpi-value" style="font-size:20px;${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${clp(valorNeto)}</div></div>
+      </div>
+    ` : ''}
+
+    <div class="section-head"><div><span class="eyebrow">Top 8</span><h2 style="font-size:17px">Ranking por responsable</h2></div></div>
+    <div class="card" style="margin-bottom:14px">
+      ${ranking.length? ranking.map(r=>`
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span>${esc(r.nombre)}</span><span class="mono">${r.cantidad}</span></div>
+      `).join('') : `<div class="empty" style="padding:10px 0">Sin conteos registrados en este ciclo.</div>`}
+    </div>
+
+    <div class="section-head"><div><span class="eyebrow">${reconteos.length}</span><h2 style="font-size:17px">Reconteos sin resolver al cierre</h2></div></div>
+    <div class="card">
+      ${reconteos.length? `<div class="table-wrap"><table>
+        <thead><tr><th>SKU</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th></tr></thead>
+        <tbody>${reconteos.map(r=>`<tr>
+          <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint)">${esc(r.descripcion||'')}</div></td>
+          <td class="num">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</td>
+          <td>${causaProbableBadge(r.causa_probable)}</td>
+          <td class="mono" style="font-size:11.5px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty"><div class="glyph">✓</div>Ninguno: todo lo contado en este ciclo quedó sin diferencias pendientes.</div>`}
+    </div>
+  `;
+}
+
+function imprimirInformeGuardado(id){
+  if(!planIncluye('dashboard_ejecutivo_habilitado')) return;
+  const informe = state.informesCiclo.lista.find(x=>x.id===id);
+  if(!informe) return;
+  const empresaNombre = (state.perfil && state.perfil.empresas && state.perfil.empresas.nombre) || '';
+  const metaPartes = [empresaNombre, informe.ciclo_nombre, `Inicio ${fmtFecha(informe.fecha_inicio)}`, `Cierre ${fmtFechaHora(informe.fecha_cierre)}`].filter(Boolean);
+  document.getElementById('print-plan').innerHTML = '';
+  document.getElementById('print-buscar').innerHTML = '';
+  document.getElementById('print-informe').innerHTML = `
+    <h1>Informe de cierre de ciclo</h1>
+    <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
+    ${renderCuerpoInformeGuardado(informe.datos)}
+  `;
+  window.print();
+}
+
 /* =======================================================================
    RENDER — Planificación semanal (por bodega, ubicación específica y storage bin)
    ======================================================================= */
@@ -7351,6 +7479,21 @@ function renderCiclos(){
         </div>
       `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay ciclos creados. Mientras no crees uno, los conteos se guardan sin período asignado.</div>`}
     </div>
+    ${planIncluye('dashboard_ejecutivo_habilitado')? `
+    <div class="section-head" style="margin-top:20px"><div><span class="eyebrow">Automático al cerrar cada ciclo</span><h2>Informes de cierre</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Cada vez que marcas un ciclo distinto como actual, el que estaba activo se cierra y su informe queda guardado acá para siempre -- con la exactitud, el avance y los reconteos que quedaron sin resolver en ese momento.</div>
+      ${state.informesCiclo.cargando? `<div class="hint" style="text-align:center;padding:14px 0">Cargando…</div>` : state.informesCiclo.lista.length? state.informesCiclo.lista.map(inf=>`
+        <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="flex:1">
+            <div class="plan-item-ubic" style="font-weight:500">${esc(inf.ciclo_nombre)}</div>
+            <div class="hint" style="margin-top:2px">${esc(fmtFecha(inf.fecha_inicio))} → ${esc(fmtFechaHora(inf.fecha_cierre))}</div>
+          </div>
+          <button type="button" class="btn btn-secondary" data-ver-informe-ciclo="${esc(inf.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver informe</button>
+        </div>
+      `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no se ha cerrado ningún ciclo.</div>`}
+    </div>
+    ` : ''}
   `;
 }
 
@@ -8170,6 +8313,10 @@ function bind(){
   }
 
   if(state.view==='ciclos'){
+    if(!state.informesCiclo.cargado && !state.informesCiclo.cargando && planIncluye('dashboard_ejecutivo_habilitado')) cargarInformesCiclo();
+    document.querySelectorAll('[data-ver-informe-ciclo]').forEach(btn=>{
+      btn.addEventListener('click', ()=> imprimirInformeGuardado(btn.dataset.verInformeCiclo));
+    });
     const formCrearCiclo = document.getElementById('form-crear-ciclo');
     if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
       e.preventDefault();

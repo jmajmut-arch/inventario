@@ -50,6 +50,7 @@ let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
 let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
+let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesCiclo); null = sin mockear (usa default vacío)
 // Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
 // hace Postgres ante ON CONFLICT DO NOTHING) y la búsqueda de respaldo por idempotency_key
 // devuelve el id ya guardado, en vez del habitual {id:'conteo-nuevo-1'}.
@@ -79,6 +80,9 @@ const fakeFetchImpl = async (url, opts) => {
     // "Ya contado este período" en Contar (ver cargarVecesContadoPeriodo): función escalar
     // (RETURNS integer), valor crudo sin envolver, igual que ciclo_actual.
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conteosEnPeriodoRespuesta) };
+  }
+  if(path.startsWith('/rest/v1/informes_ciclo')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(informesCicloFixture||[]) };
   }
   if(path.startsWith('/rest/v1/rpc/descartar_reconteo')){
     if(descartarReconteoError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:descartarReconteoError}) };
@@ -2339,6 +2343,93 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.imprimirInformeCiclo();
   assert(printCalled===0, 'plan básico: imprimirInformeCiclo no debe llamar a window.print()');
   assert(printInformeEl.innerHTML==='', 'plan básico: imprimirInformeCiclo no debe escribir contenido en #print-informe');
+
+  // ===== Informes de cierre (ver marcar_ciclo_actual/informes_ciclo): snapshot automático que
+  // el servidor genera al momento exacto en que un ciclo deja de ser el actual -- distinto del
+  // informe ejecutivo manual de arriba (ese es en vivo, este es un registro histórico congelado,
+  // e incluye los reconteos que quedaron sin resolver al cerrar, a pedido de Joel). =====
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
+
+  // cargarInformesCiclo: trae la lista y la marca como cargada.
+  informesCicloFixture = [
+    {id:'inf-1', ciclo_nombre:'T1 2027', fecha_inicio:'2027-01-01', fecha_cierre:'2027-04-01T12:00:00Z', datos:{
+      avance_total:[{bodega:'Nave Mina', skus_universo:100, skus_contados:100, porcentaje_avance:100}],
+      exactitud_por_bodega:[{bodega:'Nave Mina', skus_contados:100, con_diferencia:10, sin_diferencia:90, ubicacion_correcta:95}],
+      diferencias_recientes:{sin_diferencia:90, con_diferencia:10},
+      ranking_responsable:[{nombre:'Ana Torres', cantidad:60}, {nombre:'Diego Muñoz', cantidad:40}],
+      valorizacion_diferencias:[{bodega:'Nave Mina', valor_contado:5000000, valor_perdidas:-200000, valor_excedentes:50000}],
+      reconteos_sin_resolver:[{sku_code:'SKU-PEND', descripcion:'Pendiente al cerrar', ultima_diferencia:-3, causa_probable:'Diferencia recurrente', ultimo_conteo_fecha:'2027-03-30T10:00:00Z'}],
+    }},
+  ];
+  await ctx.cargarInformesCiclo();
+  assert(ctx.__appstate.informesCiclo.cargado===true && ctx.__appstate.informesCiclo.lista.length===1, 'cargarInformesCiclo debe traer la lista y marcarla como cargada, obtuvo: '+JSON.stringify(ctx.__appstate.informesCiclo));
+
+  // renderCiclos: plan profesional -> muestra la sección con el ciclo, fechas y botón "Ver informe".
+  ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T2 2027', es_actual:true, fecha_inicio:'2027-04-01'}];
+  const htmlCiclosConInformes = ctx.renderCiclos();
+  assert(htmlCiclosConInformes.includes('Informes de cierre'), 'plan profesional debe mostrar la sección de informes de cierre, obtuvo: '+htmlCiclosConInformes);
+  assert(htmlCiclosConInformes.includes('data-ver-informe-ciclo="inf-1"') && htmlCiclosConInformes.includes('T1 2027'), 'debe listar el informe con su botón "Ver informe", obtuvo: '+htmlCiclosConInformes);
+
+  // Sin ningún ciclo cerrado todavía: estado vacío explícito, no la sección ausente.
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[]};
+  const htmlCiclosSinInformes = ctx.renderCiclos();
+  assert(htmlCiclosSinInformes.includes('Informes de cierre') && htmlCiclosSinInformes.includes('Todavía no se ha cerrado ningún ciclo'), 'sin informes, debe mostrar el estado vacío explícito, obtuvo: '+htmlCiclosSinInformes);
+
+  // Plan básico: la sección completa no debe mostrarse (mismo gate que el informe ejecutivo manual).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', dashboard_ejecutivo_habilitado:false}} };
+  const htmlCiclosBasico = ctx.renderCiclos();
+  assert(!htmlCiclosBasico.includes('Informes de cierre'), 'plan básico no debe mostrar la sección de informes de cierre, obtuvo: '+htmlCiclosBasico);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
+
+  // imprimirInformeGuardado: vuelca el snapshot congelado (no una consulta en vivo) en
+  // #print-informe, con título propio distinto del informe ejecutivo manual, e incluye los
+  // reconteos sin resolver al momento del cierre.
+  printInformeEl.innerHTML = '';
+  printCalled = 0;
+  ctx.imprimirInformeGuardado('inf-1');
+  assert(printCalled===1, 'imprimirInformeGuardado debe llamar a window.print()');
+  assert(printInformeEl.innerHTML.includes('Informe de cierre de ciclo'), 'debe tener un título propio distinto del informe ejecutivo manual, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('T1 2027') && printInformeEl.innerHTML.includes('Minera Andes'), 'el encabezado debe indicar la empresa y el ciclo cerrado, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('100.0%') && printInformeEl.innerHTML.includes('Nave Mina')===false, 'el avance final debe salir del snapshot (100%), no de una nueva consulta, obtuvo: '+printInformeEl.innerHTML);
+  assert(printInformeEl.innerHTML.includes('SKU-PEND') && printInformeEl.innerHTML.includes('Diferencia recurrente'), 'debe listar los reconteos que quedaron sin resolver al cerrar, obtuvo: '+printInformeEl.innerHTML);
+
+  // Sin reconteos pendientes al cerrar: mensaje explícito, no una tabla vacía.
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[{...informesCicloFixture[0], datos:{...informesCicloFixture[0].datos, reconteos_sin_resolver:[]}}]};
+  printInformeEl.innerHTML = '';
+  ctx.imprimirInformeGuardado('inf-1');
+  assert(printInformeEl.innerHTML.includes('Ninguno'), 'sin reconteos pendientes al cerrar, debe decirlo explícitamente, obtuvo: '+printInformeEl.innerHTML);
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
+
+  // Plan básico: imprimirInformeGuardado tampoco debe hacer nada (mismo gate).
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', dashboard_ejecutivo_habilitado:false}} };
+  printInformeEl.innerHTML = '';
+  printCalled = 0;
+  ctx.imprimirInformeGuardado('inf-1');
+  assert(printCalled===0 && printInformeEl.innerHTML==='', 'plan básico: imprimirInformeGuardado no debe imprimir nada, obtuvo: '+printInformeEl.innerHTML);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
+
+  // marcarCicloActual: si la lista de informes ya estaba cargada en pantalla, se refresca sola
+  // para mostrar el que se acaba de generar; si nadie la había abierto, no gasta una consulta de más.
+  calls.length = 0;
+  ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[]};
+  await ctx.marcarCicloActual('ciclo-1');
+  await new Promise(r=>setTimeout(r, 0)); // deja resolver el cargarCiclos() interno (no awaited) antes de mirar `calls`
+  assert(calls.filter(c=>c.url.includes('/informes_ciclo')).length===1, 'con la lista ya cargada, marcarCicloActual debe recargar informes_ciclo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Fuera de la vista "ciclos" para aislar la llamada explícita de marcarCicloActual del
+  // autocargado perezoso de bind() (que también dispara cargarInformesCiclo() al renderizar esa
+  // vista si todavía no está cargada, sin relación con lo que se prueba acá) -- el flush de abajo
+  // debe completarse ANTES de volver a la vista "ciclos", para que ningún cargarCiclos() interno
+  // pendiente dispare ese autocargado por accidente mientras la vista sigue siendo otra.
+  calls.length = 0;
+  ctx.__appstate.view = 'dashboard';
+  ctx.__appstate.informesCiclo = {cargado:false, cargando:false, lista:[]};
+  await ctx.marcarCicloActual('ciclo-1');
+  await new Promise(r=>setTimeout(r, 0));
+  assert(!calls.some(c=>c.url.includes('/informes_ciclo')), 'sin la lista cargada todavía, marcarCicloActual no debe pedirla de más, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.view = 'ciclos';
+  informesCicloFixture = null;
 
   // ===== Flow.cl: sección "Plan y facturación" en Configuraciones =====
 
