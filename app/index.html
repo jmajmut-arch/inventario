@@ -662,6 +662,12 @@ const UMBRAL_GUARDADO_LENTO_MS = 4000;
 // dejar a la persona esperando indefinidamente. Bastante más alto que UMBRAL_GUARDADO_LENTO_MS
 // (ese solo cambia el aviso en pantalla; este de acá corta la espera de verdad).
 const UMBRAL_ABORTAR_GUARDADO_MS = 15000;
+// Períodos de conteo: si alguien pre-crea un período futuro, activar_periodos_programados()
+// (cron diario) lo activa solo en cuanto llega su fecha de inicio -- lo que de paso cierra el
+// actual y genera su informe. Este umbral es solo para el aviso previo en renderCiclos: cuántos
+// días antes de que eso pase se empieza a mostrar el hint (a pedido de Joel: "avisando antes",
+// no una confirmación bloqueante -- el cambio ocurre igual, esto es solo para que no sea sorpresa).
+const DIAS_AVISO_CAMBIO_PERIODO = 14;
 // confirmarVistaPreviaComoPlan (plan automático de Grupos) excluye del universo de una entrada
 // todo SKU que no sea del grupo -- si esa entrada no queda acotada a un storage bin puntual (ver
 // más abajo), el universo es la bodega+ubicación ENTERA, que en una bodega grande puede tener
@@ -7463,11 +7469,32 @@ function hintCupoOperadores(empresa){
 // "Períodos" (ciclos de conteo) ahora es su propia pestaña admin (VISTAS_SOLO_ADMIN), separada
 // de Configuraciones a pedido de Joel — el SKU que ocupaba ese lugar en la barra inferior pasó
 // a un ícono arriba (junto a Buscar). Antes vivía como una tarjeta dentro de Configuraciones.
+// Aviso previo de un cambio de período ya programado (ver activar_periodos_programados, cron
+// diario): si alguien pre-creó un período futuro, el cron lo activa solo apenas llega su fecha
+// de inicio -- lo que de paso cierra el actual y genera su informe. Esto NO bloquea ni pide
+// confirmación (a pedido de Joel: "avisando antes", el cambio ocurre igual) -- solo avisa con
+// unos días de anticipación para que no sea sorpresa.
+function proximoCambioProgramadoPeriodo(){
+  const actual = state.ciclos.find(c=>c.es_actual);
+  const hoy = fechaISO(new Date());
+  const siguiente = state.ciclos
+    .filter(c=>!c.es_actual && c.fecha_inicio && c.fecha_inicio > hoy)
+    .sort((a,b)=> a.fecha_inicio.localeCompare(b.fecha_inicio))[0];
+  if(!siguiente) return null;
+  const dias = Math.round((new Date(siguiente.fecha_inicio+'T00:00:00') - new Date(hoy+'T00:00:00')) / 86400000);
+  if(dias > DIAS_AVISO_CAMBIO_PERIODO) return null;
+  return {actual, siguiente, dias};
+}
+
 function renderCiclos(){
+  const cambioProgramado = proximoCambioProgramadoPeriodo();
   return `
     <div class="section-head"><div><span class="eyebrow">Empresa</span><h2>Períodos de conteo</h2></div></div>
     <div class="card">
       <div class="hint" style="margin-bottom:10px">Ciclos de conteo (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</div>
+      ${cambioProgramado? `<div class="hint" style="margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg-warn,rgba(217,119,6,.08))">
+        📅 ${cambioProgramado.actual? `El período actual (<strong>${esc(cambioProgramado.actual.nombre)}</strong>) pasará automáticamente a` : 'Se activará automáticamente'} <strong>${esc(cambioProgramado.siguiente.nombre)}</strong> el ${esc(fmtFecha(cambioProgramado.siguiente.fecha_inicio))} (${cambioProgramado.dias===0?'hoy':cambioProgramado.dias===1?'mañana':`en ${cambioProgramado.dias} días`}) -- no hace falta que hagas nada, es automático.
+      </div>` : ''}
       <form id="form-crear-ciclo">
         <label for="ciclo-nombre">Nombre del período</label>
         <input type="text" id="ciclo-nombre" placeholder="Ej. T1 2027" required>
