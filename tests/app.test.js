@@ -4831,6 +4831,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlPlanConFiltro = ctx.renderPlanificacion();
   assert(!htmlPlanConFiltro.includes('id="plan-semana-prev"'), 'con un período elegido, la navegación por semana debe ocultarse (no aplica), obtuvo: '+htmlPlanConFiltro);
   assert(htmlPlanConFiltro.includes('Mostrando toda la planificación de <strong>T1 2027</strong>'), 'debe indicar claramente qué período se está mostrando, obtuvo: '+htmlPlanConFiltro);
+  // Reportado por Joel: con un período elegido, el resumen puede abarcar varias semanas (hasta
+  // meses) -- el título "Resumen de la semana" quedaba engañoso mostrando fechas de noviembre
+  // bajo un encabezado que decía "semana". Con período elegido debe decir "del período" en vez
+  // de "de la semana".
+  assert(htmlPlanConFiltro.includes('Resumen del período') && !htmlPlanConFiltro.includes('Resumen de la semana'), 'con un período elegido, el resumen debe titularse "del período", no "de la semana" (puede abarcar varias semanas), obtuvo: '+htmlPlanConFiltro);
+  assert(htmlPlanSinFiltro.includes('Resumen de la semana') && !htmlPlanSinFiltro.includes('Resumen del período'), 'sin período elegido (modo semana), el resumen debe seguir titulándose "de la semana", obtuvo: '+htmlPlanSinFiltro);
   // Con un período elegido (modo período), a diferencia del modo semana, NO hay un rango de días
   // de referencia: solo debe agruparse por las fechas que ya tienen algo planificado, sin ninguna
   // tarjeta vacía de relleno (lo pedido: "que aparezcan las tarjetas a medida que se planifican,
