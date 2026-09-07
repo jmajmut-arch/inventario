@@ -4453,6 +4453,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(segA.cicloGrupo && segA.cicloGrupo.dia===31 && segA.cicloGrupo.totalDias===90, 'debe calcular el día del ciclo propio del grupo a partir de su fecha de inicio (hace 30 días -> día 31), obtuvo: '+JSON.stringify(segA.cicloGrupo));
   const htmlSeguimiento = ctx.renderGrupos();
   assert(htmlSeguimiento.includes('Contados en este ciclo') && htmlSeguimiento.includes('Pendientes de este ciclo') && htmlSeguimiento.includes('Ciclo del grupo'), 'con frecuencia definida, debe mostrar el avance del ciclo propio del grupo, obtuvo: '+htmlSeguimiento);
+  assert(!htmlSeguimiento.includes('vencido'), 'dentro del ciclo (día 31 de 90), no debe mostrarse como vencido, obtuvo: '+htmlSeguimiento);
 
   // Corregir a mano la fecha de inicio del ciclo del grupo (editarFechaInicioGrupo) -- a pedido de
   // Joel, para cuando el conteo en terreno arrancó otro día del que quedó registrado. Mismo patrón
@@ -4500,6 +4501,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSeguimientoSinFrecuencia = ctx.renderGrupos();
   assert(htmlSeguimientoSinFrecuencia.includes('1 de 2 material'), 'sin frecuencia, debe mostrar el resumen simple "X de Y contados", obtuvo: '+htmlSeguimientoSinFrecuencia);
   assert(!htmlSeguimientoSinFrecuencia.includes('Pendientes de este ciclo'), 'sin frecuencia, no debe hablar del ciclo del grupo (no hay con qué calcularlo), obtuvo: '+htmlSeguimientoSinFrecuencia);
+
+  // Ciclo del grupo ya vencido en el calendario pero el cron nocturno (cerrar_ciclos_grupo_vencidos)
+  // todavía no lo cerró -- debe mostrarse "vencido" en vez de un día que supera el total (ej. "día
+  // 71 de 60"), que no representa bien la información (reporte real de Joel sobre "5S" en Escondida).
+  const fechaInicioVencidoSeg = ctx.fechaISO(ctx.sumarDias(new Date(), -70));
+  gruposConteoFixture = [{id:'grupo-vencido', nombre:'Vencido Test', frecuencia_dias:60, activo:true, fecha_inicio: fechaInicioVencidoSeg, miembros:[{count:1}]}];
+  gruposMiembrosFixture = { 'grupo-vencido': [{id:'gv1', sku_code:'VEN-A', bodega:'SB1'}] };
+  filasVencidasGrupoFixture = [];
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-vencido');
+  const segVencido = ctx.__appstate.grupos.seguimiento;
+  assert(segVencido.cicloGrupo && segVencido.cicloGrupo.vencido===true && segVencido.cicloGrupo.dia===60, 'si el día crudo (71) supera la frecuencia (60), debe marcarse vencido y el día mostrado debe quedar acotado al total, obtuvo: '+JSON.stringify(segVencido.cicloGrupo));
+  const htmlVencido = ctx.renderGrupos();
+  assert(htmlVencido.includes('vencido') && !htmlVencido.includes('día 60 de 60'), 'estando vencido, debe mostrar el aviso de vencido en vez de "día X de Y", obtuvo: '+htmlVencido);
 
   // ===== Grupo automático "Crítico" (automatico_critico): su membresía ES skus.critico=true --
   // no se cura a mano, reusa toda la maquinaria de Grupos (seguimiento/vista previa/plan) apuntada
