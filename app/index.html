@@ -517,7 +517,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorPersona:10, ritmoPorHora:15, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false },
+  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorPersona:10, ritmoPorHora:15, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -1298,7 +1298,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1811,16 +1811,17 @@ async function cargarGrupos(){
   }
 }
 
-async function crearGrupo(nombre, frecuenciaDias, automaticoCritico){
-  if(!nombre || !perfilCargado()) return;
+async function crearGrupo(nombre, frecuenciaDias, automaticoCritico, fechaInicio){
+  if(!nombre || !fechaInicio || !perfilCargado()) return;
   try{
     await rest('/grupos_conteo', {method:'POST', body:[{
       empresa_id: state.perfil.empresa_id, nombre,
       frecuencia_dias: frecuenciaDias!=='' && frecuenciaDias!=null ? Number(frecuenciaDias) : null,
       automatico_critico: !!automaticoCritico,
+      fecha_inicio: fechaInicio,
     }], prefer:'return=minimal'});
     toast('Grupo creado');
-    setState({grupos: {...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false}});
+    setState({grupos: {...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false, fechaInicioNueva:''}});
     cargarGrupos();
   }catch(e){
     // Ya existe un grupo automático de críticos activo (índice único idx_grupos_conteo_automatico_
@@ -1835,7 +1836,7 @@ function abrirGrupo(id){
 }
 
 function volverAListaGrupos(){
-  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[]}});
+  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[], editandoFechaInicioId:null}});
 }
 
 // Seguimiento del grupo: cuántos de sus materiales están al día vs vencidos según su frecuencia
@@ -1931,6 +1932,23 @@ async function cargarSeguimientoGrupo(grupoId){
     setState({grupos: {...state.grupos, seguimientoCargando:false}});
     toast(e.message,'err');
   }
+}
+
+// Corrige a mano la fecha de inicio del ciclo PROPIO del grupo (ver cicloGrupo en
+// cargarSeguimientoGrupo) -- a pedido de Joel, para cuando el conteo en terreno arrancó otro día
+// del que quedó registrado (mismo caso ya resuelto para el período general de la empresa, ver
+// editarFechaInicioCiclo). Solo tiene sentido si el grupo tiene frecuencia (si no, no hay ciclo
+// que trackear). Recalcula el seguimiento al toque para que "día X de Y" se vea actualizado sin
+// esperar a la próxima carga.
+async function editarFechaInicioGrupo(id, fechaInicio){
+  if(!fechaInicio || !perfilCargado()) return;
+  try{
+    await rest(`/grupos_conteo?id=eq.${encodeURIComponent(id)}`, {method:'PATCH', body:{fecha_inicio: fechaInicio}, prefer:'return=minimal'});
+    toast('Fecha de inicio actualizada');
+    setState({grupos: {...state.grupos, editandoFechaInicioId:null}});
+    await cargarGrupos();
+    cargarSeguimientoGrupo(id);
+  }catch(e){ toast(e.message,'err'); }
 }
 
 // Historial de ciclos ya cerrados del grupo (ver cerrar_ciclos_grupo_vencidos, el cron diario que
@@ -7306,6 +7324,8 @@ function renderGrupos(){
           <input type="text" id="grupo-nombre" placeholder="Ej. IE" required value="${esc(g.nombreNuevo)}">
           <label for="grupo-frecuencia" style="margin-top:8px">Frecuencia de conteo (días, opcional)</label>
           <input type="number" id="grupo-frecuencia" min="1" placeholder="Ej. 90" value="${esc(g.frecuenciaNuevaDias)}">
+          <label for="grupo-fecha-inicio-nuevo" style="margin-top:8px">Fecha de inicio del ciclo</label>
+          <input type="date" id="grupo-fecha-inicio-nuevo" value="${esc(g.fechaInicioNueva || fechaISO(new Date()))}" required>
           ${g.lista.some(x=>x.automatico_critico)? '' : `
           <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-top:10px">
             <input type="checkbox" id="grupo-automatico-critico" ${g.automaticoCriticoNuevo?'checked':''}>
@@ -7365,7 +7385,18 @@ function renderDetalleGrupo(){
       ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : `
       ${g.seguimiento.cicloActual ? `<div class="hint" style="margin-bottom:10px">Período actual: <strong>${esc(g.seguimiento.cicloActual.nombre)}</strong> · día ${g.seguimiento.cicloActual.dias}</div>` : ''}
       ${g.seguimiento.totalMiembros===0 ? `<div class="empty" style="padding:10px 8px">Sin materiales todavía.</div>` : g.seguimiento.tieneFrecuencia ? `
-      <div class="hint" style="margin-bottom:8px">Ciclo del grupo: día ${g.seguimiento.cicloGrupo.dia} de ${g.seguimiento.cicloGrupo.totalDias} · termina el ${fmtFecha(g.seguimiento.cicloGrupo.fechaTermino)}</div>
+      ${g.editandoFechaInicioId===grupo.id ? `
+      <div class="hint" style="margin-bottom:8px;display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
+        <div>
+          <label for="grupo-fecha-inicio-editar" style="display:block;margin-bottom:2px">Fecha de inicio del ciclo</label>
+          <input type="date" id="grupo-fecha-inicio-editar" value="${esc(grupo.fecha_inicio||'')}" required>
+        </div>
+        <button type="button" class="btn btn-secondary" data-guardar-fecha-inicio-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Guardar</button>
+        <button type="button" class="btn btn-secondary" data-cancelar-fecha-inicio-grupo style="width:auto;padding:6px 12px;font-size:12px">Cancelar</button>
+      </div>
+      ` : `
+      <div class="hint" style="margin-bottom:8px">Ciclo del grupo: día ${g.seguimiento.cicloGrupo.dia} de ${g.seguimiento.cicloGrupo.totalDias} · termina el ${fmtFecha(g.seguimiento.cicloGrupo.fechaTermino)} <button type="button" class="link-btn" data-editar-fecha-inicio-grupo="${esc(grupo.id)}" style="margin-left:4px">Editar inicio</button></div>
+      `}
       <div style="display:flex;gap:20px;flex-wrap:wrap">
         <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.contadosCiclo}</div><div class="hint">Contados en este ciclo</div></div>
         <div><div style="font-size:22px;font-weight:700;color:var(--warn)">${g.seguimiento.pendientesCiclo}</div><div class="hint">Pendientes de este ciclo</div></div>
@@ -8124,12 +8155,12 @@ function bind(){
       const btnNuevoGrupo = document.getElementById('btn-nuevo-grupo');
       if(btnNuevoGrupo) btnNuevoGrupo.addEventListener('click', ()=> setState({grupos:{...state.grupos, creando:true}}));
       const btnCancelarGrupo = document.getElementById('btn-cancelar-grupo');
-      if(btnCancelarGrupo) btnCancelarGrupo.addEventListener('click', ()=> setState({grupos:{...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:''}}));
+      if(btnCancelarGrupo) btnCancelarGrupo.addEventListener('click', ()=> setState({grupos:{...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:''}}));
       const formCrearGrupo = document.getElementById('form-crear-grupo');
       if(formCrearGrupo) formCrearGrupo.addEventListener('submit', e=>{
         e.preventDefault();
         const chkAutomatico = document.getElementById('grupo-automatico-critico');
-        crearGrupo(document.getElementById('grupo-nombre').value.trim(), document.getElementById('grupo-frecuencia').value.trim(), chkAutomatico && chkAutomatico.checked);
+        crearGrupo(document.getElementById('grupo-nombre').value.trim(), document.getElementById('grupo-frecuencia').value.trim(), chkAutomatico && chkAutomatico.checked, document.getElementById('grupo-fecha-inicio-nuevo').value);
       });
       document.querySelectorAll('[data-ver-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> abrirGrupo(btn.dataset.verGrupo));
@@ -8161,6 +8192,18 @@ function bind(){
       });
       const btnConfirmarPlanGrupo = document.getElementById('btn-confirmar-plan-grupo');
       if(btnConfirmarPlanGrupo) btnConfirmarPlanGrupo.addEventListener('click', confirmarVistaPreviaComoPlan);
+      document.querySelectorAll('[data-editar-fecha-inicio-grupo]').forEach(btn=>{
+        btn.addEventListener('click', ()=> setState({grupos:{...state.grupos, editandoFechaInicioId: btn.dataset.editarFechaInicioGrupo}}));
+      });
+      document.querySelectorAll('[data-cancelar-fecha-inicio-grupo]').forEach(btn=>{
+        btn.addEventListener('click', ()=> setState({grupos:{...state.grupos, editandoFechaInicioId:null}}));
+      });
+      document.querySelectorAll('[data-guardar-fecha-inicio-grupo]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const inputFecha = document.getElementById('grupo-fecha-inicio-editar');
+          editarFechaInicioGrupo(btn.dataset.guardarFechaInicioGrupo, inputFecha.value);
+        });
+      });
     }
   }
 
