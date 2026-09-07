@@ -4256,6 +4256,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSeguimiento = ctx.renderGrupos();
   assert(htmlSeguimiento.includes('Contados en este ciclo') && htmlSeguimiento.includes('Pendientes de este ciclo') && htmlSeguimiento.includes('Ciclo del grupo'), 'con frecuencia definida, debe mostrar el avance del ciclo propio del grupo, obtuvo: '+htmlSeguimiento);
 
+  // Corregir a mano la fecha de inicio del ciclo del grupo (editarFechaInicioGrupo) -- a pedido de
+  // Joel, para cuando el conteo en terreno arrancó otro día del que quedó registrado. Mismo patrón
+  // ya probado para editarFechaInicioCiclo (período general de la empresa), pero acá aplica a
+  // grupos_conteo.fecha_inicio en vez de ciclos_conteo.
+  ctx.__appstate.grupos.editandoFechaInicioId = null;
+  const htmlGrupoSinEditar = ctx.renderGrupos();
+  assert(htmlGrupoSinEditar.includes('data-editar-fecha-inicio-grupo="grupo-seguimiento"'), 'debe ofrecer un botón para editar la fecha de inicio del ciclo del grupo, obtuvo: '+htmlGrupoSinEditar);
+  assert(!htmlGrupoSinEditar.includes('id="grupo-fecha-inicio-editar"'), 'sin haber elegido editar, no debe mostrarse el campo de edición, obtuvo: '+htmlGrupoSinEditar);
+
+  ctx.__appstate.grupos.editandoFechaInicioId = 'grupo-seguimiento';
+  const htmlGrupoEditando = ctx.renderGrupos();
+  assert(htmlGrupoEditando.includes('id="grupo-fecha-inicio-editar"') && htmlGrupoEditando.includes(`value="${fechaInicioGrupoSeg}"`), 'al elegir editar, debe mostrarse el campo de fecha precargado con la fecha de inicio actual del grupo, obtuvo: '+htmlGrupoEditando);
+  assert(htmlGrupoEditando.includes('data-guardar-fecha-inicio-grupo="grupo-seguimiento"') && htmlGrupoEditando.includes('data-cancelar-fecha-inicio-grupo'), 'debe ofrecer botones de Guardar y Cancelar mientras se edita, obtuvo: '+htmlGrupoEditando);
+
+  calls.length = 0;
+  await ctx.editarFechaInicioGrupo('grupo-seguimiento', '2027-03-01');
+  const patchFechaGrupo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/grupos_conteo?id=eq.grupo-seguimiento'));
+  assert(!!patchFechaGrupo && JSON.parse(patchFechaGrupo.opts.body).fecha_inicio==='2027-03-01', 'editarFechaInicioGrupo debe hacer PATCH a /grupos_conteo con la nueva fecha, obtuvo: '+JSON.stringify(patchFechaGrupo));
+  assert(calls.some(c=>c.url.includes('/grupos_conteo?select=')), 'después de guardar debe recargar la lista de grupos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.editandoFechaInicioId===null, 'al guardar, debe cerrarse el modo edición, obtuvo: '+ctx.__appstate.grupos.editandoFechaInicioId);
+
+  // Sin fecha (campo vacío), no debe hacer nada -- ni PATCH, ni cerrar el formulario.
+  ctx.__appstate.grupos.editandoFechaInicioId = 'grupo-seguimiento';
+  calls.length = 0;
+  await ctx.editarFechaInicioGrupo('grupo-seguimiento', '');
+  assert(!calls.some(c=>c.opts && c.opts.method==='PATCH'), 'sin fecha elegida, editarFechaInicioGrupo no debe hacer ningún PATCH, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.grupos.editandoFechaInicioId==='grupo-seguimiento', 'sin fecha elegida, debe mantenerse en modo edición, obtuvo: '+ctx.__appstate.grupos.editandoFechaInicioId);
+
   // Sin frecuencia definida: solo "contado alguna vez" vs "nunca contado" (sin ciclo posible,
   // porque no hay frecuencia con la que calcular una fecha de término).
   gruposConteoFixture = [{id:'grupo-seg-sf', nombre:'Sin Frecuencia Seg', frecuencia_dias:null, activo:true, miembros:[{count:2}]}];
