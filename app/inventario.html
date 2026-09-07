@@ -3117,6 +3117,20 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     }
     if(silencioso) return;
     toast(bins.length>1 ? `Agregado a la planificación (${bins.length} storage bin)` : 'Agregado a la planificación');
+    // Si se agregó para un día distinto del que se está viendo, mover la vista a ese día -- bug
+    // real reportado por Joel: viendo el día 7 (desde Calendario), agregó dos storage bin para el
+    // 8 y "la página no se actualizó": las entradas se crearon bien, pero la recarga volvía a
+    // pedir solo el día 7 y las del 8 quedaban fuera de vista. Se mueve al día recién planificado
+    // (no a la semana/período completo: con el período preseleccionado eso cargaría todo el
+    // período, ~10 s). En modo semana, si la fecha cae fuera de la semana mostrada (el campo
+    // permite hasta hoy+7), se navega a esa semana por el mismo motivo.
+    const semanaDeFecha = fechaISO(inicioSemana(new Date(fecha+'T00:00:00')));
+    if(state.plan.diaFiltro && state.plan.diaFiltro !== fecha){
+      setState({plan:{...state.plan, diaFiltro: fecha, semanaInicio: semanaDeFecha}});
+    }else if(!state.plan.diaFiltro && !state.plan.cicloFiltro){
+      const finSemanaVista = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), 7));
+      if(fecha < state.plan.semanaInicio || fecha > finSemanaVista) setState({plan:{...state.plan, semanaInicio: semanaDeFecha}});
+    }
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
     invalidarCalendario();

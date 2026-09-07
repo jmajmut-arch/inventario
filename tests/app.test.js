@@ -1423,6 +1423,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // pruebas siguientes; si no, podrían sobrescribir `entradas` más tarde en medio de otro `await`.
   await new Promise(resolve => setTimeout(resolve, 20));
 
+  // Bug real reportado por Joel: viendo un día puntual desde el Calendario (el 7), agregó dos
+  // storage bin para OTRO día (el 8) y "la página no se actualizó": las entradas se crearon bien
+  // pero la recarga volvía a pedir solo el día 7. Al agregar para otro día, la vista debe moverse
+  // al día recién planificado (y recargar ese día), no quedarse en el anterior.
+  ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10', diaFiltro:'2026-08-10', cicloFiltro:'ciclo-1'};
+  calls.length = 0;
+  await ctx.crearPlanEntrada({fecha:'2026-08-11', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-02'], skusExcluidos:[], responsableId:'', nota:'', soloSinUbicacion:false, cicloId:''});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert(ctx.__appstate.plan.diaFiltro==='2026-08-11', 'al agregar para otro día distinto del que se ve, la vista debe pasar a ese día, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+  const recargaDiaNuevo = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!recargaDiaNuevo && recargaDiaNuevo.url.includes('fecha=eq.2026-08-11'), 'la recarga posterior debe pedir el día recién planificado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si se agrega para el mismo día que se está viendo, la vista se queda donde está.
+  ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10', diaFiltro:'2026-08-10', cicloFiltro:'ciclo-1'};
+  await ctx.crearPlanEntrada({fecha:'2026-08-10', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], skusExcluidos:[], responsableId:'', nota:'', soloSinUbicacion:false, cicloId:''});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert(ctx.__appstate.plan.diaFiltro==='2026-08-10', 'al agregar para el mismo día que se ve, la vista no debe moverse, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+
+  // Modo semana (sin período ni día puntual): el campo Fecha permite hasta hoy+7, que puede caer
+  // fuera de la semana mostrada -- en ese caso hay que navegar a la semana de la fecha nueva.
+  ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10', diaFiltro:null, cicloFiltro:''};
+  calls.length = 0;
+  await ctx.crearPlanEntrada({fecha:'2026-08-25', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-02'], skusExcluidos:[], responsableId:'', nota:'', soloSinUbicacion:false, cicloId:''});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert(ctx.__appstate.plan.semanaInicio==='2026-08-24' && ctx.__appstate.plan.diaFiltro===null, 'en modo semana, agregar fuera de la semana mostrada debe navegar a la semana de esa fecha, obtuvo: '+JSON.stringify({semanaInicio:ctx.__appstate.plan.semanaInicio, diaFiltro:ctx.__appstate.plan.diaFiltro}));
+  const recargaSemanaNueva = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+  assert(!!recargaSemanaNueva && recargaSemanaNueva.url.includes('fecha=gte.2026-08-24'), 'la recarga debe pedir la semana de la fecha nueva, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
   // El botón "Exportar PDF" debe estar deshabilitado cuando no hay conteos planificados.
   ctx.__appstate.plan = {semanaInicio:'2026-08-10', entradas:[], universos:{}, generales: ctx.__appstate.plan.generales, responsables: responsablesAsignables, editando:null, detalle:{}, seleccionados:[]};
   const htmlSinEntradas = ctx.renderPlanificacion();
