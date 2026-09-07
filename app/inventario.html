@@ -7832,6 +7832,11 @@ function renderCalendario(){
   return `
     <div class="section-head"><div><span class="eyebrow">Empresa</span><h2>Calendario</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Cuánto se planificó, contó y recontó cada día. ${esAdmin? 'Ves toda la empresa.' : 'Ves solo lo tuyo (tu plan y tus conteos).'}</div>
+    <div class="hint" style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap">
+      <span><strong style="color:var(--text-faint)">P</strong> Planificado</span>
+      <span><strong style="color:var(--ok)">C</strong> Contado</span>
+      <span><strong style="color:var(--steel)">R</strong> Recontado</span>
+    </div>
     <div class="card">
       <div class="cal-nav">
         <button type="button" id="cal-mes-prev" class="btn btn-secondary cal-nav-btn" aria-label="Mes anterior">‹</button>
