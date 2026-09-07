@@ -1586,6 +1586,37 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!skusCallLoteIds && skusCallLoteIds.includes('e2'), 'cargarPlanSemanal debe consultar skus_universo_entrada_plan_lote también para e2, en el mismo viaje, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(calls.filter(c=>c.url.includes('/rpc/skus_universo_entrada_plan_lote')).length===1, 'cargarPlanSemanal debe hacer UN solo viaje para todas las entradas, no uno por entrada (bug real: cientos de llamadas paralelas saturaban el pool de conexiones), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+  // Race condition real reportado por Joel: cargarPlanSemanal() se llama desde muchos lugares
+  // (terminar de generar un plan automático grande, "Ver en Planificación" desde Calendario,
+  // etc.) y puede quedar más de una llamada en vuelo a la vez. Si la más VIEJA (ej. la de un plan
+  // automático de cientos de entradas, lenta) responde DESPUÉS que una más nueva (ej. la persona ya
+  // navegó a otra semana), pisaba el estado recién cargado con datos de la semana equivocada --
+  // vio un total inflado en el gráfico que se autocorregía solo al volver a entrar. El resguardo
+  // (cargarPlanSemanalSecuencia) debe descartar en silencio la respuesta de la llamada vieja.
+  {
+    let resolverLlamadaVieja;
+    const fetchOriginalCarrera = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(u.pathname==='/rest/v1/plan_semanal_detalle' && u.search.includes('fecha=gte.2026-01-05')){
+        // Llamada VIEJA: se cuelga a propósito hasta que el test decida dejarla continuar.
+        await new Promise(resolve => { resolverLlamadaVieja = resolve; });
+      }
+      return fetchOriginalCarrera(url, opts);
+    };
+    ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-01-05', cicloFiltro:'', entradas:[], universos:{}, detalle:{}};
+    const promesaVieja = ctx.cargarPlanSemanal(); // arranca y queda colgada esperando resolverLlamadaVieja
+    await new Promise(resolve => setTimeout(resolve, 5)); // deja que la vieja alcance a pedir plan_semanal_detalle
+    ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10'};
+    await ctx.cargarPlanSemanal(); // la NUEVA, con datos reales (e1/e2) -- esta debe ganar
+    assert(ctx.__appstate.plan.entradas.some(e=>e.id==='e1'), 'la llamada nueva debe dejar sus propias entradas cargadas antes de que la vieja responda, obtuvo: '+JSON.stringify(ctx.__appstate.plan.entradas));
+    resolverLlamadaVieja(); // deja que la vieja termine de responder, tarde
+    await promesaVieja;
+    await new Promise(resolve => setTimeout(resolve, 20)); // deja que su propio tramo de universo/detalle también intente resolver
+    ctx.fetch = fetchOriginalCarrera;
+    assert(ctx.__appstate.plan.entradas.some(e=>e.id==='e1') && ctx.__appstate.plan.semanaInicio==='2026-08-10', 'aunque la llamada vieja responda después, no debe pisar el estado de la llamada nueva, obtuvo: '+JSON.stringify(ctx.__appstate.plan));
+  }
+
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.
   calls.length = 0;
   ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};

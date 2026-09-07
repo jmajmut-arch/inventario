@@ -1738,7 +1738,20 @@ async function skusUniversoEntradaPlanLote(planIds){
   return filas;
 }
 
+// Token de carrera para cargarPlanSemanal: se llama desde muchos lugares (agregar/editar/borrar
+// una entrada, cambiar de semana o período, "Ver en Planificación" desde Calendario, etc.) y
+// puede quedar más de una llamada en vuelo a la vez -- ej. la que dispara el plan automático de
+// un grupo grande al terminar de crear cientos de entradas, todavía resolviendo su propio tramo
+// lento (skusUniversoEntradaPlanLote), mientras la persona ya navegó a otra semana/día y disparó
+// una segunda llamada. Sin este resguardo, si la llamada VIEJA responde después que la nueva,
+// pisa el estado fresco con datos de otra semana/período -- bug real reportado por Joel: entró a
+// Planificación filtrado a un día puntual y vio un total inflado (164 en vez de 100) que se
+// autocorregía solo al reintentar. Cada llamada se identifica con un número creciente; si al
+// volver de un await ya hay una llamada MÁS NUEVA en curso, esta se cancela en silencio (su
+// resultado ya no es el que corresponde mostrar).
+let cargarPlanSemanalSecuencia = 0;
 async function cargarPlanSemanal(){
+  const miSecuencia = ++cargarPlanSemanalSecuencia;
   const inicio = state.plan.semanaInicio || fechaISO(inicioSemana(new Date()));
   // La "semana" mostrada va de lunes al lunes siguiente inclusive (8 días, no 7): a pedido, para
   // no cortar la vista justo el domingo y poder ver de una el arranque de la semana próxima.
@@ -1750,6 +1763,7 @@ async function cargarPlanSemanal(){
     const rows = await rest(cicloFiltro
       ? `/plan_semanal_detalle?ciclo_id=eq.${cicloFiltro}&order=fecha.asc`
       : `/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
+    if(miSecuencia !== cargarPlanSemanalSecuencia) return; // ver comentario arriba: ya hay una llamada más nueva
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[], seleccionados:[]}});
     // Este recálculo de fondo (universo Y detalle de TODAS las entradas visibles) dispara un
     // render() completo, sin relación con el formulario "Agregar a la planificación" que la
@@ -1766,6 +1780,7 @@ async function cargarPlanSemanal(){
     // solo al volver a cargar la pestaña).
     try{
       const filas = await skusUniversoEntradaPlanLote((rows||[]).map(r=>r.id));
+      if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
       const porPlan = new Map();
       filas.forEach(f=>{
         if(!porPlan.has(f.plan_id)) porPlan.set(f.plan_id, []);
@@ -1780,7 +1795,7 @@ async function cargarPlanSemanal(){
       });
       setState({plan: {...state.plan, universos, detalle}});
     }catch(e){ /* recálculo de fondo no crítico, ver comentario arriba */ }
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){ if(miSecuencia === cargarPlanSemanalSecuencia) toast(e.message,'err'); }
 }
 
 // El Calendario carga resumen_calendario_mes una sola vez por mes (ver el resguardo contra
