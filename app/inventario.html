@@ -82,18 +82,26 @@ input,select,textarea{font-family:inherit;}
 
 /* ---------- top bar ---------- */
 .topbar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px 0;}
-.topbar-row{display:flex;align-items:center;justify-content:space-between;padding-bottom:10px;}
+.topbar-row{display:flex;flex-wrap:wrap;row-gap:8px;align-items:center;padding-bottom:10px;}
 .brand{display:flex;align-items:center;gap:10px;}
 .brand-badge{width:34px;height:34px;border-radius:8px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:13px;letter-spacing:-0.03em;color:#1a1204;flex-shrink:0;}
 .brand-text h1{font-size:18px;margin:0;line-height:1.1;}
 .brand-text span{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.08em;}
-.user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);}
+/* margin-left:auto en vez de justify-content:space-between en .topbar-row: así, cuando los
+   íconos no caben junto al título en la misma línea, este chip baja a su propia línea (ver
+   flex-wrap arriba) y igual queda pegado a la derecha, en vez de irse al extremo izquierdo. */
+.user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-left:auto;}
 .user-chip button{background:none;border:1px solid var(--line);color:var(--text-dim);border-radius:6px;padding:5px 9px;font-size:11px;}
 .user-chip button:active{background:var(--surface-2);}
-/* Con el nombre + rol de la cuenta y 5-6 íconos, el chip ya no cabía en una fila en un celular
+/* Con el nombre + rol de la cuenta y 6-7 íconos, el chip ya no cabía en una fila en un celular
    angosto (~390px) y el texto se partía en varias líneas empujando los íconos -- se veía roto
    incluso antes de agregar el ícono de Calendario. El nombre completo ya se puede ver en
-   Configuraciones, así que en pantallas angostas se oculta acá y solo quedan los íconos. */
+   Configuraciones, así que en pantallas angostas se oculta acá y solo quedan los íconos. Si aun
+   así los íconos no caben junto al título (ver flex-wrap en .topbar-row), el chip entero baja a
+   su propia línea en vez de desbordar la pantalla y esconder los últimos íconos sin aviso.
+   Bug real reportado por Joel: no veía el ícono de Grupos de conteo en el celular -- el ancho
+   total de los íconos (~444px) ya superaba el de casi cualquier celular (320-414px) y, al no
+   haber wrap, los que no entraban quedaban fuera de la pantalla sin scroll horizontal visible. */
 @media (max-width:420px){
   .user-chip>span{display:none;}
 }
@@ -238,7 +246,12 @@ textarea{resize:vertical;min-height:60px;}
 
 /* ---------- bottom nav ---------- */
 .tabbar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--line);display:flex;z-index:20;padding-bottom:env(safe-area-inset-bottom);}
-.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px 8px;background:none;border:none;color:var(--text-faint);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;}
+/* min-width:0 -- sin esto, un flex item nunca se achica más allá del ancho de su contenido
+   (acá, la etiqueta sin partir: "DASHBOARD"/"RECONTEO"), así que con 7 tabs ya no entraban en
+   casi ningún celular y los últimos (Contar, Reconteo) quedaban fuera de pantalla sin aviso --
+   mismo tipo de bug que el de los íconos de arriba, ver .topbar-row. Con min-width:0 la etiqueta
+   puede partirse en dos líneas cuando el tab se achica de verdad. */
+.tab{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 2px 8px;background:none;border:none;color:var(--text-faint);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;text-align:center;overflow-wrap:anywhere;}
 .tab.active{color:var(--amber);}
 .tab-icon-wrap{position:relative;display:flex;}
 .tab-icon-wrap>svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;}
@@ -7568,7 +7581,6 @@ function renderShell(){
   }[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
-  const esAdminShell = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
 
   return `
     <div class="topbar">
@@ -7582,7 +7594,6 @@ function renderShell(){
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
           <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs">${ICONS.skus.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-ir-calendario" class="btn-icon-header" aria-label="Calendario">${ICONS.calendario.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
-          ${esAdminShell? `<button id="btn-ir-grupos" class="btn-icon-header" aria-label="Grupos de conteo">${ICONS.grupos.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>` : ''}
           <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
           <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel">${ICONS.download.replace('style="width:15px;height:15px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
           <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
@@ -7603,6 +7614,7 @@ function renderShell(){
       ${tabBtn('dashboard','Dashboard')}
       ${tabBtn('carga','Carga')}
       ${tabBtn('ciclos','Períodos')}
+      ${tabBtn('grupos','Grupos')}
       ${tabBtn('plan','Plan')}
       ${tabBtn('conteo','Contar')}
       ${tabBtn('reconteo','Reconteo')}
@@ -7831,8 +7843,6 @@ function bind(){
   document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
   document.getElementById('btn-ir-skus').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'skus'}); });
   document.getElementById('btn-ir-calendario').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'calendario'}); });
-  const btnIrGrupos = document.getElementById('btn-ir-grupos');
-  if(btnIrGrupos) btnIrGrupos.addEventListener('click', ()=>{ detenerEscaner(); setState({view:'grupos'}); });
   document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=> setState({exportarModal:true}));
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);

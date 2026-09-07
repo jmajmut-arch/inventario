@@ -6645,9 +6645,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlTabOperadorCiclos = ctx.tabBtn('ciclos', 'Períodos');
   assert(htmlTabOperadorCiclos.includes('tab-bloqueada') && htmlTabOperadorCiclos.includes('tab-candado'), 'el tab Períodos de un operador debe mostrar el candado, obtuvo: '+htmlTabOperadorCiclos);
 
-  // Grupos de conteo: vista solo-admin igual que Períodos (ver VISTAS_SOLO_ADMIN) -- el ícono
-  // de acceso en la barra superior ya queda oculto para un operador (ver renderShell), pero la
-  // vista en sí también debe quedar bloqueada por si acaso.
+  // Grupos de conteo: vista solo-admin igual que Períodos (ver VISTAS_SOLO_ADMIN) -- el tab en
+  // la barra inferior (después de Períodos, ver renderShell) se ve igual para todos los roles,
+  // marcado con candado para un operador en vez de ocultarse.
   assert(ctx.vistaBloqueadaParaRol('grupos')===true, 'un operador debe tener bloqueada la vista Grupos, igual que Períodos');
   const htmlTabOperadorGrupos = ctx.tabBtn('grupos', 'Grupos');
   assert(htmlTabOperadorGrupos.includes('tab-bloqueada') && htmlTabOperadorGrupos.includes('tab-candado'), 'el tab Grupos de un operador debe mostrar el candado, obtuvo: '+htmlTabOperadorGrupos);
@@ -6661,6 +6661,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const shellHtmlTabs = ctx.renderShell();
   assert(shellHtmlTabs.includes('id="btn-ir-skus"'), 'la barra superior debe tener un ícono para ir a SKUs, obtuvo: '+shellHtmlTabs.slice(0,900));
   assert(shellHtmlTabs.includes('data-tab="ciclos"') && !shellHtmlTabs.includes('data-tab="skus"'), 'la barra inferior debe tener el tab "ciclos" (Períodos) en vez de "skus", obtuvo: '+shellHtmlTabs.slice(shellHtmlTabs.indexOf('tabbar')-10, shellHtmlTabs.indexOf('tabbar')+400));
+
+  // Pedido de Joel: "Grupos de conteo" pasa de un ícono en la barra superior (visible solo para
+  // admin) a un tab en la barra inferior, justo después de "Períodos" -- se ve para todos los
+  // roles (bloqueado con candado para un operador, igual que Períodos/Plan/Carga), en vez de
+  // desaparecer del todo. Ver también el fix de layout en .tab (min-width:0 + overflow-wrap):
+  // agregar un 7mo tab sin eso desbordaba la barra en celulares angostos.
+  assert(!shellHtmlTabs.includes('id="btn-ir-grupos"'), 'ya no debe existir el ícono de Grupos en la barra superior, obtuvo: '+shellHtmlTabs.slice(0,900));
+  const idxCiclosTab = shellHtmlTabs.indexOf('data-tab="ciclos"');
+  const idxGruposTab = shellHtmlTabs.indexOf('data-tab="grupos"');
+  const idxPlanTab = shellHtmlTabs.indexOf('data-tab="plan"');
+  assert(idxCiclosTab>=0 && idxGruposTab>idxCiclosTab && idxPlanTab>idxGruposTab, 'el tab "grupos" debe ir justo después de "ciclos" (Períodos) y antes de "plan" en la barra inferior, obtuvo índices: '+JSON.stringify({idxCiclosTab,idxGruposTab,idxPlanTab}));
+
   ctx.bind();
   const btnIrSkus = elements['btn-ir-skus'];
   assert(!!btnIrSkus, 'bind() debe haber consultado #btn-ir-skus');
