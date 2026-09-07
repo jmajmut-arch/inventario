@@ -793,6 +793,24 @@ function relanzarComoSinConexion(e){
   throw e;
 }
 
+// Mismo mecanismo de timeoutMs de rest() (ver más abajo), pero para los pocos lugares
+// (skusDeUbicacion/contarUniversoUbicacion) que llaman fetch() directo en vez de rest(), porque
+// necesitan leer headers de paginación (Range/Content-Range) que rest() no expone. Sin esto,
+// con señal mala en terreno (ver UMBRAL_ABORTAR_GUARDADO_MS) el fetch queda esperando una
+// respuesta que nunca llega -- Joel reportó justo esto: "Confirmar y crear plan" quedaba pegado
+// en "Creando…" para siempre, sin ningún aviso de error, porque nada cortaba la espera.
+async function fetchConTimeout(url, options, timeoutMs=UMBRAL_ABORTAR_GUARDADO_MS){
+  const controller = new AbortController();
+  const timer = setTimeout(()=> controller.abort(), timeoutMs);
+  try{
+    return await fetch(url, {...options, signal: controller.signal});
+  }catch(e){
+    relanzarComoSinConexion(e);
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function rest(path, { method='GET', body=null, prefer=null, extraHeaders={}, timeoutMs=null } = {}){
   const hacerLlamada = () => {
     const headers = {
@@ -1577,7 +1595,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
     if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
   }
   filtro += filtroExclusion(excluidos);
-  const res = await fetch(`${SUPABASE_URL}/rest/v1${filtro}`, {
+  const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1${filtro}`, {
     headers:{
       'apikey': SUPABASE_ANON_KEY,
       'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
@@ -1607,7 +1625,7 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloS
   const TAM_PAGINA = 1000;
   let desde = 0, total = Infinity, filas = [];
   while(desde < total){
-    const res = await fetch(`${SUPABASE_URL}/rest/v1${filtro}`, {
+    const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1${filtro}`, {
       headers:{
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
@@ -2717,12 +2735,12 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
       ciclo_id: cicloId||null,
       responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
       empresa_id: state.perfil.empresa_id,
-    })), prefer:'return=representation'});
+    })), prefer:'return=representation', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
     // Sin storage bin cargado, Storage bin ofrece elegir SKU puntuales en vez de bins (ver
     // cargarBinsPara) — elegir algunos ahí significa "solo estos", así que el resto se manda
     // como exclusión de la única entrada creada (misma tabla que usa excluirSkuDePlan).
     if(skusExcluidos && skusExcluidos.length && filas && filas.length){
-      await rest('/plan_semanal_exclusiones', {method:'POST', body: filas.flatMap(f=>skusExcluidos.map(sku_code=>({plan_id:f.id, sku_code}))), prefer:'return=minimal'});
+      await rest('/plan_semanal_exclusiones', {method:'POST', body: filas.flatMap(f=>skusExcluidos.map(sku_code=>({plan_id:f.id, sku_code}))), prefer:'return=minimal', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
     }
     // Foto del universo de SKU capturado al planificar, por entrada CON bin específico (el
     // universo queda acotado a lo que hay en ese bin): permite detectar más adelante (ver
@@ -2738,7 +2756,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
         ));
         const filasSnapshot = conBin.flatMap((f,i)=>snapshots[i].map(s=>({plan_id:f.id, sku_code:s.sku_code, sku_id:s.id, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion})));
         if(filasSnapshot.length){
-          await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal'});
+          await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
         }
       }
     }
