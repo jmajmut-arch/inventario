@@ -2059,8 +2059,31 @@ async function cargarMiembrosGrupo(grupoId){
   }
   setState({grupos: {...state.grupos, cargandoMiembros:true}});
   try{
-    const rows = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=id,sku_code,bodega&order=sku_code.asc`);
-    setState({grupos: {...state.grupos, miembros: rows||[], cargandoMiembros:false}});
+    const rows = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=id,sku_code,bodega&order=sku_code.asc`) || [];
+    // Se enriquece con datos del maestro (descripción/crítico/último conteo) para que la lista no
+    // sea solo el código -- a pedido de Joel ("está pobre y poco informativo"). Se cruza por
+    // código+bodega, igual que en cargarSeguimientoGrupo, porque la membresía no tiene FK directa
+    // a skus (se guarda por código+bodega para sobrevivir cambios de storage bin/ubicación/batch).
+    let datosSkus = [];
+    if(rows.length){
+      const codigos = Array.from(new Set(rows.map(m=>m.sku_code)));
+      datosSkus = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,descripcion,critico,ultimo_conteo_fecha`) || [];
+    }
+    const cicloGrupo = calcularCicloGrupo(grupo);
+    const inicioGrupoMs = cicloGrupo ? new Date(grupo.fecha_inicio+'T00:00:00').getTime() : null;
+    const miembros = rows.map(m=>{
+      const datos = datosSkus.find(d=>d.sku_code===m.sku_code && (d.bodega||'')===(m.bodega||''));
+      const contadoAlgunaVez = !!(datos && datos.ultimo_conteo_fecha);
+      return {
+        ...m,
+        descripcion: datos? datos.descripcion : null,
+        critico: !!(datos && datos.critico),
+        contadoAlgunaVez,
+        contadoEsteCiclo: inicioGrupoMs!=null && contadoAlgunaVez && new Date(datos.ultimo_conteo_fecha).getTime() >= inicioGrupoMs,
+        tieneCiclo: cicloGrupo!=null,
+      };
+    });
+    setState({grupos: {...state.grupos, miembros, cargandoMiembros:false}});
   }catch(e){
     setState({grupos: {...state.grupos, cargandoMiembros:false}});
     toast(e.message,'err');
@@ -7694,12 +7717,23 @@ function renderDetalleGrupo(){
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Materiales de este grupo</div>
       ${grupo && grupo.automatico_critico ? `<div class="hint">Automático: incluye todos los materiales marcados como Crítico${g.seguimiento? ` (actualmente ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'})` : ''}. Para agregar o quitar materiales, actualiza el campo Crítico desde Carga masiva o Cargar SKU -- no se agregan a mano acá.</div>` :
-      g.cargandoMiembros? `<div class="hint" style="text-align:center;padding:16px 0">Cargando…</div>` : g.miembros.length? g.miembros.map(m=>`
+      g.cargandoMiembros? `<div class="hint" style="text-align:center;padding:16px 0">Cargando…</div>` : g.miembros.length? g.miembros.map(m=>{
+        // Estado por material -- a pedido de Joel ("está pobre y poco informativo"): descripción,
+        // Crítico, y si ya está contado en el ciclo actual del grupo (o, sin ciclo, si se ha
+        // contado alguna vez), calculado en cargarMiembrosGrupo para no repetir la lógica acá.
+        const estado = m.tieneCiclo
+          ? (m.contadoEsteCiclo? `<span class="badge badge-ok">Contado</span>` : `<span class="badge badge-warn">Pendiente</span>`)
+          : (m.contadoAlgunaVez? `<span class="badge badge-neutral">Contado alguna vez</span>` : `<span class="badge badge-warn">Nunca contado</span>`);
+        return `
         <div class="plan-item" style="padding:6px 0;align-items:center;gap:8px">
-          <div style="flex:1">${esc(m.sku_code)}${m.bodega? ` · ${esc(m.bodega)}` : ' · sin bodega'}</div>
+          <div style="flex:1">
+            <div>${esc(m.sku_code)}${m.bodega? ` · ${esc(m.bodega)}` : ' · sin bodega'}${m.critico? ` <span class="badge badge-steel">Crítico</span>` : ''}</div>
+            ${m.descripcion? `<div class="hint" style="margin-top:2px">${esc(m.descripcion)}</div>` : ''}
+          </div>
+          ${estado}
           <button type="button" class="btn btn-secondary" data-quitar-miembro-grupo="${esc(m.id)}" style="width:auto;padding:5px 10px;font-size:12px">Quitar</button>
         </div>
-      `).join('') : `<div class="empty" style="padding:10px 8px">Todavía no hay materiales en este grupo.</div>`}
+      `;}).join('') : `<div class="empty" style="padding:10px 8px">Todavía no hay materiales en este grupo.</div>`}
     </div>
     ${grupo && grupo.automatico_critico ? '' : `
     <div class="card" style="margin-top:14px">
