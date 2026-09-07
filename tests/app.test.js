@@ -49,6 +49,7 @@ let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
+let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
 // Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
 // hace Postgres ante ON CONFLICT DO NOTHING) y la búsqueda de respaldo por idempotency_key
 // devuelve el id ya guardado, en vez del habitual {id:'conteo-nuevo-1'}.
@@ -78,6 +79,10 @@ const fakeFetchImpl = async (url, opts) => {
     // "Ya contado este período" en Contar (ver cargarVecesContadoPeriodo): función escalar
     // (RETURNS integer), valor crudo sin envolver, igual que ciclo_actual.
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conteosEnPeriodoRespuesta) };
+  }
+  if(path.startsWith('/rest/v1/rpc/descartar_reconteo')){
+    if(descartarReconteoError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:descartarReconteoError}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -460,7 +465,7 @@ const fakeFetchImpl = async (url, opts) => {
     const total = 34; // fuerza que la 1ra página (30) diga "hay más" y la 2da (4) ya no
     const filas = [];
     for(let i=offset; i<Math.min(offset+30, total); i++){
-      filas.push({id:'r'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable: i===0?'Ubicación distinta':'Sin patrón detectado'});
+      filas.push({id:'r'+i, conteo_id:'conteo-'+i, sku_code:'SKU-'+i, descripcion:'Item '+i, stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable: i===0?'Ubicación distinta':'Sin patrón detectado'});
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -5143,6 +5148,59 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // etiquetaNumeroConteo: 1 es el conteo original, 2+ son reconteos (numerados desde 1).
   assert(ctx.etiquetaNumeroConteo(1)==='Conteo' && ctx.etiquetaNumeroConteo(2)==='Reconteo 1' && ctx.etiquetaNumeroConteo(3)==='Reconteo 2', 'etiquetaNumeroConteo debe distinguir el conteo original de cada reconteo, obtuvo: '+JSON.stringify([ctx.etiquetaNumeroConteo(1), ctx.etiquetaNumeroConteo(2), ctx.etiquetaNumeroConteo(3)]));
+
+  // ===== Reconteo: botón "Descartar" (solo admin) -- saca un material de la lista sin recontarlo
+  // físicamente, para cuando el problema fue un error en el dato maestro (ver descartar_reconteo,
+  // RPC que valida el rol en el servidor). Pedido de Joel tras revisar el comportamiento congelado.
+  ctx.__appstate.reconteos = [
+    { id:'sku-d1', conteo_id:'conteo-d1', sku_code:'SKU-DESCARTAR', descripcion:'Con error de maestro', stock_sistema:5, ultima_cantidad_contada:5, ultima_diferencia:1, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', fotos:[] },
+  ];
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlDescartarAdmin = ctx.renderReconteo();
+  assert(htmlDescartarAdmin.includes('data-descartar-reconteo="conteo-d1"'), 'un admin debe ver el botón Descartar con el id del conteo (no del SKU), obtuvo: '+htmlDescartarAdmin);
+  assert(htmlDescartarAdmin.includes('data-descartar-reconteo-sku="SKU-DESCARTAR"'), 'el botón Descartar debe llevar el sku_code para mostrarlo en el modal, obtuvo: '+htmlDescartarAdmin);
+
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const htmlDescartarOperador = ctx.renderReconteo();
+  assert(!htmlDescartarOperador.includes('data-descartar-reconteo='), 'un operador NO debe ver el botón Descartar (acción solo de admin), obtuvo: '+htmlDescartarOperador);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // Sin motivo: no debe llamar al RPC.
+  calls.length = 0;
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'   ', guardando:false };
+  await ctx.descartarReconteo();
+  assert(!calls.some(c=>c.url.includes('/rpc/descartar_reconteo')), 'sin motivo no debe llamarse al RPC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.descartarReconteoModal !== null, 'sin motivo el modal debe seguir abierto, obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+
+  // Con motivo: llama al RPC con el conteo_id y el motivo, cierra el modal y recarga la lista.
+  calls.length = 0;
+  descartarReconteoError = null;
+  ctx.__appstate.reconteos = [];
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'Error de tipeo en el maestro', guardando:false };
+  await ctx.descartarReconteo();
+  const descartarCall = calls.find(c=>c.url.includes('/rpc/descartar_reconteo'));
+  assert(!!descartarCall, 'debe llamar al RPC descartar_reconteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const descartarBody = descartarCall && JSON.parse(descartarCall.opts.body);
+  assert(descartarBody && descartarBody.p_conteo_id==='conteo-d1' && descartarBody.p_motivo==='Error de tipeo en el maestro', 'debe enviar p_conteo_id y p_motivo (con el texto sin recortar de más), obtuvo: '+JSON.stringify(descartarBody));
+  assert(ctx.__appstate.descartarReconteoModal === null, 'al descartar con éxito el modal debe cerrarse, obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+  assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=')), 'al descartar con éxito debe recargar la lista de reconteos (cargarReconteos), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si el servidor rechaza (ej. no es admin, o ya lo descartó otra persona): el modal se mantiene
+  // abierto, deja de "guardando" y no borra el motivo ya escrito, para que la persona pueda reintentar.
+  calls.length = 0;
+  descartarReconteoError = 'Solo un administrador puede descartar un reconteo pendiente';
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'Otro intento', guardando:false };
+  await ctx.descartarReconteo();
+  assert(ctx.__appstate.descartarReconteoModal !== null && ctx.__appstate.descartarReconteoModal.guardando===false, 'si el RPC falla, el modal debe seguir abierto y no quedar trabado en "guardando", obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+  assert(ctx.__appstate.descartarReconteoModal.motivo==='Otro intento', 'si falla, no debe perderse el motivo ya escrito, obtuvo: '+JSON.stringify(ctx.__appstate.descartarReconteoModal));
+  descartarReconteoError = null;
+
+  // Modal: renderDescartarReconteoModal muestra el sku y precarga el motivo si ya se había escrito.
+  ctx.__appstate.descartarReconteoModal = { conteoId:'conteo-d1', skuCode:'SKU-DESCARTAR', motivo:'Ya escrito antes', guardando:false };
+  const htmlModalDescartar = ctx.renderDescartarReconteoModal();
+  assert(htmlModalDescartar.includes('SKU-DESCARTAR') && htmlModalDescartar.includes('Ya escrito antes'), 'el modal debe mostrar el SKU y precargar el motivo ya escrito, obtuvo: '+htmlModalDescartar);
+  ctx.__appstate.descartarReconteoModal = null;
+  assert(ctx.renderDescartarReconteoModal()==='', 'sin modal abierto, renderDescartarReconteoModal debe devolver vacío, obtuvo: '+JSON.stringify(ctx.renderDescartarReconteoModal()));
 
   // ===== Conteo ciego: ocultarStockOperador() decide según rol + el flag de la empresa. Un
   // admin siempre ve el stock; un operador solo lo ve si su empresa NO tiene el flag activo. =====
