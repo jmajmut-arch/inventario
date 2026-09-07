@@ -1693,12 +1693,15 @@ async function skusUniversoEntradaPlan(planId){
     const data = text ? JSON.parse(text) : [];
     if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
     filas = filas.concat(data);
+    // Misma paginación a prueba de total desconocido que skusUniversoEntradaPlanLote (ver abajo).
     const range = res.headers.get('content-range');
-    total = range && range.includes('/') ? Number(range.split('/')[1]) : filas.length;
+    const totalInformado = range && range.includes('/') ? Number(range.split('/')[1]) : NaN;
+    total = Number.isFinite(totalInformado) ? totalInformado : (data.length < TAM_PAGINA ? filas.length : Infinity);
     desde += TAM_PAGINA;
     if(!data.length) break;
   }
-  return filas;
+  const vistos = new Set();
+  return filas.filter(f=>{ if(vistos.has(f.id)) return false; vistos.add(f.id); return true; });
 }
 
 // Misma idea que skusUniversoEntradaPlan, pero para VARIAS entradas de una vez -- un solo viaje
@@ -1730,12 +1733,27 @@ async function skusUniversoEntradaPlanLote(planIds){
     const data = text ? JSON.parse(text) : [];
     if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
     filas = filas.concat(data);
+    // Paginación a prueba de un total desconocido: si el servidor no informa el total
+    // (content-range "0-999/*"), se sigue pidiendo mientras la página venga llena -- antes eso
+    // dejaba de paginar tras la primera página (Number('*') = NaN) y las entradas cuyo SKU caía
+    // en la segunda quedaban cortas en silencio. Ver también el ORDER BY determinista de la
+    // función (migración orden_determinista_universo_entrada_plan): sin él, paginar podía
+    // repetir una fila y perder otra entre páginas.
     const range = res.headers.get('content-range');
-    total = range && range.includes('/') ? Number(range.split('/')[1]) : filas.length;
+    const totalInformado = range && range.includes('/') ? Number(range.split('/')[1]) : NaN;
+    total = Number.isFinite(totalInformado) ? totalInformado : (data.length < TAM_PAGINA ? filas.length : Infinity);
     desde += TAM_PAGINA;
     if(!data.length) break;
   }
-  return filas;
+  // Red de seguridad: una misma fila (plan_id + sku id) nunca debe contarse dos veces aunque el
+  // servidor la repitiera entre páginas.
+  const vistos = new Set();
+  return filas.filter(f=>{
+    const clave = f.plan_id+'|'+f.id;
+    if(vistos.has(clave)) return false;
+    vistos.add(clave);
+    return true;
+  });
 }
 
 // Token de carrera para cargarPlanSemanal: se llama desde muchos lugares (agregar/editar/borrar
@@ -1758,9 +1776,18 @@ async function cargarPlanSemanal(){
   const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 7));
   // Con un período (ciclo) elegido en el filtro, se muestra toda su planificación sin
   // importar la semana; sin período elegido, se sigue mostrando semana por semana como antes.
+  // Con un día puntual elegido desde el Calendario (diaFiltro), se pide SOLO ese día -- bug real
+  // reportado por Joel: como el período actual viene preseleccionado (ver cargarCiclos), "Ver en
+  // Planificación" cargaba el período ENTERO (370 entradas, 1254 filas de SKU con datos reales)
+  // para mostrar solo un día: tardaba ~12 s (dos páginas de un RPC de ~5 s cada una) y, peor, el
+  // día quedaba con los SKU de la primera página nada más (82 en vez de 100). Solo ese día son
+  // ~100 filas en una sola página, ~0.3 s medidos.
   const cicloFiltro = state.plan.cicloFiltro;
+  const diaFiltro = state.plan.diaFiltro;
   try{
-    const rows = await rest(cicloFiltro
+    const rows = await rest(diaFiltro
+      ? `/plan_semanal_detalle?fecha=eq.${diaFiltro}&order=fecha.asc`
+      : cicloFiltro
       ? `/plan_semanal_detalle?ciclo_id=eq.${cicloFiltro}&order=fecha.asc`
       : `/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
     if(miSecuencia !== cargarPlanSemanalSecuencia) return; // ver comentario arriba: ya hay una llamada más nueva
@@ -9170,6 +9197,9 @@ function bind(){
     const btnQuitarDiaFiltroPlan = document.getElementById('btn-quitar-dia-filtro-plan');
     if(btnQuitarDiaFiltroPlan) btnQuitarDiaFiltroPlan.addEventListener('click', ()=>{
       setState({plan:{...state.plan, diaFiltro:null}});
+      // Con diaFiltro activo solo se cargó ese día (ver cargarPlanSemanal) -- al volver a la
+      // semana/período completo hay que pedir el resto.
+      cargarPlanSemanal();
     });
     document.getElementById('form-plan').addEventListener('submit', async e=>{
       e.preventDefault();
