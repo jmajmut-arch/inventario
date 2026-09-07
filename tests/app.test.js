@@ -250,14 +250,18 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Cuántas entradas de plan_semanal generó el plan automático de cada grupo (ver cargarGrupos,
   // pedido de Joel: mostrar "332 entradas de plan" en el listado sin volver a generarlo). Se
-  // identifica por la nota fija que pone confirmarVistaPreviaComoPlan; solo pide el conteo
-  // (Range 0-0 + count=exact), no las filas.
+  // identifica por la nota fija que pone confirmarVistaPreviaComoPlan; cargarGrupos solo pide el
+  // conteo (Range 0-0 + count=exact, lee la cabecera content-range, ignora el cuerpo).
+  // confirmarVistaPreviaComoPlan reusa esta misma ruta (GET sin Range, y DELETE) para detectar y
+  // reemplazar entradas de una generación anterior antes de crear las nuevas -- ese código sí lee
+  // el cuerpo (un array de filas), así que debe devolver tantas filas como indique el fixture.
   if(path.startsWith('/rest/v1/plan_semanal?nota=eq.')){
     const nota = decodeURIComponent(path.slice('/rest/v1/plan_semanal?nota=eq.'.length).split('&')[0]);
     const match = nota.match(/^Generado automáticamente por el grupo "(.*)"$/);
     const nombreGrupo = match ? match[1] : null;
     const n = (nombreGrupo && entradasPlanGrupoFixture[nombreGrupo]) || 0;
-    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-0/${n}` : null}, text: async()=>'[]' };
+    const filas = Array.from({length:n}, (_,i)=>({id:`previa-${nombreGrupo}-${i}`}));
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-0/${n}` : null}, text: async()=>JSON.stringify(filas) };
   }
   if(path==='/rest/v1/grupos_conteo' && opts && opts.method==='POST'){
     if(grupoAutomaticoDuplicado){
@@ -1537,6 +1541,37 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Sin conteos planificados, no debe mostrarse el resumen (nada que resumir).
   assert(!htmlSinEntradas.includes('Resumen de la semana'), 'sin conteos planificados no debe mostrarse el resumen de la semana, obtuvo: '+htmlSinEntradas);
 
+  // Bug real reportado por Joel, a nivel de renderPlanificacion(): dos entradas del MISMO día que
+  // cubren un SKU en común (ej. una entrada "toda la ubicación" y otra de un storage bin específico
+  // dentro de ella, conviviendo por diseño o por una regeneración del plan automático que no borró
+  // la anterior) deben contarse UNA sola vez en "SKU a contar por día", no dos -- Joel vio 164 en
+  // vez de 100 para un mismo día exactamente por esto (el Calendario, que sí deduplica por SKU en
+  // el servidor, mostraba el número correcto).
+  {
+    const planOriginal = ctx.__appstate.plan;
+    ctx.__appstate.plan = {
+      semanaInicio: '2026-08-10',
+      diaFiltro: '2026-08-10',
+      cicloFiltro: '',
+      entradas: [
+        {id:'sol1', fecha:'2026-08-10', bodega:'B1', ubicacion:'U1', storage_bin:null, responsable_id:null, responsable_nombre:null, nota:''},
+        {id:'sol2', fecha:'2026-08-10', bodega:'B1', ubicacion:'U1', storage_bin:'BIN-1', responsable_id:null, responsable_nombre:null, nota:''},
+      ],
+      universos: {sol1: 3, sol2: 1},
+      detalle: {
+        sol1: [{id:'sku-a'},{id:'sku-b'},{id:'sku-c'}], // "toda la ubicación" -- incluye sku-c, que también cubre BIN-1
+        sol2: [{id:'sku-c'}], // BIN-1 específico -- sku-c es el mismo SKU que ya trae sol1
+      },
+      generales: [],
+      responsables: [],
+      editando: null,
+      seleccionados: [],
+    };
+    const htmlConSolape = ctx.renderPlanificacion();
+    assert(htmlConSolape.includes('SKU a contar por día (3 en total)'), 'sku-c aparece en ambas entradas -- el total debe ser 3 SKU distintos (a, b, c), no 4 (la suma 3+1), obtuvo: '+htmlConSolape);
+    ctx.__appstate.plan = planOriginal;
+  }
+
   // resumenPorResponsable / abrevDiaSemana como unidades sueltas.
   assert(ctx.abrevDiaSemana('2026-08-10')==='Lun', 'abrevDiaSemana debe devolver "Lun" para un lunes, obtuvo: '+ctx.abrevDiaSemana('2026-08-10'));
 
@@ -1557,11 +1592,42 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.fmtFecha('2026-08-24').includes('24'), 'fmtFecha debe mostrar el día 24 para la fecha pura "2026-08-24" (medianoche local, no UTC), obtuvo: '+ctx.fmtFecha('2026-08-24'));
   assert(ctx.fmtFecha('2026-08-30').includes('30'), 'fmtFecha debe mostrar el día 30 para la fecha pura "2026-08-30" (medianoche local, no UTC), obtuvo: '+ctx.fmtFecha('2026-08-30'));
   assert(ctx.fmtFecha('2026-08-20T23:30:00+00:00').includes('20'), 'fmtFecha no debe alterar un timestamp completo (ya trae su propia hora/zona), obtuvo: '+ctx.fmtFecha('2026-08-20T23:30:00+00:00'));
+  // resumenPorResponsable recibe universos (conteo, usado solo si una entrada aún no tiene detalle
+  // -- "Calculando…") y el DETALLE real de SKU por entrada, para deduplicar por sku.id -- ver el
+  // bug real explicado más abajo.
   const resumenSuelto = ctx.resumenPorResponsable(
     [{id:'a', responsable_nombre:'Ana'}, {id:'b', responsable_nombre:'Ana'}, {id:'c', responsable_nombre:null}],
-    {a:2, b:1, c:10}
+    {a:2, b:1, c:10},
+    {a:[{id:'s1'},{id:'s2'}], b:[{id:'s3'}], c:Array.from({length:10},(_,i)=>({id:'sc'+i}))}
   );
-  assert(resumenSuelto.length===2 && resumenSuelto[0].nombre==='Sin asignar' && resumenSuelto[0].cantidad===10 && resumenSuelto[1].nombre==='Ana' && resumenSuelto[1].cantidad===3, 'resumenPorResponsable debe agrupar y sumar por nombre, ordenado de mayor a menor, obtuvo: '+JSON.stringify(resumenSuelto));
+  assert(resumenSuelto.length===2 && resumenSuelto[0].nombre==='Sin asignar' && resumenSuelto[0].cantidad===10 && resumenSuelto[1].nombre==='Ana' && resumenSuelto[1].cantidad===3, 'resumenPorResponsable debe agrupar y contar SKU distintos por nombre, ordenado de mayor a menor, obtuvo: '+JSON.stringify(resumenSuelto));
+
+  // Bug real reportado por Joel: dos entradas de plan_semanal pueden cubrir el mismo SKU (ej. una
+  // entrada "toda la ubicación" y otra de un storage bin específico dentro de ella, o dos
+  // generaciones del mismo plan automático conviviendo) -- sumar el universo de cada entrada tal
+  // cual duplicaba el conteo (Planificación mostraba 164 SKU a contar para un día que el
+  // Calendario, deduplicando por SKU en el servidor, mostraba correctamente en 100). Un SKU
+  // compartido entre dos entradas de responsables distintos (acá 's1', en 'a' de Ana y 'b' de Bob)
+  // debe contarse una sola vez, atribuido a la primera entrada que lo cubre.
+  const resumenConSolape = ctx.resumenPorResponsable(
+    [{id:'a', responsable_nombre:'Ana'}, {id:'b', responsable_nombre:'Bob'}],
+    {},
+    {a:[{id:'s1'},{id:'s2'}], b:[{id:'s1'},{id:'s3'}]}
+  );
+  assert(resumenConSolape.length===2, 'debe seguir habiendo un grupo por responsable aunque compartan SKU, obtuvo: '+JSON.stringify(resumenConSolape));
+  const anaSolape = resumenConSolape.find(r=>r.nombre==='Ana');
+  const bobSolape = resumenConSolape.find(r=>r.nombre==='Bob');
+  assert(anaSolape && anaSolape.cantidad===2, 'Ana debe conservar sus 2 SKU (s1 y s2), obtuvo: '+JSON.stringify(resumenConSolape));
+  assert(bobSolape && bobSolape.cantidad===1, 'Bob NO debe volver a contar s1 (ya atribuido a Ana) -- solo su s3 propio, obtuvo: '+JSON.stringify(resumenConSolape));
+
+  // Entrada sin detalle todavía cargado ("Calculando…"): sin sku.id con qué deduplicar, debe usar
+  // el universo (conteo) tal cual -- no perder el número mientras el detalle real llega.
+  const resumenSinDetalleTodavia = ctx.resumenPorResponsable(
+    [{id:'d', responsable_nombre:'Carla'}],
+    {d:7},
+    {}
+  );
+  assert(resumenSinDetalleTodavia.length===1 && resumenSinDetalleTodavia[0].nombre==='Carla' && resumenSinDetalleTodavia[0].cantidad===7, 'sin detalle todavía, debe usar el universo tal cual, obtuvo: '+JSON.stringify(resumenSinDetalleTodavia));
 
   // cargarPlanSemanal debe pedir tanto el universo (conteo) como el detalle real de SKU por cada fila, sin
   // que el usuario tenga que interactuar con nada.
@@ -4537,6 +4603,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Tras confirmar, la vista previa se limpia (para no volver a crearla dos veces sin recalcular).
   assert(ctx.__appstate.grupos.vistaPreviaSemanas===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+
+  // Regenerar el plan de un grupo que YA tiene entradas de una generación anterior (bug real
+  // reportado por Joel: regeneró el plan automático de "Críticos" más de una vez y Planificación
+  // mostró el doble de SKU a contar para el mismo día que el Calendario -- las entradas viejas
+  // convivían con las nuevas, cada una sumando su propio universo). confirmarVistaPreviaComoPlan
+  // debe detectar las entradas previas de este grupo (mismo nota) y, si la persona lo confirma,
+  // eliminarlas ANTES de crear las nuevas -- nunca dejarlas conviviendo.
+  entradasPlanGrupoFixture = {'Grupo Plan Real': 3}; // simula 3 entradas de una generación anterior
+  // grupo.entradasPlan (usado por confirmarVistaPreviaComoPlan para detectar la generación previa)
+  // viene de cargarGrupos, no de calcularVistaPreviaPlanGrupo -- hay que refrescarlo, igual que
+  // pasaría de verdad al volver a la lista de Grupos antes de regenerar.
+  await ctx.cargarGrupos();
+  await ctx.abrirGrupo('grupo-plan-real');
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  await ctx.calcularVistaPreviaPlanGrupo(); // la vista previa se limpió al confirmar arriba -- recalcularla
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2, 'la vista previa recalculada debe volver a dar 2 materiales, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
+  confirmRespuesta = true;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(/3 entrada/.test(confirmLlamadas[confirmLlamadas.length-1]) && /generación anterior/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe avisar cuántas entradas de una generación anterior ya existen, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
+  const idxDelete = calls.findIndex(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?nota=eq.') && decodeURIComponent(c.url).includes('Grupo Plan Real'));
+  const idxPrimerPost = calls.findIndex(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal'));
+  assert(idxDelete>=0, 'debe eliminar las entradas de la generación anterior del grupo antes de crear las nuevas, obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
+  assert(idxPrimerPost>idxDelete, 'el borrado de las entradas previas debe ocurrir ANTES de crear las nuevas (nunca conviviendo ambas), obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
+  assert(calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal')).length===2, 'debe seguir creando las 2 entradas nuevas normalmente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Si la persona cancela el confirm() al ver el aviso de entradas previas, no debe borrar NI crear
+  // nada -- ni las viejas conviviendo con nada nuevo, ni perder las viejas sin generar las nuevas.
+  entradasPlanGrupoFixture = {'Grupo Plan Real': 3};
+  await ctx.calcularVistaPreviaPlanGrupo();
+  confirmRespuesta = false;
+  calls.length = 0;
+  await ctx.confirmarVistaPreviaComoPlan();
+  assert(!calls.some(c=>c.opts && (c.opts.method==='DELETE' || c.opts.method==='POST') && c.url.includes('/plan_semanal')), 'al cancelar el confirm() con entradas previas, no debe borrar ni crear nada, obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
+  entradasPlanGrupoFixture = {};
 
   // Tope de seguridad LIMITE_EXCLUSIONES_PLAN_AUTOMATICO: un material del grupo SIN storage bin
   // cargado, en una bodega+ubicación con un universo gigante (3005 SKU, más que el límite de

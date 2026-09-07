@@ -2434,7 +2434,26 @@ async function confirmarVistaPreviaComoPlan(){
 
   const totalZonas = g.vistaPreviaSemanas.reduce((n,s)=>n+s.zonas.length, 0);
   const totalMateriales = g.vistaPreviaSemanas.reduce((n,s)=>n+s.materiales, 0);
-  if(!confirm(`¿Crear ${totalZonas} entrada${totalZonas===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})? Quedan sin responsable asignado -- lo repartes tú después.`)) return;
+  const nota = `Generado automáticamente por el grupo "${grupo.nombre}"`;
+  // Si ya existen entradas de una generación anterior de este mismo grupo, avisar y ofrecer
+  // reemplazarlas antes de crear las nuevas. Bug real reportado por Joel: regenerar el plan de un
+  // grupo (ej. "Críticos") sin borrar antes las entradas de la generación previa las deja
+  // conviviendo con las nuevas -- ambas cubren el mismo SKU, así que Planificación (que suma el
+  // universo por entrada) muestra el doble de lo que corresponde para ese día, aunque el
+  // Calendario siga mostrando el pendiente correcto (deduplica por SKU en el servidor). No se
+  // borra nada sin preguntar: si la persona cancela acá, no se crea nada nuevo tampoco, para no
+  // dejarlas conviviendo con las viejas. Reusa grupo.entradasPlan (ya cargado por cargarGrupos, ver
+  // más arriba) en vez de otro viaje al servidor -- se llega acá siempre desde la lista de Grupos,
+  // así que ya viene fresco.
+  const previas = grupo.entradasPlan || 0;
+  const avisoPrevias = previas
+    ? ` Ya existen ${previas} entrada${previas===1?'':'s'} de una generación anterior de este grupo -- se eliminarán antes de crear las nuevas, para no duplicar el SKU a contar.`
+    : '';
+  if(!confirm(`¿Crear ${totalZonas} entrada${totalZonas===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})? Quedan sin responsable asignado -- lo repartes tú después.${avisoPrevias}`)) return;
+  if(previas){
+    try{ await rest(`/plan_semanal?nota=eq.${encodeURIComponent(nota)}`, {method:'DELETE', prefer:'return=minimal'}); }
+    catch(e){ toast('No se pudieron eliminar las entradas anteriores: '+e.message, 'err'); return; }
+  }
 
   // Barra de progreso (a pedido de Joel: con un grupo grande -- ej. "Críticos" con cientos de
   // storage bin distintos -- esto tarda varios minutos, uno por uno, y sin nada en pantalla más
@@ -5331,13 +5350,34 @@ function abrevDiaSemana(iso){
   return s.charAt(0).toUpperCase()+s.slice(1);
 }
 
-// Agrupa el universo de SKU planificado por responsable, ordenado de mayor a menor carga.
-function resumenPorResponsable(entradas, universos){
+// Agrupa el universo de SKU planificado por responsable, ordenado de mayor a menor carga. Dedupe
+// por sku.id (no solo suma el universo de cada entrada): dos entradas de plan pueden cubrir el
+// mismo SKU -- ej. una entrada "toda la ubicación" y otra de un storage bin específico dentro de
+// ella, o dos generaciones del plan automático de un grupo conviviendo porque la segunda se creó
+// sin borrar la primera -- y sumarlas tal cual duplica el conteo. Bug real reportado por Joel: el
+// Calendario mostraba 100 pendientes para un día, pero Planificación mostraba 164 para ese mismo
+// día, porque acá (y en el total por día de abajo) se sumaba por entrada en vez de contar SKU
+// distintos; el Calendario (resumen_calendario_mes, en el servidor) sí deduplica por SKU. Un SKU
+// que aparece en entradas de más de un responsable queda asignado al primero que lo cubre, para
+// que la suma de este ranking calce con el total deduplicado del gráfico por día. Una entrada
+// recién creada cuyo detalle todavía no llegó (universo en "Calculando…") no tiene con qué
+// deduplicar -- se suma tal cual su universo, igual que antes, hasta que el detalle esté listo.
+function resumenPorResponsable(entradas, universos, detalle){
   const map = new Map();
+  const asignado = new Set();
   entradas.forEach(e=>{
     const nombre = e.responsable_nombre || 'Sin asignar';
-    const cantidad = universos[e.id] || 0;
-    map.set(nombre, (map.get(nombre)||0) + cantidad);
+    if(!map.has(nombre)) map.set(nombre, 0);
+    const det = detalle[e.id];
+    if(det){
+      det.forEach(s=>{
+        if(asignado.has(s.id)) return;
+        asignado.add(s.id);
+        map.set(nombre, map.get(nombre)+1);
+      });
+    }else{
+      map.set(nombre, map.get(nombre) + (universos[e.id]||0));
+    }
   });
   return Array.from(map, ([nombre, cantidad])=>({nombre, cantidad})).sort((a,b)=> b.cantidad-a.cantidad);
 }
@@ -7246,12 +7286,22 @@ function renderPlanificacion(){
         };
       });
 
-  const datosPorDia = grupos.map(d=>({
-    dia: d.iso,
-    cantidad: d.entradas.reduce((s,e)=> s+(p.universos[e.id]||0), 0),
-  }));
+  // Cuenta SKU distintos (por sku.id) cuando ya hay detalle cargado, no la suma de universos por
+  // entrada -- ver el comentario en resumenPorResponsable sobre por qué sumar por entrada duplica
+  // SKU cubiertos por más de una. Una entrada sin detalle todavía ("Calculando…") suma su universo
+  // tal cual, como antes.
+  const datosPorDia = grupos.map(d=>{
+    const vistos = new Set();
+    let cantidad = 0;
+    d.entradas.forEach(e=>{
+      const det = p.detalle[e.id];
+      if(det) det.forEach(s=>{ if(!vistos.has(s.id)){ vistos.add(s.id); cantidad++; } });
+      else cantidad += p.universos[e.id]||0;
+    });
+    return {dia: d.iso, cantidad};
+  });
   const totalSemana = datosPorDia.reduce((s,d)=>s+d.cantidad, 0);
-  const responsablesResumen = resumenPorResponsable(entradasVisibles, p.universos);
+  const responsablesResumen = resumenPorResponsable(entradasVisibles, p.universos, p.detalle);
   // A pedido de Joel: con datos reales, más de la mitad de las entradas planificadas quedaban sin
   // responsable asignado y pasaba desapercibido -- este aviso lo pone al frente en vez de tener
   // que notar cada fila suelta o buscarlo en el ranking de abajo.
