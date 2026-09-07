@@ -3873,20 +3873,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlGrupos.includes('IE') && htmlGrupos.includes('2 materiales') && htmlGrupos.includes('cada 180 días'), 'renderGrupos debe listar el grupo con su cantidad de miembros y frecuencia, obtuvo: '+htmlGrupos);
   assert(htmlGrupos.includes('data-ver-grupo="grupo-1"'), 'debe ofrecer un botón para ver el detalle de cada grupo, obtuvo: '+htmlGrupos);
 
-  // Crear grupo: manda nombre y frecuencia_dias como número.
+  // El formulario de creación debe ofrecer elegir la fecha de inicio del ciclo, no solo la
+  // frecuencia -- precargada con hoy si todavía no se tocó.
+  ctx.__appstate.grupos.creando = true;
+  const htmlFormCrearGrupo = ctx.renderGrupos();
+  assert(htmlFormCrearGrupo.includes('id="grupo-fecha-inicio-nuevo"') && htmlFormCrearGrupo.includes(`value="${ctx.fechaISO(new Date())}"`), 'el formulario de crear grupo debe tener un campo de fecha de inicio, precargado con hoy, obtuvo: '+htmlFormCrearGrupo);
+  ctx.__appstate.grupos.creando = false;
+
+  // Crear grupo: manda nombre, frecuencia_dias como número, y la fecha de inicio elegida a mano
+  // (a pedido de Joel: no alcanza con decir "cada 30/60/90 días", también hay que poder elegir
+  // CUÁNDO arranca ese ciclo, en vez de que quede fija en la fecha en que se creó el grupo).
   calls.length = 0;
-  await ctx.crearGrupo('5S', '30');
+  await ctx.crearGrupo('5S', '30', false, '2027-01-15');
   const postGrupo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
   assert(!!postGrupo, 'crearGrupo debe hacer POST a /grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const cuerpoGrupo = JSON.parse(postGrupo.opts.body)[0];
-  assert(cuerpoGrupo.nombre==='5S' && cuerpoGrupo.frecuencia_dias===30, 'crearGrupo debe mandar nombre y frecuencia_dias como número, obtuvo: '+JSON.stringify(cuerpoGrupo));
+  assert(cuerpoGrupo.nombre==='5S' && cuerpoGrupo.frecuencia_dias===30 && cuerpoGrupo.fecha_inicio==='2027-01-15', 'crearGrupo debe mandar nombre, frecuencia_dias como número y la fecha de inicio elegida, obtuvo: '+JSON.stringify(cuerpoGrupo));
 
   // Sin frecuencia (campo vacío) -> null, no 0 ni string vacío (ver conversación: nadie la
   // consume todavía, pero el dato debe quedar limpio para cuando el generador la use).
   calls.length = 0;
-  await ctx.crearGrupo('Sin frecuencia', '');
+  await ctx.crearGrupo('Sin frecuencia', '', false, '2027-01-15');
   const postGrupoSinFrec = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
   assert(JSON.parse(postGrupoSinFrec.opts.body)[0].frecuencia_dias===null, 'sin frecuencia, crearGrupo debe mandar null, obtuvo: '+JSON.stringify(JSON.parse(postGrupoSinFrec.opts.body)));
+
+  // Sin fecha de inicio elegida, no debe crear nada (es obligatoria, igual que el nombre).
+  calls.length = 0;
+  await ctx.crearGrupo('Sin fecha', '30', false, '');
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo')), 'sin fecha de inicio, crearGrupo no debe crear nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Ver el detalle de un grupo: carga sus miembros actuales.
   gruposMiembrosFixture = { 'grupo-1': [ {id:'miembro-1', sku_code:'SKU-100', bodega:'B501'} ] };
@@ -4310,11 +4324,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // crearGrupo debe mandar automatico_critico como booleano.
   calls.length = 0;
-  await ctx.crearGrupo('Críticos', '60', true);
+  await ctx.crearGrupo('Críticos', '60', true, '2027-01-15');
   const postGrupoAutomatico = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
   assert(!!postGrupoAutomatico && JSON.parse(postGrupoAutomatico.opts.body)[0].automatico_critico===true, 'crearGrupo con automaticoCritico=true debe mandar automatico_critico:true, obtuvo: '+JSON.stringify(postGrupoAutomatico));
   calls.length = 0;
-  await ctx.crearGrupo('IE', '60', false);
+  await ctx.crearGrupo('IE', '60', false, '2027-01-15');
   const postGrupoManual = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
   assert(JSON.parse(postGrupoManual.opts.body)[0].automatico_critico===false, 'sin marcar el checkbox, debe mandar automatico_critico:false, obtuvo: '+JSON.stringify(postGrupoManual));
 
@@ -4323,7 +4337,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   grupoAutomaticoDuplicado = true;
   const toastRootGrupoAuto = elements['toast-root'];
   const toastsAntesGrupoAuto = toastRootGrupoAuto.hijos.length;
-  await ctx.crearGrupo('Otro Automático', '', true);
+  await ctx.crearGrupo('Otro Automático', '', true, '2027-01-15');
   const toastsGrupoAuto = toastRootGrupoAuto.hijos.slice(toastsAntesGrupoAuto);
   assert(toastsGrupoAuto.length===1 && toastsGrupoAuto[0].textContent==='Ya existe un grupo automático de Crítico activo', 'debe avisar con un mensaje claro si ya hay un grupo automático activo, obtuvo: '+JSON.stringify(toastsGrupoAuto.map(t=>t.textContent)));
   grupoAutomaticoDuplicado = false;
