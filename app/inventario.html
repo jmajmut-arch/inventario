@@ -514,7 +514,7 @@ let state = {
   // un ciclo puntual. Puramente client-side: no dispara una nueva carga, solo recalcula sobre
   // dash.avancePlanPorCiclo (que ya trae todos los períodos).
   dashPeriodo: '',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', cicloFiltroInicializado:false, diaFiltro:null, entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[], universoError:null },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', cicloFiltroInicializado:false, diaFiltro:null, rango:'semana', mesInicio:null, anioInicio:null, entradas:[], universos:{}, propios:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[], universoError:null },
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
@@ -1312,7 +1312,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,entradas:[],universos:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[]}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1729,9 +1729,14 @@ async function skusUniversoEntradaPlan(planId){
 // medidos con RLS), sin Range ni count, y solo con las 3 columnas que usa la pantalla (id para
 // deduplicar SKU cubiertos por más de una entrada, sku_code y descripcion para el listado).
 // Una entrada sin SKU no viene como clave: el que llama la trata como [].
-async function universoEntradasPlanResumen(planIds){
+async function universoEntradasPlanResumen(planIds){ return rpcUniversoEntradasPlan('universo_entradas_plan_resumen', planIds); }
+// Hoja de conteo (Exportar PDF): el listado completo por entrada con las columnas que imprime la
+// hoja (sku_code, descripcion, storage_bin, unidad_medida, clase_abc, critico). Antes el PDF
+// pedía el universo entrada por entrada (375 consultas seguidas con el período real).
+async function universoEntradasPlanHoja(planIds){ return rpcUniversoEntradasPlan('universo_entradas_plan_hoja', planIds); }
+async function rpcUniversoEntradasPlan(nombre, planIds){
   if(!planIds.length) return {};
-  const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/rpc/universo_entradas_plan_resumen`, {
+  const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/rpc/${nombre}`, {
     method: 'POST',
     headers:{
       'apikey': SUPABASE_ANON_KEY,
@@ -1745,6 +1750,108 @@ async function universoEntradasPlanResumen(planIds){
   if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
   if(!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('respuesta inesperada del servidor');
   return data;
+}
+
+// Resumen sin SKU para las ventanas grandes de Planificación (Mes, Año, Período): por entrada,
+// cuántos SKU cubre (total) y cuántos NO están ya cubiertos por una entrada anterior del mismo
+// conjunto (propios). Es lo único que necesita la vista resumida -- unas pocas filas en vez de
+// bajar miles de SKU que la pantalla no va a listar (idea de Joel: "que no sature la app").
+async function resumenEntradasPlan(planIds){
+  if(!planIds.length) return [];
+  const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/rpc/resumen_entradas_plan`, {
+    method: 'POST',
+    headers:{
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({p_plan_ids: planIds}),
+  }, TIMEOUT_UNIVERSO_PLAN_MS);
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
+  if(!Array.isArray(data)) throw new Error('respuesta inesperada del servidor');
+  return data;
+}
+
+// GET paginado con Range: PostgREST corta en 1.000 filas por respuesta. Para las ventanas grandes
+// (un año, un período entero) la lista de entradas puede pasar de ahí; se sigue pidiendo mientras
+// la página venga llena. Solo para listas de entradas (filas chicas), nunca para SKU.
+async function restTodo(path){
+  const TAM = 1000;
+  let desde = 0, todas = [];
+  while(true){
+    const pagina = await rest(path, {extraHeaders:{'Range-Unit':'items', 'Range':`${desde}-${desde+TAM-1}`}});
+    const filas = Array.isArray(pagina) ? pagina : [];
+    todas = todas.concat(filas);
+    if(filas.length < TAM) break;
+    desde += TAM;
+  }
+  return todas;
+}
+
+/* ---- Ventana de Planificación: Día / Semana / Mes / Año / Período (idea de Joel) ----
+   Una sola fuente de verdad: diaFiltro (día puntual) gana sobre cicloFiltro (período completo),
+   y sin ninguno de los dos se navega por calendario según `rango` (semana, mes o año). En las
+   ventanas grandes (mes, año, período) la pantalla es RESUMIDA: totales por entrada sin listar
+   SKU (ver esResumenPlan / resumenEntradasPlan). Día y Semana siguen con el detalle completo. */
+function modoPlan(p){
+  if(p.diaFiltro) return 'dia';
+  if(p.cicloFiltro) return 'periodo';
+  return (p.rango==='mes' || p.rango==='anio') ? p.rango : 'semana';
+}
+function esResumenPlan(p){ const m = modoPlan(p); return m==='mes' || m==='anio' || m==='periodo'; }
+function inicioMes(iso){ return iso.slice(0,8)+'01'; }
+function finMes(mesInicio){ const d = new Date(mesInicio+'T00:00:00'); d.setMonth(d.getMonth()+1); d.setDate(0); return fechaISO(d); }
+function sumarMeses(mesInicio, n){ const d = new Date(mesInicio+'T00:00:00'); d.setMonth(d.getMonth()+n); return fechaISO(d); }
+function fmtMesCorto(iso){ if(!iso) return ''; return new Date(iso+'T00:00:00').toLocaleDateString('es-CL',{month:'short'}).replace('.',''); }
+function fmtMesLargo(iso){ const t = new Date(iso+'T00:00:00').toLocaleDateString('es-CL',{month:'long', year:'numeric'}); return t.charAt(0).toUpperCase()+t.slice(1); }
+// {modo, desde, hasta, etiqueta}: desde/hasta son null en modo período (se filtra por ciclo_id).
+function ventanaPlan(p){
+  const modo = modoPlan(p);
+  const hoy = fechaISO(new Date());
+  if(modo==='dia') return {modo, desde:p.diaFiltro, hasta:p.diaFiltro, etiqueta: fmtFecha(p.diaFiltro)};
+  if(modo==='mes'){ const desde = p.mesInicio || inicioMes(hoy); return {modo, desde, hasta: finMes(desde), etiqueta: fmtMesLargo(desde)}; }
+  if(modo==='anio'){ const desde = p.anioInicio || hoy.slice(0,4)+'-01-01'; return {modo, desde, hasta: desde.slice(0,4)+'-12-31', etiqueta: desde.slice(0,4)}; }
+  if(modo==='periodo'){ const c = (state.ciclos||[]).find(c=>c.id===p.cicloFiltro); return {modo, desde:null, hasta:null, etiqueta: c ? c.nombre : ''}; }
+  // La "semana" mostrada va de lunes al lunes siguiente inclusive (8 días, no 7): a pedido, para
+  // no cortar la vista justo el domingo y poder ver de una el arranque de la semana próxima.
+  const inicio = p.semanaInicio || fechaISO(inicioSemana(new Date()));
+  const fin = fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 7));
+  return {modo, desde: inicio, hasta: fin, etiqueta: `${fmtFecha(inicio)} – ${fmtFecha(fin)}`};
+}
+// Cambio de pestaña Día/Semana/Mes/Año: cae sobre el mismo tramo del calendario que se estaba
+// mirando (hoy si está dentro de la ventana actual; si no, el inicio de esa ventana), no salta a
+// hoy porque sí. Período se elige desde el selector de períodos (cicloFiltro), no desde acá.
+function cambiarModoPlan(modo){
+  const p = state.plan;
+  const v = ventanaPlan(p);
+  const hoy = fechaISO(new Date());
+  const ref = p.diaFiltro || ((v.desde && hoy>=v.desde && hoy<=v.hasta) || !v.desde ? hoy : v.desde);
+  const cambios = {diaFiltro:null, cicloFiltro:'', rango: modo==='dia' ? 'semana' : modo};
+  if(modo==='dia'){ cambios.diaFiltro = ref; cambios.semanaInicio = fechaISO(inicioSemana(new Date(ref+'T00:00:00'))); }
+  else if(modo==='semana'){ cambios.semanaInicio = fechaISO(inicioSemana(new Date(ref+'T00:00:00'))); }
+  else if(modo==='mes'){ cambios.mesInicio = inicioMes(ref); }
+  else if(modo==='anio'){ cambios.anioInicio = ref.slice(0,4)+'-01-01'; }
+  else return;
+  setState({plan:{...state.plan, ...cambios}});
+  cargarPlanSemanal();
+}
+// Anterior/Siguiente según la ventana activa: un día, una semana, un mes o un año.
+function navegarPlan(delta){
+  const p = state.plan;
+  const v = ventanaPlan(p);
+  if(v.modo==='dia'){
+    const d = fechaISO(sumarDias(new Date(p.diaFiltro+'T00:00:00'), delta));
+    setState({plan:{...p, diaFiltro:d, semanaInicio: fechaISO(inicioSemana(new Date(d+'T00:00:00')))}});
+  }else if(v.modo==='semana'){
+    setState({plan:{...p, semanaInicio: fechaISO(sumarDias(new Date(v.desde+'T00:00:00'), 7*delta)), diaFiltro:null}});
+  }else if(v.modo==='mes'){
+    setState({plan:{...p, mesInicio: sumarMeses(v.desde, delta)}});
+  }else if(v.modo==='anio'){
+    setState({plan:{...p, anioInicio: (Number(v.desde.slice(0,4))+delta)+'-01-01'}});
+  }else return;
+  cargarPlanSemanal();
 }
 
 // Token de carrera para cargarPlanSemanal: se llama desde muchos lugares (agregar/editar/borrar
@@ -1773,14 +1880,19 @@ async function cargarPlanSemanal(){
   // para mostrar solo un día: tardaba ~12 s (dos páginas de un RPC de ~5 s cada una) y, peor, el
   // día quedaba con los SKU de la primera página nada más (82 en vez de 100). Solo ese día son
   // ~100 filas en una sola página, ~0.3 s medidos.
-  const cicloFiltro = state.plan.cicloFiltro;
-  const diaFiltro = state.plan.diaFiltro;
+  // Mes y Año (idea de Joel) son ventanas de calendario más grandes que la semana; junto con
+  // Período son vistas RESUMIDAS (ver ventanaPlan / esResumenPlan): se piden las entradas y solo
+  // sus totales, nunca los SKU.
+  const ventana = ventanaPlan(state.plan);
+  const resumido = esResumenPlan(state.plan);
   try{
-    const rows = await rest(diaFiltro
-      ? `/plan_semanal_detalle?fecha=eq.${diaFiltro}&order=fecha.asc`
-      : cicloFiltro
-      ? `/plan_semanal_detalle?ciclo_id=eq.${cicloFiltro}&order=fecha.asc`
-      : `/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`);
+    const rows = ventana.modo==='dia'
+      ? await rest(`/plan_semanal_detalle?fecha=eq.${ventana.desde}&order=fecha.asc`)
+      : ventana.modo==='periodo'
+      ? await restTodo(`/plan_semanal_detalle?ciclo_id=eq.${state.plan.cicloFiltro}&order=fecha.asc`)
+      : ventana.modo==='semana'
+      ? await rest(`/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`)
+      : await restTodo(`/plan_semanal_detalle?fecha=gte.${ventana.desde}&fecha=lte.${ventana.hasta}&order=fecha.asc`);
     if(miSecuencia !== cargarPlanSemanalSecuencia) return; // ver comentario arriba: ya hay una llamada más nueva
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[], seleccionados:[]}});
     // Este recálculo de fondo (universo Y detalle de TODAS las entradas visibles) dispara un
@@ -1797,16 +1909,33 @@ async function cargarPlanSemanal(){
     // background) el conteo de esas entradas simplemente no se actualiza esta vez (se reintenta
     // solo al volver a cargar la pestaña).
     try{
-      const resumen = await universoEntradasPlanResumen((rows||[]).map(r=>r.id));
-      if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
+      const ids = (rows||[]).map(r=>r.id);
       const universos = {...state.plan.universos};
       const detalle = {...state.plan.detalle};
-      (rows||[]).forEach(r=>{
-        const skus = Array.isArray(resumen[r.id]) ? resumen[r.id] : [];
-        universos[r.id] = skus.length;
-        detalle[r.id] = skus;
-      });
-      setState({plan: {...state.plan, universos, detalle, universoError:null}});
+      const propios = {...(state.plan.propios||{})};
+      if(resumido){
+        // Vista resumida: solo totales por entrada (y cuántos ya estaban en una entrada anterior),
+        // sin bajar ningún SKU -- ver resumenEntradasPlan.
+        const filas = await resumenEntradasPlan(ids);
+        if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
+        const porPlan = new Map(filas.map(f=>[f.plan_id, f]));
+        (rows||[]).forEach(r=>{
+          const f = porPlan.get(r.id);
+          universos[r.id] = f ? Number(f.total)||0 : 0;
+          propios[r.id] = f ? Number(f.propios)||0 : 0;
+          delete detalle[r.id];
+        });
+      }else{
+        const resumen = await universoEntradasPlanResumen(ids);
+        if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
+        (rows||[]).forEach(r=>{
+          const skus = Array.isArray(resumen[r.id]) ? resumen[r.id] : [];
+          universos[r.id] = skus.length;
+          detalle[r.id] = skus;
+          delete propios[r.id];
+        });
+      }
+      setState({plan: {...state.plan, universos, detalle, propios, universoError:null}});
     }catch(e){
       if(miSecuencia !== cargarPlanSemanalSecuencia) return;
       // Ya no es silencioso: bug real reportado por Joel -- con el período completo, la segunda
@@ -1815,8 +1944,9 @@ async function cargarPlanSemanal(){
       // tenía de estas entradas (vuelven a "Calculando…"), se avisa y se ofrece reintentar.
       const universos = {...state.plan.universos};
       const detalle = {...state.plan.detalle};
-      (rows||[]).forEach(r=>{ delete universos[r.id]; delete detalle[r.id]; });
-      setState({plan: {...state.plan, universos, detalle, universoError: e.message || 'error desconocido'}});
+      const propios = {...(state.plan.propios||{})};
+      (rows||[]).forEach(r=>{ delete universos[r.id]; delete detalle[r.id]; delete propios[r.id]; });
+      setState({plan: {...state.plan, universos, detalle, propios, universoError: e.message || 'error desconocido'}});
       toast('No se pudo calcular el SKU a contar del plan. Revisa el aviso en Planificación para reintentar.', 'warn');
     }
   }catch(e){ if(miSecuencia === cargarPlanSemanalSecuencia) toast(e.message,'err'); }
@@ -3134,8 +3264,12 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     if(state.plan.diaFiltro && state.plan.diaFiltro !== fecha){
       setState({plan:{...state.plan, diaFiltro: fecha, semanaInicio: semanaDeFecha}});
     }else if(!state.plan.diaFiltro && !state.plan.cicloFiltro){
-      const finSemanaVista = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), 7));
-      if(fecha < state.plan.semanaInicio || fecha > finSemanaVista) setState({plan:{...state.plan, semanaInicio: semanaDeFecha}});
+      const v = ventanaPlan(state.plan);
+      if(fecha < v.desde || fecha > v.hasta){
+        if(v.modo==='mes') setState({plan:{...state.plan, mesInicio: inicioMes(fecha)}});
+        else if(v.modo==='anio') setState({plan:{...state.plan, anioInicio: fecha.slice(0,4)+'-01-01'}});
+        else setState({plan:{...state.plan, semanaInicio: semanaDeFecha}});
+      }
     }
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
@@ -5409,7 +5543,7 @@ function abrevDiaSemana(iso){
 // que la suma de este ranking calce con el total deduplicado del gráfico por día. Una entrada
 // recién creada cuyo detalle todavía no llegó (universo en "Calculando…") no tiene con qué
 // deduplicar -- se suma tal cual su universo, igual que antes, hasta que el detalle esté listo.
-function resumenPorResponsable(entradas, universos, detalle){
+function resumenPorResponsable(entradas, universos, detalle, propios={}){
   const map = new Map();
   const asignado = new Set();
   entradas.forEach(e=>{
@@ -5422,6 +5556,10 @@ function resumenPorResponsable(entradas, universos, detalle){
         asignado.add(s.id);
         map.set(nombre, map.get(nombre)+1);
       });
+    }else if(propios && propios[e.id]!==undefined){
+      // Vista resumida (sin detalle de SKU): el servidor ya descontó lo cubierto por una entrada
+      // anterior (ver resumenEntradasPlan), misma regla que la deduplicación de arriba.
+      map.set(nombre, map.get(nombre) + (propios[e.id]||0));
     }else{
       map.set(nombre, map.get(nombre) + (universos[e.id]||0));
     }
@@ -7059,19 +7197,22 @@ async function imprimirPlan(){
   // para ese período (todas las semanas), no solo la semana que se esté mirando -- salvo que
   // haya un diaFiltro activo (viniendo de un día puntual del Calendario), que acota a ese día
   // solo, igual que ya hace la pantalla.
-  const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
-  const titulo = p.diaFiltro ? `Plan de conteo — ${fmtFecha(p.diaFiltro)}` : cicloFiltroObj ? `Plan de conteo — ${cicloFiltroObj.nombre}` : 'Plan de conteo semanal';
-  const meta = p.diaFiltro
-    ? `Generado ${new Date().toLocaleString('es-CL')}`
-    : cicloFiltroObj
-    ? `${esc(cicloFiltroObj.nombre)} · Generado ${new Date().toLocaleString('es-CL')}`
-    : `Semana ${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))} · Generado ${new Date().toLocaleString('es-CL')}`;
+  // Misma ventana que la pantalla (Día / Semana / Mes / Año / Período, ver ventanaPlan). A
+  // diferencia de la pantalla, el PDF SIEMPRE trae el listado completo de SKU, también en las
+  // ventanas grandes (a pedido de Joel: "los excesos de SKU quedan reflejados en el pdf").
+  const ventana = ventanaPlan(p);
+  const modo = ventana.modo;
+  const generado = `Generado ${new Date().toLocaleString('es-CL')}`;
+  const titulo = modo==='semana' ? 'Plan de conteo semanal' : `Plan de conteo — ${ventana.etiqueta}`;
+  const meta = modo==='dia' ? generado
+    : modo==='semana' ? `Semana ${ventana.etiqueta} · ${generado}`
+    : `${esc(ventana.etiqueta)} · ${generado}`;
   const entradasVisibles = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
-  const porDia = (p.diaFiltro
+  const porDia = (modo==='dia'
     ? [p.diaFiltro]
-    : p.cicloFiltro
-    ? Array.from(new Set(entradasVisibles.map(e=>e.fecha))).sort()
-    : Array.from({length:8},(_,i)=> fechaISO(sumarDias(inicio,i)))
+    : modo==='semana'
+    ? Array.from({length:8},(_,i)=> fechaISO(sumarDias(inicio,i)))
+    : Array.from(new Set(entradasVisibles.map(e=>e.fecha))).sort()
   ).map(iso=>({
     label: new Date(iso+'T00:00:00').toLocaleDateString('es-CL',{weekday:'long', day:'2-digit', month:'short'}),
     entradas: entradasVisibles.filter(e=>e.fecha===iso),
@@ -7083,7 +7224,7 @@ async function imprimirPlan(){
     document.getElementById('print-plan').innerHTML = `
       <h1>${esc(titulo)}</h1>
       <div class="print-meta">${meta}</div>
-      <p class="print-vacio">No hay conteos planificados${(cicloFiltroObj || p.diaFiltro)?'':' para esta semana'}.</p>
+      <p class="print-vacio">No hay conteos planificados${modo==='semana'?' para esta semana':''}.</p>
     `;
     window.print();
     return;
@@ -7092,11 +7233,14 @@ async function imprimirPlan(){
   const btn = document.getElementById('btn-exportar-plan');
   if(btn){ btn.disabled = true; btn.textContent = 'Generando…'; }
   try{
+    // Una sola llamada para todas las entradas (antes era una por entrada, 375 seguidas con el
+    // período real) -- ver universoEntradasPlanHoja.
+    const hoja = await universoEntradasPlanHoja(porDia.flatMap(d=>d.entradas.map(e=>e.id)));
     let cuerpo = '';
     for(const d of porDia){
       cuerpo += `<h2>${esc(d.label)}</h2>`;
       for(const e of d.entradas){
-        const skus = await skusUniversoEntradaPlan(e.id);
+        const skus = Array.isArray(hoja[e.id]) ? hoja[e.id] : [];
         cuerpo += encabezadoEntradaPlan(e) + tablaSkusEntradaPlan(skus);
       }
     }
@@ -7295,6 +7439,12 @@ function renderPlanificacion(){
   // no cortar la vista justo el domingo y poder ver de una el arranque de la semana próxima.
   const finSemana = sumarDias(inicio,7);
   const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
+  // Ventana activa: Día / Semana / Mes / Año / Período (ver ventanaPlan). Mes, Año y Período son
+  // vistas resumidas: totales por entrada sin listar SKU.
+  const ventana = ventanaPlan(p);
+  const modo = ventana.modo;
+  const resumido = esResumenPlan(p);
+  const propios = p.propios || {};
 
   // Al venir de un día puntual del Calendario (ver cal-ir-plan), diaFiltro acota TODO lo de acá
   // abajo a ese solo día -- a pedido de Joel: "que muestre ese día, no toda la planificación".
@@ -7313,7 +7463,7 @@ function renderPlanificacion(){
         corta: new Date(p.diaFiltro+'T00:00:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short'}),
         entradas: entradasVisibles,
       }]
-    : p.cicloFiltro
+    : modo!=='semana'
     ? Array.from(new Set(entradasVisibles.map(e=>e.fecha))).sort().map(iso=>{
         const d = new Date(iso+'T00:00:00');
         return {
@@ -7343,12 +7493,19 @@ function renderPlanificacion(){
     d.entradas.forEach(e=>{
       const det = p.detalle[e.id];
       if(det) det.forEach(s=>{ if(!vistos.has(s.id)){ vistos.add(s.id); cantidad++; } });
+      else if(propios[e.id]!==undefined) cantidad += propios[e.id]; // vista resumida: ya deduplicado por el servidor
       else cantidad += p.universos[e.id]||0;
     });
     return {dia: d.iso, cantidad};
   });
   const totalSemana = datosPorDia.reduce((s,d)=>s+d.cantidad, 0);
-  const responsablesResumen = resumenPorResponsable(entradasVisibles, p.universos, p.detalle);
+  // En la vista de Año el gráfico va por mes (365 barras de un día no se leen).
+  const datosGrafico = modo==='anio'
+    ? Array.from(datosPorDia.reduce((m,d)=>{ const k = inicioMes(d.dia); m.set(k, (m.get(k)||0)+d.cantidad); return m; }, new Map()), ([dia,cantidad])=>({dia,cantidad}))
+    : datosPorDia;
+  const responsablesResumen = resumenPorResponsable(entradasVisibles, p.universos, p.detalle, propios);
+  const sufijoVentana = {dia:' este día', semana:' en esta semana', mes:' en este mes', anio:' en este año', periodo:''}[modo];
+  const tituloResumen = {dia:'Resumen del día', semana:'Resumen de la semana', mes:'Resumen del mes', anio:'Resumen del año', periodo:'Resumen del período'}[modo];
   // A pedido de Joel: con datos reales, más de la mitad de las entradas planificadas quedaban sin
   // responsable asignado y pasaba desapercibido -- este aviso lo pone al frente en vez de tener
   // que notar cada fila suelta o buscarlo en el ranking de abajo.
@@ -7360,50 +7517,62 @@ function renderPlanificacion(){
   // Con un día puntual activo (desde Calendario), el formulario abre en ESE día -- es lo que se
   // está mirando y lo más probable es que se quiera agregar ahí; además, cambiar esta Fecha
   // navega al día elegido (ver bind()), así que sin límite mínimo de semana en ese modo.
+  // En Mes/Año la ventana es más grande: hoy si cae dentro, si no el primer día de la ventana.
+  // En Período no hay fechas de referencia: hoy.
   const hoyISO = fechaISO(new Date());
   const fechaPlanDefault = p.diaFiltro
     ? p.diaFiltro
-    : (hoyISO >= p.semanaInicio && hoyISO <= fechaISO(finSemana)) ? hoyISO : p.semanaInicio;
+    : !ventana.desde ? hoyISO
+    : (hoyISO >= ventana.desde && hoyISO <= ventana.hasta) ? hoyISO : ventana.desde;
   // El máximo seleccionable debe llegar al menos 7 días después de hoy, no solo hasta el fin
-  // de la semana mostrada — si hoy cae cerca del fin de semana (ej. sábado), antes casi no
-  // dejaba planificar hacia adelante. Si la semana mostrada ya llega más lejos (navegando a
-  // futuro), se respeta ese límite mayor.
+  // de la ventana mostrada — si hoy cae cerca del fin de semana (ej. sábado), antes casi no
+  // dejaba planificar hacia adelante. Si la ventana mostrada ya llega más lejos (navegando a
+  // futuro, o un mes/año entero), se respeta ese límite mayor.
   const hoyMasSieteISO = fechaISO(sumarDias(new Date(hoyISO+'T00:00:00'), 7));
-  const maxFechaPlan = fechaISO(finSemana) > hoyMasSieteISO ? fechaISO(finSemana) : hoyMasSieteISO;
+  const finVentanaISO = ventana.hasta || hoyMasSieteISO;
+  const maxFechaPlan = finVentanaISO > hoyMasSieteISO ? finVentanaISO : hoyMasSieteISO;
+  const minFechaPlan = (modo==='dia' || modo==='periodo') ? null : ventana.desde;
 
   return `
     <div class="section-head">
-      <div><span class="eyebrow">Planificación</span><h2>Semana de conteo</h2></div>
+      <div><span class="eyebrow">Planificación</span><h2>Plan de conteo</h2></div>
       <button class="btn btn-secondary" id="btn-exportar-plan" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${entradasVisibles.length?'':'disabled'}>${ICONS.download} Exportar PDF</button>
     </div>
-    ${p.diaFiltro? `
-    <div class="hint" style="margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span>Viendo solo <strong>${fmtFecha(p.diaFiltro)}</strong> (desde Calendario).</span>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div class="segmented" style="margin:0;flex:1;min-width:230px">
+        ${[['dia','Día'],['semana','Semana'],['mes','Mes'],['anio','Año']].map(([m,t])=>`<button type="button" class="segmented-btn${modo===m?' active':''}" id="plan-modo-${m}" data-plan-modo="${m}">${t}</button>`).join('')}
+      </div>
+      ${state.ciclos.length? `
+      <select id="plan-filtro-ciclo" aria-label="Período" style="width:auto;margin:0;flex:none${modo==='periodo'?';border-color:var(--amber);font-weight:600':''}">
+        <option value="" ${!p.cicloFiltro?'selected':''}>Período…</option>
+        ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${p.cicloFiltro===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
+      </select>
+      ` : ''}
+    </div>
+    ${modo==='dia'? `
+    <div class="hint" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>Viendo solo <strong>${fmtFecha(p.diaFiltro)}</strong>.</span>
       <button type="button" class="link-btn" id="btn-quitar-dia-filtro-plan">Ver toda la semana</button>
     </div>
     ` : ''}
-    ${state.ciclos.length? `
-    <label for="plan-filtro-ciclo" class="hint" style="margin:0 0 4px;display:block">Período</label>
-    <select id="plan-filtro-ciclo" style="margin-bottom:12px">
-      <option value="">Todos los períodos (navegar por semana)</option>
-      ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${p.cicloFiltro===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
-    </select>
-    ` : ''}
-    ${p.cicloFiltro? `
-    <div class="hint" style="margin-bottom:14px">Mostrando toda la planificación de <strong>${esc(cicloFiltroObj? cicloFiltroObj.nombre : '')}</strong>, de todas las semanas.</div>
+    ${modo==='periodo'? `
+    <div class="hint" style="margin-bottom:14px">Mostrando toda la planificación de <strong>${esc(ventana.etiqueta)}</strong>, de todas las semanas.</div>
     ` : `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
-      <button class="btn btn-secondary" id="plan-semana-prev" style="width:auto;padding:8px 12px;flex:none">‹</button>
-      <span class="hint" style="margin:0;text-align:center">${fmtFecha(p.semanaInicio)} – ${fmtFecha(fechaISO(finSemana))}</span>
-      <button class="btn btn-secondary" id="plan-semana-next" style="width:auto;padding:8px 12px;flex:none">›</button>
+      <button class="btn btn-secondary" id="plan-${modo}-prev" aria-label="Anterior" style="width:auto;padding:8px 12px;flex:none">‹</button>
+      <span class="hint" style="margin:0;text-align:center">${esc(ventana.etiqueta)}</span>
+      <button class="btn btn-secondary" id="plan-${modo}-next" aria-label="Siguiente" style="width:auto;padding:8px 12px;flex:none">›</button>
     </div>
     `}
+    ${resumido? `
+    <div class="hint" style="margin-bottom:14px">Vista resumida: totales por entrada, sin listar los SKU. Para verlos o quitar alguno, usa Día o Semana. El PDF trae el listado completo.</div>
+    ` : ''}
 
     ${entradasSinResponsable>0? `
     <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
       <div style="display:flex;align-items:center;gap:10px">
         <span class="badge badge-warn">${entradasSinResponsable}</span>
-        <span>${entradasSinResponsable===1?'entrada planificada no tiene':'entradas planificadas no tienen'} responsable asignado${p.diaFiltro? ' este día' : p.cicloFiltro? '' : ' en esta semana'}.</span>
+        <span>${entradasSinResponsable===1?'entrada planificada no tiene':'entradas planificadas no tienen'} responsable asignado${sufijoVentana}.</span>
       </div>
     </div>
     ` : ''}
@@ -7412,7 +7581,7 @@ function renderPlanificacion(){
       <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
       <form id="form-plan">
         <label for="p-fecha">Fecha</label>
-        <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${p.diaFiltro? '' : `min="${p.semanaInicio}"`} max="${maxFechaPlan}" required>
+        <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${minFechaPlan? `min="${minFechaPlan}"` : ''} max="${maxFechaPlan}" required>
         <label for="p-bodega">Ubicación general</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
@@ -7454,7 +7623,7 @@ function renderPlanificacion(){
     </div>
 
     ${entradasVisibles.length? `
-      <div class="section-head"><h2 style="font-size:15px">${p.diaFiltro? 'Resumen del día' : p.cicloFiltro? 'Resumen del período' : 'Resumen de la semana'}</h2></div>
+      <div class="section-head"><h2 style="font-size:15px">${tituloResumen}</h2></div>
       ${p.universoError? `
       <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -7464,8 +7633,8 @@ function renderPlanificacion(){
       </div>
       ` : ''}
       <div class="card">
-        <div class="hint" style="margin-bottom:8px">SKU a contar por día (${totalSemana} en total)</div>
-        ${renderBarChart(datosPorDia, 'cantidad', 'var(--amber)', p.cicloFiltro? fmtDiaCorto : abrevDiaSemana, true)}
+        <div class="hint" style="margin-bottom:8px">SKU a contar por ${modo==='anio'?'mes':'día'} (${totalSemana} en total)</div>
+        ${renderBarChart(datosGrafico, 'cantidad', 'var(--amber)', modo==='anio'? fmtMesCorto : (modo==='semana'||modo==='dia')? abrevDiaSemana : fmtDiaCorto, true)}
       </div>
       <div class="card">
         <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
@@ -7495,7 +7664,7 @@ function renderPlanificacion(){
     ` : ''}
 
     ${grupos.filter(d=>d.entradas.length).map(d=>`
-      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${(p.cicloFiltro || p.diaFiltro)?'':' · '+d.corta}</h2></div>
+      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${modo==='semana'? ' · '+d.corta : ''}</h2></div>
       <div class="card">
         ${d.entradas.map(e=> p.editando===e.id ? `
           <div class="plan-item" style="flex-direction:column;align-items:stretch;gap:0">
@@ -7523,8 +7692,8 @@ function renderPlanificacion(){
               <div class="plan-item-responsable">Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}</div>
               <div class="plan-item-responsable">Período: ${esc(e.ciclo_nombre || 'Sin período asignado')}</div>
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
-              <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación` : 'Calculando…'}</div>
-              <div class="plan-item-detalle">
+              <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU en esta ubicación${resumido && propios[e.id]!==undefined && propios[e.id]<p.universos[e.id]? ` · ${p.universos[e.id]-propios[e.id]} ya en otra entrada anterior` : ''}` : 'Calculando…'}</div>
+              ${resumido? '' : `<div class="plan-item-detalle">
                 ${!p.detalle[e.id]? 'Cargando SKU…' : (
                   p.detalle[e.id].length? `
                     <ul class="plan-sku-lista">
@@ -7538,7 +7707,7 @@ function renderPlanificacion(){
                     ${p.detalle[e.id].length>50? `<div class="hint" style="margin-top:4px">Mostrando 50 de ${p.detalle[e.id].length}. Usa "Exportar PDF" para ver el listado completo.</div>` : ''}
                   ` : `<div class="hint">Sin SKU activos en esta ubicación.</div>`
                 )}
-              </div>
+              </div>`}
             </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;flex:none">
@@ -9215,25 +9384,20 @@ function bind(){
       setState({plan:{...state.plan, cicloFiltro:e.target.value, diaFiltro:null}});
       cargarPlanSemanal();
     });
-    const btnSemanaPrev = document.getElementById('plan-semana-prev');
-    if(btnSemanaPrev) btnSemanaPrev.addEventListener('click', ()=>{
-      const nueva = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), -7));
-      setState({plan:{...state.plan, semanaInicio:nueva, diaFiltro:null}});
-      cargarPlanSemanal();
+    // Pestañas Día / Semana / Mes / Año y flechas Anterior/Siguiente de la ventana activa (ver
+    // cambiarModoPlan / navegarPlan). Período se elige en el selector de arriba (plan-filtro-ciclo).
+    ['dia','semana','mes','anio'].forEach(m=>{
+      const btnModo = document.getElementById(`plan-modo-${m}`);
+      if(btnModo) btnModo.addEventListener('click', ()=> cambiarModoPlan(m));
+      const btnPrev = document.getElementById(`plan-${m}-prev`);
+      if(btnPrev) btnPrev.addEventListener('click', ()=> navegarPlan(-1));
+      const btnNext = document.getElementById(`plan-${m}-next`);
+      if(btnNext) btnNext.addEventListener('click', ()=> navegarPlan(1));
     });
-    const btnSemanaNext = document.getElementById('plan-semana-next');
-    if(btnSemanaNext) btnSemanaNext.addEventListener('click', ()=>{
-      const nueva = fechaISO(sumarDias(new Date(state.plan.semanaInicio+'T00:00:00'), 7));
-      setState({plan:{...state.plan, semanaInicio:nueva, diaFiltro:null}});
-      cargarPlanSemanal();
-    });
+    // "Ver toda la semana" desde un día puntual: la semana que contiene ese día. Con diaFiltro
+    // activo solo se cargó ese día (ver cargarPlanSemanal), así que recarga.
     const btnQuitarDiaFiltroPlan = document.getElementById('btn-quitar-dia-filtro-plan');
-    if(btnQuitarDiaFiltroPlan) btnQuitarDiaFiltroPlan.addEventListener('click', ()=>{
-      setState({plan:{...state.plan, diaFiltro:null}});
-      // Con diaFiltro activo solo se cargó ese día (ver cargarPlanSemanal) -- al volver a la
-      // semana/período completo hay que pedir el resto.
-      cargarPlanSemanal();
-    });
+    if(btnQuitarDiaFiltroPlan) btnQuitarDiaFiltroPlan.addEventListener('click', ()=> cambiarModoPlan('semana'));
     // Con un día puntual activo, cambiar la Fecha del formulario "Agregar" también navega a ese
     // día -- reportado por Joel: viendo un día desde el Calendario, cambió esta Fecha esperando
     // ver lo planificado para el día nuevo y "no actualizó nada" (la Fecha era solo la de la

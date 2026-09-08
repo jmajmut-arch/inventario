@@ -386,6 +386,27 @@ const fakeFetchImpl = async (url, opts) => {
   // por entrada saturaba el pool de conexiones; el RPC en lote paginado de a 1.000 filas hacía que
   // PostgREST ejecutara la función completa por cada página (4 x 6-19 s en producción con el
   // período completo) y dejaba sin CPU al resto de la app ("351 no funciona bien").
+  // universo_entradas_plan_hoja (Exportar PDF): listado completo por entrada en UNA llamada, con
+  // las columnas de la hoja de conteo.
+  if(path.startsWith('/rest/v1/rpc/universo_entradas_plan_hoja')){
+    const planIds = opts && opts.body ? JSON.parse(opts.body).p_plan_ids : [];
+    const hoja = {};
+    planIds.forEach(id=>{ if((universoEntradaPlanFixture[id]||[]).length) hoja[id] = universoEntradaPlanFixture[id].map(f=>({sku_code:f.sku_code, descripcion:f.descripcion, storage_bin:f.storage_bin, unidad_medida:f.unidad_medida, clase_abc:f.clase_abc, critico:f.critico})); });
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(hoja) };
+  }
+  // resumen_entradas_plan (vistas Mes/Año/Período): por entrada, total de SKU y cuántos NO están
+  // ya en una entrada anterior del mismo conjunto (misma regla de deduplicación por sku.id).
+  if(path.startsWith('/rest/v1/rpc/resumen_entradas_plan')){
+    const planIds = opts && opts.body ? JSON.parse(opts.body).p_plan_ids : [];
+    const vistos = new Set();
+    const filas = planIds.map(id=>{
+      const skus = universoEntradaPlanFixture[id]||[];
+      let propios = 0;
+      skus.forEach(f=>{ if(!vistos.has(f.id)){ vistos.add(f.id); propios++; } });
+      return {plan_id:id, total:skus.length, propios};
+    });
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/rpc/universo_entradas_plan_resumen')){
     const planIds = opts && opts.body ? JSON.parse(opts.body).p_plan_ids : [];
     // Forma real: un solo jsonb { "<plan_id>": [{id, sku_code, descripcion}, ...] }; las entradas
@@ -1937,6 +1958,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printEl.innerHTML.includes('Responsable: Sin asignar'), 'El PDF debe indicar "Sin asignar" para la entrada e2 sin responsable, obtuvo: '+printEl.innerHTML);
   assert(printEl.innerHTML.includes('Revisar merma'), 'El PDF debe incluir la nota de la entrada');
   assert((printEl.innerHTML.match(/print-blank/g)||[]).length===4, 'Debe haber 2 celdas en blanco (cantidad contada + observación) por cada SKU listado, obtuvo: '+printEl.innerHTML);
+  // El PDF pide el listado de TODAS las entradas en una sola llamada (antes una por entrada: 375
+  // seguidas con el período real) y ya no usa el RPC por entrada.
+  const llamadasHoja = calls.filter(c=>c.url.includes('/rpc/universo_entradas_plan_hoja'));
+  assert(llamadasHoja.length===1 && JSON.parse(llamadasHoja[0].opts.body).p_plan_ids.includes('e1') && JSON.parse(llamadasHoja[0].opts.body).p_plan_ids.includes('e2'), 'imprimirPlan debe pedir la hoja de todas las entradas en UNA sola llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!calls.some(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && !c.url.includes('_lote') && c.opts && c.opts.body && c.opts.body.includes('p_plan_id"')), 'imprimirPlan ya no debe pedir el universo entrada por entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // actualizarPlanEntrada debe hacer PATCH con fecha, responsable_id y nota, y limpiar el estado de edición.
   ctx.__appstate.plan.editando = 'e1';
@@ -7710,22 +7736,121 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   btnQuitarDiaFiltro.dispatch('click');
   await new Promise(r=>setTimeout(r, 0));
   assert(ctx.__appstate.plan.diaFiltro===null, 'debe limpiar diaFiltro al volver a la semana completa, obtuvo: '+ctx.__appstate.plan.diaFiltro);
-  // Como con diaFiltro solo se cargó ese día, volver a la vista completa debe recargar (por
-  // período, que sigue preseleccionado) -- si no, la semana/período quedaría con un solo día.
+  // Como con diaFiltro solo se cargó ese día, "Ver toda la semana" debe recargar la SEMANA que
+  // contiene ese día (2026-08-11 -> lunes 2026-08-10), no el período completo: con las pestañas
+  // Día/Semana/Mes/Año (idea de Joel) el botón dice exactamente a dónde vuelve.
   const getPlanTrasQuitar = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
-  assert(!!getPlanTrasQuitar && getPlanTrasQuitar.url.includes('ciclo_id=eq.ciclo-1') && !getPlanTrasQuitar.url.includes('fecha=eq'), 'al quitar el día puntual debe recargarse el período/semana completo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!getPlanTrasQuitar && getPlanTrasQuitar.url.includes('fecha=gte.2026-08-10') && getPlanTrasQuitar.url.includes('fecha=lte.2026-08-17') && !getPlanTrasQuitar.url.includes('ciclo_id') && !getPlanTrasQuitar.url.includes('fecha=eq'), 'al quitar el día puntual debe recargarse la semana de ese día, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.plan.cicloFiltro==='' && ctx.__appstate.plan.semanaInicio==='2026-08-10', '"Ver toda la semana" debe dejar la vista en modo semana (sin período), obtuvo: '+JSON.stringify({cicloFiltro:ctx.__appstate.plan.cicloFiltro, semanaInicio:ctx.__appstate.plan.semanaInicio}));
   await new Promise(r=>setTimeout(r, 20)); // deja terminar su recálculo de fondo antes de seguir
   ctx.__appstate.plan.cicloFiltro = '';
   const htmlPlanSinDiaFiltro = ctx.renderPlanificacion();
   assert(htmlPlanSinDiaFiltro.includes('Interior Nave · A-02') && htmlPlanSinDiaFiltro.includes('Interior Nave · A-01'), 'sin diaFiltro, debe volver a listar ambos días de la semana, obtuvo: '+htmlPlanSinDiaFiltro);
 
-  // Navegar de semana con un diaFiltro activo también lo limpia (ya no aplica a la semana nueva).
+  // Con un día puntual activo, las flechas Anterior/Siguiente mueven de a UN día (pestaña Día),
+  // y no existe la navegación por semana.
   ctx.__appstate.plan.diaFiltro = '2026-08-11';
-  delete elements['plan-semana-next'];
+  const htmlDiaNav = ctx.renderPlanificacion();
+  assert(htmlDiaNav.includes('id="plan-dia-next"') && !htmlDiaNav.includes('id="plan-semana-next"'), 'en modo día deben verse las flechas de día, no las de semana, obtuvo: '+htmlDiaNav);
+  assert(/id="plan-modo-dia"[^>]*/.test(htmlDiaNav) && /class="segmented-btn active" id="plan-modo-dia"/.test(htmlDiaNav), 'la pestaña Día debe verse activa en modo día, obtuvo: '+htmlDiaNav);
+  delete elements['plan-dia-next'];
   ctx.bind();
-  const btnPlanSemanaNextConFiltro = elements['plan-semana-next'];
-  btnPlanSemanaNextConFiltro.dispatch('click');
-  assert(ctx.__appstate.plan.diaFiltro===null, 'navegar a la semana siguiente debe limpiar diaFiltro, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+  calls.length = 0;
+  elements['plan-dia-next'].dispatch('click');
+  await new Promise(r=>setTimeout(r, 0));
+  assert(ctx.__appstate.plan.diaFiltro==='2026-08-12', 'Siguiente en modo día debe pasar al día siguiente, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+  assert(calls.some(c=>c.url.includes('/plan_semanal_detalle?fecha=eq.2026-08-12')), 'al pasar de día debe pedirse solo ese día nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  await new Promise(r=>setTimeout(r, 20));
+
+  // ===== Pestañas Día / Semana / Mes / Año (idea de Joel) =====
+  // Mes y Año son ventanas más grandes que la semana y, como el Período, vistas RESUMIDAS: se
+  // piden las entradas del rango y solo sus totales (resumen_entradas_plan), nunca los SKU, para
+  // que la app no se sature con planificaciones grandes. Día y Semana siguen con el detalle.
+  {
+    const fechaHoyReal = ctx.fechaISO(new Date());
+    ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T1 2027', es_actual:true}, {id:'ciclo-2', nombre:'T4 2026', es_actual:false}];
+    // Mes: desde la semana 2026-08-10 (hoy real cae fuera) -> agosto 2026 completo.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, diaFiltro:null, cicloFiltro:'', rango:'semana', semanaInicio:'2026-08-10', mesInicio:null, anioInicio:null};
+    calls.length = 0;
+    ctx.cambiarModoPlan('mes');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.plan.rango==='mes' && ctx.__appstate.plan.mesInicio==='2026-08-01', 'Mes debe caer sobre el mes de la ventana que se estaba mirando (agosto 2026), obtuvo: '+JSON.stringify({rango:ctx.__appstate.plan.rango, mesInicio:ctx.__appstate.plan.mesInicio}));
+    const getMes = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
+    assert(!!getMes && getMes.url.includes('fecha=gte.2026-08-01') && getMes.url.includes('fecha=lte.2026-08-31'), 'en modo Mes debe pedirse el mes completo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(getMes.opts && getMes.opts.headers && getMes.opts.headers.Range==='0-999', 'las ventanas grandes deben pedir las entradas paginadas con Range (PostgREST corta en 1.000), obtuvo: '+JSON.stringify(getMes.opts && getMes.opts.headers));
+    assert(calls.some(c=>c.url.includes('/rpc/resumen_entradas_plan')) && !calls.some(c=>c.url.includes('/rpc/universo_entradas_plan_resumen')), 'en modo Mes debe pedirse solo el resumen por entrada, nunca el detalle de SKU, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.plan.universos.e1===1 && ctx.__appstate.plan.propios.e1===1 && ctx.__appstate.plan.detalle.e1===undefined, 'en modo Mes deben quedar universos/propios por entrada y ningún detalle, obtuvo: '+JSON.stringify({universos:ctx.__appstate.plan.universos, propios:ctx.__appstate.plan.propios, detalle:Object.keys(ctx.__appstate.plan.detalle)}));
+    const htmlMes = ctx.renderPlanificacion();
+    assert(htmlMes.includes('Resumen del mes') && htmlMes.includes('Vista resumida') && !htmlMes.includes('plan-item-detalle') && !htmlMes.includes('Cargando SKU'), 'la vista Mes debe ser resumida: sin listado de SKU por entrada, obtuvo: '+htmlMes);
+    assert(/class="segmented-btn active" id="plan-modo-mes"/.test(htmlMes) && htmlMes.includes('id="plan-mes-prev"') && htmlMes.includes('id="plan-mes-next"') && !htmlMes.includes('id="plan-semana-prev"'), 'la pestaña Mes debe verse activa con sus flechas de mes, obtuvo: '+htmlMes);
+    assert(/Agosto de 2026/.test(htmlMes), 'la ventana debe mostrar el mes que se está viendo (con mayúscula inicial), obtuvo: '+htmlMes);
+    assert(htmlMes.includes('1 SKU en esta ubicación') && htmlMes.includes('SKU a contar por día (2 en total)'), 'los totales por entrada y por día deben salir del resumen del servidor, obtuvo: '+htmlMes);
+    assert(htmlMes.includes('id="plan-filtro-ciclo"') && htmlMes.includes('T1 2027'), 'el selector de Período debe seguir arriba junto a las pestañas, obtuvo: '+htmlMes);
+
+    // Entrada cuyos SKU ya estaban en una entrada anterior del mismo conjunto: se avisa.
+    ctx.__appstate.plan.universos.e2 = 3; ctx.__appstate.plan.propios.e2 = 1;
+    const htmlSolape = ctx.renderPlanificacion();
+    assert(htmlSolape.includes('3 SKU en esta ubicación · 2 ya en otra entrada anterior'), 'en vista resumida debe indicarse cuántos SKU de la entrada ya están en una entrada anterior, obtuvo: '+htmlSolape);
+    assert(htmlSolape.includes('SKU a contar por día (2 en total)'), 'el total por día debe usar los propios (deduplicados por el servidor), no la suma bruta, obtuvo: '+htmlSolape);
+
+    // Siguiente en Mes: septiembre 2026.
+    delete elements['plan-mes-next'];
+    ctx.bind();
+    calls.length = 0;
+    elements['plan-mes-next'].dispatch('click');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.plan.mesInicio==='2026-09-01' && calls.some(c=>c.url.includes('fecha=gte.2026-09-01') && c.url.includes('fecha=lte.2026-09-30')), 'Siguiente en modo Mes debe pasar al mes siguiente completo, obtuvo: '+JSON.stringify({mesInicio:ctx.__appstate.plan.mesInicio, urls:calls.map(c=>c.url)}));
+
+    // Año: el año de la ventana actual; gráfico por mes.
+    delete elements['plan-modo-anio'];
+    ctx.bind();
+    calls.length = 0;
+    elements['plan-modo-anio'].dispatch('click');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.plan.rango==='anio' && ctx.__appstate.plan.anioInicio==='2026-01-01', 'Año debe caer sobre el año que se estaba mirando, obtuvo: '+JSON.stringify({rango:ctx.__appstate.plan.rango, anioInicio:ctx.__appstate.plan.anioInicio}));
+    assert(calls.some(c=>c.url.includes('fecha=gte.2026-01-01') && c.url.includes('fecha=lte.2026-12-31')) && calls.some(c=>c.url.includes('/rpc/resumen_entradas_plan')), 'en modo Año debe pedirse el año completo, solo con resumen, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const htmlAnio = ctx.renderPlanificacion();
+    assert(htmlAnio.includes('Resumen del año') && htmlAnio.includes('SKU a contar por mes') && htmlAnio.includes('id="plan-anio-next"'), 'la vista Año debe resumir por mes con sus flechas de año, obtuvo: '+htmlAnio);
+
+    // Agregar una entrada para una fecha fuera del mes visible mueve la ventana a ese mes.
+    ctx.cambiarModoPlan('mes');
+    await new Promise(r=>setTimeout(r, 20));
+    ctx.__appstate.plan.mesInicio = '2026-08-01';
+    calls.length = 0;
+    await ctx.crearPlanEntrada({fecha:'2026-09-15', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:[], responsableId:'', nota:''});
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.plan.mesInicio==='2026-09-01', 'agregar para una fecha fuera del mes visible debe mover la vista a ese mes, obtuvo: '+ctx.__appstate.plan.mesInicio);
+
+    // Período desde el selector: vista resumida (sin SKU), pidiendo el ciclo completo.
+    ctx.__appstate.plan.cicloFiltro = 'ciclo-1';
+    calls.length = 0;
+    await ctx.cargarPlanSemanal();
+    await new Promise(r=>setTimeout(r, 20));
+    assert(calls.some(c=>c.url.includes('ciclo_id=eq.ciclo-1')) && calls.some(c=>c.url.includes('/rpc/resumen_entradas_plan')) && !calls.some(c=>c.url.includes('/rpc/universo_entradas_plan_resumen')), 'el Período completo debe ser vista resumida (solo totales), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const htmlPeriodo = ctx.renderPlanificacion();
+    assert(htmlPeriodo.includes('Resumen del período') && !htmlPeriodo.includes('plan-item-detalle') && htmlPeriodo.includes('Vista resumida'), 'la vista Período no debe listar SKU por entrada, obtuvo: '+htmlPeriodo);
+
+    // Volver a Semana con la pestaña: limpia el período y vuelve el detalle de SKU.
+    delete elements['plan-modo-semana'];
+    ctx.bind();
+    calls.length = 0;
+    elements['plan-modo-semana'].dispatch('click');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.plan.cicloFiltro==='' && ctx.__appstate.plan.rango==='semana', 'la pestaña Semana debe salir del período y volver a navegar por semana, obtuvo: '+JSON.stringify({cicloFiltro:ctx.__appstate.plan.cicloFiltro, rango:ctx.__appstate.plan.rango}));
+    assert(calls.some(c=>c.url.includes('fecha=gte')) && calls.some(c=>c.url.includes('/rpc/universo_entradas_plan_resumen')), 'en Semana debe volver a pedirse el detalle de SKU, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(Array.isArray(ctx.__appstate.plan.detalle.e1) && ctx.__appstate.plan.propios.e1===undefined, 'al volver a Semana el detalle vuelve y el resumen del servidor deja de usarse, obtuvo: '+JSON.stringify({detalle:Object.keys(ctx.__appstate.plan.detalle), propios:ctx.__appstate.plan.propios}));
+    ctx.__appstate.plan.semanaInicio = '2026-08-10'; // la semana de las entradas de prueba (e1/e2)
+    const htmlSemanaVuelta = ctx.renderPlanificacion();
+    assert(htmlSemanaVuelta.includes('plan-item-detalle') && htmlSemanaVuelta.includes('Resumen de la semana') && !htmlSemanaVuelta.includes('Vista resumida'), 'en Semana debe verse el detalle de SKU, obtuvo: '+htmlSemanaVuelta);
+    // Día desde la pestaña: hoy si cae en la semana visible, si no el primer día de la ventana.
+    ctx.__appstate.plan.semanaInicio = '2026-08-10';
+    ctx.cambiarModoPlan('dia');
+    await new Promise(r=>setTimeout(r, 20));
+    const esperadoDia = (fechaHoyReal>='2026-08-10' && fechaHoyReal<='2026-08-17') ? fechaHoyReal : '2026-08-10';
+    assert(ctx.__appstate.plan.diaFiltro===esperadoDia, 'la pestaña Día debe abrir en hoy si está en la ventana, si no en el primer día de la ventana, obtuvo: '+ctx.__appstate.plan.diaFiltro);
+    ctx.__appstate.plan = {...ctx.__appstate.plan, diaFiltro:null, cicloFiltro:'', rango:'semana'};
+    await new Promise(r=>setTimeout(r, 20));
+  }
 
   // Navegación de mes: "mes siguiente" pide el mes siguiente y limpia el día elegido (el detalle
   // de un día de otro mes ya no aplica).
