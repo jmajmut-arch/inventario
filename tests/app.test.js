@@ -40,7 +40,9 @@ let gruposMiembroDuplicado = false; // simula el rechazo del índice único al a
 let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de vencidos (ver calcularVistaPreviaPlanGrupo)
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
-let universoZonaGiganteLen = 0; // tamaño simulado del universo de BHUGE/UHUGE (ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO)
+let universoZonaGiganteLen = 0;
+let bodegaRpcFalla = false; // simula sin conexión al registrar un documento de bodega
+let aperturaBodegaHecha = false; // si ya existe un movimiento de apertura (carga masiva con módulo activo) // tamaño simulado del universo de BHUGE/UHUGE (ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
 let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
@@ -934,6 +936,46 @@ const fakeFetchImpl = async (url, opts) => {
       headers: { get: (h) => h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null },
       text: async () => JSON.stringify(filas),
     };
+  }
+  // ===== Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md) =====
+  if(path.startsWith('/rest/v1/proveedores')){
+    if(opts && (opts.method==='POST' || opts.method==='PATCH')) return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'prov-1', nombre:'Proveedor Uno', rut:'76.000.000-1', activo:true}]) };
+  }
+  if(path.startsWith('/rest/v1/personas_retiro')){
+    if(opts && (opts.method==='POST' || opts.method==='PATCH')) return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'per-1', nombre:'Juan Retira', area:'Mantención', activo:true}]) };
+  }
+  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida&or=')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Central', ubicacion:'0100', storage_bin:'R-1', batch:null, stock_sistema:3, unidad_medida:'UN'}]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/registrar_documento_bodega')){
+    const body = JSON.parse(opts.body);
+    if(bodegaRpcFalla) throw new ctx.__TypeError('Failed to fetch');
+    const numero = body.p_tipo==='ingreso' ? 'ING-000007' : 'SAL-000003';
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({documento:{id:'doc-1', numero, tipo:body.p_tipo}, movimientos: body.p_lineas.map((l,i)=>({id:'mov-'+i, estado: (body.p_tipo==='salida' && l.saldo_local!=null && l.cantidad>l.saldo_local) ? 'pendiente_revision' : 'aprobado'})), repetido:false}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega') || path.startsWith('/rest/v1/rpc/registrar_apertura_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=> path.includes('apertura') ? '12' : '' };
+  }
+  if(path.startsWith('/rest/v1/movimiento_fotos')){
+    if(opts && opts.method==='POST') return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{documento_id:'doc-1', tipo:'guia', foto_url:'emp-1/bodega/doc-1/guia-0.jpg'}]) };
+  }
+  if(path.startsWith('/rest/v1/movimientos_bodega_pendientes')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'mov-p1', numero:'SAL-000002', tipo:'salida', sku_code:'BOD-001', cantidad:9, unidad_medida:'UN', estado:'pendiente_revision', saldo_local:10}]) };
+  }
+  if(path.startsWith('/rest/v1/movimientos_bodega_detalle')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'mov-1', documento_id:'doc-1', numero:'ING-000007', tipo:'ingreso', sku_code:'BOD-001', descripcion:'Filtro', cantidad:5, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08', proveedor_nombre:'Proveedor Uno', numero_guia:'GD-100', numero_oc:'OC-1'},
+      {id:'mov-2', documento_id:'doc-2', numero:'SAL-000003', tipo:'salida', sku_code:'BOD-001', descripcion:'Filtro', cantidad:2, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08', retirado_por_nombre:'Juan Retira', destino:'Taller', despachado_por_nombre:'Ana'},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/movimientos_bodega?')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(aperturaBodegaHecha ? [{id:'mov-ap'}] : []) };
+  }
+  if(path.startsWith('/rest/v1/stock_actual')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, valor:6000}]) };
   }
   // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
   // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
@@ -6228,6 +6270,127 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.elegirSemanaReconteo(null);
     await new Promise(r=>setTimeout(r, 20));
     assert(ctx.__appstate.reconteoSemana===null, 'Ver todas las semanas debe limpiar la semana elegida, obtuvo: '+ctx.__appstate.reconteoSemana);
+  }
+
+  // ===== Módulo de bodega, fase 1 (ver docs/DISENO-MODULO-BODEGA.md): inicio con 4 opciones solo
+  // con el módulo activo; Ingreso y Salida por RPC; salida bloqueada sin stock; cola sin conexión;
+  // pendientes para el admin; interruptor en súper admin; listas en Configuraciones. =====
+  {
+    const perfilBase = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', modulo_bodega_habilitado:false, planes:{nombre:'profesional', etiqueta:'Profesional', max_bodegas:null, max_usuarios:15, offline_habilitado:true, dashboard_ejecutivo_habilitado:true, auditoria_habilitada:true}} };
+    // Sin el módulo: nada cambia.
+    ctx.__appstate.perfil = JSON.parse(JSON.stringify(perfilBase));
+    ctx.__appstate.view = 'dashboard';
+    assert(ctx.vistaInicialParaPerfil()==='dashboard', 'sin módulo de bodega la vista inicial sigue siendo Dashboard, obtuvo: '+ctx.vistaInicialParaPerfil());
+    const shellSinModulo = ctx.renderShell();
+    assert(!shellSinModulo.includes('id="btn-ir-inicio"') && shellSinModulo.includes('data-tab="reconteo"'), 'sin el módulo no debe aparecer el botón Inicio y la barra es la de siempre, obtuvo: '+shellSinModulo.slice(0,400));
+    // Con el módulo: inicio con Ingreso, Salida, Inventario y Dashboard.
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
+    assert(ctx.vistaInicialParaPerfil()==='inicio', 'con el módulo activo se entra al Inicio, obtuvo: '+ctx.vistaInicialParaPerfil());
+    ctx.__appstate.bodega.pendientes = [{id:'mov-p1'}];
+    const htmlInicio = ctx.renderInicio();
+    ['ingreso','salida','conteo','dashboard'].forEach(v=> assert(htmlInicio.includes(`data-ir-vista="${v}"`), 'el Inicio debe ofrecer '+v+', obtuvo: '+htmlInicio));
+    assert(htmlInicio.includes('1 pendiente'), 'el admin ve los pendientes de aprobación en el Inicio, obtuvo: '+htmlInicio);
+    ctx.__appstate.perfil.rol = 'operador';
+    assert(!ctx.renderInicio().includes('data-ir-vista="dashboard"'), 'un operador no ve Dashboard en el Inicio');
+    ctx.__appstate.perfil.rol = 'admin';
+    ctx.__appstate.view = 'inicio';
+    const shellBodega = ctx.renderShell();
+    assert(shellBodega.includes('data-tab="ingreso"') && shellBodega.includes('data-tab="stock"') && !shellBodega.includes('data-tab="reconteo"'), 'en las vistas de bodega la barra es Inicio/Ingreso/Salida/Movimientos/Stock, obtuvo: '+shellBodega.slice(-900));
+    ctx.__appstate.view = 'conteo';
+    assert(ctx.renderShell().includes('id="btn-ir-inicio"'), 'dentro de Inventario aparece el botón para volver al Inicio');
+
+    // Buscar un SKU y agregarlo a una salida: no deja pasar más que el stock.
+    ctx.__appstate.view = 'salida';
+    await ctx.cargarListasBodega();
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    await ctx.buscarSkuBodega('BOD');
+    assert(ctx.__appstate.bodega.busqueda.resultados.length===1 && ctx.__appstate.bodega.busqueda.resultados[0].sku_code==='BOD-001', 'el buscador de bodega debe traer el SKU del servidor, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.busqueda));
+    const sku = ctx.__appstate.bodega.busqueda.resultados[0];
+    assert(ctx.agregarLineaBodega(sku, 5)===false && ctx.__appstate.bodega.doc.lineas.length===0, 'una salida por más del stock (5 > 3) se bloquea');
+    assert(ctx.agregarLineaBodega(sku, 2)===true && ctx.__appstate.bodega.doc.lineas.length===1 && ctx.__appstate.bodega.doc.lineas[0].cantidad===2, 'una salida dentro del stock se agrega como línea, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc.lineas));
+    let htmlSalida = ''; try{ htmlSalida = ctx.renderDocumentoBodega('salida'); }catch(e){ htmlSalida = 'ERROR: '+e.message; }
+    assert(htmlSalida.includes('id="bd-retira"') && htmlSalida.includes('Juan Retira') && htmlSalida.includes('id="bd-despacha"') && htmlSalida.includes('BOD-001'), 'Salida pide quién retira (lista), quién despacha y muestra las líneas, obtuvo: '+htmlSalida);
+    // Guardar la salida: RPC con las líneas y quién retira.
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('salida');
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_documento_bodega')), 'sin quién retira no debe llamar al RPC');
+    ctx.__appstate.bodega.doc.retiradoPorId = 'per-1'; ctx.__appstate.bodega.doc.destino = 'Taller';
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('salida');
+    const rpcSalida = calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega'));
+    const bodySalida = rpcSalida && JSON.parse(rpcSalida.opts.body);
+    assert(bodySalida && bodySalida.p_tipo==='salida' && bodySalida.p_retirado_por_id==='per-1' && bodySalida.p_destino==='Taller' && bodySalida.p_lineas.length===1 && bodySalida.p_lineas[0].sku_id==='sku-b1' && bodySalida.p_lineas[0].cantidad===2 && typeof bodySalida.p_idempotency_key==='string', 'la salida se registra por RPC con líneas, quién retira, destino y clave de idempotencia, obtuvo: '+JSON.stringify(bodySalida));
+    assert(ctx.__appstate.bodega.doc.lineas.length===0 && ctx.__appstate.bodega.ultimoDocumento && ctx.__appstate.bodega.ultimoDocumento.numero==='SAL-000003', 'tras guardar, el formulario queda limpio y se muestra el número del documento, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.ultimoDocumento));
+
+    // Ingreso: guía y foto de la guía obligatorias; sube la foto y la asocia al documento.
+    ctx.__appstate.view = 'ingreso';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    ctx.agregarLineaBodega(sku, 5);
+    ctx.__appstate.bodega.doc.proveedorId = 'prov-1'; ctx.__appstate.bodega.doc.numeroOc = 'OC-9';
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_documento_bodega')), 'sin guía no debe registrar el ingreso');
+    ctx.__appstate.bodega.doc.numeroGuia = 'GD-100';
+    ctx.__appstate.bodega.doc.fotoGuia = {file:{name:'guia.jpg', type:'image/jpeg', size:100}, preview:'data:', preparando:false};
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    const rpcIngreso = calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega'));
+    const bodyIngreso = rpcIngreso && JSON.parse(rpcIngreso.opts.body);
+    assert(bodyIngreso && bodyIngreso.p_tipo==='ingreso' && bodyIngreso.p_numero_guia==='GD-100' && bodyIngreso.p_numero_oc==='OC-9' && bodyIngreso.p_proveedor_id==='prov-1', 'el ingreso se registra con guía, OC y proveedor, obtuvo: '+JSON.stringify(bodyIngreso));
+    const subida = calls.find(c=>c.url.includes('/storage/v1/object/') && c.url.includes('/emp-1/bodega/doc-1/guia-0.jpg'));
+    const fotosPost = calls.find(c=>c.url.includes('/movimiento_fotos') && c.opts && c.opts.method==='POST');
+    assert(!!subida && !!fotosPost && JSON.parse(fotosPost.opts.body)[0].tipo==='guia' && JSON.parse(fotosPost.opts.body)[0].documento_id==='doc-1', 'la foto de la guía se sube a la carpeta de la empresa y se asocia al documento, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+    // Sin conexión: el documento va a la cola con el saldo visto (saldo_local) y se sincroniza por RPC con la misma clave.
+    ctx.__appstate.view = 'salida';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    ctx.agregarLineaBodega(sku, 1);
+    ctx.__appstate.bodega.doc.retiradoPorId = 'per-1';
+    ctx.guardarColaOffline([]);
+    bodegaRpcFalla = true;
+    await ctx.registrarDocumentoBodega('salida');
+    bodegaRpcFalla = false;
+    const cola = ctx.leerColaOffline();
+    assert(cola.length===1 && cola[0].tipo==='documento_bodega' && cola[0].payload.p_lineas[0].saldo_local===3 && cola[0].idempotency_key, 'sin conexión la salida queda en la cola con el saldo visto, obtuvo: '+JSON.stringify(cola));
+    calls.length = 0;
+    const resultadoSync = await ctx.procesarUnItemOffline(cola[0]);
+    const rpcSync = calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega'));
+    assert(resultadoSync.ok && rpcSync && JSON.parse(rpcSync.opts.body).p_idempotency_key===cola[0].idempotency_key && JSON.parse(rpcSync.opts.body).p_capturado_en, 'al sincronizar se registra por RPC con la misma clave y la hora real de captura, obtuvo: '+JSON.stringify(rpcSync && rpcSync.opts.body));
+    ctx.guardarColaOffline([]);
+
+    // Movimientos: lista, pendientes con Aprobar/Rechazar (admin) y Anular por documento.
+    ctx.__appstate.view = 'movimientos';
+    await ctx.cargarMovimientosBodega(); await ctx.cargarPendientesBodega();
+    const htmlMov = ctx.renderMovimientosBodega();
+    assert(htmlMov.includes('ING-000007') && htmlMov.includes('GD GD-100') && htmlMov.includes('Retira Juan Retira') && htmlMov.includes('data-anular-doc="doc-1"'), 'Movimientos lista ingresos y salidas con su detalle y permite anular, obtuvo: '+htmlMov);
+    assert(htmlMov.includes('data-aprobar-mov="mov-p1"') && htmlMov.includes('data-rechazar-mov="mov-p1"') && htmlMov.includes('Registrado sin conexión'), 'el admin ve los pendientes con Aprobar y Rechazar, obtuvo: '+htmlMov);
+    assert(htmlMov.includes('data-ver-fotos='), 'las fotos del documento se pueden ver desde la lista');
+    calls.length = 0;
+    await ctx.resolverMovimientoBodega('mov-p1', true);
+    const rpcResolver = calls.find(c=>c.url.includes('/rpc/resolver_movimiento_bodega'));
+    assert(rpcResolver && JSON.parse(rpcResolver.opts.body).p_aprobar===true, 'aprobar llama al RPC resolver_movimiento_bodega, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+    // Stock actual.
+    ctx.__appstate.view = 'stock';
+    await ctx.cargarStockBodega();
+    const htmlStock = ctx.renderStockBodega();
+    assert(htmlStock.includes('BOD-001') && htmlStock.includes('R-1') && htmlStock.includes('$6.000'), 'Stock muestra SKU, bin, cantidad y valor, obtuvo: '+htmlStock);
+
+    // Configuraciones: listas del admin solo con el módulo activo. Súper admin: interruptor por empresa.
+    ctx.__appstate.view = 'config';
+    await ctx.cargarListasBodega();
+    const htmlConfig = ctx.renderConfiguraciones();
+    assert(htmlConfig.includes('data-tabla="proveedores"') && htmlConfig.includes('data-tabla="personas_retiro"') && htmlConfig.includes('Proveedor Uno'), 'Configuraciones muestra Proveedores y Personas que retiran, obtuvo: '+htmlConfig.slice(0,600));
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
+    assert(!ctx.renderConfiguraciones().includes('data-tabla="proveedores"'), 'sin el módulo no aparecen las listas de bodega');
+    ctx.__appstate.perfil.es_super_admin = true;
+    ctx.__appstate.superadmin = {...ctx.__appstate.superadmin, cargado:true, empresas:[{id:'emp-x', nombre:'Bodega SpA', activo:true, plan_id:'p1', modulo_bodega_habilitado:true}], planes:[{id:'p1', etiqueta:'Básico'}], resumen:[], leads:[], personas:[]};
+    const htmlSa = ctx.renderSuperAdmin();
+    assert(htmlSa.includes('class="sa-empresa-bodega" data-empresa-id="emp-x" checked'), 'el súper admin tiene el interruptor Bodega por empresa, obtuvo: '+htmlSa.slice(0,800));
+    ctx.__appstate.perfil.es_super_admin = false;
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.bodega = ctx.bodegaEstadoInicial();
+    ctx.__appstate.view = 'dashboard';
   }
 
   // ===== Reconteo: buscador por código o descripción (pedido de Joel: "para que sea más fácil

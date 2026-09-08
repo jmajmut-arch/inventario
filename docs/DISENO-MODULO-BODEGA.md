@@ -230,19 +230,28 @@ registrar una salida (necesita saber si alcanza). Es una excepción consciente y
 
 ## 6. Pantallas
 
-- **Pestaña Bodega** (barra inferior, solo con el módulo activo), con cuatro vistas:
-  - **Ingreso**: formulario de documento con líneas, escáner, fotos, proveedor, guía, OC.
-  - **Salida**: formulario con líneas, quién despacha, quién retira, destino.
-  - **Movimientos**: lista con filtros (tipo, fecha, SKU, proveedor, persona), estado, botones
-    de aprobar, rechazar y anular para el admin, comprobante PDF, exportar Excel. Arriba, la
-    tarjeta **Pendientes** con lo que espera aprobación o revisión.
-  - **Stock**: SOH por SKU, batch y bin, buscador, exportar Excel.
+Acordado con Joel: en vez de una pestaña más en la barra, una **pantalla de inicio** después del
+login, solo para empresas con el módulo de bodega activo. Las empresas que solo cuentan entran
+como hoy, sin un toque extra.
+
+- **Inicio** con cuatro opciones grandes: **Ingreso**, **Salida**, **Inventario** y
+  **Dashboard**. Los operadores ven las tres primeras; Dashboard según plan y rol, como hoy el
+  Ejecutivo. Buscar y Configuraciones siguen arriba a la derecha en todas las pantallas.
+- **Ingreso**: directo al formulario de documento con líneas, escáner, fotos, proveedor, guía,
+  OC. Ícono de Inicio arriba para volver.
+- **Salida**: directo al formulario con líneas, quién despacha, quién retira, destino.
+- **Inventario**: abre lo que existe hoy tal cual, con su barra de abajo (Carga, Períodos,
+  Grupos, Plan, Contar, Reconteo) e ícono de Inicio para volver.
+- **Dashboard**: pasa a ser de la empresa completa. Arriba, sección **Bodega**: ingresos y
+  salidas del período, stock valorizado, pendientes de aprobación con acceso a
+  **Movimientos** (lista con filtros, aprobar, rechazar, anular, comprobante PDF, exportar
+  Excel) y a **Stock** (SOH por SKU, batch y bin). Abajo, la sección de Inventario que ya
+  existe (avance, exactitud, valorización de diferencias).
 - **Buscar**: en la ficha del SKU, la pestaña **Kardex**.
 - **Reconteo**: botón **Ajustar stock** (admin) en cada material con diferencia confirmada.
 - **Carga**: aviso de apertura en la primera carga y de "solo maestros" en las siguientes.
 - **Configuraciones**: tarjetas **Proveedores** y **Personas que retiran**.
 - **Súper admin**: interruptor **Módulo de bodega** en la ficha de cada empresa.
-- **Dashboard**: tarjeta **Bodega** con ingresos, salidas y pendientes del período.
 
 ## 7. Conexión con el módulo de inventario
 

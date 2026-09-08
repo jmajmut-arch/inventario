@@ -489,6 +489,7 @@ let state = {
   // no duplicar trabajo si dos personas cuentan lo mismo sin saberlo (a pedido de Joel).
   conteoVecesPeriodo: null,
   conteoFotos: [],       // [{file, preview, bytesOriginal}] -- file ya comprimido en el dispositivo (ver comprimirFoto)
+  bodega: bodegaEstadoInicial(), // módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md)
   comprimiendoFotos: null, // progreso de "Comprimir fotos existentes" (Configuraciones): {total, hechas, comprimidas, ahorroBytes, errores, cancelar}
   // true cuando guardarConteo lleva más de UMBRAL_GUARDADO_LENTO_MS esperando la respuesta del
   // servidor (señal mala en bodega/mina) -- muestra la barra de "esto está tardando" además del
@@ -729,7 +730,28 @@ const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos', 'grupos'];
 // main.ancho) -- las VISTAS_SOLO_ADMIN de arriba, más Configuraciones (equipo, panel de
 // súper-admin), a diferencia de Contar/Reconteo/Buscar que se usan sobre todo desde el celular
 // en terreno y quedan angostas a propósito.
-const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario'];
+const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario', 'movimientos', 'stock'];
+// Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md): se activa por empresa desde súper admin.
+// Con el módulo activo la app entra a una pantalla de inicio con Ingreso, Salida, Inventario y
+// Dashboard; sin él, nada cambia respecto de antes.
+const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock'];
+function moduloBodegaActivo(){
+  return !!(state.perfil && state.perfil.empresas && state.perfil.empresas.modulo_bodega_habilitado);
+}
+function bodegaEstadoInicial(){
+  return {
+    proveedores: [], personas: [], listasCargadas: false,
+    doc: documentoBodegaVacio(),
+    busqueda: { texto:'', resultados:[], buscando:false },
+    movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
+    pendientes: [], pendientesCargados: false,
+    stock: [], stockTexto: '', stockCargado: false,
+    guardando: false, ultimoDocumento: null,
+  };
+}
+function documentoBodegaVacio(){
+  return { lineas: [], proveedorId:'', numeroOc:'', numeroGuia:'', retiradoPorId:'', despachadoPorId:'', destino:'', observacion:'', fotoGuia:null, fotosMaterial:[] };
+}
 function vistaBloqueadaParaRol(view){
   if(!VISTAS_SOLO_ADMIN.includes(view)) return false;
   if(!state.perfil) return false;
@@ -738,6 +760,7 @@ function vistaBloqueadaParaRol(view){
 // A dónde entrar apenas se inicia sesión: Dashboard es la vista por defecto, pero un operador no
 // tiene acceso (ver VISTAS_SOLO_ADMIN) — no tiene sentido dejarlo ahí, arranca directo en Contar.
 function vistaInicialParaPerfil(){
+  if(moduloBodegaActivo()) return 'inicio';
   return vistaBloqueadaParaRol('dashboard') ? 'conteo' : 'dashboard';
 }
 
@@ -1178,7 +1201,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,modulo_bodega_habilitado,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -1546,7 +1569,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1597,6 +1620,12 @@ const CARGAS_POR_VISTA = {
   skus: ['skusPagina', 'opcionesSku', 'generales'],
   reconteo: ['reconteos'],
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
+  inicio: ['bodegaPendientes'],
+  ingreso: ['bodegaListas', 'responsables'],
+  salida: ['bodegaListas', 'responsables'],
+  movimientos: ['bodegaMovimientos', 'bodegaPendientes'],
+  stock: ['bodegaStock'],
+  config: ['bodegaListas'],
 };
 const CARGADORES = {
   dashboard: ()=> Promise.all([cargarDashboard(), cargarResumenGeneralSkus()]),
@@ -1605,6 +1634,10 @@ const CARGADORES = {
   generales: ()=> cargarOpcionesGenerales(),
   sinUbicacion: ()=> cargarConteoSinUbicacion(),
   responsables: ()=> cargarResponsables(),
+  bodegaListas: ()=> cargarListasBodega(),
+  bodegaMovimientos: ()=> cargarMovimientosBodega(),
+  bodegaPendientes: ()=> cargarPendientesBodega(),
+  bodegaStock: ()=> cargarStockBodega(),
   reconteos: ()=> cargarReconteos(),
   plan: ()=> refrescarPlanSiCorresponde(),
 };
@@ -3317,7 +3350,7 @@ function ocultarStockOperador(){
 // cargarEquipo/cargarAuditoria/cargarPlanDeHoy).
 async function cargarEmpresasSuperAdmin(){
   try{
-    const filas = await rest('/empresas?select=id,nombre,activo,plan_id,planes(nombre,etiqueta)&order=nombre.asc');
+    const filas = await rest('/empresas?select=id,nombre,activo,plan_id,modulo_bodega_habilitado,planes(nombre,etiqueta)&order=nombre.asc');
     state.superadmin.empresas = filas || [];
     render();
     return true;
@@ -4953,6 +4986,196 @@ async function descartarReconteo(){
 }
 
 /* =======================================================================
+   MÓDULO DE BODEGA — datos (ver docs/DISENO-MODULO-BODEGA.md)
+   ======================================================================= */
+async function cargarListasBodega(){
+  if(!moduloBodegaActivo()) return;
+  try{
+    const [proveedores, personas] = await Promise.all([
+      rest('/proveedores?select=id,nombre,rut,activo&order=nombre.asc'),
+      rest('/personas_retiro?select=id,nombre,area,activo&order=nombre.asc'),
+    ]);
+    setState({bodega: {...state.bodega, proveedores: proveedores||[], personas: personas||[], listasCargadas:true}});
+  }catch(e){ /* silencioso: las listas se reintentan al volver a la vista */ }
+}
+
+async function cargarMovimientosBodega(){
+  try{
+    const filtro = state.bodega.filtroTipo ? `&tipo=eq.${encodeURIComponent(state.bodega.filtroTipo)}` : '';
+    const rows = await rest(`/movimientos_bodega_detalle?select=*&order=created_at.desc&limit=200${filtro}`) || [];
+    // Fotos por documento en una sola consulta (comprobante y visor).
+    const ids = [...new Set(rows.map(r=>r.documento_id).filter(Boolean))];
+    const fotos = ids.length ? (await rest(`/movimiento_fotos?select=documento_id,tipo,foto_url&documento_id=in.(${ids.join(',')})&order=created_at.asc`).catch(()=>[])) || [] : [];
+    const fotosPorDocumento = {};
+    for(const f of fotos){ (fotosPorDocumento[f.documento_id] = fotosPorDocumento[f.documento_id] || []).push(f); }
+    setState({bodega: {...state.bodega, movimientos: rows, movimientosCargados:true, fotosPorDocumento}});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function cargarPendientesBodega(){
+  if(!(state.perfil && state.perfil.rol==='admin')) return;
+  try{
+    const rows = await rest('/movimientos_bodega_pendientes?select=*&order=created_at.asc') || [];
+    setState({bodega: {...state.bodega, pendientes: rows, pendientesCargados:true}});
+  }catch(e){ /* silencioso */ }
+}
+
+async function cargarStockBodega(){
+  try{
+    const t = sanearTextoFiltro(state.bodega.stockTexto);
+    const filtro = t ? `&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*,storage_bin.ilike.*${encodeURIComponent(t)}*)` : '';
+    const rows = await rest(`/stock_actual?select=*&order=sku_code.asc&limit=300${filtro}`) || [];
+    setState({bodega: {...state.bodega, stock: rows, stockCargado:true}});
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Buscador de SKU para una línea de ingreso o salida: mismo criterio parcial que Contar, en el
+// servidor. Trae el stock actual para validar la salida antes de mandarla.
+let bodegaBusquedaSecuencia = 0;
+async function buscarSkuBodega(texto){
+  const t = sanearTextoFiltro(texto);
+  const seq = ++bodegaBusquedaSecuencia;
+  state.bodega.busqueda = {texto, resultados: t.length>=2 ? state.bodega.busqueda.resultados : [], buscando: t.length>=2};
+  render();
+  if(t.length<2) return;
+  try{
+    const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
+    if(seq!==bodegaBusquedaSecuencia) return;
+    state.bodega.busqueda = {texto, resultados: rows, buscando:false};
+    render();
+  }catch(e){ if(seq===bodegaBusquedaSecuencia){ state.bodega.busqueda.buscando=false; render(); } }
+}
+
+function agregarLineaBodega(sku, cantidad){
+  const n = Number(cantidad);
+  if(!sku || !(n>0)){ toast('Indica una cantidad mayor a 0','err'); return false; }
+  if(state.view==='salida' && sku.stock_sistema!=null && n > Number(sku.stock_sistema)){
+    toast(`Stock insuficiente: hay ${sku.stock_sistema} de ${sku.sku_code}. Si el material está físicamente, cuéntalo primero para ajustar el stock.`,'err');
+    return false;
+  }
+  const lineas = state.bodega.doc.lineas.filter(l=>l.sku_id!==sku.id);
+  lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema});
+  state.bodega.doc.lineas = lineas;
+  state.bodega.busqueda = {texto:'', resultados:[], buscando:false};
+  render();
+  return true;
+}
+
+function quitarLineaBodega(skuId){
+  state.bodega.doc.lineas = state.bodega.doc.lineas.filter(l=>l.sku_id!==skuId);
+  render();
+}
+
+// Guarda el documento (ingreso o salida). Con conexión: RPC registrar_documento_bodega y luego
+// las fotos. Sin conexión: a la cola sin conexión con las fotos en IndexedDB, igual que un conteo.
+async function registrarDocumentoBodega(tipo){
+  const d = state.bodega.doc;
+  if(!perfilCargado()) return;
+  if(!d.lineas.length){ toast('Agrega al menos un material','err'); return; }
+  if(tipo==='ingreso' && !d.numeroGuia.trim()){ toast('La guía de despacho es obligatoria','err'); return; }
+  if(tipo==='ingreso' && !d.fotoGuia){ toast('Toma la foto de la guía de despacho','err'); return; }
+  if(tipo==='salida' && !d.retiradoPorId){ toast('Indica quién retira','err'); return; }
+  await esperarFotosEnProceso();
+  const idempotencyKey = crypto.randomUUID();
+  const payload = {
+    p_tipo: tipo, p_lineas: d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad})), p_fecha: fechaISO(new Date()),
+    p_proveedor_id: d.proveedorId||null, p_numero_oc: d.numeroOc.trim()||null, p_numero_guia: d.numeroGuia.trim()||null,
+    p_retirado_por_id: d.retiradoPorId||null, p_despachado_por_id: d.despachadoPorId||null, p_destino: d.destino.trim()||null,
+    p_observacion: d.observacion.trim()||null, p_idempotency_key: idempotencyKey,
+  };
+  const fotos = [d.fotoGuia ? {tipo:'guia', file:d.fotoGuia.file} : null, ...d.fotosMaterial.map(f=>({tipo:'material', file:f.file}))].filter(Boolean);
+  setState({bodega: {...state.bodega, guardando:true}});
+  try{
+    const res = await rest('/rpc/registrar_documento_bodega', {method:'POST', body: payload, timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
+    const doc = res && res.documento;
+    if(doc && fotos.length) await subirFotosDocumentoBodega(doc.id, fotos);
+    const pendientes = (res && res.movimientos || []).filter(m=>m.estado!=='aprobado').length;
+    state.bodega.doc = documentoBodegaVacio();
+    state.bodega.ultimoDocumento = doc;
+    state.bodega.movimientosCargados = false; state.bodega.stockCargado = false; state.bodega.pendientesCargados = false;
+    invalidarCacheAgregados(['generales','sinUbicacion']);
+    setState({bodega: {...state.bodega, guardando:false}});
+    toast(pendientes ? `${doc.numero} guardado; ${pendientes} línea${pendientes===1?'':'s'} queda${pendientes===1?'':'n'} pendiente${pendientes===1?'':'s'} de revisión` : `${doc.numero} guardado`);
+  }catch(e){
+    if(pareceFalloDeRed(e) && planIncluye('offline_habilitado')){
+      // Sin conexión: se guarda con el saldo que se ve ahora (saldo_local) para que el servidor
+      // decida al sincronizar (caso C del diseño). Las fotos van a IndexedDB.
+      payload.p_lineas = d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, saldo_local: l.stock_sistema!=null ? Number(l.stock_sistema) : null}));
+      const item = encolarAccionOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Ingreso':'Salida'} de ${d.lineas.length} material${d.lineas.length===1?'':'es'}`, idempotency_key: idempotencyKey});
+      try{ await guardarFotosOffline(item.id, fotos.map(f=> new File([f.file], `${f.tipo}-${f.file.name||'foto.jpg'}`, {type: f.file.type||'image/jpeg'}))); }catch(err){ /* sin IndexedDB: se guarda sin fotos */ }
+      state.bodega.doc = documentoBodegaVacio();
+      setState({bodega: {...state.bodega, guardando:false}});
+      toast('Sin conexión: el documento quedó guardado y se sincroniza solo cuando vuelva la señal', 'warn');
+      return;
+    }
+    setState({bodega: {...state.bodega, guardando:false}});
+    toast(e.message,'err');
+  }
+}
+
+async function subirFotosDocumentoBodega(documentoId, fotos){
+  const filas = [];
+  for(let i=0;i<fotos.length;i++){
+    const f = fotos[i];
+    const ext = ((f.file.name||'').split('.').pop()||'jpg').toLowerCase();
+    const ruta = `${state.perfil.empresa_id}/bodega/${documentoId}/${f.tipo}-${i}.${ext}`;
+    filas.push({documento_id: documentoId, empresa_id: state.perfil.empresa_id, tipo: f.tipo, foto_url: await storageUpload(ruta, f.file)});
+  }
+  if(filas.length) await rest('/movimiento_fotos', {method:'POST', body: filas, prefer:'return=minimal'});
+}
+
+async function anularDocumentoBodega(documentoId, numero){
+  const motivo = prompt(`Motivo para anular ${numero}:`);
+  if(motivo===null) return;
+  if(!motivo.trim()){ toast('Indica el motivo','err'); return; }
+  try{
+    await rest('/rpc/anular_documento_bodega', {method:'POST', body:{p_documento_id: documentoId, p_motivo: motivo.trim()}});
+    toast(`${numero} anulado`);
+    state.bodega.stockCargado = false;
+    await cargarMovimientosBodega();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function resolverMovimientoBodega(movimientoId, aprobar){
+  let motivo = null;
+  if(!aprobar){ motivo = prompt('Motivo del rechazo:'); if(motivo===null) return; if(!motivo.trim()){ toast('Indica el motivo','err'); return; } }
+  try{
+    await rest('/rpc/resolver_movimiento_bodega', {method:'POST', body:{p_movimiento_id: movimientoId, p_aprobar: !!aprobar, p_motivo: motivo}});
+    toast(aprobar ? 'Movimiento aprobado' : 'Movimiento rechazado');
+    state.bodega.stockCargado = false; state.bodega.movimientosCargados = false;
+    await cargarPendientesBodega();
+    if(state.view==='movimientos') await cargarMovimientosBodega();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function guardarListaBodega(tabla, fila){
+  try{
+    await rest(`/${tabla}`, {method:'POST', body:[{...fila, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
+    await cargarListasBodega();
+    toast('Guardado');
+  }catch(e){ toast(e.message,'err'); }
+}
+async function alternarActivoListaBodega(tabla, id, activo){
+  try{
+    await rest(`/${tabla}?id=eq.${id}`, {method:'PATCH', body:{activo}, prefer:'return=minimal'});
+    await cargarListasBodega();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Apertura: la primera carga masiva con el módulo activo deja el saldo inicial como movimiento
+// de apertura (ver diseño 4.6). Las cargas siguientes no tocan el stock: solo datos maestros.
+async function hayAperturaBodega(){
+  try{ const rows = await rest('/movimientos_bodega?select=id&tipo=eq.apertura&limit=1'); return !!(rows && rows.length); }
+  catch(e){ return false; }
+}
+async function registrarAperturaBodega(){
+  try{
+    const n = await rest('/rpc/registrar_apertura_bodega', {method:'POST', body:{}});
+    if(Number(n)>0) toast(`Saldo inicial de bodega registrado para ${n} SKU`);
+  }catch(e){ toast('No se pudo registrar el saldo inicial de bodega: '+e.message, 'err'); }
+}
+
+/* =======================================================================
    CSV — parser mínimo (soporta comillas y comas dentro de campos)
    ======================================================================= */
 function parseCSV(text){
@@ -5298,6 +5521,10 @@ async function confirmarCargaMasiva(){
     });
   });
   const lote = Array.from(porIdentidadSku.values());
+  // Módulo de bodega: después de la apertura el stock lo llevan los movimientos, no el Excel.
+  const bodegaActiva = moduloBodegaActivo();
+  const aperturaYaHecha = bodegaActiva ? await hayAperturaBodega() : false;
+  if(aperturaYaHecha) lote.forEach(f=>{ delete f.stock_sistema; });
   // Un solo POST con todo el archivo (ej. 64.000 filas) supera el statement_timeout de 8s del
   // rol authenticated: cada fila dispara triggers propios (auditoría + chequeo de límite de
   // bodega), y ese costo por-fila multiplicado por decenas de miles de filas hace que Postgres
@@ -5314,6 +5541,7 @@ async function confirmarCargaMasiva(){
       insertados += bloque.length;
       setState({cargaMasivaProgreso: {actual:insertados, total:lote.length}});
     }
+    if(bodegaActiva && !aperturaYaHecha) await registrarAperturaBodega();
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
       await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
@@ -5485,7 +5713,7 @@ async function borrarFotosOffline(itemId){
 
 async function descartarAccionOffline(id){
   const item = leerColaOffline().find(i=>i.id===id);
-  const tipoTexto = item && item.tipo==='sku' ? 'este SKU guardado' : 'este conteo guardado';
+  const tipoTexto = item && item.tipo==='sku' ? 'este SKU guardado' : item && item.tipo==='documento_bodega' ? 'este documento de bodega guardado' : 'este conteo guardado';
   if(!confirm(`¿Descartar ${tipoTexto} sin conexión? Esta acción no se puede deshacer.`)) return;
   quitarDeColaOffline(id);
   await borrarFotosOffline(id).catch(()=>{});
@@ -5503,6 +5731,17 @@ async function procesarUnItemOffline(item){
   // cuándo se sincroniza — es la fecha/hora real de captura para efectos de auditoría.
   const capturadoEn = new Date(item.creado_en).toISOString();
   try{
+    if(item.tipo==='documento_bodega'){
+      const res = await rest('/rpc/registrar_documento_bodega', {method:'POST', body:{...item.payload, p_capturado_en: capturadoEn, p_idempotency_key: item.idempotency_key}});
+      const doc = res && res.documento;
+      const fotos = await leerFotosOffline(item.id).catch(()=>[]);
+      if(doc && fotos.length && !(res && res.repetido)){
+        await subirFotosDocumentoBodega(doc.id, fotos.map(f=>({tipo: (f.nombre||'').startsWith('guia-') ? 'guia' : 'material', file: new File([f.blob], (f.nombre||'foto.jpg').replace(/^(guia|material)-/,''), {type: f.tipo||'image/jpeg'})})));
+      }
+      await borrarFotosOffline(item.id).catch(()=>{});
+      state.bodega.movimientosCargados = false; state.bodega.stockCargado = false;
+      return {ok:true};
+    }
     if(item.tipo==='sku'){
       await rest('/skus', {method:'POST', body:[{
         sku_code: item.sku_code,
@@ -6015,6 +6254,12 @@ async function onCodigoEscaneado(codigo){
     return;
   }
   const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
+  // Desde Ingreso o Salida de bodega: el código va al buscador de la línea.
+  if(destino === 'bodega'){
+    state.escanerModal = null;
+    await buscarSkuBodega(coincidencias.length ? coincidencias[0].sku_code : codigo);
+    return;
+  }
   // Desde el buscador de Reconteo: el código leído (o el SKU al que ya está asociado, si es un
   // código de barras conocido) se busca en la lista de pendientes. No selecciona nada para contar:
   // la persona ve la fila y decide si toca Recontar.
@@ -6067,6 +6312,11 @@ async function asociarCodigoBarras(skuId, codigo){
    ICONOS (inline SVG, sin dependencias)
    ======================================================================= */
 const ICONS = {
+  inicio: '<svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>',
+  ingreso: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>',
+  salida: '<svg viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 17v3h16v-3"/></svg>',
+  movimientos: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>',
+  stock: '<svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5-9-5z"/><path d="M3 9v6l9 5 9-5V9"/></svg>',
   dashboard:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
   skus:'<svg viewBox="0 0 24 24"><path d="M4 7l8-4 8 4-8 4-8-4z"/><path d="M4 7v10l8 4 8-4V7"/><path d="M12 11v10"/></svg>',
   upload:'<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>',
@@ -8713,6 +8963,7 @@ function renderSuperAdmin(){
           <select class="sa-empresa-plan" data-empresa-id="${esc(e.id)}" style="flex:none;width:auto;margin:0">
             ${sa.planes.map(p=>`<option value="${esc(p.id)}" ${e.plan_id===p.id?'selected':''}>${esc(p.etiqueta)}</option>`).join('')}
           </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);flex:none;margin:0"><input type="checkbox" class="sa-empresa-bodega" data-empresa-id="${esc(e.id)}" ${e.modulo_bodega_habilitado?'checked':''} style="margin:0">Bodega</label>
           <div style="display:flex;gap:4px;flex:none">
             <button type="button" class="icon-btn" data-guardar-empresa-sa="${esc(e.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
             <button type="button" class="icon-btn" data-toggle-empresa-sa="${esc(e.id)}" data-activo="${e.activo?'1':'0'}" aria-label="${e.activo?'Desactivar':'Reactivar'}" style="color:${e.activo?'var(--danger)':'var(--ok)'}">${e.activo?ICONS.papelera:ICONS.conteo}</button>
@@ -9327,6 +9578,7 @@ function renderConfiguraciones(){
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
     </div>
+    ${esAdmin && moduloBodegaActivo() ? renderListasBodegaConfig() : ''}
     ${esAdmin? `
     <div class="section-head"><div><span class="eyebrow">Exactitud</span><h2 style="font-size:15px">Conteo ciego ${campoConInfo('Mientras está activo, los operadores no ven el stock del sistema en Contar, Buscar, Reconteo ni el maestro de SKU -- evita que ajusten su conteo al número que ya vieron. Lo puedes prender y apagar cuando quieras; no borra ni cambia ningún dato ya guardado.')}</h2></div></div>
     <div class="card">
@@ -9407,10 +9659,242 @@ function renderConfiguraciones(){
 }
 
 /* =======================================================================
+   RENDER — MÓDULO DE BODEGA (inicio, ingreso, salida, movimientos, stock)
+   ======================================================================= */
+function renderInicio(){
+  const esAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
+  const pendientes = (state.bodega.pendientes||[]).length;
+  const tile = (vista, titulo, texto, icono, extra='') => `
+    <button type="button" class="card inicio-tile" data-ir-vista="${vista}" style="text-align:left;cursor:pointer;display:flex;gap:14px;align-items:center;width:100%;border:1px solid var(--line);padding:18px">
+      <span style="flex:none;width:44px;height:44px;border-radius:12px;background:var(--amber-soft, rgba(224,178,60,.15));display:flex;align-items:center;justify-content:center">${(ICONS[icono]||'').replace('<svg','<svg style="width:24px;height:24px;stroke:var(--amber);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</span>
+      <span style="flex:1"><span style="display:block;font-size:17px;font-weight:700">${titulo}</span><span class="hint" style="margin:2px 0 0">${texto}</span></span>
+      ${extra}
+    </button>`;
+  return `
+    <div class="section-head"><div><span class="eyebrow">${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '')}</span><h2>¿Qué vas a hacer?</h2></div></div>
+    <div style="display:grid;gap:12px">
+      ${tile('ingreso','Ingreso','Recibir material con guía, OC y fotos','ingreso')}
+      ${tile('salida','Salida','Entregar material: quién retira y para qué','salida')}
+      ${tile('conteo','Inventario','Planificar, contar y recontar','conteo')}
+      ${esAdmin ? tile('dashboard','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
+      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button></div>`}
+    </div>
+  `;
+}
+
+function renderDocumentoBodega(tipo){
+  const b = state.bodega; const d = b.doc; const q = b.busqueda;
+  const esIngreso = tipo==='ingreso';
+  const proveedores = b.proveedores.filter(p=>p.activo);
+  const personas = b.personas.filter(p=>p.activo);
+  const usuarios = (state.plan && state.plan.responsables) || [];
+  const totalLineas = d.lineas.reduce((s,l)=>s+l.cantidad, 0);
+  return `
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${esIngreso?'Ingreso de material':'Salida de material'}</h2></div></div>
+    ${b.ultimoDocumento ? `<div class="card" style="margin-bottom:12px;border-color:var(--ok)"><div class="hint" style="margin:0">Último documento guardado: <strong>${esc(b.ultimoDocumento.numero)}</strong>. <button type="button" class="link-btn" data-ir-vista="movimientos">Ver movimientos</button></div></div>` : ''}
+    <div class="card">
+      <label for="bd-sku">Material (código o descripción)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="bd-sku" style="flex:1" placeholder="Ej. 4400-1123 o filtro" value="${esc(q.texto)}" autocomplete="off">
+        <button type="button" id="btn-escanear-bodega" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
+      </div>
+      ${q.buscando ? `<div class="hint">Buscando…</div>` : ''}
+      ${q.resultados.length ? `<div class="sku-picks" style="margin-top:6px">${q.resultados.map(s=>`
+        <div class="sku-pick" style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
+          <div style="flex:1;min-width:0"><div class="mono">${esc(s.sku_code)}${s.batch?` <span class="hint" style="display:inline">· ${esc(s.batch)}</span>`:''}</div><div class="hint" style="margin:0">${esc(s.descripcion||'')}${s.storage_bin?` · ${esc(s.storage_bin)}`:''} · stock ${s.stock_sistema==null?'—':s.stock_sistema}</div></div>
+          <input type="number" class="bd-cantidad" data-sku-id="${esc(s.id)}" min="0" step="any" placeholder="Cant." style="width:84px;margin:0">
+          <button type="button" class="btn btn-primary bd-agregar" data-sku-id="${esc(s.id)}" style="width:auto;padding:6px 10px">Agregar</button>
+        </div>`).join('')}</div>` : (q.texto.length>=2 && !q.buscando ? `<div class="hint">Sin resultados.</div>` : '')}
+      ${d.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
+        <thead><tr><th>SKU</th><th class="num">Cantidad</th><th></th></tr></thead>
+        <tbody>${d.lineas.map(l=>`<tr>
+          <td class="mono">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}${l.batch?` · ${esc(l.batch)}`:''}</div></td>
+          <td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>
+          <td class="num"><button type="button" class="icon-btn" data-quitar-linea="${esc(l.sku_id)}" aria-label="Quitar">${ICONS.x}</button></td>
+        </tr>`).join('')}</tbody></table></div>
+        <div class="hint" style="margin-top:6px">${d.lineas.length} material${d.lineas.length===1?'':'es'} · ${totalLineas} unidades</div>` : `<div class="hint" style="margin-top:10px">Busca o escanea cada material y agrégalo con su cantidad.</div>`}
+    </div>
+    <div class="card" style="margin-top:12px">
+      <form id="form-doc-bodega" data-tipo="${tipo}">
+        ${esIngreso ? `
+        <label for="bd-proveedor">Proveedor</label>
+        <select id="bd-proveedor"><option value="">Sin proveedor</option>${proveedores.map(p=>`<option value="${esc(p.id)}" ${d.proveedorId===p.id?'selected':''}>${esc(p.nombre)}</option>`).join('')}</select>
+        ${!proveedores.length ? `<div class="hint">El administrador agrega proveedores en Configuraciones.</div>` : ''}
+        <div class="row2">
+          <div><label for="bd-guia">N° guía de despacho *</label><input type="text" id="bd-guia" value="${esc(d.numeroGuia)}" required></div>
+          <div><label for="bd-oc">N° orden de compra</label><input type="text" id="bd-oc" value="${esc(d.numeroOc)}"></div>
+        </div>
+        <label>Foto de la guía *</label>
+        <div class="file-input"><input type="file" id="bd-foto-guia" accept="image/*" capture="environment">${ICONS.camera.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}<div>${d.fotoGuia ? (d.fotoGuia.preparando ? 'Preparando…' : 'Guía lista, toca para reemplazar') : 'Tomar foto de la guía'}</div></div>
+        ${d.fotoGuia && d.fotoGuia.preview ? `<div class="foto-preview-grid"><div class="foto-preview-item"><img src="${d.fotoGuia.preview}"></div></div>` : ''}
+        ` : `
+        <label for="bd-retira">Quién retira *</label>
+        <select id="bd-retira" required><option value="">Elige una persona</option>${personas.map(p=>`<option value="${esc(p.id)}" ${d.retiradoPorId===p.id?'selected':''}>${esc(p.nombre)}${p.area?` (${esc(p.area)})`:''}</option>`).join('')}</select>
+        ${!personas.length ? `<div class="hint">El administrador agrega las personas que retiran en Configuraciones.</div>` : ''}
+        <label for="bd-despacha">Quién despacha</label>
+        <select id="bd-despacha"><option value="">${esc(state.perfil ? state.perfil.nombre : 'Yo')} (yo)</option>${usuarios.filter(u=>u.id!==(state.perfil&&state.perfil.id)).map(u=>`<option value="${esc(u.id)}" ${d.despachadoPorId===u.id?'selected':''}>${esc(u.nombre)}</option>`).join('')}</select>
+        <label for="bd-destino">Para qué se usa</label>
+        <input type="text" id="bd-destino" placeholder="Ej. Mantención chancador" value="${esc(d.destino)}">
+        `}
+        <label>Foto${esIngreso?'s':''} del material (opcional)</label>
+        <div class="file-input"><input type="file" id="bd-foto-material" accept="image/*" capture="environment" multiple>${ICONS.camera.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}<div>Tomar o adjuntar foto${d.fotosMaterial.length?'s':''}</div></div>
+        ${d.fotosMaterial.length ? `<div class="foto-preview-grid">${d.fotosMaterial.map((f,i)=>`<div class="foto-preview-item">${f.preview?`<img src="${f.preview}">`:`<div class="hint" style="display:flex;align-items:center;justify-content:center;height:100%;min-height:72px;margin:0">Preparando…</div>`}<button type="button" class="foto-preview-remove" data-quitar-foto-material="${i}" aria-label="Quitar foto">${ICONS.x}</button></div>`).join('')}</div>` : ''}
+        <label for="bd-obs">Observación</label>
+        <textarea id="bd-obs" placeholder="Opcional">${esc(d.observacion)}</textarea>
+        <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
+          <button type="submit" class="btn btn-primary" ${b.guardando?'disabled':''}>${b.guardando?'<span class="spinner"></span>':(esIngreso?'Guardar ingreso':'Guardar salida')}</button>
+          <button type="button" class="btn btn-secondary" id="btn-limpiar-doc-bodega" style="width:auto;padding:10px 14px">Limpiar</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Ingreso', salida:'Salida', ajuste:'Ajuste'}[t] || t; }
+function badgeEstadoMovimiento(e){
+  return e==='aprobado' ? '<span class="badge badge-ok">Aprobado</span>' : e==='anulado' ? '<span class="badge badge-danger">Anulado</span>' : e==='pendiente_revision' ? '<span class="badge badge-warn">En revisión</span>' : '<span class="badge badge-warn">Por aprobar</span>';
+}
+
+function renderMovimientosBodega(){
+  const b = state.bodega;
+  const esAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
+  const rows = b.movimientos;
+  const pend = b.pendientes || [];
+  return `
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>Movimientos</h2></div></div>
+    ${esAdmin && pend.length ? `
+    <div class="card" style="margin-bottom:12px;border-color:var(--amber)">
+      <div class="hint" style="margin-bottom:8px"><strong>${pend.length} pendiente${pend.length===1?'':'s'}</strong> de tu decisión.</div>
+      ${pend.map(m=>`<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap">
+        <div style="flex:1;min-width:200px"><span class="mono">${esc(m.numero)}</span> · ${etiquetaTipoMovimiento(m.tipo)} · <span class="mono">${esc(m.sku_code)}</span> · ${m.cantidad} ${esc(m.unidad_medida||'')}${m.estado==='pendiente_revision' ? `<div class="hint" style="margin:0">Registrado sin conexión con saldo ${m.saldo_local!=null?m.saldo_local:'—'}; el saldo real no alcanzaba.</div>` : (m.motivo?`<div class="hint" style="margin:0">${esc(m.motivo)}</div>`:'')}</div>
+        <div style="display:flex;gap:6px"><button type="button" class="btn btn-primary" data-aprobar-mov="${esc(m.id)}" style="width:auto;padding:6px 12px;font-size:12px">Aprobar</button><button type="button" class="btn btn-secondary" data-rechazar-mov="${esc(m.id)}" style="width:auto;padding:6px 12px;font-size:12px">Rechazar</button></div>
+      </div>`).join('')}
+    </div>` : ''}
+    <div class="card">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <select id="mov-filtro-tipo" style="width:auto;margin:0"><option value="">Todos</option>${['ingreso','salida','ajuste','apertura'].map(t=>`<option value="${t}" ${b.filtroTipo===t?'selected':''}>${etiquetaTipoMovimiento(t)}</option>`).join('')}</select>
+        <button type="button" class="btn btn-secondary" id="btn-exportar-movimientos" style="width:auto;padding:6px 12px" ${rows.length?'':'disabled'}>Exportar Excel</button>
+      </div>
+      ${rows.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>N°</th><th>Tipo</th><th>SKU</th><th class="num">Cantidad</th><th>Detalle</th><th>Fecha</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${rows.map(m=>{ const fotos = b.fotosPorDocumento[m.documento_id]||[]; return `<tr>
+          <td class="mono" style="font-size:11.5px">${esc(m.numero)}</td>
+          <td>${etiquetaTipoMovimiento(m.tipo)}</td>
+          <td class="mono">${esc(m.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(m.descripcion||'')}${m.storage_bin?` · ${esc(m.storage_bin)}`:''}</div></td>
+          <td class="num">${m.cantidad} ${esc(m.unidad_medida||'')}</td>
+          <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
+          <td class="mono" style="font-size:11.5px">${fmtFecha(m.fecha)}</td>
+          <td>${badgeEstadoMovimiento(m.estado)}</td>
+          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
+        </tr>`; }).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.movimientosCargados ? 'Aún no hay movimientos.' : 'Cargando…'}</div>`}
+    </div>
+  `;
+}
+
+function renderStockBodega(){
+  const b = state.bodega;
+  const rows = b.stock;
+  const totalValor = rows.reduce((s,r)=>s+(Number(r.valor)||0), 0);
+  return `
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>Stock actual</h2></div></div>
+    <div class="card">
+      <form id="form-stock-bodega" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <input type="text" id="stock-texto" placeholder="Código, descripción o bin" value="${esc(b.stockTexto)}" style="flex:1;margin:0">
+        <button type="submit" class="btn btn-primary" style="width:auto;padding:0 14px;height:40px">Buscar</button>
+      </form>
+      ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
+        <thead><tr><th>SKU</th><th>Bin</th><th class="num">Stock</th><th class="num">Valor</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+    </div>
+  `;
+}
+
+// Tarjetas de Configuraciones (admin): proveedores y personas que retiran.
+function renderListasBodegaConfig(){
+  const b = state.bodega;
+  const lista = (titulo, tabla, filas, campos, form) => `
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2 style="font-size:15px">${titulo}</h2></div></div>
+    <div class="card">
+      <form class="form-lista-bodega" data-tabla="${tabla}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">${form}<button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar</button></form>
+      ${filas.length ? `<div style="margin-top:10px">${filas.map(f=>`<div class="plan-item" style="padding:6px 0;align-items:center;gap:8px"><span style="flex:1;${f.activo?'':'opacity:.5'}">${esc(f.nombre)}${campos(f)}</span>${f.activo?'':'<span class="badge badge-danger">Inactivo</span>'}<button type="button" class="link-btn" data-lista-toggle="${tabla}" data-id="${esc(f.id)}" data-activo="${f.activo?'1':'0'}">${f.activo?'Desactivar':'Reactivar'}</button></div>`).join('')}</div>` : `<div class="hint" style="margin-top:8px">Aún no hay registros.</div>`}
+    </div>`;
+  return lista('Proveedores', 'proveedores', b.proveedores, f=> f.rut?` <span class="hint" style="display:inline">· ${esc(f.rut)}</span>`:'', `<div style="flex:2;min-width:160px"><label>Nombre</label><input type="text" name="nombre" required style="margin:0"></div><div style="flex:1;min-width:120px"><label>RUT</label><input type="text" name="rut" style="margin:0"></div>`)
+       + lista('Personas que retiran', 'personas_retiro', b.personas, f=> f.area?` <span class="hint" style="display:inline">· ${esc(f.area)}</span>`:'', `<div style="flex:2;min-width:160px"><label>Nombre</label><input type="text" name="nombre" required style="margin:0"></div><div style="flex:1;min-width:120px"><label>Área</label><input type="text" name="area" style="margin:0"></div>`);
+}
+
+function exportarMovimientosExcel(){
+  const rows = state.bodega.movimientos.map(m=>({
+    'N°': m.numero, 'Tipo': etiquetaTipoMovimiento(m.tipo), 'Fecha': m.fecha, 'SKU': m.sku_code, 'Descripción': m.descripcion, 'Batch': m.batch||'', 'Bin': m.storage_bin||'',
+    'Cantidad': m.cantidad, 'Unidad': m.unidad_medida||'', 'Estado': m.estado, 'Proveedor': m.proveedor_nombre||'', 'Guía': m.numero_guia||'', 'OC': m.numero_oc||'',
+    'Retira': m.retirado_por_nombre||'', 'Área': m.retirado_por_area||'', 'Despacha': m.despachado_por_nombre||'', 'Destino': m.destino||'', 'Motivo': m.motivo||m.anulado_motivo||'', 'Registró': m.usuario_nombre||'',
+  }));
+  if(!rows.length){ toast('No hay movimientos para exportar','err'); return; }
+  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
+  XLSX.writeFile(wb, `movimientos-bodega-${fechaISO(new Date())}.xlsx`);
+}
+
+// Ingreso y Salida comparten los listeners (bindDocumentoBodega); las fotos se comprimen igual
+// que en Contar (comprimirFoto + fotosEnProceso).
+function prepararFotoBodega(file, destino){
+  const entrada = {file, preview:null, preparando:true};
+  const tarea = comprimirFoto(file).then(listo=>{
+    entrada.file = listo; entrada.preparando = false;
+    return new Promise(resolve=>{ const reader = new FileReader(); reader.onload = ev=>{ entrada.preview = ev.target.result; render(); resolve(); }; reader.onerror = ()=>{ render(); resolve(); }; reader.readAsDataURL(listo); });
+  }).finally(()=>{ fotosEnProceso = fotosEnProceso.filter(t=>t!==tarea); });
+  fotosEnProceso.push(tarea);
+  return entrada;
+}
+function capturarCamposDocumentoBodega(){
+  const d = state.bodega.doc; const g = id => document.getElementById(id);
+  if(g('bd-proveedor')) d.proveedorId = g('bd-proveedor').value;
+  if(g('bd-guia')) d.numeroGuia = g('bd-guia').value;
+  if(g('bd-oc')) d.numeroOc = g('bd-oc').value;
+  if(g('bd-retira')) d.retiradoPorId = g('bd-retira').value;
+  if(g('bd-despacha')) d.despachadoPorId = g('bd-despacha').value;
+  if(g('bd-destino')) d.destino = g('bd-destino').value;
+  if(g('bd-obs')) d.observacion = g('bd-obs').value;
+}
+function bindDocumentoBodega(){
+  const tipo = state.view;
+  const inputSku = document.getElementById('bd-sku');
+  if(inputSku){
+    let timer = null;
+    inputSku.addEventListener('input', e=>{ capturarCamposDocumentoBodega(); clearTimeout(timer); const v = e.target.value; timer = setTimeout(()=> buscarSkuBodega(v), 250); });
+    inputSku.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); capturarCamposDocumentoBodega(); buscarSkuBodega(e.target.value); } });
+  }
+  const btnEsc = document.getElementById('btn-escanear-bodega');
+  if(btnEsc) btnEsc.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); setState({escanerModal: {codigo:null, error:null, destino:'bodega'}}); });
+  document.querySelectorAll('.bd-agregar').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      capturarCamposDocumentoBodega();
+      const sku = state.bodega.busqueda.resultados.find(s=>s.id===btn.dataset.skuId);
+      const input = document.querySelector(`.bd-cantidad[data-sku-id="${btn.dataset.skuId}"]`);
+      agregarLineaBodega(sku, input ? input.value : '');
+    });
+  });
+  document.querySelectorAll('.bd-cantidad').forEach(inp=>{
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); const btn = document.querySelector(`.bd-agregar[data-sku-id="${inp.dataset.skuId}"]`); if(btn) btn.click(); } });
+  });
+  document.querySelectorAll('[data-quitar-linea]').forEach(btn=> btn.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); quitarLineaBodega(btn.dataset.quitarLinea); }));
+  const fotoGuia = document.getElementById('bd-foto-guia');
+  if(fotoGuia) fotoGuia.addEventListener('change', e=>{ const f = (e.target.files||[])[0]; if(f){ capturarCamposDocumentoBodega(); state.bodega.doc.fotoGuia = prepararFotoBodega(f, 'guia'); render(); } e.target.value=''; });
+  const fotoMat = document.getElementById('bd-foto-material');
+  if(fotoMat) fotoMat.addEventListener('change', e=>{ capturarCamposDocumentoBodega(); Array.from(e.target.files||[]).forEach(f=> state.bodega.doc.fotosMaterial.push(prepararFotoBodega(f, 'material'))); render(); e.target.value=''; });
+  document.querySelectorAll('[data-quitar-foto-material]').forEach(btn=> btn.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); state.bodega.doc.fotosMaterial.splice(Number(btn.dataset.quitarFotoMaterial),1); render(); }));
+  const form = document.getElementById('form-doc-bodega');
+  if(form) form.addEventListener('submit', e=>{ e.preventDefault(); capturarCamposDocumentoBodega(); registrarDocumentoBodega(tipo); });
+  const btnLimpiar = document.getElementById('btn-limpiar-doc-bodega');
+  if(btnLimpiar) btnLimpiar.addEventListener('click', ()=>{ state.bodega.doc = documentoBodegaVacio(); state.bodega.busqueda = {texto:'', resultados:[], buscando:false}; render(); });
+}
+
+/* =======================================================================
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock'}[v];
 }
 
 function renderShell(){
@@ -9426,6 +9910,11 @@ function renderShell(){
     ciclos: renderCiclos,
     calendario: renderCalendario,
     grupos: renderGrupos,
+    inicio: renderInicio,
+    ingreso: ()=> renderDocumentoBodega('ingreso'),
+    salida: ()=> renderDocumentoBodega('salida'),
+    movimientos: renderMovimientosBodega,
+    stock: renderStockBodega,
   }[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
@@ -9438,6 +9927,7 @@ function renderShell(){
           <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : 'InventIA')}</span></div>
         </div>
         <div class="user-chip">
+          ${moduloBodegaActivo() && state.view!=='inicio' ? `<button id="btn-ir-inicio" class="btn-icon-header" aria-label="Inicio">${ICONS.inicio.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>` : ''}
           <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
           <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
           <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs">${ICONS.skus.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
@@ -9464,7 +9954,13 @@ function renderShell(){
     </div>
     ` : ''}
     <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
-    <nav class="tabbar">
+    ${VISTAS_BODEGA.includes(state.view) ? `<nav class="tabbar">
+      ${tabBtn('inicio','Inicio')}
+      ${tabBtn('ingreso','Ingreso')}
+      ${tabBtn('salida','Salida')}
+      ${tabBtn('movimientos','Movimientos')}
+      ${tabBtn('stock','Stock')}
+    </nav>` : `<nav class="tabbar">
       ${tabBtn('dashboard','Dashboard')}
       ${tabBtn('carga','Carga')}
       ${tabBtn('ciclos','Períodos')}
@@ -9472,7 +9968,7 @@ function renderShell(){
       ${tabBtn('plan','Plan')}
       ${tabBtn('conteo','Contar')}
       ${tabBtn('reconteo','Reconteo')}
-    </nav>
+    </nav>`}
   `;
 }
 
@@ -9729,7 +10225,48 @@ function bind(){
     });
   });
 
+  document.querySelectorAll('[data-ir-vista]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const vista = btn.dataset.irVista;
+      if(vistaBloqueadaParaRol(vista)){ toast('Esta sección es solo para administradores', 'err'); return; }
+      detenerEscaner();
+      const patch = {view: vista};
+      if(vista==='conteo') patch.contarPlan = contarPlanAlEntrar(state.contarPlan);
+      setState(patch);
+    });
+  });
+  const btnIrInicio = document.getElementById('btn-ir-inicio');
+  if(btnIrInicio) btnIrInicio.addEventListener('click', ()=>{ detenerEscaner(); setState({view:'inicio'}); });
+  if(state.view==='ingreso' || state.view==='salida') bindDocumentoBodega();
+  if(state.view==='movimientos'){
+    const sel = document.getElementById('mov-filtro-tipo');
+    if(sel) sel.addEventListener('change', ()=>{ state.bodega.filtroTipo = sel.value; cargarMovimientosBodega(); });
+    const btnExp = document.getElementById('btn-exportar-movimientos');
+    if(btnExp) btnExp.addEventListener('click', exportarMovimientosExcel);
+    document.querySelectorAll('[data-anular-doc]').forEach(btn=> btn.addEventListener('click', ()=> anularDocumentoBodega(btn.dataset.anularDoc, btn.dataset.numero)));
+    document.querySelectorAll('[data-aprobar-mov]').forEach(btn=> btn.addEventListener('click', ()=> resolverMovimientoBodega(btn.dataset.aprobarMov, true)));
+    document.querySelectorAll('[data-rechazar-mov]').forEach(btn=> btn.addEventListener('click', ()=> resolverMovimientoBodega(btn.dataset.rechazarMov, false)));
+    document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const fotos = JSON.parse(btn.dataset.verFotos);
+        try{ const urls = await Promise.all(fotos.map(f=>crearUrlFirmada(f.foto_url))); setState({fotoModal:{urls, labels: fotos.map((f,i)=>`Foto ${i+1}`), index:0}}); }catch(e){ toast(e.message,'err'); }
+      });
+    });
+  }
+  if(state.view==='stock'){
+    const form = document.getElementById('form-stock-bodega');
+    if(form) form.addEventListener('submit', e=>{ e.preventDefault(); state.bodega.stockTexto = document.getElementById('stock-texto').value; cargarStockBodega(); });
+  }
   if(state.view==='config'){
+    document.querySelectorAll('.form-lista-bodega').forEach(form=>{
+      form.addEventListener('submit', e=>{
+        e.preventDefault();
+        const fila = {}; form.querySelectorAll('input[name]').forEach(i=>{ fila[i.name] = i.value.trim() || null; });
+        if(!fila.nombre){ toast('Indica el nombre','err'); return; }
+        guardarListaBodega(form.dataset.tabla, fila);
+      });
+    });
+    document.querySelectorAll('[data-lista-toggle]').forEach(btn=> btn.addEventListener('click', ()=> alternarActivoListaBodega(btn.dataset.listaToggle, btn.dataset.id, btn.dataset.activo!=='1')));
     const btnComprimirFotos = document.getElementById('btn-comprimir-fotos');
     if(btnComprimirFotos) btnComprimirFotos.addEventListener('click', ()=>{
       if(state.comprimiendoFotos && state.comprimiendoFotos.terminado) state.comprimiendoFotos = null;
@@ -9845,6 +10382,9 @@ function bind(){
       });
       document.querySelectorAll('.sa-empresa-plan').forEach(sel=>{
         sel.addEventListener('change', ()=> actualizarEmpresaSuperAdmin(sel.dataset.empresaId, {plan_id: sel.value}));
+      });
+      document.querySelectorAll('.sa-empresa-bodega').forEach(chk=>{
+        chk.addEventListener('change', ()=> actualizarEmpresaSuperAdmin(chk.dataset.empresaId, {modulo_bodega_habilitado: chk.checked}));
       });
       const selectPersonasEmpresa = document.getElementById('sa-personas-empresa');
       if(selectPersonasEmpresa) selectPersonasEmpresa.addEventListener('change', ()=> cargarPersonasSuperAdmin(selectPersonasEmpresa.value));
