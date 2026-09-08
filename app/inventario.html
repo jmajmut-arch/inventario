@@ -1341,7 +1341,11 @@ function manejarSesionInvalida(){
    CARGA DE DATOS
    ======================================================================= */
 async function cargarTodo(){
-  const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarPlanSemanal(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
+  // cargarPlanSemanal() no va acá: lo dispara cargarCiclos() una vez que sabe qué período viene
+  // preseleccionado. Antes iban los dos en paralelo y cada arranque de la app pedía DOS veces la
+  // planificación (la semana, y al segundo el período completo) -- la semana se descartaba por el
+  // token de carrera, pero la base de datos igual la calculaba.
+  const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
   await Promise.all(tareas);
 }
 
@@ -1699,7 +1703,8 @@ async function skusUniversoEntradaPlan(planId){
     const data = text ? JSON.parse(text) : [];
     if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
     filas = filas.concat(data);
-    // Misma paginación a prueba de total desconocido que skusUniversoEntradaPlanLote (ver abajo).
+    // Paginación a prueba de total desconocido (content-range "0-999/*"): si no, dejaba de
+    // paginar tras la primera página (Number('*') = NaN) y la entrada quedaba corta en silencio.
     const range = res.headers.get('content-range');
     const totalInformado = range && range.includes('/') ? Number(range.split('/')[1]) : NaN;
     if(!data.length && Number.isFinite(totalInformado) && desde < totalInformado){
@@ -1713,68 +1718,40 @@ async function skusUniversoEntradaPlan(planId){
   return filas.filter(f=>{ if(vistos.has(f.id)) return false; vistos.add(f.id); return true; });
 }
 
-// Misma idea que skusUniversoEntradaPlan, pero para VARIAS entradas de una vez -- un solo viaje
-// al servidor en vez de uno por entrada. Bug real reportado por Joel: cargarPlanSemanal() mandaba
-// una llamada paralela por cada entrada visible (forEach); con la planificación real más las 322
-// entradas de la prueba del grupo "Criticos" (ya borradas), eso llegó a ser 400-550 requests
-// simultáneas por cada carga de la app -- saturaba el pool de conexiones a la base de datos y el
-// Dashboard (que corre en paralelo) se quedaba sin turno para sus propias consultas, sin ningún
-// error visible. Devuelve las filas de TODAS las entradas juntas, cada una con su plan_id, para
-// agruparlas en el cliente.
-async function skusUniversoEntradaPlanLote(planIds){
-  if(!planIds.length) return [];
-  const TAM_PAGINA = 1000;
-  let desde = 0, total = Infinity, filas = [];
-  while(desde < total){
-    const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/rpc/skus_universo_entrada_plan_lote`, {
-      method: 'POST',
-      headers:{
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-        'Range-Unit': 'items',
-        'Range': `${desde}-${desde+TAM_PAGINA-1}`,
-        'Prefer': 'count=exact',
-      },
-      body: JSON.stringify({p_plan_ids: planIds}),
-    }, TIMEOUT_UNIVERSO_PLAN_MS);
-    const text = await res.text();
-    const data = text ? JSON.parse(text) : [];
-    if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
-    filas = filas.concat(data);
-    // Paginación a prueba de un total desconocido: si el servidor no informa el total
-    // (content-range "0-999/*"), se sigue pidiendo mientras la página venga llena -- antes eso
-    // dejaba de paginar tras la primera página (Number('*') = NaN) y las entradas cuyo SKU caía
-    // en la segunda quedaban cortas en silencio. Ver también el ORDER BY determinista de la
-    // función (migración orden_determinista_universo_entrada_plan): sin él, paginar podía
-    // repetir una fila y perder otra entre páginas.
-    const range = res.headers.get('content-range');
-    const totalInformado = range && range.includes('/') ? Number(range.split('/')[1]) : NaN;
-    // Una página vacía cuando el servidor dijo que quedaban filas es un error, no el final: si
-    // se tomara como final, el resultado quedaría cortado en silencio (bug real: 1000 justos).
-    if(!data.length && Number.isFinite(totalInformado) && desde < totalInformado){
-      throw new Error('respuesta incompleta del servidor');
-    }
-    total = Number.isFinite(totalInformado) ? totalInformado : (data.length < TAM_PAGINA ? filas.length : Infinity);
-    desde += TAM_PAGINA;
-    if(!data.length) break;
-  }
-  // Red de seguridad: una misma fila (plan_id + sku id) nunca debe contarse dos veces aunque el
-  // servidor la repitiera entre páginas.
-  const vistos = new Set();
-  return filas.filter(f=>{
-    const clave = f.plan_id+'|'+f.id;
-    if(vistos.has(clave)) return false;
-    vistos.add(clave);
-    return true;
-  });
+// Universo/detalle de VARIAS entradas de una vez, agregado por el servidor en UNA sola respuesta
+// (universo_entradas_plan_resumen: { "<plan_id>": [{id, sku_code, descripcion}, ...] }).
+// Historia: cargarPlanSemanal() mandaba una llamada paralela por cada entrada visible; con cientos
+// de entradas eso saturaba el pool de conexiones. Se pasó a un solo RPC en lote paginado de a
+// 1.000 filas (skus_universo_entrada_plan_lote) -- pero PostgREST vuelve a ejecutar la función
+// completa por CADA página, así que el período completo (3.062 filas con datos reales) eran 4
+// ejecuciones de 6-19 s cada una en producción, y mientras corrían dejaban sin CPU al resto de la
+// app (bug real reportado por Joel: "351 no funciona bien"). Ahora es una sola ejecución (1,6 s
+// medidos con RLS), sin Range ni count, y solo con las 3 columnas que usa la pantalla (id para
+// deduplicar SKU cubiertos por más de una entrada, sku_code y descripcion para el listado).
+// Una entrada sin SKU no viene como clave: el que llama la trata como [].
+async function universoEntradasPlanResumen(planIds){
+  if(!planIds.length) return {};
+  const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/rpc/universo_entradas_plan_resumen`, {
+    method: 'POST',
+    headers:{
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({p_plan_ids: planIds}),
+  }, TIMEOUT_UNIVERSO_PLAN_MS);
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
+  if(!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('respuesta inesperada del servidor');
+  return data;
 }
 
 // Token de carrera para cargarPlanSemanal: se llama desde muchos lugares (agregar/editar/borrar
 // una entrada, cambiar de semana o período, "Ver en Planificación" desde Calendario, etc.) y
 // puede quedar más de una llamada en vuelo a la vez -- ej. la que dispara el plan automático de
 // un grupo grande al terminar de crear cientos de entradas, todavía resolviendo su propio tramo
-// lento (skusUniversoEntradaPlanLote), mientras la persona ya navegó a otra semana/día y disparó
+// lento (universoEntradasPlanResumen), mientras la persona ya navegó a otra semana/día y disparó
 // una segunda llamada. Sin este resguardo, si la llamada VIEJA responde después que la nueva,
 // pisa el estado fresco con datos de otra semana/período -- bug real reportado por Joel: entró a
 // Planificación filtrado a un día puntual y vio un total inflado (164 en vez de 100) que se
@@ -1815,22 +1792,17 @@ async function cargarPlanSemanal(){
     // una prueba de plan automático), eso saturaba el pool de conexiones a la base de datos y
     // dejaba sin turno a cualquier otra pantalla cargando en simultáneo (ej. el Dashboard),
     // "colgada" sin ningún error visible. Ahora es UN solo viaje al servidor para todas las
-    // entradas (ver skusUniversoEntradaPlanLote), agrupado acá por plan_id. Silencioso a
+    // entradas (ver universoEntradasPlanResumen), ya agrupado por plan_id. Silencioso a
     // propósito: no es una acción que la persona haya iniciado, y si falla (red caída, pestaña en
     // background) el conteo de esas entradas simplemente no se actualiza esta vez (se reintenta
     // solo al volver a cargar la pestaña).
     try{
-      const filas = await skusUniversoEntradaPlanLote((rows||[]).map(r=>r.id));
+      const resumen = await universoEntradasPlanResumen((rows||[]).map(r=>r.id));
       if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
-      const porPlan = new Map();
-      filas.forEach(f=>{
-        if(!porPlan.has(f.plan_id)) porPlan.set(f.plan_id, []);
-        porPlan.get(f.plan_id).push(f);
-      });
       const universos = {...state.plan.universos};
       const detalle = {...state.plan.detalle};
       (rows||[]).forEach(r=>{
-        const skus = porPlan.get(r.id) || [];
+        const skus = Array.isArray(resumen[r.id]) ? resumen[r.id] : [];
         universos[r.id] = skus.length;
         detalle[r.id] = skus;
       });
@@ -1891,12 +1863,21 @@ async function cargarCiclos(){
     // defecto en el filtro de Planificación (a pedido de Joel), en vez de arrancar en modo
     // "navegar por semana". Solo la primera vez -- cicloFiltroInicializado evita pisar lo que
     // la persona haya elegido después (incluido volver a "Todos los períodos" a mano).
+    // Es también quien dispara la primera carga de la planificación (ver cargarTodo): con o sin
+    // período actual, pero UNA sola vez y ya sabiendo qué se va a mostrar.
     if(!state.plan.cicloFiltroInicializado){
       const actual = (rows||[]).find(c=>c.es_actual);
       setState({plan:{...state.plan, cicloFiltro: actual? actual.id : state.plan.cicloFiltro, cicloFiltroInicializado:true}});
-      if(actual) cargarPlanSemanal();
+      cargarPlanSemanal();
     }
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){
+    toast(e.message,'err');
+    // Si no se pudieron leer los períodos, la planificación se muestra igual (por semana).
+    if(!state.plan.cicloFiltroInicializado){
+      setState({plan:{...state.plan, cicloFiltroInicializado:true}});
+      cargarPlanSemanal();
+    }
+  }
 }
 
 // Informes de cierre (ver marcar_ciclo_actual/informes_ciclo): un snapshot automático por
