@@ -2036,14 +2036,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dashboardModo = 'ejecutivo';
   ctx.__appstate.ultimosConteos = [];
   const htmlDash = ctx.renderDashboard();
-  // Aclaración de UX pedida por el usuario: "Conteos recientes" (y "Materiales contados" más
-  // abajo) siempre se acotan al ciclo actual, sin relación con el selector de período de
-  // Adherencia al plan — el rótulo "(ciclo actual)" deja eso explícito en vez de que parezca
-  // un bug cuando alguien elige "Todos los períodos" y este número no cambia.
-  assert(htmlDash.includes('Conteos recientes (ciclo actual)'), 'la tarjeta de conteos recientes (vista Ejecutivo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDash);
+  // A pedido de Joel, la tarjeta "Conteos recientes" (cantidad de conteos cargados, con
+  // reconteos) se sacó del Ejecutivo: no agregaba valor. Avance global sigue arriba.
+  assert(!htmlDash.includes('Conteos recientes'), 'la vista Ejecutivo ya no debe mostrar la tarjeta "Conteos recientes", obtuvo: '+htmlDash);
+  assert(htmlDash.includes('Avance global'), 'Avance global debe seguir arriba en la vista Ejecutivo, obtuvo: '+htmlDash);
+  // También a pedido de Joel, el listado "Materiales contados" se sacó de la vista Operativo
+  // (Buscar ya lista los conteos con todos sus filtros). Diario/Semanal/Mensual siguen.
   ctx.__appstate.dashboardModo = 'operativo';
   const htmlDashOperativo = ctx.renderDashboard();
-  assert(htmlDashOperativo.includes('Materiales contados (ciclo actual)'), 'la lista de materiales contados (vista Operativo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDashOperativo);
+  assert(!htmlDashOperativo.includes('Materiales contados') && !htmlDashOperativo.includes('dash-materiales-next'), 'la vista Operativo ya no debe mostrar "Materiales contados", obtuvo: '+htmlDashOperativo);
+  assert(htmlDashOperativo.includes('Diario') && htmlDashOperativo.includes('Semanal') && htmlDashOperativo.includes('Mensual'), 'Diario/Semanal/Mensual deben seguir en la vista Operativo, obtuvo: '+htmlDashOperativo);
 
   // Pedido del usuario: en el Dashboard operativo, Semanal debe mostrar el número de semana (no
   // la fecha cruda del lunes) y Mensual el nombre del mes (no la fecha cruda del día 1). Diario
@@ -2073,18 +2075,6 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashPeriodosPag2.includes('09 ago') && !htmlDashPeriodosPag2.includes('24 ago'), 'Diario (página 2) debe mostrar las 5 filas restantes (9 ago a 5 ago), no las de la página 1 (24 ago), obtuvo: '+htmlDashPeriodosPag2);
   assert(/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodosPag2), 'en la última página, el botón Siguiente debe estar deshabilitado, obtuvo: '+htmlDashPeriodosPag2);
   ctx.__appstate.dashDiarioPagina = 0;
-
-  // Pedido de Joel: en "Materiales contados" (Dashboard operativo), mostrar cuántas fotos tiene
-  // cada línea (siempre el número, no solo cuando hay más de una) y poder saltar a Buscar desde
-  // el código del SKU, para ver el historial completo de ese material.
-  ctx.__appstate.ultimosConteos = [
-    {id:'mc-1', skus:{sku_code:'SKU-FOTO-1'}, cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', conteo_fotos:[{foto_url:'a.jpg'}]},
-    {id:'mc-2', skus:{sku_code:'SKU-SIN-FOTO'}, cantidad_contada:3, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:05:00Z', capturado_en:'2026-08-20T10:05:00Z', conteo_fotos:[]},
-  ];
-  const htmlMaterialesContados = ctx.renderDashboard();
-  assert(htmlMaterialesContados.includes('data-buscar-sku="SKU-FOTO-1"') && htmlMaterialesContados.includes('data-buscar-sku="SKU-SIN-FOTO"'), 'el código de cada línea debe ser un botón data-buscar-sku para saltar a Buscar, obtuvo: '+htmlMaterialesContados);
-  assert(/data-ver-fotos="[^"]*a\.jpg[^"]*"[^>]*>[\s\S]*? 1<\/button>/.test(htmlMaterialesContados), 'con 1 sola foto, el botón debe mostrar igual el número (1), no solo el ícono, obtuvo: '+htmlMaterialesContados);
-  assert(htmlMaterialesContados.includes('icon-btn disabled" aria-hidden="true">') && htmlMaterialesContados.includes('</svg> 0</span>'), 'sin fotos, debe mostrar el ícono deshabilitado con "0", no solo el ícono solo, obtuvo: '+htmlMaterialesContados);
 
   // irABuscarSku: navega a Buscar, precarga el texto con el SKU elegido y limpia cualquier otro
   // filtro que hubiera quedado de una búsqueda anterior (si no, ese SKU podría no aparecer).
@@ -2613,11 +2603,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Muchos paneles del Ejecutivo deben traer su ícono -- no solo uno o dos sueltos.
   const cantidadInfoEjecutivo = (htmlOrden.match(/class="info-dato"/g)||[]).length;
   assert(cantidadInfoEjecutivo>=10, 'la vista Ejecutiva debe traer el ícono de info en la mayoría de sus paneles, obtuvo solo '+cantidadInfoEjecutivo);
-  // Los dos ejemplos que dio Joel explícitamente: "incluye reconteos" (Conteos recientes) y
-  // "SKU planificados" (Adherencia al plan) deben estar entre las explicaciones mostradas.
-  assert(htmlOrden.includes('Incluye reconteos (no es SKU únicos)'), 'debe explicar que "Conteos recientes" incluye reconteos, obtuvo: '+htmlOrden.includes('Incluye reconteos'));
+  // El ejemplo que dio Joel explícitamente ("SKU planificados", Adherencia al plan) debe estar
+  // entre las explicaciones mostradas. (El otro, "incluye reconteos", era de la tarjeta "Conteos
+  // recientes", que después pidió sacar.)
   assert(htmlOrden.includes('SKU planificados en el período contra los que aún faltan por contar'), 'debe explicar qué considera "Adherencia al plan" (planificados vs. sin contar), obtuvo: '+htmlOrden.includes('SKU planificados en el período'));
-  // Modo Operativo también debe traer sus íconos (Diario/Semanal/Mensual/Materiales contados).
+  // Modo Operativo también debe traer sus íconos (Diario/Semanal/Mensual).
   const cantidadInfoOperativo = (htmlOrdenOperativo.match(/class="info-dato"/g)||[]).length;
   assert(cantidadInfoOperativo>=4, 'la vista Operativa debe traer el ícono de info en sus paneles, obtuvo solo '+cantidadInfoOperativo);
 
@@ -6052,67 +6042,6 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
 
-  // ===== Dashboard: "Materiales contados" con "Cargar más" =====
-  calls.length = 0;
-  await ctx.cargarUltimosConteos();
-  assert(ctx.__appstate.ultimosConteos.length===30 && ctx.__appstate.ultimosConteosHayMas===true, 'cargarUltimosConteos debe traer la primera página (30) y marcar hayMas, obtuvo: '+ctx.__appstate.ultimosConteos.length);
-  calls.length = 0;
-  await ctx.cargarMasUltimosConteos();
-  const conteosCallMas = calls.find(c=>c.url.includes('/conteos?select='));
-  assert(!!conteosCallMas && conteosCallMas.url.includes('offset=30'), 'cargarMasUltimosConteos debe pedir la página siguiente con offset=30, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.ultimosConteos.length===34 && ctx.__appstate.ultimosConteosHayMas===false, 'debe agregar las 4 filas restantes y marcar que ya no hay más, obtuvo: '+ctx.__appstate.ultimosConteos.length);
-
-  // Bug real reportado: "Conteos recientes" no calzaba con el resto del dashboard porque no se
-  // acotaba al ciclo actual (a diferencia de avance_total, exactitud_por_bodega, etc.) — mostraba
-  // siempre el tope de la página aunque esos conteos fueran de períodos ya cerrados.
-  cicloActualRpcRespuesta = 'ciclo-actual-xyz';
-  calls.length = 0;
-  await ctx.cargarUltimosConteos();
-  const rpcCicloCall = calls.find(c=>c.url.includes('/rpc/ciclo_actual'));
-  assert(!!rpcCicloCall, 'cargarUltimosConteos debe resolver el ciclo actual vía /rpc/ciclo_actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const conteosCallConCiclo = calls.find(c=>c.url.includes('/conteos?select='));
-  assert(!!conteosCallConCiclo && conteosCallConCiclo.url.includes('ciclo_id=eq.ciclo-actual-xyz'), 'cargarUltimosConteos debe acotar al ciclo actual, igual que el resto del dashboard, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.ultimosConteosCicloId==='ciclo-actual-xyz', 'debe guardar el ciclo resuelto en state.ultimosConteosCicloId para reusarlo en "Cargar más", obtuvo: '+ctx.__appstate.ultimosConteosCicloId);
-  calls.length = 0;
-  await ctx.cargarMasUltimosConteos();
-  const conteosCallMasConCiclo = calls.find(c=>c.url.includes('/conteos?select='));
-  assert(!!conteosCallMasConCiclo && conteosCallMasConCiclo.url.includes('ciclo_id=eq.ciclo-actual-xyz'), 'cargarMasUltimosConteos debe reusar el mismo filtro de ciclo que la primera página, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(!calls.some(c=>c.url.includes('/rpc/ciclo_actual')), 'cargarMasUltimosConteos no debe volver a pedir el ciclo actual (ya quedó guardado), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  cicloActualRpcRespuesta = null; // dejar el mock como estaba para el resto de los tests
-
-  // ===== Dashboard: "Materiales contados" pagina de a 15 con Anterior/Siguiente (a pedido de
-  // Joel), reemplazando el botón "Cargar más". avanzarPaginaMateriales reusa
-  // cargarMasUltimosConteos por debajo solo cuando la página pedida cae fuera de lo ya cargado.
-  // En este punto ya quedaron cargados 34 conteos (arriba), con ultimosConteosHayMas=false:
-  // alcanza para 3 páginas de 15 sin pedir nada más al servidor.
-  ctx.__appstate.dashboardModo = 'operativo';
-  ctx.__appstate.dashMaterialesPagina = 0;
-  const htmlMaterialesPag1 = ctx.renderDashboard();
-  assert(/id="dash-materiales-prev"[^>]*disabled/.test(htmlMaterialesPag1), 'en la primera página de Materiales contados, Anterior debe estar deshabilitado, obtuvo: '+htmlMaterialesPag1);
-  assert(htmlMaterialesPag1.includes('id="dash-materiales-next"') && !/id="dash-materiales-next"[^>]*disabled/.test(htmlMaterialesPag1), 'con 34 conteos ya cargados (3 páginas de 15), Siguiente debe estar habilitado en la página 1, obtuvo: '+htmlMaterialesPag1);
-  assert(!htmlMaterialesPag1.includes('id="btn-cargar-mas-conteos"'), 'el botón "Cargar más" ya no debe existir, reemplazado por Anterior/Siguiente, obtuvo: '+htmlMaterialesPag1);
-
-  ctx.__appstate.dashMaterialesPagina = 2; // última página: solo quedan 34-30=4 filas
-  const htmlMaterialesPag3 = ctx.renderDashboard();
-  assert(/id="dash-materiales-next"[^>]*disabled/.test(htmlMaterialesPag3), 'en la última página (sin más filas cargadas ni pendientes en el servidor), Siguiente debe estar deshabilitado, obtuvo: '+htmlMaterialesPag3);
-  assert(!/id="dash-materiales-prev"[^>]*disabled/.test(htmlMaterialesPag3), 'en una página que no es la primera, Anterior debe estar habilitado, obtuvo: '+htmlMaterialesPag3);
-
-  // avanzarPaginaMateriales: si la página pedida cae fuera de lo ya cargado pero el servidor
-  // todavía tiene más (hayMas=true), primero debe pedir la siguiente tanda antes de avanzar.
-  ctx.__appstate.ultimosConteos = ctx.__appstate.ultimosConteos.slice(0, 15); // simula que solo se cargó la 1a tanda
-  ctx.__appstate.ultimosConteosHayMas = true;
-  ctx.__appstate.dashMaterialesPagina = 0;
-  calls.length = 0;
-  await ctx.avanzarPaginaMateriales();
-  const conteosCallPagina = calls.find(c=>c.url.includes('/conteos?select='));
-  assert(!!conteosCallPagina && conteosCallPagina.url.includes('offset=15'), 'avanzarPaginaMateriales debe pedir la siguiente tanda al servidor (offset=15) cuando la página pedida no está cargada todavía, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.dashMaterialesPagina===1, 'debe avanzar a la página 2 después de traer los datos que faltaban, obtuvo: '+ctx.__appstate.dashMaterialesPagina);
-
-  // retrocederPaginaMateriales: los datos ya están cargados, nunca debe pedir nada al servidor.
-  calls.length = 0;
-  ctx.retrocederPaginaMateriales();
-  assert(calls.length===0, 'retrocederPaginaMateriales no debe pedir nada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.dashMaterialesPagina===0, 'debe volver a la página 1, obtuvo: '+ctx.__appstate.dashMaterialesPagina);
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
   // ===== Buscar: carga inicial hasta TOPE_CARGA_TOTAL_BUSQUEDA de una vez, con el total real
