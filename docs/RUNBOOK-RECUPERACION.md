@@ -535,7 +535,7 @@ historial de migraciones (nombradas descriptivamente, ej.
 
 | Job | Horario (UTC) | Qué hace |
 |---|---|---|
-| `reset-demo-inventia-nocturno` | `0 8 * * *` | `select resetear_demo_inventia();` — resetea la empresa demo pública cada noche |
+| `reset-demo-inventia-nocturno` | `0 8 * * *` | `select resetear_demo_inventia();` — resetea la empresa demo pública cada noche (inventario y módulo de bodega: apertura, un ingreso y una salida de ejemplo) |
 | `vencer-suscripciones-canceladas` | `0 7 * * *` | `select vencer_suscripciones_canceladas();` — pasados 31 días desde el último cobro confirmado, marca `vencida` y bloquea acceso igual que `morosa` |
 | `refrescar-clasificacion-abc-nocturno` | `0 7 * * *` | `refresh materialized view concurrently privado.skus_valor_abc_mv` |
 | `purga-auditoria-14-dias` | `0 6 * * *` | `select purgar_auditoria_antigua();` — borra auditoría de más de 14 días (evita bloat) |
