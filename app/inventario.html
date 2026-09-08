@@ -2456,6 +2456,52 @@ async function alternarDetalleHistorialCiclo(grupoId, fechaInicio, fechaTermino)
   }
 }
 
+// PDF de un ciclo cerrado (a pedido de Joel, junto con la regla "el ciclo nuevo parte el día del
+// cierre"): la foto guardada por cerrar_ciclos_grupo_vencidos, material por material, con su
+// descripción del maestro, estado y fecha del conteo. Reusa el área #print-plan de los otros PDF.
+async function imprimirHistorialCicloGrupo(grupoId, fechaInicio, fechaTermino){
+  const grupo = state.grupos.lista.find(g=>g.id===grupoId) || state.grupos.pausados.find(g=>g.id===grupoId);
+  try{
+    const filas = await rest(`/historial_ciclos_grupo?grupo_id=eq.${grupoId}&fecha_inicio=eq.${fechaInicio}&fecha_termino=eq.${fechaTermino}&select=sku_code,bodega,contado,fecha_conteo&order=sku_code.asc`) || [];
+    // Descripciones del maestro (el historial guarda solo código y bodega), de a 100 códigos por
+    // consulta para no armar una URL gigante con los 757 críticos.
+    const descripciones = new Map();
+    const codigos = [...new Set(filas.map(f=>f.sku_code))];
+    for(let i=0; i<codigos.length; i+=100){
+      const tanda = codigos.slice(i, i+100);
+      const skus = await rest(`/skus?sku_code=in.(${tanda.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,descripcion`) || [];
+      skus.forEach(s=>{ const clave = `${s.sku_code}|${s.bodega||''}`; if(!descripciones.has(clave)) descripciones.set(clave, s.descripcion||''); if(!descripciones.has(s.sku_code)) descripciones.set(s.sku_code, s.descripcion||''); });
+    }
+    const contados = filas.filter(f=>f.contado).length;
+    const empresaNombre = (state.perfil && state.perfil.empresas && state.perfil.empresas.nombre) || '';
+    const meta = [empresaNombre, `Ciclo ${fmtFecha(fechaInicio)} – ${fmtFecha(fechaTermino)}`, `${contados} de ${filas.length} contados`, `Generado ${new Date().toLocaleString('es-CL')}`].filter(Boolean).join(' · ');
+    document.getElementById('print-informe').innerHTML = '';
+    document.getElementById('print-buscar').innerHTML = '';
+    document.getElementById('print-plan').innerHTML = `
+      <h1>Cierre de ciclo · ${esc(grupo? grupo.nombre : 'Grupo')}</h1>
+      <div class="print-meta">${esc(meta)}</div>
+      ${filas.length ? `
+      <table>
+        <thead><tr><th>SKU</th><th>Descripción</th><th>Bodega</th><th>Estado</th><th>Fecha de conteo</th></tr></thead>
+        <tbody>
+          ${filas.map(f=>`
+            <tr>
+              <td>${esc(f.sku_code)}</td>
+              <td>${esc(descripciones.get(`${f.sku_code}|${f.bodega||''}`) ?? descripciones.get(f.sku_code) ?? '')}</td>
+              <td>${esc(f.bodega||'—')}</td>
+              <td>${f.contado? 'Contado' : 'Pendiente'}</td>
+              <td>${f.fecha_conteo? esc(fmtFechaHora(f.fecha_conteo)) : '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>` : `<p class="print-vacio">Este ciclo se cerró sin materiales en el grupo.</p>`}
+    `;
+    window.print();
+  }catch(e){
+    toast(e.message,'err');
+  }
+}
+
 async function cargarMiembrosGrupo(grupoId){
   const grupo = state.grupos.lista.find(g=>g.id===grupoId);
   if(grupo && grupo.automatico_critico){
@@ -8290,7 +8336,7 @@ function renderDetalleGrupo(){
         <div><div style="font-size:22px;font-weight:700;color:var(--ok)">${g.seguimiento.contadosCiclo}</div><div class="hint">Contados en este ciclo</div></div>
         <div><div style="font-size:22px;font-weight:700;color:var(--warn)">${g.seguimiento.pendientesCiclo}</div><div class="hint">Pendientes de este ciclo</div></div>
       </div>
-      <div class="hint" style="margin-top:6px">Al cerrar el ciclo (solo cuando pasa la fecha de término) se guarda quién quedó contado y quién no, y todos vuelven a partir en cero para el ciclo siguiente.</div>
+      <div class="hint" style="margin-top:6px">Cuando pasa la fecha de término, el cierre guarda quién quedó contado y quién no (incluidos los conteos hechos hasta el día anterior al cierre). El ciclo siguiente parte el día del cierre, con todos los materiales pendientes.</div>
       ` : `<div class="hint">${g.seguimiento.totalMiembros - g.seguimiento.nuncaContados} de ${g.seguimiento.totalMiembros} material${g.seguimiento.totalMiembros===1?'':'es'} contado${g.seguimiento.totalMiembros===1?'':'s'} alguna vez${g.seguimiento.nuncaContados? ` (${g.seguimiento.nuncaContados} nunca contado${g.seguimiento.nuncaContados===1?'':'s'})` : ''}. Define una frecuencia en este grupo para llevar un ciclo con fecha de inicio y término.</div>`}
       ${g.seguimiento.totalMiembros>0 ? `
       <div class="hint" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">Ritmo reciente -- Esta semana: <strong>${g.seguimiento.contadosSemana}</strong> de ${g.seguimiento.totalMiembros} · Este mes: <strong>${g.seguimiento.contadosMes}</strong> de ${g.seguimiento.totalMiembros}</div>
@@ -8305,10 +8351,13 @@ function renderDetalleGrupo(){
         const abierto = g.historialAbierto === clave;
         return `
         <div style="border-bottom:1px solid var(--line);padding:6px 0">
-          <button type="button" data-toggle-historial-ciclo="${esc(h.fecha_inicio)}|${esc(h.fecha_termino)}" style="display:flex;justify-content:space-between;align-items:center;width:100%;gap:8px;background:none;border:none;padding:4px;cursor:pointer;text-align:left">
-            <span>${fmtFecha(h.fecha_inicio)} – ${fmtFecha(h.fecha_termino)}</span>
-            <span class="hint">${h.contados} de ${h.total_miembros} contados</span>
-          </button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button type="button" data-toggle-historial-ciclo="${esc(h.fecha_inicio)}|${esc(h.fecha_termino)}" style="display:flex;justify-content:space-between;align-items:center;flex:1;gap:8px;background:none;border:none;padding:4px;cursor:pointer;text-align:left">
+              <span>${fmtFecha(h.fecha_inicio)} – ${fmtFecha(h.fecha_termino)}</span>
+              <span class="hint">${h.contados} de ${h.total_miembros} contados</span>
+            </button>
+            <button type="button" class="btn btn-secondary" data-pdf-historial-ciclo="${esc(h.fecha_inicio)}|${esc(h.fecha_termino)}" style="width:auto;padding:5px 10px;font-size:12px" title="Exportar este ciclo cerrado a PDF">${ICONS.download} PDF</button>
+          </div>
           ${abierto ? `<div style="margin-top:6px;padding-left:4px">
             ${g.historialDetalleCargando? `<div class="hint">Cargando…</div>` : g.historialDetalle.map(f=>`
               <div class="hint" style="display:flex;justify-content:space-between;gap:8px;padding:2px 0">
@@ -9104,6 +9153,12 @@ function bind(){
         btn.addEventListener('click', ()=>{
           const [fechaInicio, fechaTermino] = btn.dataset.toggleHistorialCiclo.split('|');
           alternarDetalleHistorialCiclo(state.grupos.grupoAbierto, fechaInicio, fechaTermino);
+        });
+      });
+      document.querySelectorAll('[data-pdf-historial-ciclo]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const [fechaInicio, fechaTermino] = btn.dataset.pdfHistorialCiclo.split('|');
+          imprimirHistorialCicloGrupo(state.grupos.grupoAbierto, fechaInicio, fechaTermino);
         });
       });
       const candidatoTexto = document.getElementById('candidato-texto');
