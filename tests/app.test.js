@@ -4438,11 +4438,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // pruebas anteriores, así que para este punto ya podría estar inicializado por casualidad.
   ctx.__appstate.plan.cicloFiltro = '';
   ctx.__appstate.plan.cicloFiltroInicializado = false;
+  // Arranque por pestaña: si NO se está mirando Plan, fijar el período no dispara la carga de la
+  // planificación (la pide la pestaña al mostrarse); mirando Plan, sí recarga con el período.
+  const viewAntesCiclos = ctx.__appstate.view;
+  ctx.__appstate.view = 'dashboard';
   calls.length = 0;
   await ctx.cargarCiclos();
   assert(ctx.__appstate.plan.cicloFiltro==='ciclo-1', 'debe seleccionar el período actual por defecto en el filtro de Planificación, obtuvo: '+JSON.stringify(ctx.__appstate.plan.cicloFiltro));
   assert(ctx.__appstate.plan.cicloFiltroInicializado===true, 'debe marcar el filtro como ya inicializado, para no repetir el autoselect después, obtuvo: '+JSON.stringify(ctx.__appstate.plan.cicloFiltroInicializado));
-  assert(calls.some(c=>c.url.includes('/plan_semanal_detalle?ciclo_id=eq.ciclo-1')), 'debe recargar el plan filtrado por el período recién seleccionado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'fuera de la pestaña Plan, fijar el período no debe cargar la planificación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.plan.cicloFiltro = '';
+  ctx.__appstate.plan.cicloFiltroInicializado = false;
+  ctx.__appstate.view = 'plan';
+  calls.length = 0;
+  await ctx.cargarCiclos();
+  assert(calls.some(c=>c.url.includes('/plan_semanal_detalle?ciclo_id=eq.ciclo-1')), 'mirando Plan, debe recargar el plan filtrado por el período recién seleccionado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  ctx.__appstate.view = viewAntesCiclos;
 
   // Una vez inicializado, no debe volver a imponerse sobre lo que la persona elija después
   // (incluido volver a "Todos los períodos" a mano) -- el autoselect es solo la primera vez.
@@ -8444,6 +8455,67 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(calls.some(c=>c.opts && c.opts.method==='HEAD') && ctx.__appstate.versionNueva===true, 'volver a primer plano debe revisar la versión publicada, obtuvo: '+JSON.stringify(calls.map(c=>[c.url, c.opts && c.opts.method])));
     ctx.__appstate.versionNueva = false;
     etagPublicado = '"v1"';
+  }
+
+  // ===== Arranque por pestaña: cada vista pide lo suyo la primera vez, y los refrescos tras una
+  // acción solo tocan lo que ya está cargado =====
+  {
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.session = ctx.__appstate.session || { access_token:'t', refresh_token:'r', user:{ id:'auth-user-1', email:'ana@minera-andes.cl' } };
+    ctx.olvidarCargasPorVista();
+    const urlsDe = ()=> calls.map(c=>c.url.replace(/^https:\/\/[^/]+/, ''));
+    // cargarTodo: solo lo transversal + la vista inicial (dashboard para admin).
+    ctx.__appstate.view = 'dashboard';
+    calls.length = 0;
+    await ctx.cargarTodo();
+    await new Promise(r=>setTimeout(r, 30));
+    let urls = urlsDe();
+    assert(urls.some(u=>u.startsWith('/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc&limit=500')) && urls.some(u=>u.startsWith('/rest/v1/ciclos_conteo')), 'el arranque debe pedir el maestro (500) y los períodos, obtuvo: '+JSON.stringify(urls));
+    assert(urls.some(u=>u.startsWith('/rest/v1/avance_total')) && urls.some(u=>u.startsWith('/rest/v1/rpc/resumen_general_skus')), 'con vista inicial Dashboard debe cargar el dashboard y el resumen general, obtuvo: '+JSON.stringify(urls));
+    // La página de SKU pide skus_lectura sin limit=500 (pagina con Range); la lista de Reconteo
+    // ordena por ultimo_conteo_fecha (el dashboard también consulta reconteo_pendiente, pero es su
+    // top 10 por valor de diferencia).
+    const esPaginaSku = u => u.startsWith('/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc') && !u.includes('limit=500');
+    const esListaReconteo = u => u.startsWith('/rest/v1/reconteo_pendiente') && u.includes('order=ultimo_conteo_fecha');
+    assert(!urls.some(u=>u.startsWith('/rest/v1/categorias_sku') || u.startsWith('/rest/v1/unidades_medida_sku') || u.startsWith('/rest/v1/batches_sku') || u.startsWith('/rest/v1/ubicaciones_generales') || esListaReconteo(u) || u.startsWith('/rest/v1/plan_semanal_detalle') || esPaginaSku(u)), 'el arranque NO debe pedir filtros de SKU, ubicaciones generales, reconteos, planificación ni la página de SKU (van por pestaña), obtuvo: '+JSON.stringify(urls));
+    // Volver a mostrar el dashboard no repite la carga.
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('dashboard');
+    await new Promise(r=>setTimeout(r, 10));
+    assert(calls.length===0, 'una vista ya cargada no debe volver a pedir sus datos al mostrarse de nuevo, obtuvo: '+JSON.stringify(urlsDe()));
+    // Entrar a SKU: página + filtros + ubicaciones generales, una sola vez.
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('skus');
+    await new Promise(r=>setTimeout(r, 30));
+    urls = urlsDe();
+    assert(urls.some(esPaginaSku) && urls.some(u=>u.startsWith('/rest/v1/categorias_sku')) && urls.some(u=>u.startsWith('/rest/v1/ubicaciones_generales')), 'al mostrar SKU debe pedir la página, los filtros y las ubicaciones generales, obtuvo: '+JSON.stringify(urls));
+    // Entrar a Plan: ubicaciones generales ya están (no se repiten); sí responsables, sin ubicación y la planificación.
+    calls.length = 0;
+    ctx.__appstate.plan = {...ctx.__appstate.plan, diaFiltro:null, cicloFiltro:'', rango:'semana'};
+    vm.runInContext('planCargadoEn = 0', ctx);
+    await ctx.asegurarDatosDeVista('plan');
+    await new Promise(r=>setTimeout(r, 30));
+    urls = urlsDe();
+    assert(urls.some(u=>u.startsWith('/rest/v1/usuarios')) && urls.some(u=>u.startsWith('/rest/v1/plan_semanal_detalle')) && !urls.some(u=>u.startsWith('/rest/v1/ubicaciones_generales')), 'al mostrar Plan debe pedir responsables y la planificación, sin repetir ubicaciones generales, obtuvo: '+JSON.stringify(urls));
+    // Refresco tras una acción: solo lo ya cargado (reconteos nunca se mostró -> no se pide).
+    calls.length = 0;
+    ctx.refrescarSiCargada(['dashboard','reconteos','skusPagina']);
+    await new Promise(r=>setTimeout(r, 30));
+    urls = urlsDe();
+    assert(urls.some(u=>u.startsWith('/rest/v1/avance_total')) && urls.some(esPaginaSku) && !urls.some(esListaReconteo), 'refrescarSiCargada debe recargar dashboard y página de SKU (ya vistos) pero no reconteos (nunca mostrado), obtuvo: '+JSON.stringify(urls));
+    // El render detecta el cambio de vista y pide lo de la nueva pestaña (en microtarea).
+    ctx.__appstate.view = 'reconteo';
+    calls.length = 0;
+    ctx.render();
+    await new Promise(r=>setTimeout(r, 30));
+    assert(urlsDe().some(esListaReconteo), 'al renderizar otra vista por primera vez debe pedir sus datos, obtuvo: '+JSON.stringify(urlsDe()));
+    // Cerrar sesión olvida lo cargado y, sin perfil, no se pide nada.
+    vm.runInContext('state = estadoTrasCerrarSesion()', ctx); ctx.__resyncAppState();
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('dashboard');
+    await new Promise(r=>setTimeout(r, 30));
+    assert(calls.length===0, 'sin perfil (sesión cerrada) no debe pedir nada, obtuvo: '+JSON.stringify(urlsDe()));
+    ctx.__appstate.view = 'dashboard';
   }
 
   if(fallos > 0){
