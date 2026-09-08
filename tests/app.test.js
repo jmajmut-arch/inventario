@@ -1539,6 +1539,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // cargarConteoSinUbicacion: pide el total de SKU activos sin bodega ni ubicación, sobre
   // skus_disponibles_planificar (no skus_planificables) para no ofrecer SKU que ya estén
   // cubiertos por otra entrada de plan_semanal vigente.
+  ctx.invalidarCacheAgregados(['sinUbicacion']); // la caché local (ver leerCacheAgregado) no aplica a esta prueba
   calls.length = 0;
   await ctx.cargarConteoSinUbicacion();
   assert(ctx.__appstate.plan.sinUbicacionCount===1, 'cargarConteoSinUbicacion debe guardar el total de SKU sueltos, obtuvo: '+ctx.__appstate.plan.sinUbicacionCount);
@@ -8484,6 +8485,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r, 10));
     assert(calls.length===0, 'una vista ya cargada no debe volver a pedir sus datos al mostrarse de nuevo, obtuvo: '+JSON.stringify(urlsDe()));
     // Entrar a SKU: página + filtros + ubicaciones generales, una sola vez.
+    ctx.invalidarCacheAgregados(['opcionesSku','generales','sinUbicacion']);
     calls.length = 0;
     await ctx.asegurarDatosDeVista('skus');
     await new Promise(r=>setTimeout(r, 30));
@@ -8516,6 +8518,55 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r, 30));
     assert(calls.length===0, 'sin perfil (sesión cerrada) no debe pedir nada, obtuvo: '+JSON.stringify(urlsDe()));
     ctx.__appstate.view = 'dashboard';
+  }
+
+  // ===== Caché local de agregados de SKU (categorías/unidades/batches, ubicaciones generales,
+  // SKU sin ubicación): 10 minutos por empresa, invalidada por las acciones que los cambian =====
+  {
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-cache', empresas:{nombre:'Minera Andes'} };
+    const urlsDe = ()=> calls.map(c=>c.url.replace(/^https:\/\/[^/]+/, ''));
+    ctx.invalidarCacheAgregados(['opcionesSku','generales','sinUbicacion']);
+    // 1ra carga: va al servidor y guarda en localStorage (clave por empresa).
+    calls.length = 0;
+    await ctx.cargarOpcionesCategoriasUnidades();
+    await ctx.cargarOpcionesGenerales();
+    await ctx.cargarConteoSinUbicacion();
+    assert(urlsDe().some(u=>u.startsWith('/rest/v1/categorias_sku')) && urlsDe().some(u=>u.startsWith('/rest/v1/ubicaciones_generales')) && urlsDe().some(u=>u.includes('skus_disponibles_planificar')), 'sin caché debe ir al servidor, obtuvo: '+JSON.stringify(urlsDe()));
+    assert(!!ctx.localStorage.getItem('agg_v1_emp-cache_opcionesSku') && !!ctx.localStorage.getItem('agg_v1_emp-cache_generales') && !!ctx.localStorage.getItem('agg_v1_emp-cache_sinUbicacion'), 'debe guardar los tres agregados en localStorage con clave por empresa');
+    const generalesAntes = JSON.stringify(ctx.__appstate.plan.generales);
+    const opcionesAntes = JSON.stringify([ctx.__appstate.opcionesCategorias, ctx.__appstate.opcionesUnidades, ctx.__appstate.opcionesBatches]);
+    // 2da carga dentro de los 10 minutos: se sirve de la caché, sin pedir nada, con los mismos datos.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, generales:[], sinUbicacionCount:0};
+    ctx.__appstate.opcionesCategorias = [];
+    calls.length = 0;
+    await ctx.cargarOpcionesCategoriasUnidades();
+    await ctx.cargarOpcionesGenerales();
+    await ctx.cargarConteoSinUbicacion();
+    assert(calls.length===0, 'dentro del plazo, los agregados deben salir de la caché sin consultar, obtuvo: '+JSON.stringify(urlsDe()));
+    assert(JSON.stringify(ctx.__appstate.plan.generales)===generalesAntes && JSON.stringify([ctx.__appstate.opcionesCategorias, ctx.__appstate.opcionesUnidades, ctx.__appstate.opcionesBatches])===opcionesAntes && ctx.__appstate.plan.sinUbicacionCount===1, 'la caché debe devolver exactamente lo mismo que el servidor');
+    // forzar: va al servidor aunque haya caché (refrescarOpcionesUbicacion tras un cambio del plan).
+    calls.length = 0;
+    await ctx.refrescarOpcionesUbicacion();
+    assert(urlsDe().some(u=>u.startsWith('/rest/v1/ubicaciones_generales')) && urlsDe().some(u=>u.includes('skus_disponibles_planificar')), 'refrescarOpcionesUbicacion debe forzar la consulta al servidor, obtuvo: '+JSON.stringify(urlsDe()));
+    // Invalidación: un SKU nuevo/editado o una carga masiva (refrescarListaSkus) borra las tres cachés.
+    ctx.refrescarListaSkus();
+    await new Promise(r=>setTimeout(r, 30));
+    assert(!ctx.localStorage.getItem('agg_v1_emp-cache_opcionesSku') || JSON.parse(ctx.localStorage.getItem('agg_v1_emp-cache_opcionesSku')).t > 0, 'refrescarListaSkus invalida la caché (y la vuelve a llenar solo si esa pestaña ya estaba cargada)');
+    // Vencimiento: una entrada de hace más de 10 minutos se ignora y se vuelve a pedir.
+    ctx.localStorage.setItem('agg_v1_emp-cache_generales', JSON.stringify({t: Date.now() - 11*60*1000, v: [{bodega:'VIEJA', cantidad_pendiente:1, cantidad_skus:1}]}));
+    calls.length = 0;
+    await ctx.cargarOpcionesGenerales();
+    assert(urlsDe().some(u=>u.startsWith('/rest/v1/ubicaciones_generales')) && !ctx.__appstate.plan.generales.some(g=>g.bodega==='VIEJA'), 'una caché vencida no debe usarse, obtuvo: '+JSON.stringify(urlsDe()));
+    // Una caché corrupta tampoco rompe nada.
+    ctx.localStorage.setItem('agg_v1_emp-cache_generales', '{no es json');
+    calls.length = 0;
+    await ctx.cargarOpcionesGenerales();
+    assert(urlsDe().some(u=>u.startsWith('/rest/v1/ubicaciones_generales')), 'con caché corrupta debe ir al servidor sin fallar');
+    // Sin perfil no se lee ni escribe caché.
+    ctx.__appstate.perfil = null;
+    assert(ctx.leerCacheAgregado('generales')===null, 'sin perfil no hay clave de caché');
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.invalidarCacheAgregados(['opcionesSku','generales','sinUbicacion']);
   }
 
   if(fallos > 0){

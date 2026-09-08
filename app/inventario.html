@@ -1708,7 +1708,10 @@ async function eliminarSkusSinContar(){
 
 function refrescarListaSkus(){
   cargarSkus();
-  refrescarSiCargada(['skusPagina']);
+  // Un SKU nuevo/editado o una carga masiva cambian categorías, unidades, batches y las
+  // ubicaciones generales: la próxima carga debe ir al servidor.
+  invalidarCacheAgregados(['opcionesSku','generales','sinUbicacion']);
+  refrescarSiCargada(['skusPagina','opcionesSku','generales','sinUbicacion']);
 }
 
 /* =======================================================================
@@ -3914,9 +3917,40 @@ async function reasignarResponsableSeleccionPlan(responsableId){
   }catch(e){ toast(e.message,'err'); }
 }
 
-async function cargarOpcionesGenerales(){
+/* ---- Caché local de agregados de SKU ----------------------------------------------------
+   Categorías / unidades / batches (datalist de Cargar SKU), ubicaciones generales y el conteo
+   "SKU sin ubicación" recorren los 63.000 SKU de una empresa real en cada carga (0,6 a 1,2 s cada
+   uno medidos en producción) y cambian solo con una carga masiva, un SKU nuevo o editado y, los
+   "pendientes", con un conteo o un cambio del plan. Se guardan en localStorage por empresa por
+   10 minutos y se invalidan en esas acciones (invalidarCacheAgregados), así una recarga de la app
+   (F5, PWA reabierta) no vuelve a pedirlos si nada cambió. Solo nombres y totales: nada de stock
+   ni datos por SKU, y nada que un operador no vea igual en pantalla. */
+const CACHE_AGREGADOS_TTL_MS = 10 * 60 * 1000;
+const CACHE_AGREGADOS_PREFIJO = 'agg_v1_';
+function claveCacheAgregado(nombre){ return state.perfil ? `${CACHE_AGREGADOS_PREFIJO}${state.perfil.empresa_id}_${nombre}` : null; }
+function leerCacheAgregado(nombre){
+  const clave = claveCacheAgregado(nombre);
+  if(!clave) return null;
   try{
-    const rows = await rest('/ubicaciones_generales?order=bodega.asc');
+    const j = JSON.parse(localStorage.getItem(clave) || 'null');
+    if(!j || typeof j.t !== 'number' || Date.now() - j.t > CACHE_AGREGADOS_TTL_MS) return null;
+    return j.v === undefined ? null : j.v;
+  }catch(e){ return null; }
+}
+function guardarCacheAgregado(nombre, v){
+  const clave = claveCacheAgregado(nombre);
+  if(!clave) return;
+  try{ localStorage.setItem(clave, JSON.stringify({t: Date.now(), v})); }catch(e){ /* sin espacio o modo privado: se sigue sin caché */ }
+}
+function invalidarCacheAgregados(nombres){
+  nombres.forEach(n=>{ const clave = claveCacheAgregado(n); if(clave){ try{ localStorage.removeItem(clave); }catch(e){ /* nada */ } } });
+}
+
+async function cargarOpcionesGenerales(forzar){
+  try{
+    const cache = forzar ? null : leerCacheAgregado('generales');
+    const rows = cache !== null ? cache : (await rest('/ubicaciones_generales?order=bodega.asc')) || [];
+    if(cache === null) guardarCacheAgregado('generales', rows);
     setState({plan: {...state.plan, generales: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -3925,32 +3959,44 @@ async function cargarOpcionesGenerales(){
 // "pendiente" en Ubicación general y en "SKU sin ubicación" — sin este refresco, esos números
 // se quedaban con el valor de cuando se cargó la página hasta el próximo F5.
 async function refrescarOpcionesUbicacion(){
-  await Promise.all([cargarOpcionesGenerales(), cargarConteoSinUbicacion()]);
+  await Promise.all([cargarOpcionesGenerales(true), cargarConteoSinUbicacion(true)]);
 }
 
 // SKU cargados sin ubicación general ni específica (ej. desde "Cargar SKU" a mano, sin
 // completar esos campos): ubicaciones_generales los excluye por diseño (agrupa por bodega),
 // así que se cuentan aparte para poder ofrecerlos como opción en Planificación.
-async function cargarConteoSinUbicacion(){
+async function cargarConteoSinUbicacion(forzar){
   try{
-    const total = await contarUniversoUbicacion({soloSinUbicacion:true, excluirYaPlanificados:true});
+    const cache = forzar ? null : leerCacheAgregado('sinUbicacion');
+    const total = cache !== null ? cache : await contarUniversoUbicacion({soloSinUbicacion:true, excluirYaPlanificados:true});
+    if(cache === null) guardarCacheAgregado('sinUbicacion', total);
     setState({plan: {...state.plan, sinUbicacionCount: total}});
   }catch(e){ /* no bloquea la planificación normal si esto falla */ }
 }
 
 // Categorías y unidades de medida ya usadas por la empresa, para sugerirlas (datalist) al
 // cargar un SKU nuevo y evitar variantes del mismo valor por typo (ej. "Repuesto" vs "Repuestos").
-async function cargarOpcionesCategoriasUnidades(){
+async function cargarOpcionesCategoriasUnidades(forzar){
   try{
-    const [categorias, unidades, batches] = await Promise.all([
-      rest('/categorias_sku?order=categoria.asc'),
-      rest('/unidades_medida_sku?order=unidad_medida.asc'),
-      rest('/batches_sku?order=batch.asc'),
-    ]);
+    const cache = forzar ? null : leerCacheAgregado('opcionesSku');
+    let opciones = cache;
+    if(opciones === null){
+      const [categorias, unidades, batches] = await Promise.all([
+        rest('/categorias_sku?order=categoria.asc'),
+        rest('/unidades_medida_sku?order=unidad_medida.asc'),
+        rest('/batches_sku?order=batch.asc'),
+      ]);
+      opciones = {
+        categorias: (categorias||[]).map(c=>c.categoria),
+        unidades: (unidades||[]).map(u=>u.unidad_medida),
+        batches: (batches||[]).map(b=>b.batch),
+      };
+      guardarCacheAgregado('opcionesSku', opciones);
+    }
     setState({
-      opcionesCategorias: (categorias||[]).map(c=>c.categoria),
-      opcionesUnidades: (unidades||[]).map(u=>u.unidad_medida),
-      opcionesBatches: (batches||[]).map(b=>b.batch),
+      opcionesCategorias: opciones.categorias || [],
+      opcionesUnidades: opciones.unidades || [],
+      opcionesBatches: opciones.batches || [],
     });
   }catch(e){ /* la sugerencia es un plus, no bloquea el formulario si falla */ }
 }
@@ -5325,7 +5371,7 @@ async function sincronizarColaOffline(){
   state.sincronizandoOffline = false;
   if(enviados>0){
     toast(`${enviados} cambio${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
-    cargarSkus(); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
+    cargarSkus(); invalidarCacheAgregados(['generales','sinUbicacion']); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
   }
   render();
 }
@@ -5343,7 +5389,7 @@ async function reintentarAccionOffline(id){
   if(resultado.ok){
     quitarDeColaOffline(id);
     toast(item.tipo==='sku' ? 'SKU sincronizado' : 'Conteo sincronizado');
-    cargarSkus(); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
+    cargarSkus(); invalidarCacheAgregados(['generales','sinUbicacion']); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
   }else if(resultado.red){
     toast('Sigue sin haber conexión','err');
   }else{
@@ -5548,6 +5594,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     toast('Conteo registrado');
     setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
+    invalidarCacheAgregados(['generales','sinUbicacion']); // cambió cuántos SKU quedan pendientes por bodega
     refrescarSiCargada(['dashboard','reconteos']);
   }catch(e){
     // Sin conexión de verdad, o señal tan lenta que rest() abortó el intento (ver

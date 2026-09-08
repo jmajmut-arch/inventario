@@ -442,14 +442,17 @@
     <tr><td>Universo del plan, mes completo (Planificación)</td><td>2.474 ms</td><td>98 ms</td><td>Funciones de contexto evaluadas una vez por consulta</td></tr>
     <tr><td>Plan del día en Contar, 29 entradas</td><td>641 ms + 29 viajes</td><td>38 ms, 1 viaje</td><td>RPC único en jsonb</td></tr>
     <tr><td>Período completo, 376 entradas (vista resumida)</td><td>4 ejecuciones de 6 a 19 s</td><td>118 ms</td><td>Sin paginación por Range; solo totales</td></tr>
-    <tr><td>Reconteo pendiente</td><td>—</td><td>14 ms</td><td>Vista con InitPlan</td></tr>
-    <tr><td>Estado general de SKU (Dashboard)</td><td>—</td><td>50 ms</td><td>Sin rango de fechas</td></tr>
+    <tr><td>Adherencia al plan (Dashboard)</td><td>549 ms</td><td>61 ms</td><td>Ramas con/sin bin sargables; contempla entradas por código</td></tr>
+    <tr><td>Arranque de la app, consultas al iniciar sesión</td><td>~25 en paralelo</td><td>3 + las de la vista inicial</td><td>Cada pestaña pide lo suyo al mostrarse</td></tr>
   </table>
   <div class="two">
     <div class="box"><div class="tag">Regla aplicada en toda la base</div><code>empresa_actual()</code>, <code>ciclo_actual()</code> y las demás funciones de contexto se escriben como <code>(select f())</code> en las 49 políticas RLS y en las 12 vistas que las usan. Postgres las evalúa una vez por consulta (InitPlan) en vez de una vez por fila: medido, contar 125 conteos pasó de 40 ms a 4,7 ms, y la diferencia crece lineal con el volumen.</div>
     <div class="box"><div class="tag">Índices</div>Compuestos por empresa en <code>skus</code> (bodega, ubicación, bin; último conteo; clase ABC; crítico), <code>conteos</code> (empresa + período, SKU, usuario, fecha), <code>plan_semanal</code> (empresa + fecha, período, usuario) y <code>plan_semanal_skus</code> (SKU). Todas las llaves foráneas de plan y conteos están cubiertas.</div>
   </div>
-  <div class="box"><div class="tag">Capacidad</div>Con Small, el cliente de referencia usa alrededor del 15% de las conexiones y menos del 20% de CPU en horario de conteo. El siguiente escalón (Medium, 4 GB) es un cambio de configuración de 2 minutos sin tocar la app. Una rutina semanal revisa logs y advisors de capacidad y avisa si aparece presión.</div>
+  <div class="two">
+    <div class="box new"><div class="tag">Nuevo · Versión nueva y caché local</div>La app compara el ETag de su propio HTML al volver a primer plano y cada 15 minutos; si cambió, muestra "Hay una versión nueva · Recargar" (una pestaña con código antiguo llegó a hacer 4.000 llamadas a una función ya retirada). Categorías, unidades, batches y ubicaciones generales se guardan en el navegador por empresa durante 10 minutos y se invalidan con cargas masivas, SKU editados, conteos y cambios del plan.</div>
+    <div class="box"><div class="tag">Capacidad</div>Con Small, el cliente de referencia usa alrededor del 15% de las conexiones y menos del 20% de CPU en horario de conteo. El siguiente escalón (Medium, 4 GB) es un cambio de configuración de 2 minutos sin tocar la app. Una rutina semanal revisa logs y advisors de capacidad y avisa si aparece presión.</div>
+  </div>
 </section>
 
 <!-- 15 -->
