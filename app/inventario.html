@@ -2102,6 +2102,18 @@ async function cargarGrupos(){
       const total = await rest('/rpc/contar_criticos_distintos', {method:'POST', body:{}});
       grupoAutomatico.totalCriticos = Number(total) || 0;
     }
+    // "3 materiales · 8 posiciones" (pedido de Joel: al filtrar Buscar por un grupo de 3
+    // materiales salían 8 filas, una por posición). Un grupo se arma por material (código +
+    // bodega), pero Buscar y el plan trabajan por posición: cada fila activa del maestro
+    // (ubicación / storage bin / batch). Una sola llamada para todos los grupos (no N+1); si
+    // falla, simplemente no se muestra la cifra.
+    if(todos.length){
+      try{
+        const filas = await rest('/rpc/posiciones_por_grupo', {method:'POST', body:{p_grupo_ids: todos.map(g=>g.id)}}) || [];
+        const porGrupo = new Map(filas.map(f=>[f.grupo_id, f]));
+        todos.forEach(g=>{ const f = porGrupo.get(g.id); g.posiciones = f ? Number(f.posiciones) : null; });
+      }catch(e){ todos.forEach(g=>{ g.posiciones = null; }); }
+    }
     // Cuántas entradas de plan_semanal generó el plan automático de cada grupo (a pedido de Joel:
     // ver de un vistazo el tamaño real del último plan generado -- ej. "332 entradas" -- sin tener
     // que volver a generarlo para verlo). No hay una columna que vincule plan_semanal a
@@ -8022,9 +8034,10 @@ function renderGrupos(){
       ` : `<button type="button" id="btn-nuevo-grupo" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear grupo</button>`}
       ${g.cargando? `<div class="hint" style="text-align:center;padding:24px 0">Cargando…</div>` : g.lista.length? `<div style="margin-top:14px">${g.lista.map(grupo=>{
         const cantidad = (grupo.miembros && grupo.miembros[0] && grupo.miembros[0].count) || 0;
+        const descripcionPosiciones = grupo.posiciones!=null ? ` · ${grupo.posiciones} posici${grupo.posiciones===1?'ón':'ones'}` : '';
         const descripcionCantidad = grupo.automatico_critico
-          ? `${grupo.totalCriticos!=null ? `${grupo.totalCriticos} material${grupo.totalCriticos===1?'':'es'} · ` : ''}Automático (Crítico)`
-          : `${cantidad} material${cantidad===1?'':'es'}`;
+          ? `${grupo.totalCriticos!=null ? `${grupo.totalCriticos} material${grupo.totalCriticos===1?'':'es'}${descripcionPosiciones} · ` : ''}Automático (Crítico)`
+          : `${cantidad} material${cantidad===1?'':'es'}${descripcionPosiciones}`;
         const cicloListaGrupo = calcularCicloGrupo(grupo);
         const descripcionCiclo = cicloListaGrupo
           ? (cicloListaGrupo.vencido ? ` · <span style="color:var(--warn)">vencido</span>` : ` · día ${cicloListaGrupo.dia} de ${cicloListaGrupo.totalDias}`)
@@ -8053,7 +8066,7 @@ function renderGrupos(){
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500;color:var(--text-dim)">${esc(grupo.nombre)}</div>
-            <div class="hint" style="margin-top:2px">${grupo.automatico_critico? 'Automático (Crítico)' : `${cantidad} material${cantidad===1?'':'es'}`}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''} · pausado</div>
+            <div class="hint" style="margin-top:2px">${grupo.automatico_critico? 'Automático (Crítico)' : `${cantidad} material${cantidad===1?'':'es'}`}${grupo.posiciones!=null? ` · ${grupo.posiciones} posici${grupo.posiciones===1?'ón':'ones'}` : ''}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''} · pausado</div>
           </div>
           <button type="button" class="btn btn-secondary" data-reactivar-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Reactivar</button>
         </div>`;
@@ -8094,6 +8107,7 @@ function renderDetalleGrupo(){
     <div class="card">
       <div class="hint" style="margin-bottom:8px">Seguimiento</div>
       ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : `
+      ${g.seguimiento.totalMiembros>0 && grupo && grupo.posiciones!=null ? `<div class="hint" style="margin-bottom:8px"><strong style="color:var(--text)">${g.seguimiento.totalMiembros}</strong> material${g.seguimiento.totalMiembros===1?'':'es'} · <strong style="color:var(--text)">${grupo.posiciones}</strong> posici${grupo.posiciones===1?'ón':'ones'} en el maestro (ubicación / storage bin / batch). Buscar y el plan trabajan por posición; el seguimiento de abajo, por material.</div>` : ''}
       ${g.seguimiento.cicloActual ? `<div class="hint" style="margin-bottom:10px">Período actual: <strong>${esc(g.seguimiento.cicloActual.nombre)}</strong> · día ${g.seguimiento.cicloActual.dias}</div>` : ''}
       ${g.seguimiento.totalMiembros===0 ? `<div class="empty" style="padding:10px 8px">Sin materiales todavía.</div>` : g.seguimiento.tieneFrecuencia ? `
       ${g.editandoFechaInicioId===grupo.id ? `
