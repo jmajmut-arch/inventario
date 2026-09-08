@@ -273,14 +273,22 @@ como hoy, sin un toque extra.
 Cada fase se publica por separado y se puede usar desde la primera. Antes de cada una, se mide
 con datos reales que ninguna pantalla existente se haga más lenta.
 
-## 9. Preguntas abiertas
+## 9. Preguntas abiertas y decisiones
 
-1. **Unidades con decimales** (litros, metros): `cantidad` como `numeric`, como ya es
-   `stock_sistema`. Confirmar que la app lo muestre bien en Ingreso y Salida.
-2. **SKU nuevo desde el ingreso**: ¿puede crearlo un operador o solo un admin? Hoy la alta
-   manual la puede hacer cualquiera.
-3. **Empresa demo**: ¿activamos el módulo en la demo pública para mostrarlo en ventas? Implica
-   que el reset periódico de la demo también limpie movimientos.
+Decisiones tomadas el 8 de septiembre de 2026:
+
+1. **Unidades con decimales**: `cantidad` y `stock_sistema` son `numeric` y los campos de
+   cantidad en Ingreso y Salida aceptan decimales (litros, metros). Confirmado.
+2. **SKU nuevo desde el ingreso**: lo puede crear cualquier rol, igual que la alta manual de
+   hoy. En la fase 2 se agrega el acceso directo desde Ingreso cuando el código no existe.
+3. **Empresa demo**: el módulo queda activo en la demo pública. El reset nocturno
+   (`resetear_demo_inventia`) limpia movimientos, documentos, proveedores y personas de
+   retiro, y vuelve a sembrar la apertura, un ingreso y una salida de ejemplo. Como corre
+   desde pg_cron sin sesión de usuario, el trigger de validación deja pasar esas filas solo
+   cuando no hay `auth.uid()` y la propia función marcó la transacción con `app.reset_demo`.
+
+Siguen abiertas:
+
 4. **Valorización**: confirmar que queda para la fase 3.
 5. **Nombre en la app**: "Bodega" para el módulo nuevo e "Inventario" para lo existente, como
    propuso Joel. Revisar que no choque con "Ubicación general" (que hoy se llama bodega en la
