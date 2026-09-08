@@ -4105,10 +4105,11 @@ async function cargarReconteos(){
       rest('/rpc/reconteo_pendiente_por_semana', {method:'POST', body:{p_tz: tz}}).catch(()=>null),
     ]);
     const porSemana = Array.isArray(semanas) ? semanas.map(f=>({semana:f.semana, pendientes:Number(f.pendientes)||0})) : state.reconteosPorSemana;
-    // Si la semana elegida ya no tiene pendientes (se recontaron todos), volver a "todas".
-    const semanaSigueExistiendo = !state.reconteoSemana || porSemana.some(f=>f.semana===state.reconteoSemana);
-    setState({reconteos: rows||[], reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteoSemana: semanaSigueExistiendo ? state.reconteoSemana : null});
-    if(!semanaSigueExistiendo) cargarReconteos();
+    // Si la semana elegida se queda sin pendientes (se descartó o recontó el último), la vista
+    // se QUEDA en esa semana mostrando "No quedan pendientes en esta semana" y el botón para
+    // volver a todas -- reportado por Joel: antes saltaba sola a "todas las semanas" y parecía que
+    // Descartar no había hecho nada (o que aparecían pendientes nuevos de golpe).
+    setState({reconteos: rows||[], reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana});
   }catch(e){ /* silencioso */ }
 }
 
@@ -7021,11 +7022,13 @@ function renderReconteo(){
   const semanaActiva = state.reconteoSemana;
   const etiquetaSemana = iso => `${numeroSemanaISO(new Date(iso+'T00:00:00'))}S`;
   const rangoSemana = iso => `${fmtDiaCorto(iso)} – ${fmtDiaCorto(fechaISO(sumarDias(new Date(iso+'T00:00:00'), 6)))}`;
-  const graficoSemanas = porSemana.length ? `
+  // La tarjeta también se muestra si hay una semana elegida aunque ya no queden pendientes en
+  // ninguna: es la única forma de ver "Mostrando la semana…" y salir con "Ver todas las semanas".
+  const graficoSemanas = (porSemana.length || semanaActiva) ? `
     <div class="card" style="margin-bottom:14px">
-      <div class="hint" style="margin-bottom:8px">Reconteos pendientes por semana (${totalPendientes.toLocaleString('es-CL')} en total) · toca una semana para ver solo esa</div>
-      ${renderBarChart(porSemana.map(f=>({dia:f.semana, n:f.pendientes})), 'n', d=> d.dia===semanaActiva ? 'var(--amber)' : 'var(--steel)', etiquetaSemana, true, false, {clave: d=>d.dia, activo: semanaActiva})}
-      ${semanaActiva ? `<div class="hint" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>Mostrando la semana <strong>${etiquetaSemana(semanaActiva)}</strong> (${esc(rangoSemana(semanaActiva))}).</span><button type="button" class="link-btn" id="btn-quitar-semana-reconteo">Ver todas las semanas</button></div>` : ''}
+      <div class="hint" style="margin-bottom:8px">Reconteos pendientes por semana (${totalPendientes.toLocaleString('es-CL')} en total)${porSemana.length? ' · toca una semana para ver solo esa' : ''}</div>
+      ${porSemana.length ? renderBarChart(porSemana.map(f=>({dia:f.semana, n:f.pendientes})), 'n', d=> d.dia===semanaActiva ? 'var(--amber)' : 'var(--steel)', etiquetaSemana, true, false, {clave: d=>d.dia, activo: semanaActiva}) : ''}
+      ${semanaActiva ? `<div class="hint" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>Mostrando la semana <strong>${etiquetaSemana(semanaActiva)}</strong> (${esc(rangoSemana(semanaActiva))})${porSemana.some(f=>f.semana===semanaActiva)? '' : ' · ya no quedan pendientes en esta semana'}.</span><button type="button" class="link-btn" id="btn-quitar-semana-reconteo">Ver todas las semanas</button></div>` : ''}
     </div>` : '';
   return `
     <div class="section-head"><div><span class="eyebrow">${rows.length}${state.reconteosHayMas?'+':''}</span><h2>Reconteo</h2></div></div>

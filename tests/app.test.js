@@ -5969,14 +5969,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r, 20));
     const getTodas = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
     assert(ctx.__appstate.reconteoSemana===null && !!getTodas && !getTodas.url.includes('ultimo_conteo_fecha=gte.'), 'tocar la misma semana debe volver a todas, sin filtro de fecha, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-    // Si la semana elegida desaparece del resumen (ya no quedan pendientes), vuelve sola a todas.
+    // Si la semana elegida se queda sin pendientes (se descartó o recontó el último), la vista se
+    // QUEDA en esa semana y lo dice, con "Ver todas las semanas" para salir -- reportado por Joel:
+    // antes saltaba sola a "todas" y parecía que Descartar no había funcionado.
     ctx.__appstate.reconteoSemana = '2026-08-03';
     reconteoPorSemanaFixture = [{semana:'2026-08-10', pendientes:14}];
     await ctx.cargarReconteos();
     await new Promise(r=>setTimeout(r, 20));
-    assert(ctx.__appstate.reconteoSemana===null, 'si la semana elegida ya no tiene pendientes, debe volver a todas sola, obtuvo: '+ctx.__appstate.reconteoSemana);
+    assert(ctx.__appstate.reconteoSemana==='2026-08-03', 'si la semana elegida ya no tiene pendientes, debe quedarse en esa semana (no saltar sola a todas), obtuvo: '+ctx.__appstate.reconteoSemana);
+    const htmlSemanaVacia = ctx.renderReconteo();
+    assert(htmlSemanaVacia.includes('ya no quedan pendientes en esta semana') && htmlSemanaVacia.includes('id="btn-quitar-semana-reconteo"'), 'debe avisar que la semana quedó sin pendientes y ofrecer volver a todas, obtuvo: '+htmlSemanaVacia);
+    // Incluso sin pendientes en ninguna semana, la tarjeta sigue para poder salir del filtro.
     reconteoPorSemanaFixture = [];
     await ctx.cargarReconteos();
+    await new Promise(r=>setTimeout(r, 20));
+    const htmlSinNada = ctx.renderReconteo();
+    assert(htmlSinNada.includes('id="btn-quitar-semana-reconteo"') && htmlSinNada.includes('(0 en total)'), 'con una semana elegida y cero pendientes, debe seguir viéndose "Ver todas las semanas", obtuvo: '+htmlSinNada);
+    ctx.elegirSemanaReconteo(null);
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.reconteoSemana===null, 'Ver todas las semanas debe limpiar la semana elegida, obtuvo: '+ctx.__appstate.reconteoSemana);
   }
 
   // ===== Reconteo: ícono para ver las fotos, sumadas de TODOS los conteos del SKU (no solo el
