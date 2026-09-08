@@ -662,6 +662,12 @@ const UMBRAL_GUARDADO_LENTO_MS = 4000;
 // dejar a la persona esperando indefinidamente. Bastante más alto que UMBRAL_GUARDADO_LENTO_MS
 // (ese solo cambia el aviso en pantalla; este de acá corta la espera de verdad).
 const UMBRAL_ABORTAR_GUARDADO_MS = 15000;
+// Cálculo del universo de SKU del plan (skusUniversoEntradaPlan/Lote): es un recálculo de fondo
+// que con un período grande puede tardar varios segundos por página. El servidor corta a los 20 s
+// (statement_timeout del rol de la API); este margen deja que sea el servidor quien responda con
+// su error, en vez de abortar antes desde el cliente y mostrar "No se pudo conectar" (bug real
+// reportado por Joel al agregar ~900 SKU al plan).
+const TIMEOUT_UNIVERSO_PLAN_MS = 25000;
 // Períodos de conteo: si alguien pre-crea un período futuro, activar_periodos_programados()
 // (cron diario) lo activa solo en cuanto llega su fecha de inicio -- lo que de paso cierra el
 // actual y genera su informe. Este umbral es solo para el aviso previo en renderCiclos: cuántos
@@ -1688,7 +1694,7 @@ async function skusUniversoEntradaPlan(planId){
         'Prefer': 'count=exact',
       },
       body: JSON.stringify({p_plan_id: planId}),
-    });
+    }, TIMEOUT_UNIVERSO_PLAN_MS);
     const text = await res.text();
     const data = text ? JSON.parse(text) : [];
     if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
@@ -1731,7 +1737,7 @@ async function skusUniversoEntradaPlanLote(planIds){
         'Prefer': 'count=exact',
       },
       body: JSON.stringify({p_plan_ids: planIds}),
-    });
+    }, TIMEOUT_UNIVERSO_PLAN_MS);
     const text = await res.text();
     const data = text ? JSON.parse(text) : [];
     if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
