@@ -1739,6 +1739,60 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(filasLote.some(f=>f.id==='s1001'), 'las filas de la segunda página deben estar incluidas, obtuvo: '+filasLote.length);
   }
 
+  // Una página vacía cuando el servidor dijo que quedaban filas es un error, no el final -- bug
+  // real reportado por Joel: el período completo mostraba "1000 en total" justos (una página)
+  // cuando eran 1.251, sin ningún aviso.
+  {
+    const fetchOriginalVacia = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan_lote'){
+        const desde = Number(opts.headers.Range.split('-')[0]);
+        const filas = desde===0 ? Array.from({length:1000}, (_,i)=>({plan_id:'pg', id:'s'+i, sku_code:'S'+i})) : [];
+        return { status:206, ok:true, headers:{get:(h)=> h==='content-range' ? (desde===0 ? '0-999/1254' : '*/1254') : null}, text: async()=>JSON.stringify(filas) };
+      }
+      return fetchOriginalVacia(url, opts);
+    };
+    let errorVacia = null;
+    try{ await ctx.skusUniversoEntradaPlanLote(['pg']); }catch(e){ errorVacia = e; }
+    ctx.fetch = fetchOriginalVacia;
+    assert(!!errorVacia, 'una segunda página vacía con total 1254 debe fallar (respuesta incompleta), no devolver 1000 filas en silencio');
+  }
+
+  // cargarPlanSemanal: si el cálculo del universo falla (ej. timeout del servidor), no deben quedar
+  // números viejos en pantalla: se limpian universos/detalle de esas entradas, se guarda el error
+  // (aviso + Reintentar en Planificación) y se avisa con un toast.
+  {
+    const fetchOriginalFalla = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan_lote'){
+        return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
+      }
+      return fetchOriginalFalla(url, opts);
+    };
+    ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10', diaFiltro:null, cicloFiltro:'', universos:{e1:5, e2:3}, detalle:{e1:[{id:'x'}], e2:[{id:'y'}]}, universoError:null};
+    const toastRootFalla = elements['toast-root'];
+    const toastsAntesFalla = toastRootFalla ? toastRootFalla.hijos.length : 0;
+    await ctx.cargarPlanSemanal();
+    await new Promise(r=>setTimeout(r, 20));
+    ctx.fetch = fetchOriginalFalla;
+    assert(ctx.__appstate.plan.universos.e1===undefined && ctx.__appstate.plan.detalle.e1===undefined, 'si falla el universo, no deben quedar los números viejos de esas entradas, obtuvo: '+JSON.stringify({universos:ctx.__appstate.plan.universos, detalle:Object.keys(ctx.__appstate.plan.detalle)}));
+    assert(/timeout/.test(ctx.__appstate.plan.universoError||''), 'debe guardarse el error para mostrarlo en pantalla, obtuvo: '+ctx.__appstate.plan.universoError);
+    const toastsFalla = toastRootFalla ? toastRootFalla.hijos.slice(toastsAntesFalla) : [];
+    assert(toastsFalla.some(t=>t.className==='toast warn'), 'debe avisar (warn) que no se pudo calcular, obtuvo: '+JSON.stringify(toastsFalla.map(t=>t.textContent)));
+    const htmlConError = ctx.renderPlanificacion();
+    assert(htmlConError.includes('id="btn-reintentar-universo"') && htmlConError.includes('No se pudo calcular'), 'Planificación debe mostrar el aviso con un botón para reintentar, obtuvo: '+htmlConError);
+    // Reintentar: vuelve a cargar y, con el servidor sano, el aviso desaparece y vuelven los números.
+    delete elements['btn-reintentar-universo'];
+    ctx.__appstate.view = 'plan';
+    ctx.bind();
+    assert(!!elements['btn-reintentar-universo'], 'bind() debe haber consultado #btn-reintentar-universo');
+    elements['btn-reintentar-universo'].dispatch('click');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.plan.universoError===null && ctx.__appstate.plan.universos.e1===1, 'al reintentar con el servidor sano, el aviso debe desaparecer y volver el universo, obtuvo: '+JSON.stringify({error:ctx.__appstate.plan.universoError, universos:ctx.__appstate.plan.universos}));
+  }
+
   // excluirSkuDePlan: debe insertar la exclusión y refrescar el plan.
   calls.length = 0;
   ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};

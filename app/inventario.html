@@ -514,7 +514,7 @@ let state = {
   // un ciclo puntual. Puramente client-side: no dispara una nueva carga, solo recalcula sobre
   // dash.avancePlanPorCiclo (que ya trae todos los períodos).
   dashPeriodo: '',
-  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', cicloFiltroInicializado:false, diaFiltro:null, entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[] },
+  plan: { semanaInicio: fechaISO(inicioSemana(new Date())), cicloFiltro:'', cicloFiltroInicializado:false, diaFiltro:null, entradas:[], universos:{}, generales:[], sinUbicacionCount:0, responsables:[], editando:null, detalle:{}, seleccionados:[], universoError:null },
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
@@ -1696,6 +1696,9 @@ async function skusUniversoEntradaPlan(planId){
     // Misma paginación a prueba de total desconocido que skusUniversoEntradaPlanLote (ver abajo).
     const range = res.headers.get('content-range');
     const totalInformado = range && range.includes('/') ? Number(range.split('/')[1]) : NaN;
+    if(!data.length && Number.isFinite(totalInformado) && desde < totalInformado){
+      throw new Error('respuesta incompleta del servidor');
+    }
     total = Number.isFinite(totalInformado) ? totalInformado : (data.length < TAM_PAGINA ? filas.length : Infinity);
     desde += TAM_PAGINA;
     if(!data.length) break;
@@ -1741,6 +1744,11 @@ async function skusUniversoEntradaPlanLote(planIds){
     // repetir una fila y perder otra entre páginas.
     const range = res.headers.get('content-range');
     const totalInformado = range && range.includes('/') ? Number(range.split('/')[1]) : NaN;
+    // Una página vacía cuando el servidor dijo que quedaban filas es un error, no el final: si
+    // se tomara como final, el resultado quedaría cortado en silencio (bug real: 1000 justos).
+    if(!data.length && Number.isFinite(totalInformado) && desde < totalInformado){
+      throw new Error('respuesta incompleta del servidor');
+    }
     total = Number.isFinite(totalInformado) ? totalInformado : (data.length < TAM_PAGINA ? filas.length : Infinity);
     desde += TAM_PAGINA;
     if(!data.length) break;
@@ -1820,8 +1828,19 @@ async function cargarPlanSemanal(){
         universos[r.id] = skus.length;
         detalle[r.id] = skus;
       });
-      setState({plan: {...state.plan, universos, detalle}});
-    }catch(e){ /* recálculo de fondo no crítico, ver comentario arriba */ }
+      setState({plan: {...state.plan, universos, detalle, universoError:null}});
+    }catch(e){
+      if(miSecuencia !== cargarPlanSemanalSecuencia) return;
+      // Ya no es silencioso: bug real reportado por Joel -- con el período completo, la segunda
+      // página del RPC caía sobre el timeout y la pantalla quedaba con números viejos o
+      // incompletos sin ningún aviso ("1000 en total" cuando eran 1.251). Se borra lo que se
+      // tenía de estas entradas (vuelven a "Calculando…"), se avisa y se ofrece reintentar.
+      const universos = {...state.plan.universos};
+      const detalle = {...state.plan.detalle};
+      (rows||[]).forEach(r=>{ delete universos[r.id]; delete detalle[r.id]; });
+      setState({plan: {...state.plan, universos, detalle, universoError: e.message || 'error desconocido'}});
+      toast('No se pudo calcular el SKU a contar del plan. Revisa el aviso en Planificación para reintentar.', 'warn');
+    }
   }catch(e){ if(miSecuencia === cargarPlanSemanalSecuencia) toast(e.message,'err'); }
 }
 
@@ -7449,6 +7468,14 @@ function renderPlanificacion(){
 
     ${entradasVisibles.length? `
       <div class="section-head"><h2 style="font-size:15px">${p.diaFiltro? 'Resumen del día' : p.cicloFiltro? 'Resumen del período' : 'Resumen de la semana'}</h2></div>
+      ${p.universoError? `
+      <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span>No se pudo calcular el SKU a contar de este plan (${esc(p.universoError)}). Los totales de abajo están incompletos.</span>
+          <button type="button" class="btn btn-secondary" id="btn-reintentar-universo" style="width:auto;padding:6px 12px;font-size:12px">Reintentar</button>
+        </div>
+      </div>
+      ` : ''}
       <div class="card">
         <div class="hint" style="margin-bottom:8px">SKU a contar por día (${totalSemana} en total)</div>
         ${renderBarChart(datosPorDia, 'cantidad', 'var(--amber)', p.cicloFiltro? fmtDiaCorto : abrevDiaSemana, true)}
@@ -9226,6 +9253,9 @@ function bind(){
     // entrada nueva). Como en ese modo se está mirando un solo día, tiene sentido que la fecha
     // que se elige para agregar sea la misma que se ve. Solo aplica en modo día: en modo
     // semana/período la lista ya muestra todas las fechas del rango.
+    // Reintento del cálculo del universo cuando falló (ver el catch de cargarPlanSemanal).
+    const btnReintentarUniverso = document.getElementById('btn-reintentar-universo');
+    if(btnReintentarUniverso) btnReintentarUniverso.addEventListener('click', ()=>{ cargarPlanSemanal(); });
     const inputFechaPlan = document.getElementById('p-fecha');
     if(inputFechaPlan) inputFechaPlan.addEventListener('change', e=>{
       const nueva = e.target.value;
