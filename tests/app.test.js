@@ -1450,6 +1450,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // no de una consulta de 15 columnas por bin.
   const fotosUniverso = calls.filter(c=>c.url.includes('/skus_planificables?'));
   assert(fotosUniverso.length===1 && decodeURIComponent(fotosUniverso[0].url).includes('storage_bin=in.("A-01","A-02")') && fotosUniverso[0].url.includes('select=id,sku_code,storage_bin&'), 'la foto de varios bins debe pedirse en una sola consulta in.(...) con columnas mínimas, obtuvo: '+JSON.stringify(fotosUniverso.map(c=>c.url)));
+  // Bug real (Joel, B521/0099): un bin con el mismo código en dos batches (NEW y REPAIRED) hacía
+  // fallar la foto con "duplicate key" (plan_semanal_skus es único por plan_id+sku_code) y la
+  // entrada quedaba creada sin foto. La foto lleva UNA fila por código, con el id del primer batch.
+  calls.length = 0;
+  await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Bodega Batch Test', ubicacion:'Zona X', storageBins:['BX-01'], responsableId:'', nota:''});
+  const fotoBatch = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_skus'));
+  const filasFotoBatch = fotoBatch ? JSON.parse(fotoBatch.opts.body) : [];
+  assert(filasFotoBatch.length===1 && filasFotoBatch[0].sku_code==='SKU-DOSBATCH' && filasFotoBatch[0].sku_id==='id-batch-a', 'un SKU con dos batches en el mismo bin debe ir UNA sola vez en la foto (id del primer batch), obtuvo: '+JSON.stringify(filasFotoBatch));
+  // Si la foto igual falla, la entrada ya está creada: se avisa, no se trata como error de agregar.
+  {
+    const fetchOriginalFoto = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      if(opts && opts.method==='POST' && url.includes('/plan_semanal_skus')) return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "plan_semanal_skus_plan_id_sku_code_key"'}) };
+      return fetchOriginalFoto(url, opts);
+    };
+    const filasCreadas = await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:'', silencioso:true});
+    assert(Array.isArray(filasCreadas) && filasCreadas.length===1, 'si falla la foto, crearPlanEntrada (silencioso) debe devolver igual las filas creadas, obtuvo: '+JSON.stringify(filasCreadas));
+    const toastRootFoto = elements['toast-root'];
+    const toastsAntesFoto = toastRootFoto ? toastRootFoto.hijos.length : 0;
+    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:''});
+    const toastsFoto = (toastRootFoto ? toastRootFoto.hijos.slice(toastsAntesFoto) : []).map(t=>t.textContent);
+    assert(toastsFoto.some(t=>/Entrada agregada, pero no se pudo guardar la foto/.test(t)) && toastsFoto.some(t=>/Agregado a la planificación/.test(t)), 'si falla la foto debe avisar que la entrada quedó creada y seguir con el flujo normal, obtuvo: '+JSON.stringify(toastsFoto));
+    ctx.fetch = fetchOriginalFoto;
+  }
   // Con el universo ya conocido (generador de Grupos), no se pide nada al servidor para la foto.
   calls.length = 0;
   await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:'', universoConocido:[{id:'id-001', sku_code:'SKU-001', storage_bin:'A-01'}]});
