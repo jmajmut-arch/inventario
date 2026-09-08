@@ -3172,7 +3172,15 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   if(!entradas.length) return [];
   // Una sola consulta para todas las entradas (antes era una por entrada). Paginada por si un día
   // con muchas entradas junta más de 1.000 filas de foto: sin eso PostgREST cortaría en silencio.
-  const snapshots = await restTodo(`/plan_semanal_skus?plan_id=in.(${entradas.map(e=>e.id).join(',')})&select=sku_code,sku_id,storage_bin_original,bodega_original,ubicacion_original`);
+  // Los plan_id van en la URL (in.(...)): de a 100 por consulta para que un día con cientos de
+  // entradas con bin nunca arme una URL que el servidor rechace (mismo cuidado que los DELETE
+  // en lote de pausarGrupo).
+  const ids = entradas.map(e=>e.id);
+  const tandas = [];
+  for(let i=0; i<ids.length; i+=100) tandas.push(ids.slice(i, i+100));
+  const snapshots = (await Promise.all(tandas.map(t=>
+    restTodo(`/plan_semanal_skus?plan_id=in.(${t.join(',')})&select=sku_code,sku_id,storage_bin_original,bodega_original,ubicacion_original`)
+  ))).flat();
   // sku_code NO identifica una ubicación única: el mismo material puede tener stock repartido en
   // más de una bodega/ubicación a la vez (bug real reportado por Joel — "me parece excesivo" con
   // ~45% de un plan marcado como movido a horas de haberlo creado, sin ninguna carga masiva de por
