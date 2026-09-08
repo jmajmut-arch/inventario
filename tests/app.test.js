@@ -1193,6 +1193,84 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   binEl.selectedOptions = [];
   await new Promise(resolve => setTimeout(resolve, 20));
 
+  // Aviso de solape (pedido de Joel: "avisar al agregar"). Con datos reales, 3 entradas de
+  // "toda la ubicación" solaparon 136 SKU con bins ya planificados en otros días del mismo
+  // período y nadie lo notó. Antes de crear la entrada, el submit compara el universo completo
+  // de la selección (skus_planificables) con el disponible (skus_disponibles_planificar, que saca
+  // lo ya cubierto por otra entrada vigente): si hay diferencia, pregunta con confirm() cuántos
+  // quedarían repetidos. Cancelar no crea nada; aceptar crea igual (a veces se quiere recontar).
+  // Se cuentan con Range 0-0 + count=exact (una consulta por bin elegido, no se bajan filas).
+  const fetchOriginalSolape = ctx.fetch;
+  const conteosSolape = [];
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    const esConteo = opts && opts.headers && opts.headers.Range==='0-0';
+    if(esConteo && /^\/rest\/v1\/skus_(planificables|disponibles_planificar)$/.test(u.pathname)){
+      conteosSolape.push(u.pathname + u.search);
+      const total = u.pathname.endsWith('skus_planificables') ? 10 : 7;
+      return { status:200, ok:true, headers:{ get:(h)=> h==='content-range' ? `0-0/${total}` : null }, text: async()=>'[]' };
+    }
+    return fetchOriginalSolape(url, opts);
+  };
+  binEl.selectedOptions = [{value:'A-01'}];
+  makeEl('p-fecha').value = '2026-08-12';
+  confirmRespuesta = false;
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 30);
+  });
+  assert(conteosSolape.some(p=>p.startsWith('/rest/v1/skus_planificables?') && p.includes('bodega=eq.Nave') && p.includes('ubicacion=eq.Interior') && p.includes('storage_bin=eq.A-01')), 'antes de agregar debe contar el universo completo de la selección (bodega+ubicación+bin) en skus_planificables, obtuvo: '+JSON.stringify(conteosSolape));
+  assert(conteosSolape.some(p=>p.startsWith('/rest/v1/skus_disponibles_planificar?') && p.includes('storage_bin=eq.A-01')), 'antes de agregar debe contar lo disponible (sin lo ya cubierto por otra entrada) en skus_disponibles_planificar, obtuvo: '+JSON.stringify(conteosSolape));
+  // (El mock de addEventListener acumula un handler de submit por cada bind() previo, así que
+  // confirm() puede dispararse más de una vez acá; lo que importa es el texto y que no se cree.)
+  assert(confirmLlamadas.length>=1 && confirmLlamadas.every(m=>/3 de los 10 SKU/.test(m) && /ya están planificados en otra entrada/.test(m)), 'si parte de la selección ya está en otra entrada del período, debe avisar con confirm() indicando cuántos (10 en total - 7 disponibles = 3), obtuvo: '+JSON.stringify(confirmLlamadas.slice(0,2)));
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'si la persona cancela el aviso de solape, NO debe crearse la entrada, obtuvo: '+JSON.stringify(calls.filter(c=>c.opts && c.opts.method==='POST').map(c=>c.url)));
+  // Aceptar el aviso crea la entrada igual (se quiere recontar de todos modos).
+  confirmRespuesta = true;
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 30);
+  });
+  assert(confirmLlamadas.length>=1, 'al reintentar debe volver a avisar del solape, obtuvo: '+JSON.stringify(confirmLlamadas.slice(0,2)));
+  const postSolape = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
+  assert(postSolape && JSON.parse(postSolape.opts.body)[0].storage_bin==='A-01', 'si la persona acepta el aviso de solape, la entrada debe crearse igual, obtuvo: '+JSON.stringify(calls.filter(c=>c.opts && c.opts.method==='POST').map(c=>c.url)));
+  // Sin solape (universo == disponible) no debe preguntar nada: el flujo de siempre.
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(opts && opts.headers && opts.headers.Range==='0-0' && /^\/rest\/v1\/skus_(planificables|disponibles_planificar)$/.test(u.pathname)){
+      return { status:200, ok:true, headers:{ get:(h)=> h==='content-range' ? '0-0/10' : null }, text: async()=>'[]' };
+    }
+    return fetchOriginalSolape(url, opts);
+  };
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 30);
+  });
+  assert(confirmLlamadas.length===0, 'si nada de la selección está en otra entrada, no debe pedir confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones')), 'sin solape la entrada debe crearse sin preguntar, obtuvo: '+JSON.stringify(calls.filter(c=>c.opts && c.opts.method==='POST').map(c=>c.url)));
+  // Si el conteo falla (red, timeout), el aviso es informativo: se agrega igual sin bloquear.
+  ctx.fetch = async (url, opts) => {
+    if(opts && opts.headers && opts.headers.Range==='0-0' && /\/rest\/v1\/skus_(planificables|disponibles_planificar)\?/.test(url)) throw new Error('falló el conteo');
+    return fetchOriginalSolape(url, opts);
+  };
+  confirmLlamadas.length = 0;
+  calls.length = 0;
+  await new Promise(resolve => {
+    formPlanEl.dispatch('submit', {target: formPlanEl, preventDefault(){}});
+    setTimeout(resolve, 30);
+  });
+  assert(confirmLlamadas.length===0 && calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones')), 'si falla el conteo del solape, debe agregar igual sin preguntar ni bloquear, obtuvo confirm='+JSON.stringify(confirmLlamadas)+' posts='+JSON.stringify(calls.filter(c=>c.opts && c.opts.method==='POST').map(c=>c.url)));
+  ctx.fetch = fetchOriginalSolape;
+  confirmRespuesta = true;
+  binEl.selectedOptions = [];
+  await new Promise(resolve => setTimeout(resolve, 20));
+
   // Bug real reportado ("ya lo habíamos corregido, volvió a pasar"): la selección de Ubicación
   // general/específica/Storage bin en "Agregar a la planificación" desaparecía sola mientras la
   // persona la llenaba. Causa real: cargarPlanSemanal() recalcula en segundo plano el universo y

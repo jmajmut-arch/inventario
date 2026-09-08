@@ -9296,10 +9296,33 @@ function bind(){
       }else{
         storageBins = seleccionBin;
       }
+      const ubicacionElegida = document.getElementById('p-ubic').value.trim();
+      // Aviso de solape (a pedido de Joel): si parte de lo que se va a agregar YA está cubierto
+      // por otra entrada del plan de este período, avisar antes de crear la entrada -- con datos
+      // reales, 3 entradas de ubicación completa solaparon 136 SKU con bins ya planificados en
+      // otros días, y quedaban dos veces en el plan sin que nadie lo notara. Se compara el
+      // universo completo (skus_planificables) contra el disponible (skus_disponibles_planificar,
+      // que además saca lo ya cubierto por otra entrada); la diferencia es lo repetido. Solo avisa,
+      // no bloquea: a veces se quiere igual (ej. recontar una ubicación entera). No aplica al modo
+      // "SKU puntuales" (la lista que se ofrece ahí ya viene sin los ya planificados). Si el
+      // conteo falla, no bloquea agregar.
+      if(selBinEl.dataset.modo!=='skus'){
+        try{
+          const base = {bodega: soloSinUbicacion ? '' : bodegaParaEnviar, ubicacion: ubicacionElegida, excluidos:[], soloSinUbicacion};
+          const binsAContar = storageBins.length ? storageBins : [''];
+          const [totales, disponibles] = await Promise.all([
+            Promise.all(binsAContar.map(bin=> contarUniversoUbicacion({...base, storage_bin: bin}))),
+            Promise.all(binsAContar.map(bin=> contarUniversoUbicacion({...base, storage_bin: bin, excluirYaPlanificados:true}))),
+          ]);
+          const total = totales.reduce((s,n)=>s+n, 0);
+          const yaPlanificados = total - disponibles.reduce((s,n)=>s+n, 0);
+          if(yaPlanificados>0 && !confirm(`${yaPlanificados} de los ${total} SKU de esta selección ya están planificados en otra entrada de este período y quedarían dos veces en el plan. ¿Agregar igual?`)) return;
+        }catch(e){ /* el aviso es informativo: si no se pudo calcular, se agrega igual */ }
+      }
       await crearPlanEntrada({
         fecha: document.getElementById('p-fecha').value,
         bodega: soloSinUbicacion ? '' : bodegaParaEnviar,
-        ubicacion: document.getElementById('p-ubic').value.trim(),
+        ubicacion: ubicacionElegida,
         storageBins,
         skusExcluidos,
         soloSinUbicacion,
