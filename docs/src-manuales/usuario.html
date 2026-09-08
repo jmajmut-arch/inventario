@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>InventIA · Manual de usuario</title>
+<link rel="stylesheet" href="estilo.css"></head>
+<body>
+
+<!-- PORTADA -->
+<section class="page cover">
+  <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
+  <div class="doc-kind">Manual de usuario</div>
+  <h1>De la planilla al plan del día: todas las etapas para tomar tu inventario con InventIA.</h1>
+  <p class="lead">Guía paso a paso para usar la aplicación de principio a fin: iniciar sesión, cargar tu maestro de materiales, planificar por semana o por grupos, contar en terreno, resolver diferencias, revisar el avance y administrar tu suscripción. Cada etapa incluye una captura real de la pantalla cuando corresponde.</p>
+  <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
+
+  <div class="toc">
+    <h2>Etapas</h2>
+    <div class="toc-grid">
+      <div class="toc-row"><span><span class="n">01</span>Iniciar sesión y moverte por la app</span><span class="p">pág. 2</span></div>
+      <div class="toc-row"><span><span class="n">09</span>Reconteo: corregir diferencias</span><span class="p">pág. 10</span></div>
+      <div class="toc-row"><span><span class="n">02</span>Cargar materiales, uno por uno</span><span class="p">pág. 3</span></div>
+      <div class="toc-row"><span><span class="n">10</span>Ver el avance: Dashboard Ejecutivo</span><span class="p">pág. 11</span></div>
+      <div class="toc-row"><span><span class="n">03</span>Cargar materiales desde Excel</span><span class="p">pág. 4</span></div>
+      <div class="toc-row"><span><span class="n">11</span>Ver el avance: Dashboard Operativo</span><span class="p">pág. 12</span></div>
+      <div class="toc-row"><span><span class="n">04</span>Planificar: día, semana, mes, año o período</span><span class="p">pág. 5</span></div>
+      <div class="toc-row"><span><span class="n">12</span>Buscar cualquier material o conteo</span><span class="p">pág. 13</span></div>
+      <div class="toc-row"><span><span class="n">05</span>Grupos de conteo: planificar por frecuencia</span><span class="p">pág. 6</span></div>
+      <div class="toc-row"><span><span class="n">13</span>Períodos de conteo e informes de cierre</span><span class="p">pág. 14</span></div>
+      <div class="toc-row"><span><span class="n">06</span>Calendario: el mes de un vistazo</span><span class="p">pág. 7</span></div>
+      <div class="toc-row"><span><span class="n">14</span>Configuraciones: empresa, equipo y seguridad</span><span class="p">pág. 15</span></div>
+      <div class="toc-row"><span><span class="n">07</span>Contar en terreno: tu plan del día</span><span class="p">pág. 8</span></div>
+      <div class="toc-row"><span><span class="n">15</span>Suscripción y pagos</span><span class="p">pág. 16</span></div>
+      <div class="toc-row"><span><span class="n">08</span>Contar en terreno: escanear código</span><span class="p">pág. 9</span></div>
+      <div class="toc-row"><span><span class="n">·</span>Resumen rápido</span><span class="p">pág. 17</span></div>
+    </div>
+  </div>
+  <div class="note">Las capturas de pantalla son de un ambiente de prueba con datos ficticios ("Minera Andes"), no de datos de un cliente real. Las etapas nuevas de esta edición (Grupos, Calendario, Períodos y Suscripción) se describen sin captura. Los pasos describen el celular como caso principal: InventIA funciona igual en computador, con las mismas pantallas. Actualizado al 8 de septiembre de 2026.</div>
+</section>
+
+<!-- 01 -->
+<section class="page">
+  <div class="kicker">01 · Primeros pasos</div>
+  <h2 class="title">Iniciar sesión y moverte por la app</h2>
+  <p class="intro">Cada persona entra con una cuenta creada por un administrador de su empresa. La única excepción es quien contrata un plan desde el sitio: esa persona crea su empresa y entra directo como administradora.</p>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Abre InventIA en el navegador del celular o computador. Si ya te instalaron la app (ícono en la pantalla de inicio), ábrela desde ahí: funciona igual, incluso sin señal para las pantallas que ya visitaste.</div></li>
+        <li><span class="num">2</span><div>Ingresa tu correo y contraseña y toca <b>Ingresar</b>. Si es tu primera vez, esas credenciales te llegaron por correo cuando el administrador te invitó.</div></li>
+        <li><span class="num">3</span><div>¿Olvidaste tu contraseña? Toca <b>¿Olvidaste tu contraseña?</b> bajo el botón de ingreso y sigue las instrucciones que te llegan al correo. Si revisar el correo es incómodo en terreno, toca <b>¿Prefieres un código?</b>: recibes un código de 6 dígitos que se escribe directo en la pantalla.</div></li>
+        <li><span class="num">4</span><div>¿No tienes cuenta todavía? Pide al administrador de tu empresa que te invite desde Configuraciones → Invitar equipo (ver etapa 14). No existe un formulario de alta abierto al público para operadores.</div></li>
+      </ol>
+      <div class="box new"><div class="tag">Nuevo · Contratar un plan desde el sitio</div>En inventiapp.cl, el botón <b>Suscribirme</b> de los planes Básico y Profesional abre la app en la pantalla "Crea tu cuenta": nombre de la empresa, tu nombre, correo y contraseña. Después registras la tarjeta en Flow y quedas dentro como administrador, sin coordinar con nadie. El detalle está en la etapa 15.</div>
+      <div class="box"><div class="tag">Cómo se navega</div>La barra inferior tiene <b>Dashboard, Carga, Períodos, Grupos, Plan, Contar</b> y <b>Reconteo</b>. Arriba a la derecha están <b>SKUs, Calendario, Buscar</b> y el engranaje de <b>Configuraciones</b>. Un operador ve las pestañas de administrador con un candado: puede reconocerlas, pero no entrar. Junto a tu nombre aparece tu rol (Operador, Admin o Super-admin).</div>
+    </div>
+    <div class="shot"><img src="img/login.png" alt="Pantalla de inicio de sesión"><div class="cap">Pantalla de inicio de sesión</div></div>
+  </div>
+</section>
+
+<!-- 02 -->
+<section class="page">
+  <div class="kicker">02 · Maestro de materiales</div>
+  <h2 class="title">Cargar materiales, uno por uno</h2>
+  <p class="intro">Ícono SKUs, arriba a la derecha. Sirve para dar de alta un material puntual o corregir uno existente sin tener que tocar todo el Excel.</p>
+  <span class="role admin">Admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>En <b>Código SKU</b> escribe el código del material (el único dato realmente obligatorio junto con el stock). Puedes tocar el ícono de código de barras junto al campo para escanearlo en vez de tipearlo.</div></li>
+        <li><span class="num">2</span><div>Completa lo que tengas a mano: Descripción, Batch, Unidad de medida, Ubicación general (la bodega), Ubicación específica, Storage bin, Stock según sistema y Costo unitario. Nada de esto bloquea el guardado si falta, pero cada dato que agregas habilita una función más adelante (buscar por texto, planificar por bodega, valorizar diferencias en pesos, clasificar por ABC).</div></li>
+        <li><span class="num">3</span><div>Toca <b>Guardar SKU</b>. Si el código ya existe con la misma bodega, ubicación específica, storage bin y batch, se actualiza; si cualquiera de esos datos es distinto, se crea una fila nueva.</div></li>
+      </ol>
+      <div class="box"><div class="tag">Qué significan los puntos de color</div>● Verde: el último conteo de ese material cuadró con el sistema. ● Amarillo: diferencia positiva (sobrante). ● Rojo: diferencia negativa (faltante). Sin punto: todavía no se ha contado.</div>
+      <div class="box"><div class="tag">Clasificación automática</div>Si cargaste el Costo unitario, InventIA calcula sola la Clase ABC de cada material (A/B/C, por valor acumulado) y la muestra junto al listado. Se refresca todas las noches. La marca <b>Crítico</b> sí es manual: un interruptor en la ficha del material, y es la que usa el grupo automático de críticos (etapa 5).</div>
+      <div class="box warn"><div class="tag">Recomendación</div>Completa siempre el <b>Storage bin</b> con la ubicación física final de cada material. Es el dato que usa el Plan del día para avisar si una carga posterior reubicó un material ya planificado, y el que hace rápidas las vistas de Planificación y Calendario.</div>
+    </div>
+    <div class="shot"><img class="tall" src="img/skus.png" alt="SKUs: formulario y listado"><div class="cap">SKUs → formulario y listado con estado</div></div>
+  </div>
+</section>
+
+<!-- 03 -->
+<section class="page">
+  <div class="kicker">03 · Maestro de materiales</div>
+  <h2 class="title">Cargar materiales desde Excel</h2>
+  <p class="intro">Pestaña Carga. Es la vía recomendada para partir: sube de una vez todo el maestro que ya tengas, venga de SAP o de cualquier otra planilla.</p>
+  <span class="role admin">Admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Toca <b>Toca para elegir un archivo .xlsx o .csv</b> y selecciona tu planilla.</div></li>
+        <li><span class="num">2</span><div>InventIA detecta sola qué columna es cada dato y te muestra el mapeo antes de confirmar. Bodega, ubicación específica, storage bin, stock y costo unitario son obligatorios: si falta mapear alguno, "Confirmar e importar" queda deshabilitado. El resto (descripción, batch, categoría, crítico y los 4 campos de stock por tipo) es opcional.</div></li>
+        <li><span class="num">3</span><div>Confirma la carga. Cada carga queda registrada en el <b>Historial de cargas</b>, con cuántas filas se procesaron y, si hubo errores, el motivo agrupado (ej. "Stock en negativo: 20 filas").</div></li>
+      </ol>
+      <div class="box"><div class="tag">Identidad de un material</div>Un SKU es único por código + bodega + batch + ubicación específica + storage bin. El mismo material puede vivir en más de un lugar dentro de la misma bodega: cada Storage Location o bin queda como su propia fila, con su propio stock. Si el archivo trae dos filas idénticas en los cinco datos, se queda con la última.</div>
+      <div class="box"><div class="tag">Stock por tipo (opcional)</div>Si tu ERP separa el stock por tipo, la carga puede mapear 4 columnas más: Bloqueado, SOH en tránsito 1, SOH en tránsito 2 y Transferencia. Se muestran como contexto junto al stock en Contar y Reconteo, sin cambiar el cálculo de diferencia, que sigue comparando solo contra el Stock sistema. Se ocultan igual que el stock sistema cuando el conteo ciego está activo para un operador.</div>
+      <div class="box"><div class="tag">Si vuelves a cargar después de contar</div>El Reconteo compara contra el stock más reciente: si con el dato nuevo un material ya cuadra, sale solo de la lista de pendientes, y la fila muestra "antes: X" con la fecha del cambio (ver etapa 9).</div>
+    </div>
+    <div class="shot"><img src="img/carga.png" alt="Carga: mapeo de columnas"><div class="cap">Carga → mapeo de columnas</div></div>
+  </div>
+</section>
+
+<!-- 04 -->
+<section class="page">
+  <div class="kicker">04 · Planificación</div>
+  <h2 class="title">Planificar: día, semana, mes, año o período</h2>
+  <p class="intro">Pestaña Plan. Define qué se cuenta, dónde y quién es responsable antes de salir a terreno, y revisa la carga de trabajo en la ventana de tiempo que necesites.</p>
+  <span class="role admin">Admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Arriba elige la ventana: <b>Día, Semana, Mes</b> o <b>Año</b>, o un <b>Período</b> completo en el selector. Navega con las flechas ‹ ›. Desde Calendario o desde un día puntual puedes volver con "Ver toda la semana".</div></li>
+        <li><span class="num">2</span><div>En <b>Agregar a la planificación</b>, elige la Fecha y la Ubicación general (bodega). Si quieres acotar más, agrega Ubicación específica y uno, varios o todos los Storage bins. También puedes planificar "SKU sin ubicación" o una bodega "sin ubicación específica".</div></li>
+        <li><span class="num">3</span><div>Asigna un <b>Responsable</b> (opcional, solo personas de tu empresa) y una <b>Nota</b> si el equipo necesita contexto, y toca <b>Agregar</b>.</div></li>
+        <li><span class="num">4</span><div>En Día y Semana ves el detalle: cada entrada con su lista de materiales, y puedes quitar un SKU puntual. En Mes, Año y Período la vista es <b>resumida</b>: totales por entrada, sin listar los SKU, para que la app siga liviana con planes grandes. El <b>Exportar PDF</b> trae siempre el listado completo.</div></li>
+      </ol>
+      <div class="box new"><div class="tag">Nuevo · Aviso de solapamiento</div>Antes de agregar una entrada, InventIA revisa cuántos de esos materiales ya están en otra entrada del mismo período. Si hay solapamiento te lo dice con la cifra exacta y te deja decidir si igual la agregas. Cada SKU se cuenta una sola vez en los totales de la semana, el mes y el año, aunque esté en dos entradas.</div>
+      <div class="box new"><div class="tag">Nuevo · Vistas grandes sin saturar</div>Mes, Año y Período piden al servidor solo los totales, en una llamada, y muestran "N SKU · M ya en otra entrada anterior" por entrada. Para ver o quitar SKU, cambia a Día o Semana.</div>
+      <div class="box"><div class="tag">Qué pasa con lo no planificado</div>Nada obliga a ceñirse al plan: cualquier persona puede contar un material fuera de lo planificado buscándolo en Contar. Esos conteos quedan marcados como "fuera de plan" en Buscar y en el Dashboard.</div>
+    </div>
+    <div class="shot"><img class="tall" src="img/plan.png" alt="Plan: agregar a la planificación"><div class="cap">Plan → agregar a la planificación</div></div>
+  </div>
+</section>
+
+<!-- 05 -->
+<section class="page">
+  <div class="kicker">05 · Planificación</div>
+  <h2 class="title">Grupos de conteo: planificar por frecuencia</h2>
+  <p class="intro">Pestaña Grupos. Listas de materiales que quieres contar con una frecuencia propia y seguir por separado del resto: por ejemplo "IE" para insumos estratégicos, "5S", o todos los críticos. InventIA genera el plan por ti según la capacidad real de tu equipo.</p>
+  <span class="role admin">Admin</span>
+  <div class="cols single">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Toca <b>Crear grupo</b>: nombre, <b>Frecuencia de conteo</b> en días (ej. 90) y <b>Fecha de inicio del ciclo</b>. Si marcas <b>Automático (Crítico)</b>, el grupo incluye solo y siempre todos los materiales marcados como Crítico; no hace falta agregarlos a mano.</div></li>
+        <li><span class="num">2</span><div>Entra al grupo con <b>Ver</b>. En <b>Agregar materiales</b> busca por código o descripción, filtra por bodega y súmalos. El encabezado muestra "N materiales · M posiciones": un mismo código puede estar en varias bodegas o bins, y cada posición se cuenta por separado.</div></li>
+        <li><span class="num">3</span><div>En <b>Vista previa del plan</b> indica cuántas <b>Personas</b> cuentan, cuántas <b>Horas c/u por semana</b> dedican y cuántos <b>Materiales por hora</b> avanzan. Toca <b>Calcular vista previa</b>: verás cuántos materiales pendientes hay y en cuántas semanas se reparten, zona por zona. No se crea nada hasta que confirmes.</div></li>
+        <li><span class="num">4</span><div>Toca <b>Confirmar y crear plan</b>. Las entradas aparecen en Plan sin responsable: lo repartes después. La tarjeta del grupo muestra "Plan generado: N entradas · M SKU por contar · rango · K por venir". Generar de nuevo reemplaza esas entradas.</div></li>
+        <li><span class="num">5</span><div>El <b>Período actual</b> del grupo muestra contados y pendientes y el ritmo reciente. Cuando pasa la fecha de término, el ciclo se cierra solo: queda en el <b>Historial de ciclos cerrados</b> quién se contó y quién no, y todos parten de cero en el ciclo siguiente.</div></li>
+      </ol>
+      <div class="two">
+        <div class="box new"><div class="tag">Nuevo · Pausar y reactivar</div><b>Pausar grupo</b> lo saca de la lista y deja de cerrar ciclos, conservando materiales e historial. Si hay entradas futuras generadas por ese grupo, la app pregunta si también quieres borrarlas; lo ya contado no se toca. Desde "Grupos pausados" puedes <b>Reactivar</b> cuando quieras, con fecha de inicio hoy.</div>
+        <div class="box"><div class="tag">Grupos y períodos son cosas distintas</div>Un grupo tiene su propio ciclo (cada 90 días, por ejemplo) y no cierra el período de conteo de la empresa ni aparece en Buscar. El período de la empresa (etapa 13) agrupa todos los conteos, vengan de un grupo o no.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 06 -->
+<section class="page">
+  <div class="kicker">06 · Planificación</div>
+  <h2 class="title">Calendario: el mes de un vistazo</h2>
+  <p class="intro">Ícono Calendario, arriba a la derecha. Cuánto se planificó, contó y recontó cada día del mes, con acceso directo a cada pantalla.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols single">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Navega el mes con ‹ ›. Cada día muestra cuatro cifras: <b>Planificado</b> (SKU distintos en el plan de ese día), <b>Contado</b>, <b>Recontado</b> y <b>Pendiente</b> (planificado que todavía no tiene ningún conteo en el período actual).</div></li>
+        <li><span class="num">2</span><div>Toca un día para abrir el <b>Detalle del día</b>. Desde ahí: <b>Ir a Contar ese día</b> (abre Contar con esa fecha), <b>Ver en Planificación</b> (abre Plan en la vista Día) o <b>Ver lo contado</b> (abre Buscar filtrado por ese día).</div></li>
+        <li><span class="num">3</span><div>Un administrador ve toda la empresa. Un operador ve solo lo suyo: su plan y sus conteos.</div></li>
+      </ol>
+      <div class="two">
+        <div class="box"><div class="tag">Se actualiza solo</div>Cualquier cambio en Plan (agregar, quitar, editar una entrada) deja el Calendario marcado para volver a pedir datos frescos la próxima vez que entres; no hace falta cerrar sesión.</div>
+        <div class="box new"><div class="tag">Nuevo · Más rápido con planes grandes</div>El cálculo del mes se rehizo para planes con muchas entradas por storage bin: con 158 entradas en un mes pasó de 3,4 segundos a menos de 0,1.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 07 -->
+<section class="page">
+  <div class="kicker">07 · Toma de inventario</div>
+  <h2 class="title">Contar en terreno: tu plan del día</h2>
+  <p class="intro">Pestaña Contar. Muestra solo lo que te toca a ti, hoy, sin tener que revisar la planificación completa de la semana.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Si tu cuenta está vinculada a un responsable del plan (lo hace un admin en Configuraciones), <b>Plan del día</b> aparece solo. Elige bodega y ubicación y verás la lista de SKU pendientes de todas las entradas que calzan, incluidas las de distintos bins.</div></li>
+        <li><span class="num">2</span><div>Toca un material de la lista, escribe la <b>Cantidad contada</b>, agrega foto si corresponde y toca <b>Guardar conteo</b>. Si lo encontraste en otra ubicación, marca la casilla y corrige antes de guardar.</div></li>
+        <li><span class="num">3</span><div>¿No está en tu plan? Usa <b>Agregar algo fuera del plan</b> y busca por código o descripción: la búsqueda corre contra todo el maestro.</div></li>
+        <li><span class="num">4</span><div>Sin señal, todo sigue funcionando: el plan del día queda en caché y los conteos se guardan en el dispositivo hasta sincronizar solos al volver la conexión. Si la señal está lenta, el guardado reintenta solo y nunca duplica un conteo.</div></li>
+      </ol>
+      <div class="box new"><div class="tag">Nuevo · "Plan" aunque lo tipees</div>Si buscas o escaneas un material que sí está en tu plan de ese día, el conteo queda con origen <b>Plan</b>, no "Fuera de plan". Solo lo que de verdad no estaba planificado para ti ese día queda como fuera de plan.</div>
+      <div class="box new"><div class="tag">Nuevo · Carga más rápida</div>La lista de SKU pendientes se pide al servidor en una sola llamada para todas las entradas del día, en vez de una por entrada. Con 20 o 30 entradas y señal débil se nota.</div>
+      <div class="box"><div class="tag">Avisos al elegir un material</div>Si el mismo código vive en más de un lugar, cada ubicación y bin aparece como fila separada. Si ya fue contado en este período, verás "Ya contado X veces". Si el maestro trae stock por tipo, aparece como referencia junto al Stock sistema.</div>
+    </div>
+    <div class="shot">
+      <img src="img/contar-repetido.png" alt="Contar: mismo código en dos ubicaciones"><div class="cap">Contar → mismo código en dos ubicaciones</div>
+      <img src="img/contar-aviso.png" alt="Contar: aviso de conteo repetido"><div class="cap">Contar → aviso de conteo repetido</div>
+    </div>
+  </div>
+</section>
+
+<!-- 08 -->
+<section class="page">
+  <div class="kicker">08 · Toma de inventario</div>
+  <h2 class="title">Contar en terreno: escanear código</h2>
+  <p class="intro">El camino más rápido para encontrar un material sin escribir nada, ya sea desde Contar o desde el campo de código SKU en SKUs.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Toca el ícono de escáner. InventIA pide permiso de cámara la primera vez; acéptalo para poder escanear.</div></li>
+        <li><span class="num">2</span><div>Apunta la cámara al código de barras o QR pegado en el material y espera a que enfoque; la lectura es automática.</div></li>
+        <li><span class="num">3</span><div>InventIA busca el código leído contra tu maestro de dos formas: primero como código de barras ya asociado a un SKU, y si no calza, como el código del SKU mismo.</div></li>
+        <li><span class="num">4</span><div>Si el código coincide con más de un material (misma bodega con ubicación o bin distintos, u otra bodega), InventIA te deja elegir cuál es, mostrando bodega, ubicación y bin de cada coincidencia. Si no coincide con ninguno, puedes asociar ese código a un SKU existente ahí mismo.</div></li>
+      </ol>
+      <div class="box"><div class="tag">Si la cámara no abre</div>Revisa que el navegador tenga permiso de cámara para InventIA (en celular, normalmente en Configuración → Apps → Navegador → Permisos) y que haya conexión al abrir el escáner por primera vez.</div>
+      <div class="box"><div class="tag">Origen del conteo</div>Un material escaneado que está en tu plan del día queda como "Plan"; uno que no, como "Fuera de plan". Igual que al buscar por texto.</div>
+    </div>
+    <div class="shot"><img class="tall" src="img/escaner.png" alt="Contar: escanear código"><div class="cap">Contar → escanear código</div></div>
+  </div>
+</section>
+
+<!-- 09 -->
+<section class="page">
+  <div class="kicker">09 · Corrección</div>
+  <h2 class="title">Reconteo: corregir diferencias</h2>
+  <p class="intro">Pestaña Reconteo. Reúne, sin que nadie tenga que ir a buscarlos, todos los materiales cuyo último conteo no cuadra con el stock de sistema actual.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Arriba, el gráfico <b>Reconteos pendientes por semana</b> (32S, 33S, …) muestra cuántos quedan por resolver según la semana del último conteo. Toca una barra para ver solo esa semana; el aviso "Mostrando la semana…" te deja volver con <b>Ver todas las semanas</b>.</div></li>
+        <li><span class="num">2</span><div>Revisa la lista: cada fila muestra el stock de Sistema contra lo Contado, la Diferencia y una <b>Causa probable</b> que InventIA sugiere sola a partir del historial (ubicación distinta, diferencia recurrente, ambas o sin patrón).</div></li>
+        <li><span class="num">3</span><div>Toca <b>Recontar</b> en el material que quieras verificar. Vuelve a contar físicamente y guarda la nueva cantidad. Si el segundo conteo confirma la diferencia, queda registrada como definitiva; si la corrige, el material sale de la lista.</div></li>
+      </ol>
+      <div class="box new"><div class="tag">Nuevo · Descartar (solo admin)</div>Cuando la diferencia se explica por un error del dato maestro (un stock mal digitado, por ejemplo) y no por algo que haya que verificar en bodega, un administrador puede tocar <b>Descartar</b> e indicar el motivo. El material sale de pendientes sin recontar, el motivo queda en Auditoría, y la lista se queda en la semana que estabas mirando.</div>
+      <div class="box"><div class="tag">Compara contra el stock actual</div>Si cargaste un Excel nuevo después del conteo y el stock cambió, la diferencia se recalcula sola contra el dato más reciente y la fila muestra "antes: X" con la fecha del cambio. Si con el stock nuevo ya calza, el material sale solo de la lista.</div>
+      <div class="box"><div class="tag">Por qué importa</div>El Reconteo separa un error de tipeo de una pérdida real. Todo lo que pasa por acá alimenta la Valorización de diferencias del Dashboard Ejecutivo y el informe de cierre del período.</div>
+    </div>
+    <div class="shot"><img src="img/reconteo.png" alt="Reconteo: diferencias pendientes"><div class="cap">Reconteo → diferencias pendientes, con huella y stock por tipo</div></div>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="page">
+  <div class="kicker">10 · Seguimiento</div>
+  <h2 class="title">Ver el avance: Dashboard Ejecutivo</h2>
+  <p class="intro">Pestaña Dashboard, toggle Ejecutivo. Pensado para quien necesita el resultado en plata y en riesgo, no el detalle operativo día a día. Todo se calcula sobre el período de conteo actual.</p>
+  <span class="role admin">Admin (según plan de tu empresa)</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div><b>Avance por ubicación general</b> y <b>Proyección de término</b>, calculada al ritmo de conteo de los últimos 14 días.</div></li>
+        <li><span class="num">2</span><div><b>Adherencia al plan</b>: SKU planificados en el período contra los que aún faltan por contar.</div></li>
+        <li><span class="num">3</span><div><b>Exactitud</b> resume, sobre el último conteo de cada SKU, qué porcentaje no tuvo diferencia y qué porcentaje quedó en la ubicación correcta, con tendencia mes a mes y ranking por bodega.</div></li>
+        <li><span class="num">4</span><div><b>Valorización de diferencias</b> traduce excedentes y faltantes a pesos usando el costo unitario; más abajo, el Top 10 de pérdidas y excedentes con más impacto, <b>Clasificación ABC</b> con % contado por clase, <b>Ranking por responsable</b> y <b>SKU pendientes por ubicación general</b>.</div></li>
+      </ol>
+      <div class="box"><div class="tag">Exportar</div>El botón <b>Exportar informe</b> genera un PDF con este mismo resumen, listo para compartir con quien no tiene acceso a la app.</div>
+      <div class="box new"><div class="tag">Nuevo · Informe de cierre automático</div>Cuando un período se cierra (porque marcas otro como actual o porque empieza uno programado), InventIA guarda sola una foto de este dashboard con los reconteos que quedaron sin resolver. Está en Períodos → Informes de cierre (etapa 13).</div>
+    </div>
+    <div class="shot"><img class="tall" src="img/dash-ejecutivo.png" alt="Dashboard Ejecutivo"><div class="cap">Dashboard → Ejecutivo</div></div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="page">
+  <div class="kicker">11 · Seguimiento</div>
+  <h2 class="title">Ver el avance: Dashboard Operativo</h2>
+  <p class="intro">Pestaña Dashboard, toggle Operativo. El día a día del conteo: qué se hizo, cuándo y con cuántas diferencias.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div><b>Avance de inventario</b> por bodega: SKU con al menos un conteo sobre el total activo.</div></li>
+        <li><span class="num">2</span><div><b>Estado general de SKU</b> muestra el maestro completo por estado (contado o pendiente) y clase ABC, con filtro de criticidad (Todos, Solo críticos, Solo no críticos). Útil para ver de un vistazo qué falta, sin ir a Buscar.</div></li>
+        <li><span class="num">3</span><div>Las tablas <b>Diario, Semanal</b> y <b>Mensual</b> muestran SKU contados, con diferencia, reconteos y unidades contadas por período, con los reconteos en su propio color.</div></li>
+      </ol>
+      <div class="box upd"><div class="tag">Actualizado · Más simple</div>Se quitaron las tarjetas "Conteos recientes" y "Materiales contados" y el filtro de rango de fechas del Estado general de SKU: no agregaban información que no esté ya en Buscar y en el Calendario, y hacían más lenta la pantalla.</div>
+      <div class="box"><div class="tag">Períodos de conteo</div>Si tu empresa usa períodos (ej. "T1 2027"), todo el Dashboard se acota al período marcado como actual. Sin un período creado, se muestra el histórico completo.</div>
+    </div>
+    <div class="shot"><img class="tall" src="img/dash-operativo.png" alt="Dashboard Operativo"><div class="cap">Dashboard → Operativo (captura anterior a la simplificación)</div></div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="page">
+  <div class="kicker">12 · Consulta</div>
+  <h2 class="title">Buscar cualquier material o conteo</h2>
+  <p class="intro">Ícono Buscar, arriba a la derecha. El lugar para responder "¿cuándo se contó esto y qué encontraron?", esté o no en el plan.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>Escribe un código, descripción, batch o storage bin, o deja el campo vacío para ver todo. Filtra por Ubicación general, Estado, Crítico, Clase ABC, "solo con fotos", "solo fuera de plan" y, si tu empresa usa períodos, por período.</div></li>
+        <li><span class="num">2</span><div>Toca cualquier encabezado de columna para ordenar. El título y los gráficos muestran el total real que cumple los filtros, no solo lo cargado en pantalla. La columna <b>Origen</b> distingue "Plan" de "Fuera de plan".</div></li>
+        <li><span class="num">3</span><div>Revisa el gráfico interactivo <b>Quién contó</b> y el resumen por estado: ambos se actualizan con los filtros activos.</div></li>
+        <li><span class="num">4</span><div>En <b>Exportar</b>, descarga a Excel los resultados que ves (con filtros), o un rango de fechas de conteos completo para cargar a un ERP. Marca uno o varios resultados y usa <b>Exportar a PDF</b> para una ficha con foto, observación y detalle.</div></li>
+      </ol>
+      <div class="box"><div class="tag">Conteos sin conexión</div>Si un conteo se hizo sin señal, Buscar lo marca aparte con la hora real en que se capturó en terreno, distinta de la hora en que se sincronizó.</div>
+      <div class="box"><div class="tag">Desde el Calendario</div>"Ver lo contado" en el detalle de un día abre esta pantalla ya filtrada por esa fecha.</div>
+    </div>
+    <div class="shot"><img class="tall" src="img/buscar.png" alt="Buscar: filtros y resultados"><div class="cap">Buscar → filtros y resultados</div></div>
+  </div>
+</section>
+
+<!-- 13 -->
+<section class="page">
+  <div class="kicker">13 · Cuenta</div>
+  <h2 class="title">Períodos de conteo e informes de cierre</h2>
+  <p class="intro">Pestaña Períodos. Un período (ej. "T1 2027", "Cierre 2027") separa tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que esté marcado como actual, y el Dashboard, Reconteo y Buscar se acotan a él.</p>
+  <span class="role admin">Admin</span>
+  <div class="cols single">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>En <b>Crear período de conteo</b> escribe el nombre y la <b>Fecha de inicio</b>. Si la fecha es hoy o pasada y no hay otro período actual, queda como actual de inmediato.</div></li>
+        <li><span class="num">2</span><div><b>Marcar como actual</b> cambia el período vigente. El que estaba activo se cierra en ese momento y su informe queda guardado. La app te lo advierte antes, porque no se puede deshacer.</div></li>
+        <li><span class="num">3</span><div>Puedes <b>Editar</b> la fecha de inicio de un período. Si creas un período con fecha futura, no tienes que acordarte: se activa solo ese día.</div></li>
+        <li><span class="num">4</span><div>En <b>Informes de cierre</b>, toca <b>Ver informe</b> para abrir la foto que quedó guardada: avance, exactitud, valorización, ranking y los reconteos que quedaron sin resolver al cerrar. Se puede exportar a PDF igual que el dashboard.</div></li>
+      </ol>
+      <div class="two">
+        <div class="box new"><div class="tag">Nuevo · Períodos programados</div>Cada mañana InventIA revisa si algún período con fecha de inicio ya cumplida debería ser el actual y, si corresponde, lo activa sola, cerrando el anterior y generando su informe. En la pestaña aparece un aviso los días previos para que no sea sorpresa.</div>
+        <div class="box"><div class="tag">Qué se guarda en el informe</div>Es una fotografía del momento del cierre, no una consulta en vivo: aunque después cargues un Excel nuevo o recuentes, el informe del período cerrado no cambia. Sirve como respaldo de auditoría.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 14 -->
+<section class="page">
+  <div class="kicker">14 · Cuenta</div>
+  <h2 class="title">Configuraciones: empresa, equipo y seguridad</h2>
+  <p class="intro">Ícono de engranaje, junto a tu nombre. Todo lo que un administrador necesita para mantener la cuenta al día.</p>
+  <span class="role admin">Admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div>En <b>Tu empresa</b> editas el nombre que ven todos en la app y el interruptor de <b>Conteo ciego</b>: oculta el stock de sistema a los operadores mientras cuentan (un admin lo sigue viendo). InventIA igual avisa al operador, sin revelar la cifra, si su cantidad se ve muy atípica.</div></li>
+        <li><span class="num">2</span><div>En <b>Invitar equipo</b> completa nombre y correo y toca <b>Enviar invitación</b>. Solo puedes invitar personas a tu propia empresa.</div></li>
+        <li><span class="num">3</span><div>En <b>Mi equipo</b> edita el nombre con el lápiz, vincula a cada operador con su responsable del plan, o desactiva a alguien con la papelera si deja la empresa, sin perder su historial.</div></li>
+        <li><span class="num">4</span><div>En <b>Verificación en dos pasos</b> activa un código de app autenticadora (Google Authenticator, Authy, 1Password) además de la contraseña. Es por cuenta, no por empresa. Recomendada para administradores.</div></li>
+        <li><span class="num">5</span><div>Más abajo: tema visual, <b>Auditoría de cambios</b> (según plan) y <b>Plan y facturación</b> (etapa 15).</div></li>
+      </ol>
+      <div class="box"><div class="tag">Una sesión por persona</div>Si entras desde otro dispositivo, la sesión anterior se cierra y la app te lo avisa. Evita que dos personas cuenten con la misma cuenta.</div>
+      <div class="box new"><div class="tag">Nuevo · Responsables solo de tu empresa</div>Al asignar un responsable en Plan o en Mi equipo, la lista muestra únicamente personas de tu empresa. La base de datos rechaza cualquier otra asignación.</div>
+    </div>
+    <div class="shot">
+      <img class="tall" src="img/config.png" alt="Configuraciones: equipo"><div class="cap">Configuraciones → empresa y equipo</div>
+    </div>
+  </div>
+</section>
+
+<!-- 15 -->
+<section class="page">
+  <div class="kicker">15 · Cuenta</div>
+  <h2 class="title">Suscripción y pagos</h2>
+  <p class="intro">Para los planes Básico y Profesional, todo se hace desde el sitio y desde Configuraciones → Plan y facturación. El plan Empresa se coordina a medida con InventIA.</p>
+  <span class="role admin">Admin</span>
+  <div class="cols">
+    <div>
+      <table class="t">
+        <tr><th>Plan</th><th>Precio neto</th><th>Cobro mensual en tarjeta</th></tr>
+        <tr><td>Básico</td><td>160 USD/mes</td><td>$187.000 CLP, IVA incluido</td></tr>
+        <tr><td>Profesional</td><td>300 USD/mes</td><td>$350.000 CLP, IVA incluido</td></tr>
+        <tr><td>Empresa</td><td>A medida</td><td>Según contrato</td></tr>
+      </table>
+      <ol class="steps">
+        <li><span class="num">1</span><div><b>Suscribirse:</b> en inventiapp.cl toca <b>Suscribirme</b> en el plan que quieras, crea tu cuenta y registra la tarjeta en la página segura de Flow. El primer cobro se hace en ese momento y luego cada mes, automáticamente.</div></li>
+        <li><span class="num">2</span><div><b>Cambiar de plan:</b> en Plan y facturación, <b>Cambiar a Profesional</b> o <b>Cambiar a Básico</b>. El cambio es inmediato, sin volver a registrar la tarjeta.</div></li>
+        <li><span class="num">3</span><div><b>Actualizar método de pago:</b> vuelve a la página de Flow para registrar otra tarjeta.</div></li>
+        <li><span class="num">4</span><div><b>Cancelar suscripción:</b> sigues con acceso hasta el fin del período ya pagado y no se vuelve a cobrar. Pasados 31 días desde el último cobro, la cuenta queda vencida y puedes volver a suscribirte cuando quieras.</div></li>
+      </ol>
+      <div class="box new"><div class="tag">Nuevo · Si un cobro falla</div>Flow reintenta el cobro hasta 3 veces. Si sigue impago, la cuenta queda bloqueada con el mensaje "Hubo un problema con el último cobro". Cuando regularices (tarjeta nueva o cobro exitoso), toca <b>Ya regularicé el pago, verificar</b> en esa misma pantalla: InventIA consulta a Flow y te deja entrar al instante.</div>
+      <div class="box"><div class="tag">Precios en pesos</div>El cobro se hace en pesos chilenos con un dólar de referencia de $980, revisado periódicamente. Si cambia, verás el monto nuevo en el sitio antes del siguiente cobro.</div>
+    </div>
+    <div class="shot"><img src="img/t-plan-facturacion.png" alt="Configuraciones: Plan y facturación"><div class="cap">Configuraciones → Plan y facturación</div></div>
+  </div>
+</section>
+
+<!-- RESUMEN -->
+<section class="page">
+  <div class="kicker">Resumen</div>
+  <h2 class="title">La ruta completa, en una página</h2>
+  <p class="intro">Si necesitas recordar el orden general sin releer todo el manual, esta es la secuencia típica de un ciclo de inventario con InventIA.</p>
+  <div class="summary">
+    <div>Contratar el plan desde el sitio o recibir la invitación del administrador</div>
+    <div>Crear el período de conteo, con fecha de inicio programada si quieres</div>
+    <div>Cargar el maestro de materiales (Excel o uno por uno), con costo y storage bin</div>
+    <div>Armar grupos de conteo con frecuencia propia y dejar que generen su plan</div>
+    <div>Planificar el resto: fecha, bodega, bins y responsable, revisando Mes o Período para la carga total</div>
+    <div>Revisar el Calendario para ver qué toca cada día</div>
+    <div>Contar en terreno, con o sin señal, escaneando cuando se pueda</div>
+    <div>Resolver o descartar lo que quedó en Reconteo, semana por semana</div>
+    <div>Seguir el avance en el Dashboard a diario, por Clase ABC si el maestro tiene costos</div>
+    <div>Usar Buscar para resolver cualquier duda puntual, con filtros y exportación</div>
+    <div>Mantener equipo, seguridad y suscripción al día en Configuraciones</div>
+    <div>Cerrar el período y guardar su informe, o dejar que el siguiente se active solo</div>
+  </div>
+  <div class="box"><div class="tag">¿Se te quedó algo pendiente?</div>Este manual cubre el flujo completo tal como funciona la app hoy. Si tu empresa tiene un caso particular (un maestro muy grande, varias bodegas con reglas distintas, o dudas sobre qué plan te conviene), escríbenos directo a contacto@inventiapp.cl.<br><br>Para el detalle técnico de qué permite y qué no cada rol y cada plan, y cómo se protegen tus datos, revisa el <b>Manual técnico de InventIA</b>.</div>
+</section>
+
+</body></html>
