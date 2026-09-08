@@ -50,6 +50,7 @@ let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (v
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
+let reconteoPorSemanaFixture = []; // filas del RPC reconteo_pendiente_por_semana ({semana, pendientes})
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
 // Universo/detalle por plan_id para el RPC skus_universo_entrada_plan (ver skusUniversoEntradaPlan):
 // reemplaza los viejos filtros armados en la URL (bodega=eq./ubicacion=eq./storage_bin=eq.) por un
@@ -557,6 +558,10 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'topNeg1', sku_code:'SKU-TOP-NEG', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Ubicación distinta y recurrente', costo_unitario:10000, valor_diferencia_linea:-300000},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // reconteo_pendiente_por_semana: gráfico de pendientes por semana en Reconteo (ver cargarReconteos).
+  if(path.startsWith('/rest/v1/rpc/reconteo_pendiente_por_semana')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(reconteoPorSemanaFixture) };
   }
   if(path.startsWith('/rest/v1/reconteo_pendiente')){
     const offsetMatch = path.match(/offset=(\d+)/);
@@ -5922,6 +5927,57 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.reconteosHayMas===false, 'al agotarse los datos (4 < 30), hayMas debe pasar a false');
   const htmlReconteoSinMas = ctx.renderReconteo();
   assert(!htmlReconteoSinMas.includes('id="btn-cargar-mas-reconteo"'), 'sin más páginas, el botón "Cargar más" no debe mostrarse, obtuvo: '+htmlReconteoSinMas);
+  assert(!htmlReconteoSinMas.includes('Reconteos pendientes por semana'), 'sin datos por semana no debe mostrarse el gráfico, obtuvo: '+htmlReconteoSinMas);
+
+  // ===== Reconteo: gráfico de pendientes por semana ("32S", "33S"…) antes de la tabla; tocar una
+  // barra filtra la tabla a esa semana y "Ver todas" vuelve (pedido de Joel). =====
+  {
+    reconteoPorSemanaFixture = [{semana:'2026-08-03', pendientes:20}, {semana:'2026-08-10', pendientes:14}];
+    ctx.__appstate.reconteoSemana = null;
+    calls.length = 0;
+    await ctx.cargarReconteos();
+    const rpcSemanas = calls.find(c=>c.url.includes('/rpc/reconteo_pendiente_por_semana'));
+    assert(!!rpcSemanas && typeof JSON.parse(rpcSemanas.opts.body).p_tz==='string', 'cargarReconteos debe pedir el resumen por semana con la zona horaria del navegador, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.reconteosPorSemana.length===2 && ctx.__appstate.reconteosPorSemana[1].pendientes===14, 'debe guardar los pendientes por semana, obtuvo: '+JSON.stringify(ctx.__appstate.reconteosPorSemana));
+    const htmlSemanas = ctx.renderReconteo();
+    assert(htmlSemanas.includes('Reconteos pendientes por semana (34 en total)'), 'el gráfico debe ir antes de la tabla con el total, obtuvo: '+htmlSemanas);
+    assert(htmlSemanas.includes('>32S<') && htmlSemanas.includes('>33S<'), 'las barras deben etiquetarse con la semana ISO y una S (3 ago = 32S, 10 ago = 33S), obtuvo: '+htmlSemanas);
+    assert(htmlSemanas.includes('data-barra-clave="2026-08-03"') && htmlSemanas.includes('data-barra-clave="2026-08-10"'), 'cada barra debe ser clicable con la semana como clave, obtuvo: '+htmlSemanas);
+    assert(htmlSemanas.indexOf('Reconteos pendientes por semana') < htmlSemanas.indexOf('<table>'), 'el gráfico debe ir ANTES de la tabla, obtuvo: '+htmlSemanas);
+    assert(!htmlSemanas.includes('id="btn-quitar-semana-reconteo"'), 'sin semana elegida no debe ofrecerse "Ver todas", obtuvo: '+htmlSemanas);
+
+    // Tocar la semana 33: la tabla se pide filtrada a lunes 10 ago 00:00 local .. lunes 17 ago 00:00 local.
+    calls.length = 0;
+    ctx.elegirSemanaReconteo('2026-08-10');
+    await new Promise(r=>setTimeout(r, 20));
+    const desdeSemana = encodeURIComponent(new Date('2026-08-10T00:00:00').toISOString());
+    const hastaSemana = encodeURIComponent(new Date('2026-08-17T00:00:00').toISOString());
+    const getSemana = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(!!getSemana && getSemana.url.includes(`ultimo_conteo_fecha=gte.${desdeSemana}`) && getSemana.url.includes(`ultimo_conteo_fecha=lt.${hastaSemana}`), 'al tocar una semana, la tabla debe pedirse filtrada a esa semana (lunes a lunes, medianoche local), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.reconteoSemana==='2026-08-10', 'debe quedar la semana elegida en el estado, obtuvo: '+ctx.__appstate.reconteoSemana);
+    const htmlSemanaElegida = ctx.renderReconteo();
+    assert(htmlSemanaElegida.includes('Mostrando la semana <strong>33S</strong>') && htmlSemanaElegida.includes('id="btn-quitar-semana-reconteo"'), 'con una semana elegida debe indicarlo y ofrecer "Ver todas las semanas", obtuvo: '+htmlSemanaElegida);
+    assert(/data-barra-clave="2026-08-03"[^>]*opacity:\.35/.test(htmlSemanaElegida) && !/data-barra-clave="2026-08-10"[^>]*opacity/.test(htmlSemanaElegida), 'las semanas no elegidas deben verse atenuadas y la elegida no, obtuvo: '+htmlSemanaElegida);
+    // "Cargar más" respeta el filtro.
+    calls.length = 0;
+    await ctx.cargarMasReconteos();
+    const getMasSemana = calls.find(c=>c.url.includes('/reconteo_pendiente?select=') && c.url.includes('offset='));
+    assert(!!getMasSemana && getMasSemana.url.includes(`ultimo_conteo_fecha=gte.${desdeSemana}`), '"Cargar más" debe mantener el filtro de semana, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Tocar la misma semana de nuevo (o "Ver todas"): vuelve a todas, sin filtro.
+    calls.length = 0;
+    ctx.elegirSemanaReconteo('2026-08-10');
+    await new Promise(r=>setTimeout(r, 20));
+    const getTodas = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(ctx.__appstate.reconteoSemana===null && !!getTodas && !getTodas.url.includes('ultimo_conteo_fecha=gte.'), 'tocar la misma semana debe volver a todas, sin filtro de fecha, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Si la semana elegida desaparece del resumen (ya no quedan pendientes), vuelve sola a todas.
+    ctx.__appstate.reconteoSemana = '2026-08-03';
+    reconteoPorSemanaFixture = [{semana:'2026-08-10', pendientes:14}];
+    await ctx.cargarReconteos();
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.reconteoSemana===null, 'si la semana elegida ya no tiene pendientes, debe volver a todas sola, obtuvo: '+ctx.__appstate.reconteoSemana);
+    reconteoPorSemanaFixture = [];
+    await ctx.cargarReconteos();
+  }
 
   // ===== Reconteo: ícono para ver las fotos, sumadas de TODOS los conteos del SKU (no solo el
   // último) — pedido de Joel: las fotos de un reconteo deben sumarse a las del conteo original,
