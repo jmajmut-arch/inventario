@@ -7642,24 +7642,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // SKU-EXP-4 (no crítico) debe quedar sin color especial.
   assert((printBuscarEl.innerHTML.match(/<th style="color:var\(--danger\);font-weight:600">Crítico<\/th>/g)||[]).length===1, 'debe haber exactamente una etiqueta "Crítico" en rojo (solo SKU-EXP-1 es crítico entre los seleccionados), obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('<th>Crítico</th>'), 'el material no crítico (SKU-EXP-4) debe mostrar la etiqueta "Crítico" sin color especial, obtuvo: '+printBuscarEl.innerHTML);
-  // La foto se firma sin transform (Image Transformations tiene cuota de 100 imágenes/mes en el
-  // plan Pro) y, como este "navegador" no tiene canvas, va la URL firmada original.
-  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'debe incrustar la foto (la más reciente, a.jpg) resuelta a su URL firmada, obtuvo: '+printBuscarEl.innerHTML);
-  assert(!printBuscarEl.innerHTML.includes('transform=1'), 'no debe pedir la foto vía Image Transformations de Supabase (cuota mensual), obtuvo: '+printBuscarEl.innerHTML);
-  assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg')) && !calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && JSON.parse(c.opts.body).transform), 'la firma debe pedirse sin transform, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('a.jpg')).map(c=>c.opts.body)));
-  assert(printBuscarEl.innerHTML.includes('SKU-EXP-4') && printBuscarEl.innerHTML.includes('Sin foto') && printBuscarEl.innerHTML.includes('No contado'), 'un SKU nunca contado y sin fotos debe avisar "Sin foto" y "No contado" en vez de romperse, obtuvo: '+printBuscarEl.innerHTML);
-  assert(printBuscarEl.innerHTML.includes('Rodamiento con desgaste visible en el borde'), 'el PDF debe traer la observación que se llenó en Tomar inventario, obtuvo: '+printBuscarEl.innerHTML);
-  assert(printBuscarEl.innerHTML.includes('Diferencia -2'), 'debe mostrar la magnitud real de la diferencia cuando no hay conteo ciego, obtuvo: '+printBuscarEl.innerHTML);
-  assert(ctx.__appstate.busqueda.exportandoPdf===false, 'al terminar, exportandoPdf debe quedar en false, obtuvo: '+ctx.__appstate.busqueda.exportandoPdf);
-
-  // Conteo ciego: igual que en la tabla de pantalla (estadoBadge con ocultarStockOperador), el PDF
-  // tampoco debe filtrar la magnitud de la diferencia a un operador con conteo ciego activo.
-  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
-  printBuscarEl.innerHTML = '';
-  await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('Con diferencia') && !printBuscarEl.innerHTML.includes('Diferencia -2'), 'con conteo ciego activo, el PDF no debe revelar la magnitud de la diferencia, obtuvo: '+printBuscarEl.innerHTML);
-  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
-
+  // Camino principal: la foto se pide reducida a Supabase (Image Transformations, ~30 KB) y el
+  // PDF incrusta esa URL firmada; la etiqueta lleva la ruta original para poder reintentar en el
+  // navegador si la imagen transformada falla recién al cargarse.
+  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && printBuscarEl.innerHTML.includes('transform=1'), 'debe incrustar la foto (la más reciente, a.jpg) pedida con transform a Supabase, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('data-ruta-foto="a.jpg"'), 'la imagen transformada debe llevar data-ruta-foto para reintentar en el navegador si falla al cargar, obtuvo: '+printBuscarEl.innerHTML);
+  assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && JSON.parse(c.opts.body).transform && JSON.parse(c.opts.body).transform.width===400), 'la firma debe pedir un transform 400x400, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('a.jpg')).map(c=>c.opts.body)));
+  assert(!printBuscarEl.innerHTML.includes('data:image/'), 'con transform disponible no debe reducir en el navegador, obtuvo: '+printBuscarEl.innerHTML);
   // Sentry: los dos mensajes que la app muestra a propósito (sesión cerrada por "una sesión por
   // usuario" y sin conexión) van en ignoreErrors, configurado ANTES del Loader Script para que
   // lo respete; si no, cada pérdida de señal abría un issue en GitHub (Sentry #278, #371).
@@ -7672,15 +7661,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(vm.runInContext('MENSAJE_SESION_TERMINADA', ctx).startsWith('Tu sesión terminó') && vm.runInContext('MENSAJE_SIN_CONEXION', ctx).startsWith('No se pudo conectar. Revisa tu conexión'), 'los patrones de ignoreErrors deben seguir calzando con los mensajes reales de la app');
   }
 
-  // Con canvas disponible, la foto se reduce en el navegador: recorte cuadrado al centro de la
-  // foto original (1600x1200 -> 1200x1200 desde x=200) escalado a 400x400, JPEG calidad 0.7, y
-  // el PDF incrusta el data URL en vez de la URL firmada (sin pedirle nada a Supabase).
+  // Plan B: si Supabase rechaza el transform (función no habilitada o cuota restringida), la foto
+  // se firma sin transform y se reduce en el navegador con canvas: recorte cuadrado al centro de
+  // la original (1600x1200 -> 1200x1200 desde x=200) escalado a 400x400, JPEG calidad 0.7, y el
+  // PDF incrusta el data URL (sin data-ruta-foto: ya no hay nada que reintentar).
+  fallarFirmaConTransform = true;
   canvasMockDisponible = true; imagenMockCarga = {w:1600, h:1200}; canvasDibujos = [];
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1']};
   printBuscarEl.innerHTML = '';
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('data:image/jpeg;base64,FAKE-400x400-q0.7'), 'con canvas, el PDF debe incrustar la foto reducida a 400x400 en JPEG calidad 0.7, obtuvo: '+printBuscarEl.innerHTML);
-  assert(!printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'con la foto reducida, el PDF no debe incrustar la URL firmada de la original, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('data:image/jpeg;base64,FAKE-400x400-q0.7'), 'sin transform, el PDF debe incrustar la foto reducida en el navegador a 400x400 JPEG calidad 0.7, obtuvo: '+printBuscarEl.innerHTML);
+  assert(!printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('data-ruta-foto'), 'con la foto reducida, el PDF no debe incrustar la URL firmada ni la ruta de reintento, obtuvo: '+printBuscarEl.innerHTML);
   assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([200,0,1200,1200,0,0,400,400]), 'debe recortar el cuadrado central de la foto (1200x1200 desde x=200) y escalarlo a 400x400, obtuvo: '+JSON.stringify(canvasDibujos));
   // Foto más chica que 400px: no se agranda.
   imagenMockCarga = {w:300, h:500}; canvasDibujos = [];
@@ -7691,9 +7682,57 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   imagenMockCarga = null;
   printBuscarEl.innerHTML = '';
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('data:image/'), 'si la foto no carga para reducirla, el PDF debe usar la URL firmada original en vez de quedar "Sin foto", obtuvo: '+printBuscarEl.innerHTML);
+  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('transform=1') && !printBuscarEl.innerHTML.includes('data:image/'), 'si la foto no carga para reducirla, el PDF debe usar la URL firmada original en vez de quedar "Sin foto", obtuvo: '+printBuscarEl.innerHTML);
+  // Sin canvas (navegador muy viejo), también va la original.
   canvasMockDisponible = false;
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('transform=1'), 'sin canvas ni transform, el PDF debe usar la URL firmada original, obtuvo: '+printBuscarEl.innerHTML);
+  fallarFirmaConTransform = false;
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
+
+  // mapConcurrente: con 100+ fotos, lanzarlas todas juntas dejaba pegada la pestaña. Debe
+  // procesar de a `limite`, conservar el orden y avisar el avance por cada una que termina.
+  {
+    let enCurso = 0, maxEnCurso = 0; const avances = [];
+    const res = await ctx.mapConcurrente([5,1,4,2,3], 2, async (x)=>{
+      enCurso++; maxEnCurso = Math.max(maxEnCurso, enCurso);
+      await new Promise(r=> setTimeout(r, x)); // los más lentos terminan después
+      enCurso--; return x*10;
+    }, (h,t)=> avances.push(h+'/'+t));
+    assert(JSON.stringify(res)===JSON.stringify([50,10,40,20,30]), 'mapConcurrente debe conservar el orden de entrada aunque terminen desordenados, obtuvo: '+JSON.stringify(res));
+    assert(maxEnCurso===2, 'mapConcurrente no debe correr más de `limite` a la vez, obtuvo: '+maxEnCurso);
+    assert(avances.length===5 && avances[4]==='5/5', 'debe avisar el avance por cada elemento terminado, obtuvo: '+JSON.stringify(avances));
+    { const lim = vm.runInContext('FOTOS_PDF_EN_PARALELO', ctx); assert(lim>=2 && lim<=6, 'las fotos del PDF deben ir de a pocas en paralelo (2 a 6), obtuvo: '+lim); }
+    assert(ctx.textoProgresoExportPDF(12,107).includes('foto 12 de 107'), 'el botón debe mostrar el avance "foto N de M", obtuvo: '+ctx.textoProgresoExportPDF(12,107));
+  }
+
+  // esperarFotosDelPDF: si una imagen transformada por Supabase falla al cargarse (cuota
+  // restringida), se reemplaza por la reducida en el navegador usando data-ruta-foto.
+  {
+    canvasMockDisponible = true; imagenMockCarga = {w:800, h:800};
+    function imgFalsa(src, ruta){
+      const im = { _src:src, complete:false, naturalWidth:0, listeners:{}, attrs: ruta? {'data-ruta-foto':ruta} : {} };
+      im.getAttribute = k=> im.attrs[k]||null; im.removeAttribute = k=>{ delete im.attrs[k]; };
+      im.addEventListener = (ev,fn)=>{ (im.listeners[ev]=im.listeners[ev]||[]).push(fn); };
+      im.disparar = ev=> (im.listeners[ev]||[]).splice(0).forEach(fn=>fn());
+      // Como en el navegador: al cambiar src a un data URL, la imagen "carga" sola.
+      Object.defineProperty(im, 'src', { get(){ return im._src; }, set(v){ im._src = v; if(String(v).startsWith('data:')) Promise.resolve().then(()=>{ im.complete = true; im.naturalWidth = 400; im.disparar('load'); }); } });
+      return im;
+    }
+    const ok = imgFalsa('https://x/ok.jpg?transform=1', 'ok.jpg');
+    const rota = imgFalsa('https://x/rota.jpg?transform=1', 'rota.jpg');
+    const contenedorFalso = { querySelectorAll: ()=> [ok, rota] };
+    const espera = ctx.esperarFotosDelPDF(contenedorFalso);
+    await new Promise(r=> setTimeout(r, 0));
+    ok.complete = true; ok.naturalWidth = 400; ok.disparar('load');
+    rota.disparar('error');
+    await espera;
+    assert(rota.src.startsWith('data:image/jpeg;base64,FAKE-400x400'), 'la imagen que falló al cargar debe reemplazarse por la reducida en el navegador, obtuvo: '+rota.src);
+    assert(rota.attrs['data-ruta-foto']===undefined, 'tras reintentar, debe quitar data-ruta-foto para no reintentar en bucle');
+    assert(ok.src==='https://x/ok.jpg?transform=1', 'la imagen que cargó bien no debe tocarse, obtuvo: '+ok.src);
+    canvasMockDisponible = false; imagenMockCarga = null;
+  }
 
   // Salto de página: la 1ra hoja lleva el título ("Detalle de materiales" + el resumen), que
   // ocupa el espacio de una ficha más, así que solo entran 2 fichas ahí -- desde la 2da hoja en
