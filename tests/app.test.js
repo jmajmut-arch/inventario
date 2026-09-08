@@ -381,16 +381,18 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  // skus_universo_entrada_plan_lote (ver skusUniversoEntradaPlanLote): variante "en lote" de la
-  // de abajo, usada por cargarPlanSemanal para pedir el universo/detalle de TODAS las entradas
-  // visibles en un solo viaje -- fix del bug real reportado por Joel: antes mandaba una llamada
-  // paralela POR ENTRADA, y con más de cien entradas reales eso saturaba el pool de conexiones y
-  // dejaba sin turno a otras pantallas (ej. el Dashboard) cargando en simultáneo. Cada fila del
-  // resultado trae su propio plan_id para poder agruparlas en el cliente.
-  if(path.startsWith('/rest/v1/rpc/skus_universo_entrada_plan_lote')){
+  // universo_entradas_plan_resumen (ver universoEntradasPlanResumen): universo/detalle de TODAS
+  // las entradas visibles en UNA sola respuesta agregada por el servidor. Historia: una llamada
+  // por entrada saturaba el pool de conexiones; el RPC en lote paginado de a 1.000 filas hacía que
+  // PostgREST ejecutara la función completa por cada página (4 x 6-19 s en producción con el
+  // período completo) y dejaba sin CPU al resto de la app ("351 no funciona bien").
+  if(path.startsWith('/rest/v1/rpc/universo_entradas_plan_resumen')){
     const planIds = opts && opts.body ? JSON.parse(opts.body).p_plan_ids : [];
-    const filas = planIds.flatMap(id=> (universoEntradaPlanFixture[id]||[]).map(f=>({...f, plan_id:id})));
-    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${Math.max(filas.length-1,0)}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
+    // Forma real: un solo jsonb { "<plan_id>": [{id, sku_code, descripcion}, ...] }; las entradas
+    // sin SKU no vienen como clave.
+    const resumen = {};
+    planIds.forEach(id=>{ if((universoEntradaPlanFixture[id]||[]).length) resumen[id] = universoEntradaPlanFixture[id].map(f=>({id:f.id, sku_code:f.sku_code, descripcion:f.descripcion})); });
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(resumen) };
   }
   // skus_universo_entrada_plan (ver skusUniversoEntradaPlan): fix del bug real "Cargando SKU…"
   // (una entrada con miles de exclusiones armaba una URL gigante, sku_code=not.in.(...), que el
@@ -1488,7 +1490,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
   ctx.fetch = fetchOriginalPlanSuelto;
-  assert(calls.some(c=>c.url.includes('/rpc/skus_universo_entrada_plan_lote') && c.opts && JSON.parse(c.opts.body).p_plan_ids.includes('e-suelto')), 'cargarPlanSemanal debe pedir el universo/detalle de una entrada solo_sin_ubicacion vía skus_universo_entrada_plan_lote(p_plan_ids), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/universo_entradas_plan_resumen') && c.opts && JSON.parse(c.opts.body).p_plan_ids.includes('e-suelto')), 'cargarPlanSemanal debe pedir el universo/detalle de una entrada solo_sin_ubicacion vía universo_entradas_plan_resumen(p_plan_ids), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.plan.universos['e-suelto']===1, 'el universo de la entrada de SKU sueltos debe calcularse con el filtro correcto, obtuvo: '+ctx.__appstate.plan.universos['e-suelto']);
   assert(Array.isArray(ctx.__appstate.plan.detalle['e-suelto']) && ctx.__appstate.plan.detalle['e-suelto'][0].sku_code==='SKU-SUELTO', 'el detalle de la entrada de SKU sueltos debe traer esos SKU, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle['e-suelto']));
 
@@ -1623,7 +1625,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!deleteMasivo, 'debe hacer un único DELETE con id=in.(...) para todas las seleccionadas, obtuvo: '+JSON.stringify(calls));
   assert(deleteMasivo.url.includes('e1') && deleteMasivo.url.includes('e2'), 'el DELETE masivo debe incluir ambos ids seleccionados, obtuvo: '+deleteMasivo.url);
   // Deja terminar el cargarPlanSemanal() fire-and-forget que dispara borrarPlanEntradas, antes de
-  // seguir: si no, su propio viaje a skus_universo_entrada_plan_lote podría resolver en medio del
+  // seguir: si no, su propio viaje a universo_entradas_plan_resumen podría resolver en medio del
   // siguiente bloque y confundirse con el de esa prueba (mismo motivo que el comentario de arriba).
   await new Promise(resolve => setTimeout(resolve, 20));
   assert(!htmlSinDetalle.includes('data-toggle-detalle') && !htmlSinDetalle.includes('Ver SKU'), 'no debe requerir ningún botón/link para ver el SKU, obtuvo: '+htmlSinDetalle);
@@ -1741,9 +1743,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.plan.semanaInicio = '2026-08-10';
   await ctx.cargarPlanSemanal();
   await new Promise(resolve => setTimeout(resolve, 20));
-  const skusCallLote = calls.find(c=>c.url.includes('/rpc/skus_universo_entrada_plan_lote'));
+  const skusCallLote = calls.find(c=>c.url.includes('/rpc/universo_entradas_plan_resumen'));
   const skusCallLoteIds = skusCallLote && JSON.parse(skusCallLote.opts.body).p_plan_ids;
-  assert(!!skusCallLote && skusCallLoteIds.includes('e1'), 'cargarPlanSemanal debe consultar skus_universo_entrada_plan_lote (detalle) para todas las entradas en un solo viaje, incluyendo e1, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!skusCallLote && skusCallLoteIds.includes('e1'), 'cargarPlanSemanal debe consultar universo_entradas_plan_resumen (detalle) para todas las entradas en un solo viaje, incluyendo e1, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(Array.isArray(ctx.__appstate.plan.detalle.e1) && ctx.__appstate.plan.detalle.e1[0].sku_code==='SKU-001', 'debe quedar cargado el detalle real de SKU (código/descripción) para A-01, obtuvo: '+JSON.stringify(ctx.__appstate.plan.detalle.e1));
 
   const htmlConDetalle = ctx.renderPlanificacion();
@@ -1755,8 +1757,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // pero la exclusión real ya no se arma en la URL (bug real: con miles de exclusiones eso rompía
   // con "Cargando SKU…"/431, ver skusUniversoEntradaPlan). Ahora la resuelve el servidor a partir
   // del plan_id; acá solo queda verificar que se pida por ese id.
-  assert(!!skusCallLoteIds && skusCallLoteIds.includes('e2'), 'cargarPlanSemanal debe consultar skus_universo_entrada_plan_lote también para e2, en el mismo viaje, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(calls.filter(c=>c.url.includes('/rpc/skus_universo_entrada_plan_lote')).length===1, 'cargarPlanSemanal debe hacer UN solo viaje para todas las entradas, no uno por entrada (bug real: cientos de llamadas paralelas saturaban el pool de conexiones), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!skusCallLoteIds && skusCallLoteIds.includes('e2'), 'cargarPlanSemanal debe consultar universo_entradas_plan_resumen también para e2, en el mismo viaje, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.filter(c=>c.url.includes('/rpc/universo_entradas_plan_resumen')).length===1, 'cargarPlanSemanal debe hacer UN solo viaje para todas las entradas, no uno por entrada (bug real: cientos de llamadas paralelas saturaban el pool de conexiones), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Race condition real reportado por Joel: cargarPlanSemanal() se llama desde muchos lugares
   // (terminar de generar un plan automático grande, "Ver en Planificación" desde Calendario,
@@ -1789,52 +1791,43 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.plan.entradas.some(e=>e.id==='e1') && ctx.__appstate.plan.semanaInicio==='2026-08-10', 'aunque la llamada vieja responda después, no debe pisar el estado de la llamada nueva, obtuvo: '+JSON.stringify(ctx.__appstate.plan));
   }
 
-  // Paginación de skusUniversoEntradaPlanLote a prueba de fallos. Bug real reportado por Joel:
-  // con 1254 filas de SKU (más que la página de 1000) el día quedaba con los SKU de la primera
-  // página nada más (82 en vez de 100). Debe seguir pidiendo páginas mientras vengan llenas
-  // aunque el servidor no informe el total (content-range "0-999/*"), y nunca contar dos veces
-  // una misma fila (plan_id + sku id) si el servidor la repitiera entre páginas.
+  // universoEntradasPlanResumen: UNA sola llamada, sin Range ni count=exact. Bug real reportado
+  // por Joel ("351 no funciona bien"): el RPC anterior paginaba de a 1.000 filas y PostgREST
+  // volvía a ejecutar la función completa por cada página (4 x 6-19 s con el período real),
+  // dejando sin CPU al resto de la app. Ahora el servidor devuelve todo agregado por entrada.
   {
-    const fetchOriginalPaginas = ctx.fetch;
-    const rangosPedidos = [];
+    const fetchOriginalResumen = ctx.fetch;
+    const pedidos = [];
     ctx.fetch = async (url, opts) => {
       const u = new URL(url);
-      if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan_lote'){
-        const rango = opts.headers.Range;
-        rangosPedidos.push(rango);
-        const desde = Number(rango.split('-')[0]);
-        const filas = desde===0
-          ? Array.from({length:1000}, (_,i)=>({plan_id:'pg', id:'s'+i, sku_code:'S'+i}))
-          : [{plan_id:'pg', id:'s999', sku_code:'S999'}, {plan_id:'pg', id:'s1000', sku_code:'S1000'}, {plan_id:'pg', id:'s1001', sku_code:'S1001'}]; // s999 repetida a propósito
-        return { status:206, ok:true, headers:{get:(h)=> h==='content-range' ? `${desde}-${desde+filas.length-1}/*` : null}, text: async()=>JSON.stringify(filas) };
+      if(u.pathname==='/rest/v1/rpc/universo_entradas_plan_resumen'){
+        pedidos.push(opts);
+        return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({pg: Array.from({length:1500}, (_,i)=>({id:'s'+i, sku_code:'S'+i, descripcion:'D'+i}))}) };
       }
-      return fetchOriginalPaginas(url, opts);
+      return fetchOriginalResumen(url, opts);
     };
-    const filasLote = await ctx.skusUniversoEntradaPlanLote(['pg']);
-    ctx.fetch = fetchOriginalPaginas;
-    assert(rangosPedidos.length===2 && rangosPedidos[0]==='0-999' && rangosPedidos[1]==='1000-1999', 'con la primera página llena y total desconocido (*), debe pedir la segunda página, obtuvo: '+JSON.stringify(rangosPedidos));
-    assert(filasLote.length===1002, 'debe juntar ambas páginas sin contar dos veces la fila repetida (1000 + 3 - 1 = 1002), obtuvo: '+filasLote.length);
-    assert(filasLote.some(f=>f.id==='s1001'), 'las filas de la segunda página deben estar incluidas, obtuvo: '+filasLote.length);
+    const resumen = await ctx.universoEntradasPlanResumen(['pg','vacia']);
+    ctx.fetch = fetchOriginalResumen;
+    assert(pedidos.length===1 && !pedidos[0].headers.Range && !pedidos[0].headers.Prefer, 'debe ser UNA sola llamada sin Range ni Prefer (cada página re-ejecutaba la función completa en el servidor), obtuvo: '+JSON.stringify(pedidos.map(o=>o.headers)));
+    assert(resumen.pg.length===1500 && resumen.vacia===undefined, 'debe devolver el jsonb tal cual (1.500 SKU en una sola respuesta, sin paginar), obtuvo: '+JSON.stringify({pg: resumen.pg && resumen.pg.length, vacia: resumen.vacia}));
+    assert(JSON.parse(pedidos[0].body).p_plan_ids.length===2, 'debe mandar todos los plan_id en un solo viaje, obtuvo: '+pedidos[0].body);
   }
 
-  // Una página vacía cuando el servidor dijo que quedaban filas es un error, no el final -- bug
-  // real reportado por Joel: el período completo mostraba "1000 en total" justos (una página)
-  // cuando eran 1.251, sin ningún aviso.
+  // Una respuesta que no sea el objeto esperado (ej. proxy devolviendo HTML/array) es un error,
+  // no "0 SKU" en silencio.
   {
-    const fetchOriginalVacia = ctx.fetch;
+    const fetchOriginalRaro = ctx.fetch;
     ctx.fetch = async (url, opts) => {
       const u = new URL(url);
-      if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan_lote'){
-        const desde = Number(opts.headers.Range.split('-')[0]);
-        const filas = desde===0 ? Array.from({length:1000}, (_,i)=>({plan_id:'pg', id:'s'+i, sku_code:'S'+i})) : [];
-        return { status:206, ok:true, headers:{get:(h)=> h==='content-range' ? (desde===0 ? '0-999/1254' : '*/1254') : null}, text: async()=>JSON.stringify(filas) };
+      if(u.pathname==='/rest/v1/rpc/universo_entradas_plan_resumen'){
+        return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]' };
       }
-      return fetchOriginalVacia(url, opts);
+      return fetchOriginalRaro(url, opts);
     };
-    let errorVacia = null;
-    try{ await ctx.skusUniversoEntradaPlanLote(['pg']); }catch(e){ errorVacia = e; }
-    ctx.fetch = fetchOriginalVacia;
-    assert(!!errorVacia, 'una segunda página vacía con total 1254 debe fallar (respuesta incompleta), no devolver 1000 filas en silencio');
+    let errorRaro = null;
+    try{ await ctx.universoEntradasPlanResumen(['pg']); }catch(e){ errorRaro = e; }
+    ctx.fetch = fetchOriginalRaro;
+    assert(!!errorRaro, 'una respuesta con forma inesperada debe fallar, no devolver universos vacíos en silencio');
   }
 
   // cargarPlanSemanal: si el cálculo del universo falla (ej. timeout del servidor), no deben quedar
@@ -1844,7 +1837,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const fetchOriginalFalla = ctx.fetch;
     ctx.fetch = async (url, opts) => {
       const u = new URL(url);
-      if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan_lote'){
+      if(u.pathname==='/rest/v1/rpc/universo_entradas_plan_resumen'){
         return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
       }
       return fetchOriginalFalla(url, opts);
