@@ -8351,6 +8351,65 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, entradas:[]};
   }
 
+  // ===== Plan "en el día": Contar y Plan se refrescan al entrar y al volver a primer plano =====
+  {
+    const hoy = ctx.fechaISO(new Date());
+    const ayer = ctx.fechaISO(ctx.sumarDias(new Date(), -1));
+    // Contar: al entrar, si la fecha no fue elegida a mano y quedó en ayer, vuelve a hoy y se
+    // vuelve a pedir el plan; si fue elegida a mano, se respeta.
+    let cp = ctx.contarPlanAlEntrar({cargado:true, cargando:false, fecha:ayer, fechaManual:false, bodega:'B', ubicacion:'U', skusPendientes:[{id:'x'}]});
+    assert(cp.fecha===hoy && cp.cargado===false && cp.bodega==='' && cp.skusPendientes===null, 'una fecha automática que quedó en ayer debe volver a hoy y limpiar la selección, obtuvo: '+JSON.stringify(cp));
+    cp = ctx.contarPlanAlEntrar({cargado:true, cargando:false, fecha:ayer, fechaManual:true, bodega:'B', ubicacion:'U', skusPendientes:[{id:'x'}]});
+    assert(cp.fecha===ayer && cp.cargado===false && cp.bodega==='B', 'una fecha elegida a mano debe respetarse (solo se vuelve a pedir el plan), obtuvo: '+JSON.stringify(cp));
+    cp = ctx.contarPlanAlEntrar({cargado:true, cargando:false, fecha:hoy, fechaManual:false, bodega:'B', ubicacion:'U', skusPendientes:[{id:'x'}]});
+    assert(cp.fecha===hoy && cp.cargado===false && cp.bodega==='B', 'si ya está en hoy solo se vuelve a pedir el plan, sin perder la selección, obtuvo: '+JSON.stringify(cp));
+    // El cambio de fecha a mano en Contar marca fechaManual.
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, fecha:hoy, fechaManual:false, cargado:true, cargando:false};
+    const viewAntesContar = ctx.__appstate.view; ctx.__appstate.view = 'conteo'; ctx.__appstate.skuSeleccionado = null;
+    delete elements['contar-fecha'];
+    ctx.bind();
+    const fechaContarEl = elements['contar-fecha'];
+    assert(!!fechaContarEl, 'bind() debe enganchar #contar-fecha');
+    fechaContarEl.dispatch('change', {target:{value:ayer}});
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.contarPlan.fechaManual===true && ctx.__appstate.contarPlan.fecha===ayer, 'elegir una fecha a mano debe marcar fechaManual, obtuvo: '+JSON.stringify({fechaManual:ctx.__appstate.contarPlan.fechaManual, fecha:ctx.__appstate.contarPlan.fecha}));
+    ctx.__appstate.view = viewAntesContar;
+
+    // Plan: recién cargado no se vuelve a pedir; con más de un minuto o con cambio de día sí.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10', diaFiltro:null, cicloFiltro:'', rango:'semana'};
+    await ctx.cargarPlanSemanal();
+    await new Promise(r=>setTimeout(r, 20));
+    calls.length = 0;
+    assert(ctx.refrescarPlanSiCorresponde()===false && !calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'recién cargado, entrar a Plan no debe repetir la consulta, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    vm.runInContext('planCargadoEn = 0', ctx);
+    assert(ctx.refrescarPlanSiCorresponde()===true, 'con la última carga vieja debe recargar');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'la recarga debe pedir plan_semanal_detalle, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Cambio de día navegando por semana: la semana pasa a ser la de hoy.
+    vm.runInContext("planCargadoDia = '2000-01-01'", ctx);
+    ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2000-01-03', diaFiltro:null, cicloFiltro:'', rango:'semana'};
+    assert(ctx.refrescarPlanSiCorresponde()===true && ctx.__appstate.plan.semanaInicio===ctx.fechaISO(ctx.inicioSemana(new Date())), 'al cambiar el día, la semana mostrada debe ser la de hoy, obtuvo: '+ctx.__appstate.plan.semanaInicio);
+    await new Promise(r=>setTimeout(r, 20));
+    // Con un período elegido (vista resumida) no se toca la ventana, solo se recarga.
+    vm.runInContext("planCargadoDia = '2000-01-01'", ctx);
+    ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2000-01-03', diaFiltro:null, cicloFiltro:'ciclo-1', rango:'semana'};
+    assert(ctx.refrescarPlanSiCorresponde()===true && ctx.__appstate.plan.semanaInicio==='2000-01-03', 'con período elegido solo recarga, sin mover la semana, obtuvo: '+ctx.__appstate.plan.semanaInicio);
+    await new Promise(r=>setTimeout(r, 20));
+    ctx.__appstate.plan = {...ctx.__appstate.plan, cicloFiltro:''};
+
+    // Volver a primer plano con otro día: Contar vuelve a hoy; mismo día: no hace nada.
+    ctx.__appstate.view = 'conteo';
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, fecha:ayer, fechaManual:false, cargado:true, cargando:true};
+    vm.runInContext(`diaVisibleAnterior = '${ayer}'`, ctx);
+    ctx.alVolverAPrimerPlano();
+    assert(ctx.__appstate.contarPlan.fecha===hoy && ctx.__appstate.contarPlan.cargado===false, 'al volver a primer plano en otro día, Contar debe volver a hoy y pedir el plan, obtuvo: '+JSON.stringify({fecha:ctx.__appstate.contarPlan.fecha, cargado:ctx.__appstate.contarPlan.cargado}));
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, fecha:ayer, fechaManual:false, cargado:true, cargando:true};
+    ctx.alVolverAPrimerPlano();
+    assert(ctx.__appstate.contarPlan.fecha===ayer && ctx.__appstate.contarPlan.cargado===true, 'si el día no cambió desde la última vez, volver a primer plano no debe tocar nada');
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, fecha:hoy, fechaManual:false, cargado:false, cargando:false, entradas:[]};
+    ctx.__appstate.view = viewAntesContar;
+  }
+
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);
     process.exit(1);
