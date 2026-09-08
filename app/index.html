@@ -907,9 +907,9 @@ async function storageUpload(path, file){
 // Genera una URL temporal para ver una foto del bucket privado. Acepta tanto
 // una ruta nueva (empresa_id/sku/archivo) como una URL pública completa de
 // fotos subidas antes de que el bucket pasara a privado. `transform` (opcional)
-// pide una versión redimensionada/comprimida vía Supabase Image Transformations;
-// hoy la app no lo usa (cuota mensual de 100 imágenes en el plan Pro), las fotos se
-// reducen en el navegador con reducirFotoEnNavegador().
+// pide una versión redimensionada/comprimida vía Supabase Image Transformations
+// -- si el proyecto no la tiene habilitada, el llamador debe reintentar sin transform
+// (ver resolverFotoParaPDF, que cae a reducirFotoEnNavegador()).
 async function crearUrlFirmada(fotoUrlORuta, transform){
   const marcador = `/object/public/${BUCKET}/`;
   const idx = fotoUrlORuta.indexOf(marcador);
@@ -926,9 +926,10 @@ async function crearUrlFirmada(fotoUrlORuta, transform){
 }
 
 // Reduce una foto en el navegador (canvas) a un cuadrado de `lado` px recortado al centro
-// ("cover") y la devuelve como data URL JPEG, lista para incrustar en un PDF. No agranda fotos
-// más chicas que `lado`. Devuelve null si algo falla (sin canvas, foto corrupta, bloqueo CORS)
-// para que el llamador use la URL original: mejor una foto pesada que ninguna.
+// ("cover") y la devuelve como data URL JPEG, lista para incrustar en un PDF. Es el plan B
+// cuando Supabase no puede transformar la foto (implica bajar la original de 3-5 MB, por eso
+// no es el camino principal). No agranda fotos más chicas que `lado`. Devuelve null si algo
+// falla (sin canvas, foto corrupta, bloqueo CORS) para que el llamador use la URL original.
 const FOTO_PDF_LADO_PX = 400;
 async function reducirFotoEnNavegador(url, lado=FOTO_PDF_LADO_PX, calidad=0.7){
   try{
@@ -4059,7 +4060,7 @@ function toggleSeleccionTodosBusqueda(ids, marcar){
 // evidencia para un reclamo) sin exportar todo Buscar. Respeta el conteo ciego (ver
 // ocultarStockOperador) igual que la tabla en pantalla: un operador con conteo ciego activo no
 // debe filtrarse la magnitud de la diferencia por esta vía tampoco.
-function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud){
+function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud, rutaFoto){
   const contado = !!r.conteo_id;
   const tieneDiferencia = contado && r.diferencia && Number(r.diferencia)!==0;
   const estadoTexto = !contado ? 'No contado'
@@ -4089,9 +4090,80 @@ function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud){
         <h2>${esc(r.sku_code)}</h2>
         <table>${filas.map(([k,v,destacar])=>`<tr><th${destacar?' style="color:var(--danger);font-weight:600"':''}>${esc(k)}</th><td>${esc(String(v))}</td></tr>`).join('')}</table>
       </div>
-      <div class="print-ficha-foto">${fotoUrl? `<img src="${esc(fotoUrl)}">` : `<div class="print-sin-foto">Sin foto</div>`}</div>
+      <div class="print-ficha-foto">${fotoUrl? `<img src="${esc(fotoUrl)}"${rutaFoto? ` data-ruta-foto="${esc(rutaFoto)}"` : ''}>` : `<div class="print-sin-foto">Sin foto</div>`}</div>
     </div>
   `;
+}
+
+// Foto para el PDF de Buscar. Primero pide a Supabase la versión reducida (Image
+// Transformations: ~30 KB por foto, la transforma el servidor); si eso falla (proyecto sin la
+// función, cuota restringida), firma la original y la reduce en el navegador; y si tampoco se
+// puede, va la original. Devuelve {url, ruta}: `ruta` permite reintentar en el navegador si la
+// imagen transformada falla recién al cargarse (ver esperarFotosDelPDF).
+const FOTO_PDF_TRANSFORM = {width:FOTO_PDF_LADO_PX, height:FOTO_PDF_LADO_PX, resize:'cover', quality:70};
+async function resolverFotoParaPDF(rutaFoto){
+  try{ return { url: await crearUrlFirmada(rutaFoto, FOTO_PDF_TRANSFORM), ruta: rutaFoto }; }
+  catch(e){ /* sin transform: sigue abajo */ }
+  return { url: await fotoReducidaEnNavegadorOOriginal(rutaFoto), ruta: null };
+}
+async function fotoReducidaEnNavegadorOOriginal(rutaFoto){
+  const original = await crearUrlFirmada(rutaFoto);
+  return (await reducirFotoEnNavegador(original)) || original;
+}
+
+// Corre `fn` sobre `items` de a `limite` a la vez, conservando el orden de los resultados. Para
+// el PDF de Buscar: con 100+ fotos, lanzarlas todas juntas (Promise.all) saturaba la conexión y
+// la memoria del navegador (cada original son 3-5 MB y 12 MP decodificados) y la pestaña se
+// quedaba pegada. `alAvanzar(hechos, total)` se llama cada vez que termina una.
+async function mapConcurrente(items, limite, fn, alAvanzar){
+  const resultados = new Array(items.length);
+  let siguiente = 0, hechos = 0;
+  async function obrero(){
+    while(siguiente < items.length){
+      const i = siguiente++;
+      resultados[i] = await fn(items[i], i);
+      hechos++;
+      if(alAvanzar) alAvanzar(hechos, items.length);
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(limite, items.length)}, obrero));
+  return resultados;
+}
+const FOTOS_PDF_EN_PARALELO = 4;
+
+function textoProgresoExportPDF(hechos, total){
+  return `<span class="spinner"></span> Generando… foto ${hechos} de ${total}`;
+}
+function mostrarProgresoExportPDF(hechos, total){
+  // Directo al botón, sin setState: re-renderizar toda la vista de Buscar por cada foto
+  // (100+ veces) sería más caro que el propio PDF.
+  const btn = document.getElementById('btn-exportar-buscar-pdf');
+  if(btn) btn.innerHTML = textoProgresoExportPDF(hechos, total);
+}
+
+// Espera a que las fotos del contenedor de impresión terminen de descargar (la URL firmada ya
+// está lista, pero el navegador aún debe traer los bytes) para que no salgan en blanco al
+// imprimir. Si una foto transformada por Supabase falla al cargarse (p. ej. la cuota de Image
+// Transformations quedó restringida), la reemplaza por la versión reducida en el navegador.
+async function esperarFotosDelPDF(contenedor){
+  const imgs = Array.from(contenedor.querySelectorAll('img'));
+  await mapConcurrente(imgs, FOTOS_PDF_EN_PARALELO, img => new Promise(resolve=>{
+    const listo = ()=> resolve();
+    const fallo = async ()=>{
+      const ruta = img.getAttribute('data-ruta-foto');
+      if(!ruta){ resolve(); return; }
+      img.removeAttribute('data-ruta-foto');
+      try{
+        img.src = await fotoReducidaEnNavegadorOOriginal(ruta);
+        if(img.complete && img.naturalWidth) resolve();
+        else { img.addEventListener('load', listo, {once:true}); img.addEventListener('error', listo, {once:true}); }
+      }catch(e){ resolve(); }
+    };
+    if(img.complete && img.naturalWidth){ resolve(); return; }
+    if(img.complete && img.src && !img.naturalWidth && typeof img.naturalWidth==='number'){ fallo(); return; }
+    img.addEventListener('load', listo, {once:true});
+    img.addEventListener('error', fallo, {once:true});
+  }));
 }
 
 async function exportarSeleccionadosBusquedaPDF(){
@@ -4101,21 +4173,17 @@ async function exportarSeleccionadosBusquedaPDF(){
   setState({busqueda:{...state.busqueda, exportandoPdf:true}});
   try{
     const ocultar = ocultarStockOperador();
-    const fichas = await Promise.all(filas.map(async r=>{
+    const fichas = await mapConcurrente(filas, FOTOS_PDF_EN_PARALELO, async r=>{
       const foto = (r.fotos||[])[0];
-      let fotoUrl = null;
+      let fotoPdf = null;
       if(foto){
         // Las fotos originales pesan varios MB (resolución de cámara) para un recuadro de
-        // 130x130px en el PDF: se reducen acá, en el navegador, en vez de pedirle a Supabase una
-        // versión transformada (Image Transformations tiene una cuota mensual de 100 imágenes en
-        // el plan Pro y la pasamos). Si el navegador no puede reducirla, va la foto original.
-        try{
-          fotoUrl = await crearUrlFirmada(foto.foto_url);
-          fotoUrl = (await reducirFotoEnNavegador(fotoUrl)) || fotoUrl;
-        }catch(e){ /* sigue sin foto si falla la firma */ }
+        // 130x130px en el PDF: ver resolverFotoParaPDF para el orden de alternativas.
+        try{ fotoPdf = await resolverFotoParaPDF(foto.foto_url); }
+        catch(e){ /* sigue sin foto si falla la firma */ }
       }
-      return fichaBusquedaPDF(r, fotoUrl, ocultar);
-    }));
+      return fichaBusquedaPDF(r, fotoPdf ? fotoPdf.url : null, ocultar, fotoPdf ? fotoPdf.ruta : null);
+    }, mostrarProgresoExportPDF);
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-plan').innerHTML = '';
     const contenedor = document.getElementById('print-buscar');
@@ -4136,9 +4204,7 @@ async function exportarSeleccionadosBusquedaPDF(){
       <div class="print-meta">${fichas.length} material${fichas.length===1?'':'es'} · Generado ${new Date().toLocaleString('es-CL')}</div>
       ${fichasConSaltos}
     `;
-    // Espera a que las fotos terminen de descargar (la URL firmada ya está lista, pero el
-    // navegador aún debe traer los bytes de la imagen) para que no salgan en blanco al imprimir.
-    await Promise.all(Array.from(contenedor.querySelectorAll('img')).map(img=> img.complete ? Promise.resolve() : new Promise(resolve=>{ img.addEventListener('load', resolve, {once:true}); img.addEventListener('error', resolve, {once:true}); })));
+    await esperarFotosDelPDF(contenedor);
     window.print();
   }catch(e){ toast(e.message,'err'); }
   setState({busqueda:{...state.busqueda, exportandoPdf:false}});
