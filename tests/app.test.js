@@ -7576,16 +7576,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(pathBuscarSinCiclo.includes('ciclo_id=is.null') && pathBuscarSinCiclo.includes('conteo_id=not.is.null'), '"Sin ciclo asignado" debe exigir que sí haya un conteo (si no, mostraría todos los SKU nunca contados como si fueran de ese grupo), obtuvo: '+pathBuscarSinCiclo);
   ctx.__appstate.busqueda.ciclo = '';
 
-  // ===== Buscar: filtro "Solo críticos" y filtro por Clase ABC (a pedido de Joel, junto con las
-  // otras 3 mejoras de esta sesión: rango de fechas ya cubierto arriba, texto que busca también
-  // por batch/storage bin ya cubierto arriba, y ordenar por encabezado más abajo). =====
-  assert(!ctx.construirPathBusqueda(0).includes('critico='), 'sin "Solo críticos" marcado, no debe filtrar por critico, obtuvo: '+ctx.construirPathBusqueda(0));
-  ctx.__appstate.busqueda.soloCriticos = true;
-  const pathBuscarCriticos = ctx.construirPathBusqueda(0);
-  assert(pathBuscarCriticos.includes('critico=eq.true'), 'con "Solo críticos" marcado, debe filtrar por critico=eq.true, obtuvo: '+pathBuscarCriticos);
-  const htmlBuscarCriticos = ctx.renderBuscar();
-  assert(htmlBuscarCriticos.includes('id="b-solo-criticos"') && htmlBuscarCriticos.includes('Solo críticos'), 'debe mostrar el checkbox de "Solo críticos", obtuvo: '+htmlBuscarCriticos);
-  ctx.__appstate.busqueda.soloCriticos = false;
+  // ===== Buscar: Estado "Pendiente de reconteo" (pedido de Joel: ver en Buscar los mismos
+  // materiales que lista la pestaña Reconteo) y filtro por Clase ABC. El checkbox "Solo críticos"
+  // se quitó: el grupo automático "Críticos" del <select> de Grupo ya cubre ese caso. =====
+  const htmlBuscarEstado = ctx.renderBuscar();
+  assert(htmlBuscarEstado.includes('<option value="reconteo_pendiente"') && htmlBuscarEstado.includes('Pendiente de reconteo'), 'Estado debe ofrecer "Pendiente de reconteo", obtuvo: '+htmlBuscarEstado);
+  assert(!htmlBuscarEstado.includes('id="b-solo-criticos"') && !htmlBuscarEstado.includes('Solo críticos'), 'el checkbox "Solo críticos" ya no debe existir en Buscar, obtuvo: '+htmlBuscarEstado);
+  ctx.__appstate.busqueda.estado = 'reconteo_pendiente';
+  const pathReconteoPendiente = ctx.construirPathBusqueda(0);
+  assert(pathReconteoPendiente.includes('reconteo_pendiente=eq.true') && !pathReconteoPendiente.includes('estado=eq.'), 'con "Pendiente de reconteo" debe filtrar por la columna reconteo_pendiente de skus_busqueda (no por estado=eq.), obtuvo: '+pathReconteoPendiente);
+  assert(ctx.construirParametrosBusquedaRpc().p_estado==='reconteo_pendiente', 'el RPC del total debe recibir p_estado=reconteo_pendiente, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
+  ctx.__appstate.busqueda.estado = '';
+  ctx.__appstate.busqueda.soloCriticos = true; // campo viejo: aunque quede en un estado guardado, ya no filtra
+  assert(!ctx.construirPathBusqueda(0).includes('critico=') && ctx.construirParametrosBusquedaRpc().p_solo_criticos===false, 'sin grupo Críticos elegido no debe filtrar por critico (el checkbox ya no existe), obtuvo: '+ctx.construirPathBusqueda(0));
+  delete ctx.__appstate.busqueda.soloCriticos;
 
   ctx.__appstate.busqueda.claseAbc = 'B';
   const pathBuscarClaseB = ctx.construirPathBusqueda(0);
@@ -7625,7 +7629,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   ctx.__appstate.busqueda = {
     texto:'', bodega:'', estado:'', ciclo:'', grupoId:'grupo-ie', gruposPares:[], soloConFotos:false,
-    soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'',
+    soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'',
     resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0,
   };
   calls.length = 0;
@@ -7671,7 +7675,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // base, no el del usuario, y el total mostrado podría no calzar con las filas de la tabla. =====
   ctx.__appstate.busqueda = {
     texto:'rodamiento', bodega:'Nave', estado:'aprobado', ciclo:'ciclo-9', soloConFotos:false,
-    soloFueraDePlan:true, soloCriticos:true, claseAbc:'A', fechaDesde:'2026-08-20', fechaHasta:'2026-08-25',
+    soloFueraDePlan:true, claseAbc:'A', fechaDesde:'2026-08-20', fechaHasta:'2026-08-25',
     resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0,
   };
   calls.length = 0;
@@ -7682,7 +7686,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const rpcCall = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
   assert(!!rpcCall, 'buscarConteos debe pedir el total en paralelo vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const rpcBody = rpcCall && JSON.parse(rpcCall.opts.body);
-  assert(rpcBody && rpcBody.p_texto==='rodamiento' && rpcBody.p_bodega==='Nave' && rpcBody.p_estado==='aprobado' && rpcBody.p_ciclo==='ciclo-9' && rpcBody.p_solo_fuera_de_plan===true && rpcBody.p_solo_criticos===true && rpcBody.p_clase_abc==='A', 'el RPC debe recibir los mismos filtros de texto/bodega/estado/ciclo/checkboxes/clase que la búsqueda de filas, obtuvo: '+JSON.stringify(rpcBody));
+  assert(rpcBody && rpcBody.p_texto==='rodamiento' && rpcBody.p_bodega==='Nave' && rpcBody.p_estado==='aprobado' && rpcBody.p_ciclo==='ciclo-9' && rpcBody.p_solo_fuera_de_plan===true && rpcBody.p_solo_criticos===false && rpcBody.p_clase_abc==='A', 'el RPC debe recibir los mismos filtros de texto/bodega/estado/ciclo/checkboxes/clase que la búsqueda de filas, obtuvo: '+JSON.stringify(rpcBody));
   assert(rpcBody && !!desdeEsperado && !!hastaEsperado && rpcBody.p_fecha_desde===desdeEsperado && rpcBody.p_fecha_hasta===hastaEsperado, 'las fechas del RPC deben ser el mismo instante (timestamptz) que fecha_conteo=gte./lt. en la búsqueda de filas, obtuvo: '+JSON.stringify({rpc:{desde:rpcBody&&rpcBody.p_fecha_desde,hasta:rpcBody&&rpcBody.p_fecha_hasta}, path:{desde:desdeEsperado,hasta:hastaEsperado}}));
 
   // ===== Buscar: ordenar la tabla haciendo clic en un encabezado (ciclo de 3 estados: asc ->

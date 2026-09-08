@@ -523,7 +523,7 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[] },
+  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[] },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -4323,11 +4323,13 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
   const bodega = sanearTextoFiltro(state.busqueda.bodega);
   if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
   if(state.busqueda.estado === 'no_contado') path += `&conteo_id=is.null`;
+  // "Pendiente de reconteo" (pedido de Joel): los mismos materiales que lista la pestaña Reconteo
+  // (último conteo del período con diferencia y no descartado), como columna de skus_busqueda.
+  else if(state.busqueda.estado === 'reconteo_pendiente') path += `&reconteo_pendiente=eq.true`;
   else if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
   if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null&conteo_id=not.is.null`;
   else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
   if(state.busqueda.soloFueraDePlan) path += `&fuera_de_plan=eq.true`;
-  if(state.busqueda.soloCriticos) path += `&critico=eq.true`;
   if(state.busqueda.claseAbc === '__sin_clasificar__') path += `&clase_abc=is.null`;
   else if(state.busqueda.claseAbc) path += `&clase_abc=eq.${encodeURIComponent(state.busqueda.claseAbc)}`;
   // Rango de fechas de conteo (reemplaza al viejo "Contado hoy" fijo -- a pedido de Joel, ahora
@@ -4351,7 +4353,7 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
 // tiene una columna de grupo -- se resuelve con los pares código+bodega ya traídos de
 // skus_grupos_conteo (state.busqueda.gruposPares, ver buscarConteos) armando un OR de pares
 // exactos, igual mecánica que ya usa calcularVistaPreviaPlanGrupo. El grupo automático de
-// Crítico NO pasa por acá -- ya se cubre con "Solo críticos" (critico=eq.true, sin join).
+// Crítico NO pasa por acá -- se resuelve directo por la columna critico (critico=eq.true, sin join).
 // El grupo elegido en el <select> de Buscar (ver gruposParaFiltroBuscar) -- null si no hay
 // ninguno elegido, o si state.grupos.lista todavía no cargó ese id.
 function grupoBuscarSeleccionado(){
@@ -4362,8 +4364,9 @@ function grupoBuscarSeleccionado(){
 function filtroGrupoBuscar(){
   const grupo = grupoBuscarSeleccionado();
   if(!grupo) return '';
-  // Automático (ej. "Críticos"): se resuelve igual que el checkbox "Solo críticos" -- directo por
-  // skus_busqueda.critico, sin pasar por skus_grupos_conteo (ese grupo no tiene filas ahí).
+  // Automático (ej. "Críticos"): se resuelve directo por skus_busqueda.critico, sin pasar por
+  // skus_grupos_conteo (ese grupo no tiene filas ahí). Reemplaza al viejo checkbox "Solo
+  // críticos" de Buscar, que se quitó por redundante (pedido de Joel).
   if(grupo.automatico_critico) return '&critico=eq.true';
   const pares = state.busqueda.gruposPares || [];
   // Grupo sin materiales: ningún resultado puede coincidir -- se arma un filtro que nunca hace
@@ -4412,9 +4415,8 @@ function construirParametrosBusquedaRpc(){
     p_ciclo: state.busqueda.ciclo || null,
     p_solo_fuera_de_plan: !!state.busqueda.soloFueraDePlan,
     // El grupo automático de Crítico se resuelve como "solo críticos" (ver filtroGrupoBuscar) --
-    // así el RPC del total usa el mismo camino, sin join, tanto si viene del checkbox como del
-    // <select> de Grupo.
-    p_solo_criticos: !!state.busqueda.soloCriticos || !!(grupo && grupo.automatico_critico),
+    // así el RPC del total usa el mismo camino, sin join.
+    p_solo_criticos: !!(grupo && grupo.automatico_critico),
     p_clase_abc: state.busqueda.claseAbc || null,
     p_fecha_desde: desde,
     p_fecha_hasta: hasta,
@@ -4438,7 +4440,7 @@ function irABuscarSku(skuCode){
   setState({
     view: 'buscar',
     busqueda: {
-      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
+      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, seleccionados:[],
       usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[],
     },
@@ -4458,7 +4460,7 @@ function irABuscarDelDia(fecha){
   setState({
     view: 'buscar',
     busqueda: {
-      texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, soloCriticos:false, claseAbc:'',
+      texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'',
       fechaDesde: fecha, fechaHasta: fecha, orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, seleccionados:[],
       usuarioId: esAdmin ? null : (state.perfil && state.perfil.id) || null,
@@ -7949,6 +7951,7 @@ function renderBuscar(){
               <option value="aprobado" ${b.estado==='aprobado'?'selected':''}>Cuadrado</option>
               <option value="con_diferencia" ${b.estado==='con_diferencia'?'selected':''}>Con diferencia</option>
               <option value="pendiente_revision" ${b.estado==='pendiente_revision'?'selected':''}>Pendiente</option>
+              <option value="reconteo_pendiente" ${b.estado==='reconteo_pendiente'?'selected':''}>Pendiente de reconteo</option>
             </select>
           </div>
         </div>
@@ -7987,10 +7990,6 @@ function renderBuscar(){
           <input type="checkbox" id="b-solo-fuera-plan" ${b.soloFueraDePlan?'checked':''}>
           Solo fuera de plan
         </label>
-        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
-          <input type="checkbox" id="b-solo-criticos" ${b.soloCriticos?'checked':''}>
-          Solo críticos
-        </label>
         <div style="margin-top:16px">
           <button type="submit" class="btn btn-primary" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
         </div>
@@ -8011,7 +8010,7 @@ function renderBuscar(){
         ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
       </div>
     </div>
-    ${(b.soloConFotos || b.soloFueraDePlan || b.soloCriticos || b.claseAbc || b.fechaDesde || b.fechaHasta || b.grupoId) && resultados.length? `
+    ${(b.soloConFotos || b.soloFueraDePlan || b.claseAbc || b.fechaDesde || b.fechaHasta || b.grupoId) && resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados filtrados')}</span><h2 style="font-size:15px">Resumen por estado</h2></div></div>
       ${renderBarChart(resumenEstadoBusqueda(resultados), 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d, true, true)}
@@ -10334,7 +10333,6 @@ function bind(){
         grupoId: selGrupo ? selGrupo.value : '',
         soloConFotos: document.getElementById('b-solo-fotos').checked,
         soloFueraDePlan: document.getElementById('b-solo-fuera-plan').checked,
-        soloCriticos: document.getElementById('b-solo-criticos').checked,
         claseAbc: document.getElementById('b-clase-abc').value,
         fechaDesde: document.getElementById('b-fecha-desde').value,
         fechaHasta: document.getElementById('b-fecha-hasta').value,
