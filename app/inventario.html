@@ -5931,19 +5931,16 @@ function renderInformeEjecutivo(){
   const resumenAbc = state.dash.resumenAbc||[];
 
   // Orden pedido por Joel: avance global, exactitud, adherencia, valorización y proyección
-  // primero (el resumen ejecutivo de un vistazo); el resto (detalle/tendencia de cada uno,
-  // rankings y actividad reciente) queda abajo, agrupado cerca del resumen del que es detalle.
+  // primero (el resumen ejecutivo de un vistazo); el resto (detalle/tendencia de cada uno y
+  // rankings) queda abajo, agrupado cerca del resumen del que es detalle. La tarjeta "Conteos
+  // recientes" (cantidad de conteos cargados, con reconteos) se sacó a pedido de Joel: no
+  // agregaba valor. El listado "Materiales contados" sigue en la vista Operativo.
   return `
     <div class="kpi-grid">
       <div class="tag-card">
         <div class="kpi-label">Avance global ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos en todas las bodegas.')}</div>
         <div class="kpi-value">${pct(avanceGlobal)}%</div>
         <div class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</div>
-      </div>
-      <div class="tag-card">
-        <div class="kpi-label">Conteos recientes (ciclo actual) ${campoConInfo('Incluye reconteos (no es SKU únicos). No cambia con el selector de período de Adherencia; para ver otros ciclos usa Buscar.')}</div>
-        <div class="kpi-value">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</div>
-        <div class="kpi-sub">incluye reconteos (no es SKU únicos) — no cambia con el selector de período de Adherencia, para ver otros ciclos usa Buscar</div>
       </div>
     </div>
 

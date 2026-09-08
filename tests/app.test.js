@@ -2036,11 +2036,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.dashboardModo = 'ejecutivo';
   ctx.__appstate.ultimosConteos = [];
   const htmlDash = ctx.renderDashboard();
-  // Aclaración de UX pedida por el usuario: "Conteos recientes" (y "Materiales contados" más
-  // abajo) siempre se acotan al ciclo actual, sin relación con el selector de período de
-  // Adherencia al plan — el rótulo "(ciclo actual)" deja eso explícito en vez de que parezca
-  // un bug cuando alguien elige "Todos los períodos" y este número no cambia.
-  assert(htmlDash.includes('Conteos recientes (ciclo actual)'), 'la tarjeta de conteos recientes (vista Ejecutivo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDash);
+  // A pedido de Joel, la tarjeta "Conteos recientes" (cantidad de conteos cargados, con
+  // reconteos) se sacó del Ejecutivo: no agregaba valor. Avance global sigue arriba.
+  assert(!htmlDash.includes('Conteos recientes'), 'la vista Ejecutivo ya no debe mostrar la tarjeta "Conteos recientes", obtuvo: '+htmlDash);
+  assert(htmlDash.includes('Avance global'), 'Avance global debe seguir arriba en la vista Ejecutivo, obtuvo: '+htmlDash);
+  // "Materiales contados" (vista Operativo) sigue acotado al ciclo actual, sin relación con el
+  // selector de período de Adherencia al plan — el rótulo "(ciclo actual)" deja eso explícito.
   ctx.__appstate.dashboardModo = 'operativo';
   const htmlDashOperativo = ctx.renderDashboard();
   assert(htmlDashOperativo.includes('Materiales contados (ciclo actual)'), 'la lista de materiales contados (vista Operativo) debe aclarar que se acota al ciclo actual, obtuvo: '+htmlDashOperativo);
@@ -2613,9 +2614,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Muchos paneles del Ejecutivo deben traer su ícono -- no solo uno o dos sueltos.
   const cantidadInfoEjecutivo = (htmlOrden.match(/class="info-dato"/g)||[]).length;
   assert(cantidadInfoEjecutivo>=10, 'la vista Ejecutiva debe traer el ícono de info en la mayoría de sus paneles, obtuvo solo '+cantidadInfoEjecutivo);
-  // Los dos ejemplos que dio Joel explícitamente: "incluye reconteos" (Conteos recientes) y
-  // "SKU planificados" (Adherencia al plan) deben estar entre las explicaciones mostradas.
-  assert(htmlOrden.includes('Incluye reconteos (no es SKU únicos)'), 'debe explicar que "Conteos recientes" incluye reconteos, obtuvo: '+htmlOrden.includes('Incluye reconteos'));
+  // El ejemplo que dio Joel explícitamente ("SKU planificados", Adherencia al plan) debe estar
+  // entre las explicaciones mostradas. (El otro, "incluye reconteos", era de la tarjeta "Conteos
+  // recientes", que después pidió sacar.)
   assert(htmlOrden.includes('SKU planificados en el período contra los que aún faltan por contar'), 'debe explicar qué considera "Adherencia al plan" (planificados vs. sin contar), obtuvo: '+htmlOrden.includes('SKU planificados en el período'));
   // Modo Operativo también debe traer sus íconos (Diario/Semanal/Mensual/Materiales contados).
   const cantidadInfoOperativo = (htmlOrdenOperativo.match(/class="info-dato"/g)||[]).length;
