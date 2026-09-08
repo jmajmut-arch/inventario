@@ -8282,15 +8282,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.buscarSkuParaPlan('rod');
     assert(calls.some(c=>c.url.includes('/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin&or=(sku_code.ilike.*rod*,descripcion.ilike.*rod*)')), 'debe buscar por código o descripción en skus_planificables (solo pendientes del período), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar?select=id&id=in.(rod-1,rod-2,rod-3,rod-4)')), 'debe cruzar los resultados contra skus_disponibles_planificar por id para marcar los ya planificados, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-    assert(resultadosEl.innerHTML.includes('data-elegir-sku-plan="rod-1"') && resultadosEl.innerHTML.includes('Rodamiento 6205') && resultadosEl.innerHTML.includes('Nave Mina · Interior Nave · A-01'), 'la lista debe mostrar código, descripción y zona de cada resultado, obtuvo: '+resultadosEl.innerHTML);
-    assert((resultadosEl.innerHTML.match(/Ya en el plan/g)||[]).length===1 && /data-elegir-sku-plan="rod-2"[^>]*>[\s\S]*?Ya en el plan/.test(resultadosEl.innerHTML), 'solo ROD-2 (ausente de skus_disponibles_planificar) debe ir marcado "Ya en el plan", obtuvo: '+resultadosEl.innerHTML);
+    // Mismo formato que el buscador libre de Contar (.sku-pick con .code/.desc y botón "Elegir").
+    assert(resultadosEl.innerHTML.includes('<div class="sku-pick" data-plan-sku="rod-1">') && resultadosEl.innerHTML.includes('<span class="code">ROD-1</span><span class="desc">Rodamiento 6205 · Nave Mina · Interior Nave · Bin A-01</span>') && resultadosEl.innerHTML.includes('data-elegir-sku-plan="rod-1" >Elegir</button>'), 'la lista debe usar el formato del buscador de Contar: código, descripción · zona y botón Elegir, obtuvo: '+resultadosEl.innerHTML);
+    assert((resultadosEl.innerHTML.match(/Ya en el plan/g)||[]).length===1 && /data-plan-sku="rod-2">[\s\S]*?Ya en el plan[\s\S]*?data-elegir-sku-plan="rod-2"/.test(resultadosEl.innerHTML), 'solo ROD-2 (ausente de skus_disponibles_planificar) debe ir marcado "Ya en el plan", obtuvo: '+resultadosEl.innerHTML);
 
     // Elegir: se agrega una vez (no duplica), el resultado queda deshabilitado como "Elegido";
     // Enter elige el que calza exacto por código.
     ctx.elegirSkuParaPlan('rod-1');
     ctx.elegirSkuParaPlan('rod-1');
     assert(ctx.__appstate.plan.skusElegidos.length===1 && ctx.__appstate.plan.skusElegidos[0].sku_code==='ROD-1', 'elegir dos veces el mismo SKU debe dejarlo una sola vez, obtuvo: '+JSON.stringify(ctx.__appstate.plan.skusElegidos));
-    assert(/data-elegir-sku-plan="rod-1" disabled/.test(ctx.htmlResultadosSkuPlan()) && ctx.htmlResultadosSkuPlan().includes('Elegido'), 'el SKU ya elegido debe verse deshabilitado y marcado "Elegido", obtuvo: '+ctx.htmlResultadosSkuPlan());
+    assert(/data-elegir-sku-plan="rod-1" disabled>Elegido<\/button>/.test(ctx.htmlResultadosSkuPlan()), 'el SKU ya elegido debe verse con el botón deshabilitado y el texto "Elegido", obtuvo: '+ctx.htmlResultadosSkuPlan());
     await ctx.buscarSkuParaPlan('ROD-3');
     ctx.elegirPrimerResultadoSkuPlan();
     assert(ctx.__appstate.plan.skusElegidos.some(s=>s.sku_code==='ROD-3'), 'Enter debe elegir el resultado que calza exacto por código, obtuvo: '+JSON.stringify(ctx.__appstate.plan.skusElegidos));

@@ -336,12 +336,8 @@ textarea{resize:vertical;min-height:60px;}
 .plan-item{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
 .plan-item:last-child{border-bottom:none;}
 .plan-item-ubic{font-size:13.5px;font-weight:600;color:var(--text);}
-.plan-sku-resultados{border:1px solid var(--line);border-radius:8px;margin-top:6px;max-height:220px;overflow:auto;background:var(--surface);}
-.plan-sku-resultado{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:8px 10px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--text);font:inherit;cursor:pointer;}
-.plan-sku-resultado:last-child{border-bottom:0;}
-.plan-sku-resultado:hover{background:var(--bg);}
-.plan-sku-resultado[disabled]{opacity:.55;cursor:default;}
-.plan-sku-resultado .ubic{font-size:12px;color:var(--text-dim);}
+.sku-pick button[disabled]{opacity:.5;cursor:default;}
+.sku-pick .badge{margin-right:8px;vertical-align:middle;}
 .plan-sku-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
 .plan-sku-chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 8px;border-radius:100px;background:var(--bg);border:1px solid var(--line);}
 .plan-sku-chip button{border:0;background:transparent;color:var(--danger);font-size:14px;line-height:1;cursor:pointer;padding:0 2px;}
@@ -3600,20 +3596,24 @@ function zonaDeSku(s){
   return [s.bodega, s.ubicacion, s.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación';
 }
 
+// Mismo formato que el buscador libre de Contar (renderResultadosBuscadorLibre): fila .sku-pick
+// con el código, la descripción y la zona debajo, y el botón "Elegir" a la derecha (a pedido).
 function htmlResultadosSkuPlan(){
   const b = planSkuBusqueda;
-  if(b.buscando) return '<div class="hint" style="margin-top:6px">Buscando…</div>';
-  if(b.texto.length < PLAN_SKU_BUSQUEDA_MIN) return '';
-  if(!b.resultados.length) return '<div class="hint" style="margin-top:6px">Sin materiales pendientes que coincidan.</div>';
+  if(b.texto.length===0) return '<div class="hint">Escribe para buscar en los materiales pendientes del período.</div>';
+  if(b.texto.length < PLAN_SKU_BUSQUEDA_MIN) return '<div class="hint">Sigue escribiendo (mínimo 2 letras)…</div>';
+  if(b.buscando) return '<div class="hint">Buscando…</div>';
+  if(!b.resultados.length) return '<div class="hint">No se encontraron materiales pendientes que coincidan.</div>';
   const elegidos = new Set((state.plan.skusElegidos||[]).map(s=>s.id));
-  return `<div class="plan-sku-resultados">${b.resultados.map(s=>{
+  return b.resultados.map(s=>{
     const elegido = elegidos.has(s.id);
     const yaPlan = b.yaPlanificados.has(s.id);
-    return `<button type="button" class="plan-sku-resultado" data-elegir-sku-plan="${esc(s.id)}" ${elegido?'disabled':''}>
-      <span><span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}<div class="ubic">${esc(zonaDeSku(s))}</div></span>
-      <span>${elegido? '<span class="badge badge-ok">Elegido</span>' : yaPlan? '<span class="badge badge-warn" title="Ya está en otra entrada de este período">Ya en el plan</span>' : '+'}</span>
-    </button>`;
-  }).join('')}</div>${b.resultados.length>=PLAN_SKU_BUSQUEDA_LIMITE? `<div class="hint" style="margin-top:4px">Mostrando los primeros ${PLAN_SKU_BUSQUEDA_LIMITE}. Escribe más caracteres para acotar.</div>` : ''}`;
+    return `
+      <div class="sku-pick" data-plan-sku="${esc(s.id)}">
+        <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}</span></div>
+        <span style="display:flex;align-items:center;flex:none">${!elegido && yaPlan? '<span class="badge badge-warn" title="Ya está en otra entrada de este período">Ya en el plan</span>' : ''}<button type="button" data-elegir-sku-plan="${esc(s.id)}" ${elegido?'disabled':''}>${elegido? 'Elegido' : 'Elegir'}</button></span>
+      </div>`;
+  }).join('') + (b.resultados.length>=PLAN_SKU_BUSQUEDA_LIMITE? `<div class="hint" style="margin-top:4px">Mostrando los primeros ${PLAN_SKU_BUSQUEDA_LIMITE}. Escribe más caracteres para acotar.</div>` : '');
 }
 function dibujarResultadosSkuPlan(){
   const el = document.getElementById('p-sku-resultados');
@@ -8077,9 +8077,9 @@ function renderPlanificacion(){
         <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${minFechaPlan? `min="${minFechaPlan}"` : ''} max="${maxFechaPlan}" required>
         <div id="p-campos-sku" ${p.modoAgregar==='sku'? '' : 'style="display:none"'}>
           <label for="p-sku-buscar">Buscar SKU por código o descripción</label>
-          <input type="text" id="p-sku-buscar" placeholder="Ej. 10001177 o rodamiento" autocomplete="off" value="${esc(planSkuBusqueda.texto)}">
-          <div class="hint" style="margin:4px 0 0">Escribe al menos ${PLAN_SKU_BUSQUEDA_MIN} caracteres y toca un resultado para agregarlo (Enter agrega el primero). Solo aparecen materiales pendientes de contar en este período.</div>
-          <div id="p-sku-resultados">${p.modoAgregar==='sku'? htmlResultadosSkuPlan() : ''}</div>
+          <input type="text" id="p-sku-buscar" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" autocomplete="off" value="${esc(planSkuBusqueda.texto)}">
+          <div class="hint" style="margin:4px 0 0">Solo aparecen materiales pendientes de contar en este período. Enter elige el primero.</div>
+          <div id="p-sku-resultados" style="margin-top:10px">${p.modoAgregar==='sku'? htmlResultadosSkuPlan() : ''}</div>
           ${(p.skusElegidos||[]).length? `
             <div class="hint" style="margin:10px 0 0">${p.skusElegidos.length} SKU elegido${p.skusElegidos.length===1?'':'s'} · se crear${agruparSkusElegidosPorZona(p.skusElegidos).length===1?'á 1 entrada':'án '+agruparSkusElegidosPorZona(p.skusElegidos).length+' entradas'} (una por bodega + ubicación)</div>
             <div class="plan-sku-chips">${p.skusElegidos.map(s=>`<span class="plan-sku-chip" title="${esc(zonaDeSku(s))}"><span class="mono">${esc(s.sku_code)}</span><button type="button" data-quitar-sku-plan="${esc(s.id)}" aria-label="Quitar ${esc(s.sku_code)}">×</button></span>`).join('')}</div>
