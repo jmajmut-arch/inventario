@@ -433,6 +433,7 @@ let state = {
   loading: false,
   debeCrearPassword: false,  // true cuando se llega desde un link de invitación (sin contraseña todavía)
   empresaBloqueada: null,    // {motivo:'inactiva'|'morosa'|'pendiente_tarjeta'|'vencida', nombre} cuando la empresa del usuario está bloqueada
+  verificandoPagoBloqueada: false, // pantalla de cuenta bloqueada por mora: consultando a Flow si ya se regularizó
   authRecuperar: false,      // true muestra el formulario de "olvidé mi contraseña" en vez del login
   // {email} muestra la pantalla "Ingresa tu código" en vez del login -- alternativa al link
   // del correo (#access_token=...) para cuando el filtro de seguridad de una empresa grande
@@ -975,6 +976,7 @@ async function restaurarSesionGuardada(){
   if(!state.perfil){ state.session = null; borrarSesionGuardada(); return; }
   state.view = vistaInicialParaPerfil();
   cargarTodo();
+  sincronizarSuscripcionFlow();
 }
 
 async function cargarPerfil(){
@@ -1049,6 +1051,7 @@ async function finalizarLogin(){
     ? 'Cerramos tu sesión anterior en otro dispositivo.'
     : `Bienvenido${state.perfil?', '+state.perfil.nombre:''}`);
   cargarTodo();
+  sincronizarSuscripcionFlow();
 }
 
 async function enviarCodigoMfaDesafio(codigo){
@@ -1138,6 +1141,63 @@ async function iniciarSuscripcionFlow(planNombre){
     state.iniciandoSuscripcionFlow = false;
     render();
   }
+}
+
+// Reconciliación del estado de la suscripción contra Flow (#94). Hallazgo real: el urlCallback
+// del plan en Flow NO se invocó en el primer cobro real (2026-09-03), así que el estado en la
+// base (flow_subscription_status) no puede depender solo del webhook flow-webhook-cobro. La
+// Edge Function flow-sincronizar-suscripcion le pregunta a Flow y refleja el estado real. Se
+// llama en segundo plano al entrar a la app, como mucho una vez cada 6 h por empresa (umbral en
+// localStorage; el servidor tiene otro de 10 min), y a pedido desde la pantalla de cuenta
+// bloqueada ("Ya regularicé el pago"). Silenciosa: un fallo acá nunca debe molestar a nadie.
+const FLOW_SYNC_CADA_MS = 6 * 60 * 60 * 1000;
+function claveFlowSync(){ return `flow_sync_${state.perfil && state.perfil.empresa_id}`; }
+async function sincronizarSuscripcionFlow({forzar=false}={}){
+  if(!state.session) return null;
+  if(!forzar){
+    const empresa = state.perfil && state.perfil.empresas;
+    if(!empresa || !['activa','cancelada'].includes(empresa.flow_subscription_status)) return null;
+    let ultima = 0;
+    try{ ultima = Number(localStorage.getItem(claveFlowSync())) || 0; }catch(e){ ultima = 0; }
+    if(Date.now() - ultima < FLOW_SYNC_CADA_MS) return null;
+  }
+  try{
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/flow-sincronizar-suscripcion`, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'No se pudo sincronizar la suscripción');
+    if(state.perfil){ try{ localStorage.setItem(claveFlowSync(), String(Date.now())); }catch(e){ /* sin storage */ } }
+    const empresa = state.perfil && state.perfil.empresas;
+    if(empresa && data.estado && data.estado !== empresa.flow_subscription_status){
+      empresa.flow_subscription_status = data.estado;
+      // Pasó a un estado que bloquea el acceso: cargarPerfil vuelve a consultar mi_estado_bloqueo
+      // y deja la pantalla de cuenta bloqueada en vez de una app que falla por RLS.
+      if(data.estado === 'morosa' || data.estado === 'vencida') await cargarPerfil();
+      render();
+    }
+    return data;
+  }catch(e){
+    return null;
+  }
+}
+
+// Desde la pantalla de cuenta bloqueada por mora: la persona ya actualizó su tarjeta o Flow ya
+// logró cobrar, y quiere entrar sin esperar al webhook. Si Flow confirma que ya no está morosa,
+// se entra a la app normalmente.
+async function verificarPagoCuentaBloqueada(){
+  setState({verificandoPagoBloqueada:true});
+  const data = await sincronizarSuscripcionFlow({forzar:true});
+  try{ await cargarPerfil(); }catch(e){ /* se queda en la pantalla bloqueada */ }
+  if(state.session && !state.empresaBloqueada && state.perfil){
+    setState({verificandoPagoBloqueada:false, view: vistaInicialParaPerfil()});
+    toast('Pago verificado, bienvenido de vuelta');
+    cargarTodo();
+    return;
+  }
+  setState({verificandoPagoBloqueada:false});
+  toast(data && data.sincronizada ? 'Flow todavía informa la suscripción como impaga' : 'No se pudo verificar el pago, intenta de nuevo en unos minutos', 'err');
 }
 
 async function cancelarSuscripcionFlow(){
@@ -8641,6 +8701,8 @@ function renderCuentaBloqueada(){
     : 'Esta cuenta fue pausada.';
   const accionHtml = (motivo === 'pendiente_tarjeta' || motivo === 'vencida')
     ? `<button type="button" id="btn-registrar-tarjeta-bloqueada" class="btn btn-primary" style="margin-bottom:10px" ${state.iniciandoSuscripcionFlow?'disabled':''}>${state.iniciandoSuscripcionFlow?'Redirigiendo…':(motivo==='vencida'?'Suscribirme de nuevo':'Registrar método de pago')}</button><br>`
+    : motivo === 'morosa'
+    ? `<button type="button" id="btn-verificar-pago-bloqueada" class="btn btn-primary" style="margin-bottom:10px" ${state.verificandoPagoBloqueada?'disabled':''}>${state.verificandoPagoBloqueada?'Verificando…':'Ya regularicé el pago, verificar'}</button><br>`
     : '';
   return `
     <div class="login-wrap">
@@ -8773,6 +8835,8 @@ function bind(){
   }
   if(state.session && state.empresaBloqueada){
     document.getElementById('btn-salir-bloqueada').addEventListener('click', handleLogout);
+    const btnVerificarPago = document.getElementById('btn-verificar-pago-bloqueada');
+    if(btnVerificarPago) btnVerificarPago.addEventListener('click', verificarPagoCuentaBloqueada);
     const btnRegistrarTarjeta = document.getElementById('btn-registrar-tarjeta-bloqueada');
     if(btnRegistrarTarjeta) btnRegistrarTarjeta.addEventListener('click', ()=> iniciarSuscripcionFlow(state.empresaBloqueada.planNombre));
     return;

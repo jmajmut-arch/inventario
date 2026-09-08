@@ -1,60 +1,54 @@
-# Inventario — Toma Física con Respaldo Fotográfico
+# InventIA — Conteo cíclico de inventario para minería
 
-Aplicación web (una sola página, `app/index.html` / `app/inventario.html`) conectada a una base de datos [Supabase](https://supabase.com) real, con el landing comercial en `index.html` (raíz). Permite:
+Aplicación web multiempresa (SaaS) para planificar y ejecutar conteos cíclicos de materiales en bodegas y patios, con respaldo fotográfico, modo offline y dashboard ejecutivo. Publicada en [inventiapp.cl](https://inventiapp.cl) (landing) y [inventiapp.cl/app/](https://inventiapp.cl/app/) (aplicación).
 
-- **Cargar SKU** uno por uno o de forma masiva (CSV exportado de SAP).
-- **Carga masiva de respaldo** (nuevo corte de stock del sistema) para comparar contra el conteo físico.
-- **Tomar inventario** en terreno: buscar SKU, ingresar cantidad contada, ubicación, observación y **foto de respaldo** (cámara del celular o archivo).
-- **Dashboard** de avance global, por bodega, y por período (diario, semanal, mensual), con detalle de diferencias.
-- Múltiples usuarios simultáneos vía login (correo/contraseña), cada uno con su rol (`admin`, `supervisor`, `contador`).
+## Estructura del repositorio
 
-No requiere instalar nada ni levantar un servidor propio: es un archivo HTML estático que habla directo con Supabase (Auth + Postgres REST + Storage) usando la llave pública `anon` (protegida por Row Level Security).
+| Ruta | Qué es |
+|---|---|
+| `index.html` | Landing comercial (planes, demo, formulario de contacto, FAQ). |
+| `app/index.html` | La aplicación completa en un solo archivo HTML. |
+| `app/inventario.html` | Espejo byte a byte de `app/index.html` (URL histórica). Se mantiene con `cp` y se verifica con `diff`. |
+| `terminos.html`, `privacidad.html`, `reembolsos.html` | Términos y condiciones, política de privacidad y política de reembolsos. |
+| `manifest.webmanifest`, `icons/` | PWA instalable en el celular. |
+| `tests/app.test.js` | Suite de tests unitarios de la app (Node, sin dependencias). |
+| `tests/e2e.test.js` | Tests end-to-end con Playwright (navegador real). |
+| `.github/workflows/tests.yml` | CI: corre ambas suites en cada PR. |
 
-## Uso
+No hay backend propio que desplegar: toda la lógica de servidor vive en Supabase.
 
-1. Abre `app/index.html` en un navegador (celular o computador), o publica todo el repo en cualquier hosting estático (ver abajo) — quedará en `/app/`.
-2. La primera vez, crea tu cuenta con "Regístrate" (nombre, correo, contraseña). Tu perfil se crea automáticamente en la base de datos.
-3. Pestaña **SKUs**: agrega materiales manualmente.
-4. Pestaña **Carga**: sube un CSV masivo de SKU o de respaldo de stock.
-5. Pestaña **Contar**: busca el SKU, ingresa la cantidad contada y adjunta una foto.
-6. Pestaña **Dashboard**: revisa el avance global, por bodega y por período.
+## Funcionalidades principales
 
-### Formato del CSV de carga masiva
-
-Acepta directamente el maestro de materiales exportado de SAP, con columnas:
-
-`Material, Material Description, Plant Name, Storage Location, Description of Storage Location, Unrestricted Stock`
-
-También acepta el formato simple: `sku_code, descripcion, categoria, unidad_medida, ubicacion, bodega, stock_sistema`.
-
-- **Carga de SKU**: crea o actualiza (upsert) el material completo.
-- **Carga de respaldo**: solo actualiza `stock_sistema` de los SKU existentes (para comparar contra el conteo físico), sin tocar descripción/ubicación.
-
-Cada carga queda registrada en `cargas_masivas` (archivo, filas totales/ok/error, detalle de errores) para trazabilidad.
+- **Multiempresa**: cada empresa ve solo sus datos (Row Level Security por `empresa_id` en todas las tablas y vistas). Planes Básico, Profesional y Empresa con límites y funciones por plan.
+- **Maestro de materiales** cargado desde el export de SAP (CSV) o a mano; bodegas, ubicaciones, storage bins, batches, clase ABC y criticidad.
+- **Planificación**: entradas por fecha, bodega, ubicación y bin; grupos de conteo con frecuencia propia y generación automática de plan; vistas Día, Semana, Mes, Año y Período; calendario; hoja de conteo en PDF.
+- **Contar**: plan del día por responsable, escáner de códigos con la cámara, conteo ciego opcional, fotos de respaldo, guardado optimista y cola offline cuando no hay señal.
+- **Reconteo** de diferencias con gráfico por semana y descarte justificado.
+- **Dashboard** por ciclo de conteo: avance, exactitud en unidades y ubicación, proyección de término, ranking por responsable e informe de ciclo en PDF.
+- **Auditoría** de cambios y monitoreo de errores con Sentry.
+- **Cuentas**: acceso por invitación (correo), roles `admin` e `inventariador` por empresa, súper administrador de InventIA, MFA opcional (TOTP), una sesión activa por usuario, recuperación de contraseña.
+- **Suscripciones** con Flow.cl (tarjeta con cargo automático) para los planes autoservicio.
 
 ## Base de datos (Supabase)
 
-Proyecto: `inventario-toma-fisica` (región `sa-east-1`).
+Proyecto `inventario-toma-fisica`, región `sa-east-1`, Postgres 17.
 
-Tablas principales:
+- Tablas: `empresas`, `planes`, `usuarios`, `skus`, `conteos`, `conteo_fotos`, `plan_semanal` (y `plan_semanal_skus`, `plan_semanal_exclusiones`), `grupos_conteo`, `skus_grupos_conteo`, `historial_ciclos_grupo`, `ciclos_conteo`, `informes_ciclo`, `responsables_proceso`, `cargas_masivas`, `auditoria`, `flow_eventos`, `leads_demo`.
+- Las vistas y funciones RPC que usa la app filtran siempre por `empresa_actual()`. Las funciones son ejecutables solo por usuarios autenticados; las de mantenimiento (cron) solo por el servicio.
+- Fotos en el bucket privado `fotos-inventario`, con rutas por empresa y URLs firmadas.
+- Edge Functions: `invite-user`, `crear-empresa-autoservicio`, `flow-iniciar-suscripcion`, `flow-registro-callback`, `flow-webhook-cobro`, `flow-sincronizar-suscripcion`, `flow-cambiar-plan`, `flow-cancelar-suscripcion`.
+- Tareas programadas (pg_cron, diarias): activación de períodos programados, cierre de ciclos de grupo vencidos, refresco nocturno de la clasificación ABC, purga de auditoría antigua, vencimiento de suscripciones canceladas y reset de la cuenta demo.
 
-- `usuarios` — perfil de cada usuario (vinculado a `auth.users`), con rol.
-- `skus` — maestro de materiales.
-- `conteos` — cada conteo físico registrado (cantidad, ubicación, bodega, foto, observación, diferencia vs. stock sistema, estado).
-- `cargas_masivas` — historial de cargas CSV.
+## Desarrollo
 
-Vistas para el dashboard: `avance_total`, `avance_diario`, `avance_semanal`, `avance_mensual`.
+```bash
+node tests/app.test.js        # tests unitarios, debe terminar en "TODOS LOS TESTS PASARON"
+npm run test:e2e              # tests end-to-end (requiere Chromium de Playwright; en CI se instala solo)
+cp app/index.html app/inventario.html && diff app/index.html app/inventario.html
+```
 
-Fotos de respaldo: bucket de Storage `fotos-inventario` (lectura pública, escritura solo para usuarios autenticados).
+Flujo de trabajo: los cambios se desarrollan en una rama, pasan por CI en un pull request y se fusionan a `main`. GitHub Pages publica `main` automáticamente en inventiapp.cl.
 
-Seguridad: Row Level Security habilitado en todas las tablas — solo usuarios autenticados pueden leer/escribir datos operativos; cada usuario solo puede modificar su propio perfil.
+## Publicación
 
-## Publicar la app en la web
-
-Como es un archivo estático, puedes publicarlo en minutos con cualquiera de estas opciones:
-
-- **GitHub Pages**: Settings → Pages → Deploy from branch → selecciona la rama y `/ (root)`. El landing queda en `https://<usuario>.github.io/inventario/` y la app en `.../app/`.
-- **Netlify / Vercel**: arrastra la carpeta o conecta el repo; no requiere build.
-- Cualquier hosting estático (S3, Cloudflare Pages, etc.).
-
-No hay backend propio que desplegar: toda la lógica de servidor vive en Supabase.
+GitHub Pages sirve el repositorio completo desde la raíz de `main`, con el dominio `inventiapp.cl` configurado en Settings → Pages. Cualquier hosting estático funcionaría igual: no requiere build.

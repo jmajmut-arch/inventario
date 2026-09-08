@@ -20,6 +20,7 @@ function assert(cond, msg){
 
 let estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
 let tengoOtraSesionActivaRespuesta = false;
+let flowSyncRespuesta = { ok:true, sincronizada:true, estado:'activa', cambio:false }; // Edge Function flow-sincronizar-suscripcion
 let cicloActualRpcRespuesta = null;
 let verificarConteoAtipicoRespuesta = false;
 let conteosEnPeriodoRespuesta = 0;
@@ -115,6 +116,9 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
+  }
+  if(path.startsWith('/functions/v1/flow-sincronizar-suscripcion')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(flowSyncRespuesta), json: async()=>flowSyncRespuesta };
   }
   if(path.startsWith('/rest/v1/plan_semanal_detalle')){
     // "Mi plan del día" (Contar): cuatro entradas para resp-yo el 2026-08-24 — dos ubicaciones
@@ -2924,6 +2928,51 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(invokeCancelarCall.opts.headers.Authorization==='Bearer tok-ana', 'debe mandar el access_token de la sesión, obtuvo: '+invokeCancelarCall.opts.headers.Authorization);
   assert(ctx.__appstate.perfil.empresas.flow_subscription_status==='cancelada', 'debe reflejar la cancelación en el estado local sin esperar a recargar el perfil, obtuvo: '+ctx.__appstate.perfil.empresas.flow_subscription_status);
   confirmRespuesta = true;
+
+  // ===== Flow.cl: sincronización del estado contra Flow (#94, el webhook no llegó) =====
+
+  // Con suscripción activa, la sincronización llama a la Edge Function una vez y después respeta
+  // el umbral de 6 h (localStorage): una segunda llamada inmediata no vuelve a pegarle a Flow.
+  ctx.__appstate.session = { access_token:'tok-x', user:{id:'user-1', email:'joel@test.com'} };
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-sync', empresas:{nombre:'Minera Andes', flow_subscription_status:'activa', planes:{nombre:'profesional', etiqueta:'Profesional'}} };
+  ctx.localStorage.removeItem('flow_sync_emp-sync');
+  flowSyncRespuesta = { ok:true, sincronizada:true, estado:'activa', cambio:false };
+  calls.length = 0;
+  await ctx.sincronizarSuscripcionFlow();
+  assert(calls.filter(c=>c.url.includes('/functions/v1/flow-sincronizar-suscripcion')).length===1, 'sincronizarSuscripcionFlow debe llamar a la Edge Function flow-sincronizar-suscripcion, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!!ctx.localStorage.getItem('flow_sync_emp-sync'), 'tras sincronizar debe anotar la hora en localStorage para respetar el umbral, obtuvo: '+ctx.localStorage.getItem('flow_sync_emp-sync'));
+  calls.length = 0;
+  await ctx.sincronizarSuscripcionFlow();
+  assert(!calls.some(c=>c.url.includes('/functions/v1/flow-sincronizar-suscripcion')), 'dentro del umbral de 6 h no debe volver a llamar a la Edge Function, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Sin suscripción en Flow (p. ej. plan Empresa por contrato, sin tarjeta) no hay nada que sincronizar.
+  ctx.__appstate.perfil.empresas.flow_subscription_status = null;
+  ctx.localStorage.removeItem('flow_sync_emp-sync');
+  calls.length = 0;
+  await ctx.sincronizarSuscripcionFlow();
+  assert(!calls.some(c=>c.url.includes('/functions/v1/flow-sincronizar-suscripcion')), 'sin suscripción de Flow no debe llamar a la Edge Function, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Flow informa mora: el estado local cambia y la app pasa a la pantalla de cuenta bloqueada
+  // (cargarPerfil vuelve a consultar mi_estado_bloqueo, que ahora responde morosa).
+  ctx.__appstate.perfil.empresas.flow_subscription_status = 'activa';
+  flowSyncRespuesta = { ok:true, sincronizada:true, estado:'morosa', cambio:true };
+  estadoBloqueoRespuesta = { bloqueada: true, motivo: 'morosa', empresa_nombre: 'Minera Andes' };
+  await ctx.sincronizarSuscripcionFlow({forzar:true});
+  assert(!!ctx.__appstate.empresaBloqueada && ctx.__appstate.empresaBloqueada.motivo==='morosa', 'si Flow informa mora, la app debe quedar en la pantalla de cuenta bloqueada, obtuvo: '+JSON.stringify(ctx.__appstate.empresaBloqueada));
+  // Pantalla bloqueada por mora: ofrece verificar el pago con Flow sin esperar al webhook.
+  const htmlBloqueadaVerificar = ctx.renderCuentaBloqueada();
+  assert(htmlBloqueadaVerificar.includes('id="btn-verificar-pago-bloqueada"'), 'la pantalla de cuenta bloqueada por mora debe ofrecer "Ya regularicé el pago, verificar", obtuvo: '+htmlBloqueadaVerificar);
+  // verificarPagoCuentaBloqueada: Flow ya la ve activa -> entra a la app.
+  flowSyncRespuesta = { ok:true, sincronizada:true, estado:'activa', cambio:true };
+  estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
+  await ctx.verificarPagoCuentaBloqueada();
+  assert(ctx.__appstate.empresaBloqueada===null && !!ctx.__appstate.perfil && ctx.__appstate.verificandoPagoBloqueada===false, 'si Flow confirma el pago, debe salir de la pantalla bloqueada y cargar el perfil, obtuvo: '+JSON.stringify({bloqueada:ctx.__appstate.empresaBloqueada, perfil:!!ctx.__appstate.perfil}));
+  // verificarPagoCuentaBloqueada: Flow sigue viéndola morosa -> se queda bloqueada, sin romper nada.
+  flowSyncRespuesta = { ok:true, sincronizada:true, estado:'morosa', cambio:false };
+  estadoBloqueoRespuesta = { bloqueada: true, motivo: 'morosa', empresa_nombre: 'Minera Andes' };
+  await ctx.verificarPagoCuentaBloqueada();
+  assert(!!ctx.__appstate.empresaBloqueada && ctx.__appstate.empresaBloqueada.motivo==='morosa' && ctx.__appstate.verificandoPagoBloqueada===false, 'si Flow sigue informando mora, debe seguir bloqueada, obtuvo: '+JSON.stringify(ctx.__appstate.empresaBloqueada));
+  flowSyncRespuesta = { ok:true, sincronizada:true, estado:'activa', cambio:false };
+  estadoBloqueoRespuesta = { bloqueada: false, motivo: null, empresa_nombre: null };
+  ctx.__appstate.empresaBloqueada = null;
 
   // ===== Flow.cl: bloqueo de cuenta (inactiva o morosa) =====
 
