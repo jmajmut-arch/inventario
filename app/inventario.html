@@ -2136,6 +2136,7 @@ async function cargarGrupos(){
       }catch(e){ grupo.entradasPlan = null; }
     }));
     setState({grupos: {...state.grupos, lista: rows, pausados, cargado:true, cargando:false}});
+    cargarResumenPlanGrupos(todos.map(g=>g.id));
   }catch(e){
     setState({grupos: {...state.grupos, cargando:false}});
     toast(e.message,'err');
@@ -2291,6 +2292,41 @@ async function cargarSeguimientoGrupo(grupoId){
 // editarFechaInicioCiclo). Solo tiene sentido si el grupo tiene frecuencia (si no, no hay ciclo
 // que trackear). Recalcula el seguimiento al toque para que "día X de Y" se vea actualizado sin
 // esperar a la próxima carga.
+// Resumen del plan generado por cada grupo (pedido de Joel: junto a "8 entradas de plan", decir
+// qué son, cuántos SKU quedan por contar, el rango de fechas y cuántas entradas están por venir).
+// Va en segundo plano DESPUÉS de mostrar la lista: el servidor calcula el universo de SKU de
+// todas las entradas de todos los grupos en una sola ejecución (~2 s con los 332 entradas reales
+// de Escondida), y la lista no tiene por qué esperarlo. Si falla, la línea simplemente no sale.
+let cargarResumenPlanGruposSecuencia = 0;
+async function cargarResumenPlanGrupos(grupoIds){
+  if(!grupoIds.length) return;
+  const miSecuencia = ++cargarResumenPlanGruposSecuencia;
+  try{
+    const filas = await rest('/rpc/resumen_plan_grupos', {method:'POST', body:{p_grupo_ids: grupoIds}, timeoutMs: TIMEOUT_UNIVERSO_PLAN_MS}) || [];
+    if(miSecuencia !== cargarResumenPlanGruposSecuencia) return; // ya hubo otra recarga de grupos
+    const porGrupo = new Map(filas.map(f=>[f.grupo_id, f]));
+    const aplicar = g => {
+      const f = porGrupo.get(g.id);
+      return f ? {...g, planResumen: {entradas:Number(f.entradas)||0, desde:f.desde, hasta:f.hasta, porVenir:Number(f.por_venir)||0, skusPorContar:Number(f.skus_por_contar)||0}} : g;
+    };
+    setState({grupos: {...state.grupos, lista: (state.grupos.lista||[]).map(aplicar), pausados: (state.grupos.pausados||[]).map(aplicar)}});
+  }catch(e){ /* informativo: la lista ya está en pantalla */ }
+}
+
+// Línea "Plan generado: …" de un grupo (lista y ficha). Cada entrada de plan es una ubicación o
+// un storage bin planificado para una fecha (lo que crea el plan automático), no un SKU.
+function descripcionPlanGrupo(grupo){
+  const r = grupo && grupo.planResumen;
+  if(!r || !r.entradas) return '';
+  const partes = [
+    `${r.entradas} entrada${r.entradas===1?'':'s'} (ubicaciones o storage bins por fecha)`,
+    `${r.skusPorContar.toLocaleString('es-CL')} SKU por contar`,
+    r.desde && r.hasta ? (r.desde===r.hasta ? fmtDiaCorto(r.desde) : `${fmtDiaCorto(r.desde)} – ${fmtDiaCorto(r.hasta)}`) : '',
+    `${r.porVenir} por venir`,
+  ].filter(Boolean);
+  return `Plan generado: ${partes.join(' · ')}`;
+}
+
 // Pausar un grupo (pregunta de Joel: "¿cómo detengo un grupo?"). Solo cambia activo=false, no
 // borra nada: el cron cerrar_ciclos_grupo_vencidos lo ignora (deja de cerrar ciclos), sale de la
 // lista y de los filtros de Buscar, y conserva materiales e historial. A pedido de Joel se
@@ -8050,7 +8086,8 @@ function renderGrupos(){
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500">${esc(grupo.nombre)}</div>
-            <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}${descripcionEntradas}</div>
+            <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}${grupo.planResumen? '' : descripcionEntradas}</div>
+            ${descripcionPlanGrupo(grupo)? `<div class="hint" style="margin-top:2px">${esc(descripcionPlanGrupo(grupo))}</div>` : ''}
           </div>
           <button type="button" class="btn btn-secondary" data-ver-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver</button>
         </div>
@@ -8193,6 +8230,7 @@ function renderDetalleGrupo(){
     `}
     <div class="card" style="margin-top:14px">
       <div class="hint" style="margin-bottom:8px">Vista previa del plan (según la frecuencia del grupo)</div>
+      ${descripcionPlanGrupo(grupo)? `<div class="hint" style="margin-bottom:8px;padding:8px 10px;background:var(--surface-2);border-radius:8px">${esc(descripcionPlanGrupo(grupo))}. Generar de nuevo reemplaza esas entradas.</div>` : ''}
       ${!grupo || !grupo.frecuencia_dias ? `<div class="empty" style="padding:10px 8px">Este grupo no tiene una frecuencia definida todavía.</div>` : `
       <div class="hint" style="margin-bottom:6px">Capacidad semanal real -- de esto sale el cupo, en vez de un número puesto a ojo.</div>
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
