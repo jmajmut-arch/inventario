@@ -1969,7 +1969,12 @@ async function cargarResponsables(){
   try{
     // Solo operadores: quien planifica es admin, pero el responsable de contar en terreno
     // (a quien "Contar" le muestra su plan del día) es siempre un operador, no un admin.
-    const rows = await rest('/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre&order=nombre.asc');
+    // Siempre de la empresa propia: un súper admin puede leer usuarios de todas las empresas
+    // (read_usuarios) y sin este filtro le aparecían operadores ajenos como responsables -- bug
+    // real: 5 entradas de Escondida quedaron asignadas a una operadora de Demo InventIA. La base
+    // ahora también lo rechaza (trigger validar_responsable_misma_empresa).
+    const empresaFiltro = state.perfil && state.perfil.empresa_id ? `&empresa_id=eq.${encodeURIComponent(state.perfil.empresa_id)}` : '';
+    const rows = await rest(`/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre${empresaFiltro}&order=nombre.asc`);
     setState({plan: {...state.plan, responsables: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -2978,7 +2983,10 @@ async function cargarEquipo(){
   state.equipo.cargando = true;
   render();
   try{
-    const filas = await rest(`/usuarios?select=id,nombre,rol,activo&order=nombre.asc`);
+    // "Mi equipo" es SOLO la empresa propia (mismo motivo que cargarResponsables: un súper admin
+    // ve usuarios de todas las empresas; las otras se gestionan desde el panel de súper admin).
+    const empresaFiltroEquipo = state.perfil && state.perfil.empresa_id ? `&empresa_id=eq.${encodeURIComponent(state.perfil.empresa_id)}` : '';
+    const filas = await rest(`/usuarios?select=id,nombre,rol,activo${empresaFiltroEquipo}&order=nombre.asc`);
     state.equipo.personas = filas || [];
     // Marcar "cargado" solo si de verdad llegaron los datos (mismo bug que Contar/cargarPlanDeHoy:
     // ver bind() más abajo, "if(!state.equipo.cargado) cargarEquipo()") -- si se marca cargado

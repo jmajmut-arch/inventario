@@ -3328,8 +3328,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!patchReactivarPersona && JSON.parse(patchReactivarPersona.opts.body).activo===true, 'actualizarPersonaSuperAdmin debe poder reactivar el acceso, obtuvo: '+JSON.stringify(patchReactivarPersona));
 
   // "Mi equipo": un admin de empresa (no super-admin) puede ver y editar a su propio equipo,
-  // sin pasar por el panel de super-admin. cargarEquipo no debe pedir empresa_id (RLS ya
-  // filtra por empresa_actual()) y no debe entrar en recursión infinita al renderizar
+  // sin pasar por el panel de super-admin. cargarEquipo pide SOLO la empresa propia (RLS filtra
+  // por empresa_actual() para un admin normal, pero un súper admin lee usuarios de todas las
+  // empresas -- bug real: veía y asignaba operadores ajenos) y no debe entrar en recursión al renderizar
   // (regresión real detectada: cargarEquipo llamaba render() antes de marcar cargado=true,
   // y el wiring de eventos volvía a llamar cargarEquipo() en cada render).
   ctx.__appstate.perfil = {id:'perfil-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ABC12345'}};
@@ -3337,6 +3338,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarEquipo();
   assert(ctx.__appstate.equipo.cargado===true, 'cargarEquipo debe marcar cargado:true al terminar');
   assert(ctx.__appstate.equipo.personas.length===2 && ctx.__appstate.equipo.personas[0].nombre==='Beto Ríos', 'cargarEquipo debe cargar el equipo de la propia empresa, obtuvo: '+JSON.stringify(ctx.__appstate.equipo.personas));
+  assert(calls.some(c=>c.url.includes('/usuarios?select=id,nombre,rol,activo&empresa_id=eq.emp-1')), 'cargarEquipo debe pedir solo la empresa propia (empresa_id=eq.<mi empresa>), aunque un súper admin pueda leer más, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/usuarios')).map(c=>c.url)));
+
+  // cargarResponsables (Planificación → Responsable) también se acota a la empresa propia: el
+  // selector le mostraba a un súper admin operadores de otras empresas y 5 entradas reales de
+  // Escondida quedaron asignadas a una operadora de Demo InventIA.
+  calls.length = 0;
+  await ctx.cargarResponsables();
+  assert(calls.some(c=>c.url.includes('/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre&empresa_id=eq.emp-1')), 'cargarResponsables debe pedir solo operadores de la empresa propia, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/usuarios')).map(c=>c.url)));
 
   // Bug real (mismo patrón que Contar/cargarPlanDeHoy): si el pedido falla, cargarEquipo NO debe
   // marcar cargado:true -- si no, un corte de red justo al entrar a Configuraciones deja "Mi
