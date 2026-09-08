@@ -23,7 +23,7 @@ No hay backend propio que desplegar: toda la lógica de servidor vive en Supabas
 - **Maestro de materiales** cargado desde el export de SAP (CSV) o a mano; bodegas, ubicaciones, storage bins, batches, clase ABC y criticidad.
 - **Planificación**: entradas por fecha, bodega, ubicación y bin, o por código de SKU (lista exacta de materiales); grupos de conteo con frecuencia propia y generación automática de plan; vistas Día, Semana, Mes, Año y Período; calendario; hoja de conteo en PDF.
 - **Contar**: plan del día por responsable, escáner de códigos con la cámara, conteo ciego opcional, fotos de respaldo, guardado optimista y cola offline cuando no hay señal.
-- **Reconteo** de diferencias con gráfico por semana y descarte justificado.
+- **Reconteo** de diferencias con gráfico por semana, buscador por código/descripción (con escáner) y descarte justificado.
 - **Dashboard** por ciclo de conteo: avance, exactitud en unidades y ubicación, proyección de término, ranking por responsable e informe de ciclo en PDF.
 - **Auditoría** de cambios y monitoreo de errores con Sentry.
 - **Cuentas**: acceso por invitación (correo), roles `admin` e `inventariador` por empresa, súper administrador de InventIA, MFA opcional (TOTP), una sesión activa por usuario, recuperación de contraseña.

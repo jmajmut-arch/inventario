@@ -518,6 +518,7 @@ let state = {
   reconteosCargandoMas: false,
   reconteosPorSemana: [],   // [{semana:'YYYY-MM-DD' (lunes), pendientes}] -- gráfico de Reconteo por semana
   reconteoSemana: null,     // lunes (ISO) de la semana elegida en ese gráfico; null = todas
+  reconteoTexto: '',        // buscador de Reconteo: código o descripción del SKU (filtra en el servidor)
   tema: localStorage.getItem('tema_app') || 'claro',
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
@@ -1545,7 +1546,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -4789,6 +4790,25 @@ function filtroSemanaReconteo(){
   return `&ultimo_conteo_fecha=gte.${encodeURIComponent(desde.toISOString())}&ultimo_conteo_fecha=lt.${encodeURIComponent(hasta.toISOString())}`;
 }
 
+// Buscador de Reconteo (pedido de Joel: "para que sea más fácil encontrarlo y ejecutarlo"):
+// filtra la lista de pendientes en el SERVIDOR por código o descripción del SKU, no sobre lo ya
+// cargado -- así encuentra el material aunque esté en la página 10 de "Cargar más". Se combina
+// con el filtro de semana. Mismo criterio de coincidencia parcial que el buscador de Contar/Buscar.
+// Se quitan coma, paréntesis y comillas: son la sintaxis de or=(...) de PostgREST y romperían el
+// filtro; un código de SKU no los lleva.
+function filtroTextoReconteo(){
+  const t = (state.reconteoTexto||'').trim().replace(/[,()"]/g,'');
+  if(!t) return '';
+  const p = encodeURIComponent('*'+t+'*');
+  return `&or=(sku_code.ilike.${p},descripcion.ilike.${p})`;
+}
+
+// Fija el texto del buscador y vuelve a pedir la primera página. Con texto vacío limpia la búsqueda.
+function buscarReconteo(texto){
+  setState({reconteoTexto: (texto||'').trim(), reconteos: [], reconteosHayMas:false});
+  return cargarReconteos();
+}
+
 async function cargarReconteos(){
   try{
     // El resumen por semana (pedido de Joel: gráfico "32S, 33S…" antes de la tabla) va en
@@ -4796,7 +4816,7 @@ async function cargarReconteos(){
     // con datos reales), en la zona horaria del navegador para que calce con filtroSemanaReconteo.
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'America/Santiago';
     const [rows, semanas] = await Promise.all([
-      rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}${filtroSemanaReconteo()}`),
+      rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}${filtroSemanaReconteo()}${filtroTextoReconteo()}`),
       rest('/rpc/reconteo_pendiente_por_semana', {method:'POST', body:{p_tz: tz}}).catch(()=>null),
     ]);
     const porSemana = Array.isArray(semanas) ? semanas.map(f=>({semana:f.semana, pendientes:Number(f.pendientes)||0})) : state.reconteosPorSemana;
@@ -4821,7 +4841,7 @@ async function cargarMasReconteos(){
   state.reconteosCargandoMas = true;
   render();
   try{
-    const rows = await rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.reconteos.length}${filtroSemanaReconteo()}`);
+    const rows = await rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.reconteos.length}${filtroSemanaReconteo()}${filtroTextoReconteo()}`);
     state.reconteos = state.reconteos.concat(rows||[]);
     state.reconteosHayMas = (rows||[]).length === TAM_PAGINA_LISTA;
   }catch(e){ toast(e.message,'err'); }
@@ -5912,6 +5932,16 @@ async function onCodigoEscaneado(codigo){
     return;
   }
   const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
+  // Desde el buscador de Reconteo: el código leído (o el SKU al que ya está asociado, si es un
+  // código de barras conocido) se busca en la lista de pendientes. No selecciona nada para contar:
+  // la persona ve la fila y decide si toca Recontar.
+  if(destino === 'reconteo'){
+    const skuCode = coincidencias.length ? coincidencias[0].sku_code : codigo;
+    state.escanerModal = null;
+    await buscarReconteo(skuCode);
+    toast(`Buscando ${skuCode} en Reconteo`);
+    return;
+  }
   if(coincidencias.length===1){
     setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: origenPlanParaSku(coincidencias[0]), conteoOtraUbicacion:false});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
@@ -7719,6 +7749,7 @@ function renderReconteo(){
   const porSemana = state.reconteosPorSemana || [];
   const totalPendientes = porSemana.reduce((s,f)=>s+f.pendientes, 0);
   const semanaActiva = state.reconteoSemana;
+  const textoBusqueda = state.reconteoTexto || '';
   const etiquetaSemana = iso => `${numeroSemanaISO(new Date(iso+'T00:00:00'))}S`;
   const rangoSemana = iso => `${fmtDiaCorto(iso)} – ${fmtDiaCorto(fechaISO(sumarDias(new Date(iso+'T00:00:00'), 6)))}`;
   // La tarjeta también se muestra si hay una semana elegida aunque ya no queden pendientes en
@@ -7734,6 +7765,15 @@ function renderReconteo(){
     <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo tuvo diferencia contra el stock de sistema <b>del momento en que se contaron</b>. Esa diferencia queda fija -- si el stock del maestro cambia después (por otra carga, venta, etc.) el material no sale solo de la lista. Recuenta para corregir o confirmar la diferencia${esAdmin?', o descártala si el problema fue un error en el dato maestro':''}.</div>
     ${graficoSemanas}
     <div class="card">
+      <form id="form-buscar-reconteo" style="margin-bottom:12px">
+        <label for="reconteo-texto">Buscar un pendiente</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="reconteo-texto" style="flex:1" placeholder="Código o descripción del SKU" value="${esc(textoBusqueda)}" autocomplete="off" enterkeyhint="search">
+          <button type="button" id="btn-escanear-reconteo" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
+          <button type="submit" class="btn btn-primary" style="width:auto;padding:0 14px;height:40px">Buscar</button>
+        </div>
+        ${textoBusqueda ? `<div class="hint" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>Mostrando pendientes que coinciden con <strong>${esc(textoBusqueda)}</strong>${semanaActiva ? ` en la semana ${etiquetaSemana(semanaActiva)}` : ''}.</span><button type="button" class="link-btn" id="btn-limpiar-reconteo">Limpiar búsqueda</button></div>` : ''}
+      </form>
       ${rows.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
@@ -7750,7 +7790,7 @@ function renderReconteo(){
             : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
           <td class="num" style="white-space:nowrap"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button>${esAdmin?` <button class="btn btn-secondary" data-descartar-reconteo="${r.conteo_id}" data-descartar-reconteo-sku="${esc(r.sku_code)}" style="width:auto;padding:6px 12px;font-size:12px">Descartar</button>`:''}</td>
         </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty"><div class="glyph">✓</div>${semanaActiva ? 'No quedan pendientes en esta semana.' : 'No hay materiales con diferencias pendientes.'}</div>`}
+      </table></div>` : `<div class="empty"><div class="glyph">${textoBusqueda?'?':'✓'}</div>${textoBusqueda ? `Ningún pendiente coincide con «${esc(textoBusqueda)}»${semanaActiva?' en esta semana':''}.` : (semanaActiva ? 'No quedan pendientes en esta semana.' : 'No hay materiales con diferencias pendientes.')}</div>`}
       ${state.reconteosHayMas? `<div style="text-align:center;margin-top:12px">
         <button type="button" class="btn btn-secondary" id="btn-cargar-mas-reconteo" style="width:auto;padding:8px 16px" ${state.reconteosCargandoMas?'disabled':''}>${state.reconteosCargandoMas?'Cargando…':'Cargar más'}</button>
       </div>` : ''}
@@ -10141,6 +10181,15 @@ function bind(){
     });
     const btnQuitarSemanaReconteo = document.getElementById('btn-quitar-semana-reconteo');
     if(btnQuitarSemanaReconteo) btnQuitarSemanaReconteo.addEventListener('click', ()=> elegirSemanaReconteo(null));
+    const formBuscarReconteo = document.getElementById('form-buscar-reconteo');
+    if(formBuscarReconteo) formBuscarReconteo.addEventListener('submit', e=>{
+      e.preventDefault();
+      buscarReconteo(document.getElementById('reconteo-texto').value);
+    });
+    const btnLimpiarReconteo = document.getElementById('btn-limpiar-reconteo');
+    if(btnLimpiarReconteo) btnLimpiarReconteo.addEventListener('click', ()=> buscarReconteo(''));
+    const btnEscanearReconteo = document.getElementById('btn-escanear-reconteo');
+    if(btnEscanearReconteo) btnEscanearReconteo.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'reconteo'}}));
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         const fotos = JSON.parse(btn.dataset.verFotos);

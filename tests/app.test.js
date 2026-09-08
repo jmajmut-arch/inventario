@@ -6143,6 +6143,79 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.reconteoSemana===null, 'Ver todas las semanas debe limpiar la semana elegida, obtuvo: '+ctx.__appstate.reconteoSemana);
   }
 
+  // ===== Reconteo: buscador por código o descripción (pedido de Joel: "para que sea más fácil
+  // encontrarlo y ejecutarlo"). Filtra en el SERVIDOR (or=(sku_code.ilike,descripcion.ilike)) para
+  // encontrar el material aunque esté más allá de lo cargado; se combina con la semana; el
+  // escáner con destino 'reconteo' busca el código leído; "Limpiar búsqueda" vuelve a todo. =====
+  {
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.reconteoSemana = null;
+    ctx.__appstate.reconteoTexto = '';
+    reconteoPorSemanaFixture = [{semana:'2026-08-10', pendientes:14}];
+    const filtroEsperado = (t)=> `or=(sku_code.ilike.${encodeURIComponent('*'+t+'*')},descripcion.ilike.${encodeURIComponent('*'+t+'*')})`;
+    const htmlSinBusqueda = (await ctx.cargarReconteos(), ctx.renderReconteo());
+    assert(htmlSinBusqueda.includes('id="form-buscar-reconteo"') && htmlSinBusqueda.includes('id="reconteo-texto"') && htmlSinBusqueda.includes('id="btn-escanear-reconteo"'), 'Reconteo debe mostrar el buscador con campo de texto y botón de escáner, obtuvo: '+htmlSinBusqueda);
+    assert(!htmlSinBusqueda.includes('id="btn-limpiar-reconteo"'), 'sin texto buscado no debe ofrecerse "Limpiar búsqueda", obtuvo: '+htmlSinBusqueda);
+    assert(htmlSinBusqueda.indexOf('id="form-buscar-reconteo"') < htmlSinBusqueda.indexOf('<table>'), 'el buscador debe ir ANTES de la tabla, obtuvo: '+htmlSinBusqueda);
+    // Buscar "1123": la primera página se pide filtrada en el servidor, sin offset.
+    calls.length = 0;
+    await ctx.buscarReconteo('  1123 ');
+    const getBusqueda = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(!!getBusqueda && getBusqueda.url.includes(filtroEsperado('1123')) && !getBusqueda.url.includes('offset='), 'buscar debe pedir la lista filtrada por código o descripción en el servidor (texto sin espacios), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.reconteoTexto==='1123', 'el texto buscado debe quedar en el estado sin espacios, obtuvo: '+JSON.stringify(ctx.__appstate.reconteoTexto));
+    const htmlBusqueda = ctx.renderReconteo();
+    assert(htmlBusqueda.includes('value="1123"') && htmlBusqueda.includes('coinciden con <strong>1123</strong>') && htmlBusqueda.includes('id="btn-limpiar-reconteo"'), 'con texto buscado el campo lo conserva, se indica el filtro y se ofrece "Limpiar búsqueda", obtuvo: '+htmlBusqueda);
+    // "Cargar más" mantiene el filtro de texto.
+    calls.length = 0;
+    await ctx.cargarMasReconteos();
+    const getMasBusqueda = calls.find(c=>c.url.includes('/reconteo_pendiente?select=') && c.url.includes('offset='));
+    assert(!!getMasBusqueda && getMasBusqueda.url.includes(filtroEsperado('1123')), '"Cargar más" debe mantener el filtro de texto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Texto + semana: los dos filtros van juntos y el aviso menciona la semana.
+    calls.length = 0;
+    ctx.elegirSemanaReconteo('2026-08-10');
+    await new Promise(r=>setTimeout(r, 20));
+    const getAmbos = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(!!getAmbos && getAmbos.url.includes(filtroEsperado('1123')) && getAmbos.url.includes('ultimo_conteo_fecha=gte.'), 'elegir una semana con texto buscado debe mandar ambos filtros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.renderReconteo().includes('coinciden con <strong>1123</strong> en la semana 33S'), 'el aviso debe mencionar texto y semana, obtuvo: '+ctx.renderReconteo());
+    // Sin resultados: el vacío explica que nada coincide (no "no hay pendientes").
+    ctx.__appstate.reconteos = [];
+    const htmlVacio = ctx.renderReconteo();
+    assert(htmlVacio.includes('Ningún pendiente coincide con «1123» en esta semana'), 'sin coincidencias debe decirlo con el texto buscado, obtuvo: '+htmlVacio);
+    // Caracteres que son sintaxis de PostgREST se quitan del filtro (no rompen la consulta).
+    calls.length = 0;
+    await ctx.buscarReconteo('a,b(c)"d');
+    const getSaneado = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(!!getSaneado && getSaneado.url.includes(filtroEsperado('abcd')), 'coma, paréntesis y comillas deben quitarse del filtro, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Limpiar: vuelve a pedir sin filtro de texto (la semana elegida se mantiene).
+    calls.length = 0;
+    await ctx.buscarReconteo('');
+    const getLimpio = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(!!getLimpio && !getLimpio.url.includes('or=(sku_code.ilike') && getLimpio.url.includes('ultimo_conteo_fecha=gte.'), 'limpiar debe pedir sin filtro de texto y conservar la semana, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.reconteoTexto==='' && !ctx.renderReconteo().includes('id="btn-limpiar-reconteo"'), 'tras limpiar no debe quedar texto ni el botón Limpiar, obtuvo: '+ctx.__appstate.reconteoTexto);
+    ctx.elegirSemanaReconteo(null);
+    await new Promise(r=>setTimeout(r, 20));
+    // Escáner desde Reconteo: un código de barras ya asociado busca por el SKU al que apunta; uno
+    // desconocido se busca tal cual. En ninguno de los dos casos se selecciona un SKU para contar.
+    ctx.__appstate.skus = [{id:'sku-esc', sku_code:'SKU-ESC', descripcion:'Con código de barras', codigo_barras:'7801234567890'}];
+    ctx.__appstate.skuSeleccionado = null;
+    ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'reconteo' };
+    calls.length = 0;
+    await ctx.onCodigoEscaneado('7801234567890');
+    const getEscaneado = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(!!getEscaneado && getEscaneado.url.includes(filtroEsperado('SKU-ESC')), 'un código de barras asociado debe buscar en Reconteo por el SKU al que apunta, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.escanerModal===null && ctx.__appstate.skuSeleccionado===null && ctx.__appstate.reconteoTexto==='SKU-ESC', 'el escáner de Reconteo debe cerrarse, no seleccionar SKU y dejar el texto buscado, obtuvo: '+JSON.stringify({m:ctx.__appstate.escanerModal, s:ctx.__appstate.skuSeleccionado, t:ctx.__appstate.reconteoTexto}));
+    ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'reconteo' };
+    calls.length = 0;
+    await ctx.onCodigoEscaneado('DESCONOCIDO-77');
+    const getDesconocido = calls.find(c=>c.url.includes('/reconteo_pendiente?select='));
+    assert(!!getDesconocido && getDesconocido.url.includes(filtroEsperado('DESCONOCIDO-77')) && ctx.__appstate.escanerModal===null, 'un código desconocido se busca tal cual en Reconteo sin abrir la pantalla de asociación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Cerrar sesión limpia el texto buscado.
+    const estadoCerrado = ctx.estadoTrasCerrarSesion();
+    assert(estadoCerrado.reconteoTexto==='', 'cerrar sesión debe limpiar el buscador de Reconteo, obtuvo: '+JSON.stringify(estadoCerrado.reconteoTexto));
+    ctx.__appstate.reconteoTexto = '';
+    ctx.__appstate.skus = [];
+  }
+
   // ===== Reconteo: ícono para ver las fotos, sumadas de TODOS los conteos del SKU (no solo el
   // último) — pedido de Joel: las fotos de un reconteo deben sumarse a las del conteo original,
   // pudiendo distinguir cuál es cuál (reconteo_pendiente.fotos trae numero_conteo por foto: 1 =
