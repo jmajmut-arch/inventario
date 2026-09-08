@@ -3827,9 +3827,24 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
         }else{
           porBin = await skusDeUbicacionPorBins({bodega:conBin[0].bodega, ubicacion:conBin[0].ubicacion, excluidos:[], soloSinUbicacion:false}, conBin.map(f=>f.storage_bin));
         }
-        const filasSnapshot = conBin.flatMap(f=>(porBin.get(f.storage_bin)||[]).map(s=>({plan_id:f.id, sku_code:s.sku_code, sku_id:s.id, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion})));
+        // Una fila por código y entrada: plan_semanal_skus es único por (plan_id, sku_code), y un
+        // mismo código puede estar dos veces en el bin (un batch NEW y otro REPAIRED, ver el
+        // pedido de Joel del SOH por batch) -- mandarlo repetido rompía con "duplicate key" y la
+        // entrada quedaba creada pero sin foto (bug real, B521/0099 LD-P1A-F1). Se guarda el id
+        // del primer batch: lo que importa de la foto es el bin/bodega/ubicación de origen.
+        const filasSnapshot = conBin.flatMap(f=>{
+          const vistos = new Set();
+          return (porBin.get(f.storage_bin)||[]).filter(s=> vistos.has(s.sku_code) ? false : (vistos.add(s.sku_code), true))
+            .map(s=>({plan_id:f.id, sku_code:s.sku_code, sku_id:s.id, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion}));
+        });
         if(filasSnapshot.length){
-          await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
+          // La entrada YA quedó creada: si la foto falla, se avisa como advertencia (no como error
+          // de la operación) para que la persona no vuelva a agregarla creyendo que no se guardó.
+          try{
+            await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
+          }catch(e){
+            if(!silencioso) toast('Entrada agregada, pero no se pudo guardar la foto de sus SKU: '+e.message, 'err');
+          }
         }
       }
     }
