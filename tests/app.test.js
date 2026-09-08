@@ -2521,7 +2521,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // contado, pendiente, etc" sobre TODO el maestro completo, no solo el ciclo actual o lo que
   // trae Buscar) -- ver cargarResumenGeneralSkus/renderResumenGeneralSkus. =====
   resumenGeneralSkusFixture = {total_activo:58716, no_contado:58691, cuadrado:16, con_diferencia:9, pendiente:0};
-  ctx.__appstate.resumenGeneral = {fechaDesde:'', fechaHasta:'', tipoGrafico:'torta', datos:null, cargando:false};
+  ctx.__appstate.resumenGeneral = {tipoGrafico:'torta', criticidad:'', datos:null, cargando:false};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
   const resumenGeneralCall = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
@@ -2560,7 +2560,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // grupo elegido -- si no, "de tus X SKU..." mostraría el total general aunque el desglose de
   // abajo esté mirando solo los críticos. =====
   resumenGeneralSkusFixture = {total_activo:908, no_contado:905, cuadrado:2, con_diferencia:1, pendiente:0};
-  ctx.__appstate.resumenGeneral = {fechaDesde:'', fechaHasta:'', criticidad:'criticos', tipoGrafico:'torta', datos:null, cargando:false};
+  ctx.__appstate.resumenGeneral = {criticidad:'criticos', tipoGrafico:'torta', datos:null, cargando:false};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
   const rpcCriticos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
@@ -2586,24 +2586,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const rpcTodos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
   assert(JSON.parse(rpcTodos.opts.body).p_criticidad===null, 'sin criticidad elegida ("Todos"), el RPC debe recibir p_criticidad=null, obtuvo: '+rpcTodos.opts.body);
 
-  // El rango de fechas filtra CUÁNDO se contó -- viaja como el mismo instante (timestamptz) que
-  // usa Buscar, no como fecha simple (ver instantesFiltroFecha: correctness fix ya aplicado esta
-  // sesión para el RPC contar_busqueda_skus, reusado acá). "No contado" nunca cambia con el
-  // rango, y se avisa cuando queda gente contada fuera de la ventana elegida.
+  // El rango de fechas de esta tarjeta se sacó a pedido de Joel ("no funciona parece"): es una
+  // foto del maestro completo y, con el 99,8 % de los SKU nunca contados, filtrar por cuándo fue
+  // el último conteo no cambiaba nada visible. El RPC sigue recibiendo ambos límites en null y
+  // la tarjeta ya no tiene campos de fecha ni avisos de "fuera del rango".
   resumenGeneralSkusFixture = {total_activo:58716, no_contado:58691, cuadrado:3, con_diferencia:1, pendiente:0};
-  ctx.__appstate.resumenGeneral = {fechaDesde:'2026-08-20', fechaHasta:'2026-08-25', tipoGrafico:'torta', datos:null, cargando:false};
+  ctx.__appstate.resumenGeneral = {tipoGrafico:'torta', criticidad:'', datos:null, cargando:false};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
-  const rpcConRango = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
-  const bodyConRango = JSON.parse(rpcConRango.opts.body);
-  const desdeEsperadoResumen = new Date('2026-08-20T00:00:00').toISOString();
-  const hastaEsperadoResumen = new Date('2026-08-26T00:00:00').toISOString();
-  assert(bodyConRango.p_fecha_desde===desdeEsperadoResumen && bodyConRango.p_fecha_hasta===hastaEsperadoResumen, 'con un rango de fechas elegido, el RPC debe recibir el instante exacto (medianoche local a UTC), no la fecha simple, obtuvo: '+JSON.stringify(bodyConRango));
-  const htmlConRango = ctx.renderResumenGeneralSkus();
-  assert(htmlConRango.includes('58.691 nunca contados (no cambia con el rango elegido)'), 'con un rango elegido, debe explicitar que "No contado" es independiente del rango, obtuvo: '+htmlConRango);
-  assert(htmlConRango.includes('SKU contados fuera del rango elegido no aparecen en el gráfico'), 'cuando el total activo supera lo que se ve en el gráfico (58716 > 3+1+0+58691), debe avisar que hay SKU contados fuera del rango elegido, obtuvo: '+htmlConRango);
+  const rpcSinRango = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  const bodySinRango = JSON.parse(rpcSinRango.opts.body);
+  assert(bodySinRango.p_fecha_desde===null && bodySinRango.p_fecha_hasta===null, 'el RPC debe seguir recibiendo los límites de fecha en null (sin rango), obtuvo: '+JSON.stringify(bodySinRango));
+  const htmlSinRango = ctx.renderResumenGeneralSkus();
+  assert(!htmlSinRango.includes('id="rg-fecha-desde"') && !htmlSinRango.includes('id="rg-fecha-hasta"') && !htmlSinRango.includes('fuera del rango'), 'la tarjeta ya no debe tener rango de fechas ni avisos de fuera de rango, obtuvo: '+htmlSinRango);
+  assert(htmlSinRango.includes('id="rg-criticidad"') && htmlSinRango.includes('data-resumen-grafico="barras"'), 'la tarjeta debe conservar el filtro de criticidad y el tipo de gráfico, obtuvo: '+htmlSinRango);
   resumenGeneralSkusFixture = null;
-  ctx.__appstate.resumenGeneral = {fechaDesde:'', fechaHasta:'', tipoGrafico:'torta', datos:null, cargando:false};
+  ctx.__appstate.resumenGeneral = {tipoGrafico:'torta', criticidad:'', datos:null, cargando:false};
 
   // Estados de carga/vacío.
   ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, cargando:true, datos:null};
