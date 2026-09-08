@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>InventIA · Manual técnico</title>
+<link rel="stylesheet" href="estilo.css"></head>
+<body>
+
+<!-- PORTADA -->
+<section class="page cover">
+  <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
+  <div class="doc-kind">Manual técnico</div>
+  <h1>Qué permite y qué no InventIA, punto por punto.</h1>
+  <p class="lead">Referencia funcional de la plataforma: para cada módulo, qué se puede hacer, qué reglas de negocio lo limitan y dónde está aplicado ese límite (interfaz, base de datos o ambos). Pensado para responder con precisión preguntas de un cliente técnico o de un evaluador de seguridad.</p>
+  <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
+
+  <div class="toc">
+    <h2>Contenido</h2>
+    <div class="toc-grid">
+      <div class="toc-row"><span><span class="n">01</span>Roles y acceso</span><span class="p">pág. 2</span></div>
+      <div class="toc-row"><span><span class="n">09</span>Dashboard, períodos e informes de cierre</span><span class="p">pág. 11</span></div>
+      <div class="toc-row"><span><span class="n">02</span>Multiempresa y aislamiento</span><span class="p">pág. 3</span></div>
+      <div class="toc-row"><span><span class="n">10</span>Buscar y Auditoría</span><span class="p">pág. 12</span></div>
+      <div class="toc-row"><span><span class="n">03</span>Maestro de materiales (SKU)</span><span class="p">pág. 4</span></div>
+      <div class="toc-row"><span><span class="n">11</span>Planes y límites</span><span class="p">pág. 13</span></div>
+      <div class="toc-row"><span><span class="n">04</span>Toma de inventario (Contar)</span><span class="p">pág. 6</span></div>
+      <div class="toc-row"><span><span class="n">12</span>Suscripción y pagos (Flow.cl)</span><span class="p">pág. 14</span></div>
+      <div class="toc-row"><span><span class="n">05</span>Reconteo y causa probable</span><span class="p">pág. 7</span></div>
+      <div class="toc-row"><span><span class="n">13</span>Seguridad</span><span class="p">pág. 15</span></div>
+      <div class="toc-row"><span><span class="n">06</span>Planificación por ventanas</span><span class="p">pág. 8</span></div>
+      <div class="toc-row"><span><span class="n">14</span>Rendimiento y capacidad</span><span class="p">pág. 16</span></div>
+      <div class="toc-row"><span><span class="n">07</span>Grupos de conteo</span><span class="p">pág. 9</span></div>
+      <div class="toc-row"><span><span class="n">15</span>Servicios externos</span><span class="p">pág. 17</span></div>
+      <div class="toc-row"><span><span class="n">08</span>Calendario</span><span class="p">pág. 10</span></div>
+      <div class="toc-row"><span><span class="n">16</span>Qué queda fuera por ahora</span><span class="p">pág. 18</span></div>
+    </div>
+  </div>
+  <div class="note">Cada afirmación de este documento corresponde a comportamiento real verificado en el código y la base de datos de producción al momento de escribirlo (reglas de negocio, políticas de seguridad a nivel de fila, triggers y funciones), no a la intención original de diseño. Las capturas de pantalla son de un ambiente de prueba con datos ficticios ("Minera Andes"). Las mediciones de rendimiento se tomaron con datos reales de un cliente, sin exponerlos. Actualizado al 8 de septiembre de 2026.</div>
+</section>
+
+<!-- 01 -->
+<section class="page">
+  <div class="kicker">01 · Roles y acceso</div>
+  <h2 class="title">Tres roles, sin más granularidad que esa</h2>
+  <p class="intro">Inventariador (mostrado como "Operador") y admin son roles de empresa (columna <code>rol</code> en <code>usuarios</code>); super-admin es una marca aparte (<code>es_super_admin</code>) que no reemplaza el rol de empresa. Conteo ciego es un interruptor a nivel de empresa que restringe en tiempo real lo que ve un inventariador, sin cambiar su rol.</p>
+  <h3 class="sub">Inventariador</h3>
+  <div class="two">
+    <ul class="checks">
+      <li>Buscar y escanear SKU, registrar conteos (cantidad, ubicación, foto), con o sin conexión</li>
+      <li>Ver su plan del día, el Calendario con solo lo suyo, Reconteo, Buscar y el Dashboard Operativo</li>
+      <li>Ver el Dashboard Ejecutivo si el plan de su empresa lo incluye</li>
+    </ul>
+    <ul class="checks no">
+      <li>Cargar, editar o eliminar SKU (manual o masivo)</li>
+      <li>Entrar a Períodos, Grupos, Plan ni Configuraciones de administración (las pestañas aparecen con candado)</li>
+      <li>Descartar un reconteo, invitar personas, tocar la suscripción</li>
+      <li>Ver el stock de sistema ni el stock por tipo si el admin activó Conteo ciego (bloqueado por permisos de columna, no solo en pantalla)</li>
+    </ul>
+  </div>
+  <h3 class="sub">Admin (de su propia empresa)</h3>
+  <div class="two">
+    <ul class="checks">
+      <li>Todo lo del inventariador, más: cargar/editar SKU manual y masivo; eliminar SKU sin conteos</li>
+      <li>Planificar por ventanas, administrar Grupos, crear períodos y ver informes de cierre</li>
+      <li>Invitar, editar y desactivar personas de su empresa; vincular operadores a responsables del plan</li>
+      <li>Descartar reconteos con motivo; ver Auditoría si el plan la incluye</li>
+      <li>Activar Conteo ciego para toda su empresa; activar MFA para su propia cuenta; gestionar suscripción y pago</li>
+    </ul>
+    <ul class="checks no">
+      <li>Ver ni tocar SKU, conteos o personas de otra empresa (RLS a nivel de base de datos)</li>
+      <li>Asignar como responsable a una persona de otra empresa (trigger <code>validar_responsable_misma_empresa</code> en <code>plan_semanal</code>)</li>
+      <li>Eliminar un SKU que ya tiene al menos un conteo</li>
+      <li>Otorgarse un plan o suscripción activa sin pagar</li>
+    </ul>
+  </div>
+  <h3 class="sub">Super-admin</h3>
+  <div class="cols">
+    <div class="two">
+      <ul class="checks">
+        <li>Activar/desactivar cualquier empresa y asignarle un plan; invitar personas a cualquier empresa</li>
+        <li>Ver resumen agregado de negocio (empresas, personas, SKU totales) y leads del sitio</li>
+      </ul>
+      <ul class="checks no">
+        <li>Ver el maestro ni los conteos operativos de un cliente: las políticas de <code>skus</code> y <code>conteos</code> no tienen excepción para super-admin, solo <code>empresas</code> y <code>usuarios</code></li>
+        <li>El panel de super-admin es administrativo, no operativo</li>
+      </ul>
+    </div>
+    <div class="shot"><img src="img/t-equipo.png" alt="Configuraciones: Equipo" style="max-height:52mm"><div class="cap">Configuraciones → Mi equipo</div></div>
+  </div>
+</section>
+
+<!-- 02 -->
+<section class="page">
+  <div class="kicker">02 · Multiempresa y aislamiento de datos</div>
+  <h2 class="title">Cada empresa, su propio espacio de datos</h2>
+  <p class="intro">Multitenencia real sobre una sola base de datos: cada empresa ve exactamente su información, nunca la de otra, sin importar lo que pida el cliente.</p>
+  <div class="cols">
+    <div>
+      <div class="two">
+        <ul class="checks">
+          <li>Alta autoservicio (planes Básico/Profesional) crea la empresa, su admin y la deja en estado <code>pendiente_tarjeta</code> hasta que Flow confirma la tarjeta</li>
+          <li>Unirse a una empresa existente solo por invitación de un admin (Edge Function <code>invite-user</code>)</li>
+          <li>Cada fila de las 19 tablas de negocio se filtra por <code>empresa_id = empresa_actual()</code> en 49 políticas RLS y 25 vistas con <code>security_invoker</code>, sin depender de que el frontend lo pida bien</li>
+          <li><code>empresa_actual()</code> devuelve NULL si la empresa está inactiva, morosa o pendiente de tarjeta: la sesión sigue viva, pero no lee nada</li>
+        </ul>
+        <ul class="checks no">
+          <li>Cambiar de empresa sin invitación explícita de un admin</li>
+          <li>Ver el catálogo, conteos o dashboard de otra empresa por más que se conozca su nombre o ID</li>
+          <li>Escribir plan o suscripción desde el cliente autenticado (solo <code>service_role</code> vía Edge Functions puede)</li>
+          <li>Asignar responsables, planificar o contar a nombre de otra empresa: los listados de personas se filtran por empresa y la base rechaza el cruce</li>
+        </ul>
+      </div>
+      <div class="box new"><div class="tag">Nuevo · Verificado el 8 de septiembre</div>Con la base real: un usuario autenticado ve solo las filas de su empresa (66.471 SKU, 125 conteos, 434 entradas de plan, 9 usuarios, 3 empresas visibles por política de lectura). Un usuario anónimo ve 0 filas en <code>skus</code>, <code>empresas</code> y <code>planes</code>, y no puede ejecutar ninguna función de la base.</div>
+      <div class="box"><div class="tag">Cómo se evalúa el contexto</div>Las funciones <code>empresa_actual()</code>, <code>ciclo_actual()</code>, <code>es_admin_actual()</code>, <code>es_super_admin()</code> y <code>debe_ocultar_stock_operador()</code> son <code>STABLE SECURITY DEFINER</code> y se invocan como <code>(select f())</code> en políticas y vistas, de modo que Postgres las evalúa una vez por consulta y no una vez por fila. Ver sección 14.</div>
+    </div>
+    <div class="shot"><img src="img/t-empresa.png" alt="Configuraciones: Empresa"><div class="cap">Configuraciones → Tu empresa</div></div>
+  </div>
+</section>
+
+<!-- 03 -->
+<section class="page">
+  <div class="kicker">03 · Maestro de materiales (SKU)</div>
+  <h2 class="title">Alta manual, carga masiva, y el mismo código en varios lugares</h2>
+  <p class="intro">Un SKU es único por (empresa, código, bodega, batch, ubicación específica, storage bin): el mismo material puede vivir en más de un lugar dentro de la misma bodega, cada uno como su propia fila con su propio stock.</p>
+  <h3 class="sub">Alta manual</h3>
+  <div class="two">
+    <ul class="checks">
+      <li>Sugerencias (datalist) en batch, unidad, bodega, ubicación y storage bin, basadas en lo ya cargado; sigue aceptando un valor nuevo</li>
+      <li>Escanear código de barras/QR para llenar el campo código; guardar sin conexión (se sincroniza solo)</li>
+    </ul>
+    <ul class="checks no">
+      <li>Guardar sin código de SKU (único campo obligatorio)</li>
+      <li>Crear dos filas con el mismo código, bodega, batch, ubicación y bin: la segunda actualiza la primera, no la duplica</li>
+    </ul>
+  </div>
+  <h3 class="sub">Carga masiva (Excel/CSV)</h3>
+  <div class="two">
+    <ul class="checks">
+      <li>Detección automática de columnas por nombre, con corrección manual antes de confirmar; el puntaje ignora palabras genéricas ("stock", "in", "de")</li>
+      <li>Agregar/complementar: crea los nuevos, actualiza los que ya existen. Reemplazar completo: además desactiva lo que no venga en el archivo (conserva su historial)</li>
+      <li>4 columnas opcionales de stock por tipo (Bloqueado, SOH en tránsito 1/2, Transferencia): informativas, no alteran la diferencia</li>
+      <li>Huella "antes → ahora" del stock de sistema (<code>stock_sistema_anterior</code>, <code>stock_sistema_actualizado_en</code>) cuando una carga cambia el stock de un material ya contado</li>
+    </ul>
+    <ul class="checks no">
+      <li>Actualizar sin sobrescribir: toda columna mapeada reemplaza el valor anterior, incluso a blanco si viene vacía</li>
+      <li>El mismo código + bodega + batch + ubicación + bin dos veces en el archivo: se queda con la última fila</li>
+    </ul>
+  </div>
+  <h3 class="sub">Escáner</h3>
+  <div class="two">
+    <ul class="checks">
+      <li>Leer QR y códigos 1D (EAN-13/8, Code128/39/93, UPC-A/E, ITF); reconocer por el código del SKU o por un código de fábrica ya asociado</li>
+      <li>Si el código calza con más de una fila, preguntar cuál se está contando mostrando bodega, ubicación y bin</li>
+    </ul>
+    <ul class="checks no">
+      <li>Adivinar sola cuál es cuando hay más de una coincidencia; leer sin permiso de cámara del navegador</li>
+    </ul>
+  </div>
+  <div class="box"><div class="tag">Clasificación ABC</div>Vista materializada <code>privado.skus_valor_abc_mv</code> refrescada por cron cada noche (07:00 UTC) y a pedido por un admin; corta en 80%/95% del valor acumulado (costo unitario × stock). Un SKU sin costo no entra. La marca Crítico es manual y alimenta el grupo automático de críticos.</div>
+</section>
+
+<!-- 03b -->
+<section class="page">
+  <div class="kicker">03 · Maestro de materiales (continuación)</div>
+  <h2 class="title">Columnas del Excel: cuáles hacen falta y para qué sirve cada una</h2>
+  <p class="intro">Tomado directo de la tabla de campos que usa la detección automática de columnas al cargar un archivo.</p>
+  <table class="t">
+    <tr><th>Columna</th><th>Obligatoria</th><th>Si falta</th></tr>
+    <tr><td>Código SKU</td><td>Sí</td><td>La fila no se guarda: es el único dato que identifica el material.</td></tr>
+    <tr><td>Stock sistema</td><td>Sí</td><td>La fila no se guarda: sin esto no hay contra qué comparar cada conteo.</td></tr>
+    <tr><td>Ubicación general (bodega)</td><td>Sí</td><td>Bloquea "Confirmar e importar" hasta mapear la columna.</td></tr>
+    <tr><td>Ubicación específica</td><td>Sí</td><td>Bloquea "Confirmar e importar". Parte de la identidad del SKU.</td></tr>
+    <tr><td>Storage bin</td><td>Sí</td><td>Bloquea "Confirmar e importar". Parte de la identidad del SKU. Recomendado siempre lleno: es la clave que usan los índices de Planificación, Calendario y Contar.</td></tr>
+    <tr><td>Costo unitario</td><td>Sí</td><td>Bloquea "Confirmar e importar". Sin costo, el material no entra a la Clase ABC ni a Valorización.</td></tr>
+    <tr><td>Descripción</td><td>No</td><td>El material solo se encuentra por código exacto, no por texto.</td></tr>
+    <tr><td>Batch</td><td>No</td><td>Solo agrupa/filtra y es parte de la identidad si se informa.</td></tr>
+    <tr><td>Unidad de medida</td><td>No</td><td>Etiqueta informativa junto a la cantidad.</td></tr>
+    <tr><td>Categoría</td><td>No</td><td>Solo filtro/etiqueta.</td></tr>
+    <tr><td>Crítico</td><td>No</td><td>El material no aparece marcado como crítico ni entra al grupo automático de críticos. Cualquier marca no vacía cuenta como "sí".</td></tr>
+    <tr><td>Bloqueado / SOH en tránsito 1 y 2 / Transferencia</td><td>No</td><td>Informativas: no se muestra el contexto de stock por tipo en Contar y Reconteo.</td></tr>
+  </table>
+  <div class="two">
+    <div class="box"><div class="tag">Cómo funciona</div>Un SKU es único por código + bodega + batch + ubicación + bin: el mismo material repartido en varios lugares va como varias filas, cada una con su propio stock. La planilla no necesita un formato fijo: la detección de columnas es automática y deja corregir el mapeo antes de confirmar.</div>
+    <div class="box"><div class="tag">Ejemplos de nombres que ya reconoce</div>Código SKU: "Material", "SKU", "Item Code", "Part Number". Ubicación general: "Storage Location", "Plant", "Almacén". Stock sistema: "Unrestricted Stock", "Existencia", "Saldo". Bloqueado: "Blocked Stock". Tránsito: "Stock in Transit 1/2". Transferencia: "Stock in Transfer".</div>
+  </div>
+</section>
+
+<!-- 04 -->
+<section class="page">
+  <div class="kicker">04 · Toma de inventario (Contar)</div>
+  <h2 class="title">Plan del día, fuera de plan, y contexto de stock</h2>
+  <p class="intro">La pantalla que más usa un inventariador: prioriza el plan asignado, pero nunca bloquea contar algo que no estaba planificado.</p>
+  <div class="two">
+    <ul class="checks">
+      <li>Mostrar el plan del día del responsable vinculado a la cuenta, en cascada bodega → ubicación, juntando todas las entradas que calzan (incluidas las de bins distintos), deduplicadas por fila de SKU</li>
+      <li>Buscar cualquier material del maestro completo para contarlo "fuera de plan"</li>
+      <li>Guardar sin conexión: el conteo y sus fotos quedan en el dispositivo y se sincronizan solos; guardado idempotente (<code>idempotency_key</code>) con reintento si la señal está lenta</li>
+      <li>Avisar (sin bloquear) si la cantidad se ve atípica (RPC <code>verificar_conteo_atipico</code>, sin revelar el stock en conteo ciego); avisar si ya fue contado en el período (<code>veces_contado_periodo</code>)</li>
+      <li>Detectar materiales que una carga posterior movió de bin o ubicación desde que se planificaron (foto en <code>plan_semanal_skus</code>) y mostrarlos igual, marcados</li>
+    </ul>
+    <ul class="checks no">
+      <li>Contar un material sin elegirlo primero de la búsqueda, el escáner o el plan</li>
+      <li>Editar un conteo ya guardado desde esta pantalla (para eso existe Reconteo)</li>
+      <li>Ver el stock de sistema ni el stock por tipo con Conteo ciego activo</li>
+    </ul>
+  </div>
+  <div class="box new"><div class="tag">Nuevo · Origen "Plan" también al tipear o escanear</div>Al elegir un SKU desde el buscador libre o el escáner, la app evalúa si está cubierto por alguna entrada del plan del día del responsable (misma regla de cobertura que el servidor: bodega, ubicación, bin, "sin ubicación", "sin bodega", exclusiones). Si lo está, el conteo se guarda con <code>fuera_de_plan = false</code>. La regla es "mismo día": un SKU planificado para otra fecha sigue siendo fuera de plan.</div>
+  <div class="box new"><div class="tag">Nuevo · Una sola llamada para el universo del día</div>El universo de SKU de todas las entradas activas se pide en un solo RPC (<code>universo_entradas_plan_contar</code>, jsonb agrupado por entrada), y las fotos de <code>plan_semanal_skus</code> en una consulta por tandas de 100 entradas. Antes era una llamada por entrada: con 29 entradas reales, de 641 ms acumulados y 29 viajes de red a 38 ms y un viaje. El mismo RPC alimenta el PDF "Mi plan del día".</div>
+  <div class="foot-note">Esta sección no repite captura de pantalla: las etapas 07 y 08 del Manual de usuario muestran las mismas pantallas con el detalle paso a paso.</div>
+</section>
+
+<!-- 05 -->
+<section class="page">
+  <div class="kicker">05 · Reconteo y causa probable</div>
+  <h2 class="title">Detecta la diferencia y sugiere por qué</h2>
+  <p class="intro">Se evalúa cruzando la última cantidad contada de cada SKU (dentro del período actual, si la empresa usa períodos) contra el stock de sistema actual, no el que tenía el material el día del conteo. Si el maestro se actualizó después, la diferencia se recalcula sola y el material puede salir de la lista sin recontarlo.</p>
+  <div class="cols">
+    <div>
+      <div class="two">
+        <ul class="checks">
+          <li>Ver la diferencia (cantidad contada − stock actual) de cada SKU pendiente, su valorización, y la huella "antes → ahora" si el stock cambió</li>
+          <li>Causa probable automática: Ubicación distinta, Diferencia recurrente, ambas, o Sin patrón detectado</li>
+          <li>Recontar con un toque; contexto de stock por tipo junto al stock</li>
+        </ul>
+        <ul class="checks no">
+          <li>Es una señal basada en reglas simples, no una certeza ni un modelo de IA</li>
+          <li>No usa "movimiento reciente" de bodega: la app no registra entradas/salidas de stock, solo conteos</li>
+          <li>No arrastra diferencias de un período anterior ya cerrado</li>
+        </ul>
+      </div>
+      <div class="box new"><div class="tag">Nuevo · Pendientes por semana</div>RPC <code>reconteo_pendiente_por_semana(p_tz)</code> agrupa los pendientes por semana ISO de la fecha del último conteo, en la zona horaria del dispositivo. La app muestra un gráfico de barras ("36S") y al tocar una barra filtra la lista con <code>ultimo_conteo_fecha</code> entre el lunes y el domingo de esa semana. Al descartar el último pendiente de una semana, la vista se queda en esa semana con un aviso, no salta sola.</div>
+      <div class="box new"><div class="tag">Nuevo · Descartar reconteo (solo admin)</div>RPC <code>descartar_reconteo(p_conteo_id, p_motivo)</code>, <code>SECURITY DEFINER</code> con verificación de rol admin de la misma empresa: marca <code>reconteo_descartado_en</code> y <code>reconteo_descartado_por</code> en el conteo y deja el motivo en Auditoría. El material sale de pendientes sin nuevo conteo. Uso previsto: errores del dato maestro, no diferencias físicas.</div>
+    </div>
+    <div class="shot"><img src="img/reconteo.png" alt="Reconteo"><div class="cap">Reconteo → pendientes, con huella de SOH anterior/nuevo</div></div>
+  </div>
+</section>
+
+<!-- 06 -->
+<section class="page">
+  <div class="kicker">06 · Planificación</div>
+  <h2 class="title">Plan por ventanas: día, semana, mes, año y período</h2>
+  <p class="intro">Una entrada del plan es una fila de <code>plan_semanal</code>: fecha, bodega, ubicación, un storage bin (una fila por bin), responsable, nota, período y banderas para "SKU sin ubicación" y "sin ubicación específica". Su universo de SKU se resuelve siempre en el servidor.</p>
+  <div class="two">
+    <ul class="checks">
+      <li>Cinco ventanas: Día, Semana, Mes, Año y Período (selector). Día y Semana traen el detalle de SKU por entrada; Mes, Año y Período son vistas resumidas</li>
+      <li>Un mismo SKU cubierto por dos entradas se cuenta una sola vez en los totales de la ventana (regla "gana la entrada más temprana por fecha y creación", igual en cliente y servidor)</li>
+      <li>Aviso de solapamiento antes de agregar: cuántos SKU de la entrada nueva ya están planificados en el período (<code>skus_planificables</code> vs <code>skus_disponibles_planificar</code>)</li>
+      <li>Exclusiones puntuales por entrada (<code>plan_semanal_exclusiones</code>) resueltas en el servidor: nunca viajan por la URL</li>
+      <li>Exportar PDF con el listado completo de la ventana en una sola llamada (<code>universo_entradas_plan_hoja</code>)</li>
+    </ul>
+    <ul class="checks no">
+      <li>Dos períodos "actuales" a la vez (marcar uno nuevo desmarca el anterior)</li>
+      <li>Bloquear a alguien de contar algo que no le fue asignado: es una guía, no un candado</li>
+      <li>Asignar como responsable a alguien de otra empresa (trigger)</li>
+      <li>Ver o quitar SKU puntuales desde Mes, Año o Período: hay que bajar a Día o Semana</li>
+    </ul>
+  </div>
+  <table class="t">
+    <tr><th>Ventana</th><th>Qué pide al servidor</th><th>RPC</th></tr>
+    <tr><td>Día / Semana</td><td>Entradas de la ventana + universo agrupado por entrada (id, código, descripción)</td><td><code>universo_entradas_plan_resumen</code></td></tr>
+    <tr><td>Mes / Año / Período</td><td>Entradas (paginadas de a 1.000) + solo totales por entrada: <code>total</code> y <code>propios</code></td><td><code>resumen_entradas_plan</code></td></tr>
+    <tr><td>PDF</td><td>Listado completo con bin, unidad, clase ABC y crítico</td><td><code>universo_entradas_plan_hoja</code></td></tr>
+    <tr><td>Contar</td><td>Universo completo de las entradas activas del día</td><td><code>universo_entradas_plan_contar</code></td></tr>
+  </table>
+  <div class="box"><div class="tag">Por qué un solo RPC en jsonb</div>PostgREST vuelve a ejecutar una función de tabla por cada página de Range. Con el período completo real (3.062 filas) eran 4 ejecuciones de 6 a 19 s que dejaban sin CPU al resto de la app. Todas las funciones de universo devuelven un solo <code>jsonb</code> sin paginar: una ejecución, 1,6 s para el período completo y menos de 0,1 s para un mes.</div>
+</section>
+
+<!-- 07 -->
+<section class="page">
+  <div class="kicker">07 · Planificación</div>
+  <h2 class="title">Grupos de conteo</h2>
+  <p class="intro">Un grupo (<code>grupos_conteo</code>) es una lista de materiales con frecuencia propia (<code>frecuencia_dias</code>) y fecha de inicio de ciclo. Sus miembros viven en <code>skus_grupos_conteo</code> por código y bodega, o se derivan de la marca Crítico si el grupo es automático.</p>
+  <div class="two">
+    <ul class="checks">
+      <li>Crear grupos manuales o el automático de críticos (<code>automatico_critico</code>): incluye siempre todos los SKU activos marcados como Crítico</li>
+      <li>Contar posiciones reales: "N materiales · M posiciones" (RPC <code>posiciones_por_grupo</code>), porque un código puede estar en varias bodegas o bins</li>
+      <li>Vista previa del plan por capacidad: personas × horas por semana × materiales por hora = cupo semanal; reparte los pendientes en semanas y zonas, sin crear nada hasta confirmar</li>
+      <li>Generar el plan: una entrada por storage bin, con exclusiones para los materiales de la zona que no son del grupo, sin responsable (se reparte en Plan). Generar de nuevo reemplaza las entradas anteriores del grupo</li>
+      <li>Resumen del plan generado por grupo en una llamada (RPC <code>resumen_plan_grupos</code>): entradas, SKU por contar, rango de fechas y entradas por venir</li>
+      <li>Cierre automático de ciclo: cron diario <code>cerrar_ciclos_grupo_vencidos</code> (05:00 UTC) guarda en <code>historial_ciclos_grupo</code> quién quedó contado y quién no, y reinicia la fecha de inicio. Recupera ciclos atrasados si el cron no corrió un día</li>
+      <li>Pausar (<code>activo = false</code>) y reactivar con fecha de inicio hoy; al pausar, la app ofrece borrar solo las entradas futuras generadas por ese grupo, nunca las pasadas ni las contadas</li>
+    </ul>
+    <ul class="checks no">
+      <li>Cerrar el período de conteo de la empresa ni aparecer en Buscar: el ciclo de un grupo es independiente</li>
+      <li>Eliminar un grupo con historial: se pausa. Los materiales, el historial y las entradas ya contadas se conservan</li>
+      <li>Asignar responsables desde el grupo: eso se hace en Plan, entrada por entrada</li>
+    </ul>
+  </div>
+  <div class="box"><div class="tag">Cómo se ve en Planificación</div>Las entradas generadas llevan una nota que identifica al grupo. En Mes o Período se ven como cualquier otra entrada, con sus totales; el aviso de solapamiento también aplica si después agregas a mano una zona que el grupo ya cubre.</div>
+  <div class="foot-note">Sin captura: la etapa 05 del Manual de usuario describe la pantalla paso a paso.</div>
+</section>
+
+<!-- 08 -->
+<section class="page">
+  <div class="kicker">08 · Planificación</div>
+  <h2 class="title">Calendario</h2>
+  <p class="intro">Vista mensual con cuatro cifras por día: planificado, contado, recontado y pendiente. Un solo RPC por mes, <code>resumen_calendario_mes(p_mes)</code>, que respeta el rol: un admin ve toda la empresa, un operador solo sus entradas y sus conteos.</p>
+  <div class="two">
+    <ul class="checks">
+      <li>Planificado: SKU distintos cubiertos por las entradas del día, con la misma regla de cobertura y exclusiones que Plan y Contar</li>
+      <li>Pendiente: planificado sin ningún conteo en el período actual (una sola lista de SKU contados por consulta, no una subconsulta por SKU)</li>
+      <li>Contado y Recontado: conteos del día en hora de Chile, distinguiendo el primer conteo de un SKU en el período de los siguientes</li>
+      <li>Detalle del día con atajos a Contar (esa fecha), Plan (vista Día) y Buscar (filtrado por fecha)</li>
+      <li>Se invalida solo tras cualquier cambio en el plan; se vuelve a pedir al entrar</li>
+    </ul>
+    <ul class="checks no">
+      <li>Mostrar SKU individuales: para eso están Plan y Buscar</li>
+      <li>Ver los conteos de otras personas siendo operador</li>
+    </ul>
+  </div>
+  <div class="box upd"><div class="tag">Actualizado · Rendimiento</div>La versión anterior escribía el filtro de storage bin como un OR que el índice no podía usar: cada entrada con bin recorría su ubicación completa. Con 158 entradas en un mes (153 con bin, en 7 ubicaciones) eran 2,6 millones de lecturas y 3,4 s. Ahora cada caso se parte en "con bin" (entra al índice <code>empresa, bodega, ubicación, bin</code>) y "sin bin": 60 ms para el mismo mes, mismos resultados.</div>
+  <div class="foot-note">Sin captura: la etapa 06 del Manual de usuario describe la pantalla paso a paso.</div>
+</section>
+
+<!-- 09 -->
+<section class="page">
+  <div class="kicker">09 · Seguimiento</div>
+  <h2 class="title">Dashboard, períodos e informes de cierre</h2>
+  <p class="intro">Todas las métricas se calculan sobre el período marcado como actual (<code>ciclo_actual()</code>); si la empresa no usa períodos, sobre todo el historial.</p>
+  <div class="two">
+    <ul class="checks">
+      <li>Operativo (todos los planes): avance por bodega, Estado general de SKU por estado y clase ABC con filtro de criticidad, y tablas diaria, semanal y mensual con reconteos distinguidos</li>
+      <li>Ejecutivo (según plan): avance global, proyección de término al ritmo de 14 días, adherencia al plan, exactitud (sin diferencia, ubicación correcta, ranking por bodega, tendencia mensual), valorización, Top 10 de pérdidas y excedentes, ABC, ranking por responsable, pendientes por bodega; exportable a PDF</li>
+      <li>Períodos con fecha de inicio: <code>marcar_ciclo_actual</code> cierra el anterior y guarda su informe en <code>informes_ciclo</code> (avance, exactitud, diferencias, ranking, valorización y reconteos sin resolver, como jsonb)</li>
+      <li>Períodos programados: cron diario <code>activar_periodos_programados</code> (06:00 UTC) activa el período cuya fecha de inicio ya llegó, cerrando el anterior y generando su informe</li>
+    </ul>
+    <ul class="checks no">
+      <li>Comparar dos períodos en una misma vista: la tendencia de exactitud compara por mes calendario</li>
+      <li>Enviar el informe de cierre por correo: se genera y guarda solo, pero el envío sigue siendo manual</li>
+      <li>Configurar la frecuencia de conteo por SKU según su Clase ABC (la frecuencia existe por grupo, no por clase)</li>
+    </ul>
+  </div>
+  <div class="box upd"><div class="tag">Actualizado · Dashboard más liviano</div>Se eliminaron "Conteos recientes" y "Materiales contados" del Operativo y el rango de fechas del Estado general de SKU: duplicaban Buscar y el Calendario y cargaban listas paginadas en cada visita. <code>resumen_general_skus</code> responde hoy en 50 ms con el maestro real.</div>
+  <div class="box"><div class="tag">Informe de cierre: foto, no consulta</div>Un informe guardado se renderiza desde el jsonb almacenado (<code>renderCuerpoInformeGuardado</code>), por eso no cambia aunque después se carguen Excel nuevos o se recuente. Se puede abrir y exportar a PDF desde Períodos → Informes de cierre.</div>
+</section>
+
+<!-- 10 -->
+<section class="page">
+  <div class="kicker">10 · Buscar y Auditoría</div>
+  <h2 class="title">Historial de conteos y trazabilidad de cambios</h2>
+  <div class="cols">
+    <div>
+      <ul class="checks">
+        <li>Buscar por código, descripción, batch o storage bin; filtrar por bodega, estado, período, crítico, Clase ABC, "solo con fotos" y "solo fuera de plan"; ordenar por cualquier columna</li>
+        <li>El título y los gráficos muestran el total real que cumple los filtros (RPC <code>contar_busqueda_skus</code>), no solo las filas traídas al navegador</li>
+        <li>Columna Origen: "Plan" o "Fuera de plan", coherente con la regla del mismo día de Contar</li>
+        <li>Exportar a Excel los resultados filtrados, o un rango de fechas completo (un renglón por conteo) para un ERP; exportar seleccionados a PDF con foto, observación y detalle</li>
+        <li>Gráfico interactivo "Quién contó" y resumen por estado, reactivos a los filtros</li>
+        <li>Conteos capturados sin señal muestran la hora real de captura (<code>capturado_en</code>) además de la de sincronización</li>
+        <li>Auditoría (admin/super-admin, según plan): quién cambió qué en usuarios, empresas, conteos, maestro de SKU y descartes de reconteo, con valor antes/después</li>
+      </ul>
+      <ul class="checks no">
+        <li>Editar un conteo desde Buscar, solo verlo</li>
+        <li>Conservar la auditoría más de 14 días: cron diario <code>purgar_auditoria_antigua</code>. Ampliable por configuración si un cliente lo exige</li>
+      </ul>
+    </div>
+    <div class="shot"><img src="img/t-buscar.png" alt="Buscar: resultados"><div class="cap">Buscar → resultados</div></div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="page">
+  <div class="kicker">11 · Planes y límites</div>
+  <h2 class="title">Aplicado en la base de datos, no solo en la pantalla</h2>
+  <p class="intro">Los límites de bodegas y usuarios están en triggers de Postgres (<code>trg_limite_bodegas</code>, <code>trg_limite_usuarios</code>): no se pueden sortear llamando a la API directamente. Las funciones por plan se leen de la tabla <code>planes</code> y la app falla "abierta" solo en la interfaz; el límite real está en la base.</p>
+  <table class="t">
+    <tr><th></th><th>Básico</th><th>Profesional</th><th>Empresa</th></tr>
+    <tr><td>Precio neto</td><td>USD 160/mes</td><td>USD 300/mes</td><td>A medida</td></tr>
+    <tr><td>Cobro en tarjeta (Flow)</td><td>$187.000 CLP/mes, IVA incluido</td><td>$350.000 CLP/mes, IVA incluido</td><td>Según contrato</td></tr>
+    <tr><td>Bodegas</td><td>Máximo 1</td><td>Máximo 2</td><td>Ilimitadas</td></tr>
+    <tr><td>Usuarios</td><td>1 operador (+ admin)</td><td>2 operadores (+ admin)</td><td>Ilimitados</td></tr>
+    <tr><td>Dashboard Ejecutivo + Exactitud</td><td>No incluido</td><td>Incluido</td><td>Incluido</td></tr>
+    <tr><td>Auditoría</td><td>No incluida</td><td>Incluida</td><td>Incluida</td></tr>
+    <tr><td>Modo offline y escáner</td><td>No incluido</td><td>Incluido</td><td>Incluido</td></tr>
+    <tr><td>Grupos, Calendario, Períodos, Reconteo</td><td>Incluidos</td><td>Incluidos</td><td>Incluidos</td></tr>
+  </table>
+  <div class="cols">
+    <div>
+      <div class="box upd"><div class="tag">Actualizado · Precios y tipo de cambio</div>Los precios en pesos se calculan con un dólar de referencia de $980 (observado del Banco Central el 8 de septiembre: $933,68) más 19% de IVA, redondeados. El monto que cobra Flow es el total con IVA; InventIA emite el documento tributario por ese monto. Si el dólar se mueve, se ajusta el monto del plan en Flow y el landing, sin tocar la app.</div>
+      <div class="box"><div class="tag">Cómo se ve el bloqueo</div>El botón "Ejecutivo 🔒" queda deshabilitado en cuanto <code>dashboard_ejecutivo_habilitado</code> es falso para el plan de la empresa; las pestañas de administración muestran candado para un operador. No es solo un límite documentado: es lo que renderiza la app.</div>
+    </div>
+    <div class="shot"><img src="img/t-plan-facturacion.png" alt="Plan y facturación"><div class="cap">Configuraciones → Plan y facturación</div></div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="page">
+  <div class="kicker">12 · Suscripción y pagos (Flow.cl)</div>
+  <h2 class="title">Alta autoservicio y cobro automático, sin depender del webhook</h2>
+  <p class="intro">Flow registra la tarjeta (OneClick) y cobra la suscripción mensual. InventIA guarda en <code>empresas</code> el cliente, la suscripción y su estado: <code>pendiente_tarjeta</code>, <code>activa</code>, <code>morosa</code>, <code>cancelada</code> o <code>vencida</code>. Solo <code>morosa</code> y <code>pendiente_tarjeta</code> bloquean el acceso; <code>vencida</code> también, tras 31 días de una cancelación.</p>
+  <div class="two">
+    <ul class="checks">
+      <li>Alta autoservicio para Básico/Profesional desde el sitio: el botón Suscribirme está activo y lleva a "Crea tu cuenta"; tras registrar la tarjeta, el primer cobro se hace de inmediato y la empresa queda activa</li>
+      <li>Cobro recurrente mensual; cambiar entre Básico y Profesional sin re-registrar tarjeta; actualizar método de pago; cancelar con acceso hasta fin del período pagado</li>
+      <li>Sincronización del estado con Flow al iniciar sesión (Edge Function <code>flow-sincronizar-suscripcion</code>): consulta <code>/subscription/get</code>, como mucho cada 6 h por empresa desde la app y cada 10 min en el servidor, y registra en <code>flow_eventos</code> solo cuando el estado cambia</li>
+      <li>Pantalla de cuenta bloqueada por mora con botón "Ya regularicé el pago, verificar" que consulta a Flow y deja entrar si ya está al día</li>
+    </ul>
+    <ul class="checks no">
+      <li>Usar la app con la tarjeta pendiente de registro o con un cobro fallido sin regularizar</li>
+      <li>Cambiar al plan Empresa de forma autoservicio: se coordina a medida</li>
+      <li>Depender del webhook de cobro para saber si una empresa pagó (ver abajo)</li>
+    </ul>
+  </div>
+  <div class="box warn"><div class="tag">Hallazgo verificado · El webhook de Flow no se invocó</div>Con una suscripción real de prueba (plan de $500, 3 de septiembre de 2026): Flow cobró y pagó la primera factura al registrar la tarjeta, la suscripción quedó activa y sin mora, y el <code>urlCallback</code> del plan apunta correctamente a <code>flow-webhook-cobro</code>. Sin embargo, esa función no recibió ninguna llamada entre el 3 y el 8 de septiembre. Por eso el estado ya no depende del webhook: la sincronización al iniciar sesión es la fuente de verdad, y el webhook queda como respaldo que guarda el payload crudo si algún día llega. La renovación del 3 de octubre está agendada para revisión.</div>
+  <div class="box"><div class="tag">Edge Functions de Flow</div><code>flow-iniciar-suscripcion</code> (crea cliente y abre el registro de tarjeta), <code>flow-registro-callback</code> (retorno de Flow: crea la suscripción y activa la empresa), <code>flow-cambiar-plan</code>, <code>flow-cancelar-suscripcion</code>, <code>flow-sincronizar-suscripcion</code> y <code>flow-webhook-cobro</code>. Todas usan <code>service_role</code> para escribir; las que llama la app exigen sesión válida y rol admin donde corresponde.</div>
+</section>
+
+<!-- 13 -->
+<section class="page">
+  <div class="kicker">13 · Seguridad</div>
+  <h2 class="title">Lo que protege cada capa</h2>
+  <div class="two">
+    <ul class="checks">
+      <li>RLS activo en las 19 tablas de negocio, 49 políticas, todas por <code>empresa_id</code> o rol; 25 vistas con <code>security_invoker = true</code></li>
+      <li>Ninguna función de la base es ejecutable por <code>anon</code> ni por <code>PUBLIC</code>: EXECUTE revocado en las 49 funciones y en los privilegios por defecto. Los usuarios con sesión pueden ejecutar 30 funciones de negocio; las 19 restantes (triggers, cron, mantenimiento, reset de la demo) solo <code>service_role</code></li>
+      <li>Funciones <code>SECURITY DEFINER</code> expuestas a usuarios con sesión: 11, todas con verificación interna de empresa y rol (ej. <code>descartar_reconteo</code>, <code>mi_estado_bloqueo</code>, <code>refrescar_clasificacion_abc</code>)</li>
+      <li>Trigger <code>validar_responsable_misma_empresa</code>: rechaza un responsable de otra empresa en <code>plan_semanal</code></li>
+      <li>Fotos en bucket privado con enlaces firmados y temporales; hasta 20 MB por foto, solo formatos de imagen; rutas por empresa</li>
+      <li>Contraseñas verificadas contra bases filtradas; límite de intentos de inicio de sesión; código de acceso de 6 dígitos como alternativa al link; MFA TOTP opcional (aal2); una sola sesión activa por usuario</li>
+      <li>Conteo ciego endurecido en la base (permisos por columna): ni consultando la API directa se obtiene el stock</li>
+      <li>Errores del navegador capturados por Sentry; respaldos diarios de Supabase verificados con una restauración real</li>
+      <li>Postgres 17.6 en el canal General Availability de Supabase (antes "preview"), región São Paulo</li>
+    </ul>
+    <ul class="checks no">
+      <li>Acceder a una foto sin sesión autenticada de esa empresa</li>
+      <li>Registrar una contraseña que aparezca en una base de contraseñas filtradas conocida</li>
+      <li>Subir un archivo que no sea imagen, o mayor a 20 MB, al bucket de fotos</li>
+      <li>Ejecutar por API una función de mantenimiento o de trigger, aunque se tenga sesión</li>
+      <li>CAPTCHA en el login: pendiente (el rate limit ya frena fuerza bruta)</li>
+    </ul>
+  </div>
+  <div class="box"><div class="tag">Estado del advisor de seguridad de Supabase</div>Al 8 de septiembre reporta solo dos tipos de aviso, ambos conocidos e intencionales: la extensión <code>pg_net</code> en el esquema <code>public</code>, y las 11 funciones <code>SECURITY DEFINER</code> que los usuarios con sesión necesitan invocar. Ningún aviso de RLS ausente ni de vistas expuestas.</div>
+  <div class="foot-note">Esta sección no lleva captura: son políticas de base de datos y del bucket de Storage, no una pantalla que un usuario vea directamente.</div>
+</section>
+
+<!-- 14 -->
+<section class="page">
+  <div class="kicker">14 · Rendimiento y capacidad</div>
+  <h2 class="title">Medido con datos reales, no estimado</h2>
+  <p class="intro">Todas las cifras se tomaron en producción con el maestro real de un cliente (66.000 SKU activos, 434 entradas de plan, 12.000 exclusiones), simulando la sesión del usuario con RLS activa. Compute Small de Supabase (2 GB de RAM, 2 núcleos, 90 conexiones directas).</p>
+  <table class="t">
+    <tr><th>Consulta</th><th>Antes</th><th>Ahora</th><th>Qué cambió</th></tr>
+    <tr><td>Calendario, mes con 158 entradas</td><td>3.449 ms</td><td>60 ms</td><td>Filtro de bin sargable; lista única de SKU contados</td></tr>
+    <tr><td>Universo del plan, mes completo (Planificación)</td><td>2.474 ms</td><td>98 ms</td><td>Funciones de contexto evaluadas una vez por consulta</td></tr>
+    <tr><td>Plan del día en Contar, 29 entradas</td><td>641 ms + 29 viajes</td><td>38 ms, 1 viaje</td><td>RPC único en jsonb</td></tr>
+    <tr><td>Período completo, 376 entradas (vista resumida)</td><td>4 ejecuciones de 6 a 19 s</td><td>118 ms</td><td>Sin paginación por Range; solo totales</td></tr>
+    <tr><td>Reconteo pendiente</td><td>—</td><td>14 ms</td><td>Vista con InitPlan</td></tr>
+    <tr><td>Estado general de SKU (Dashboard)</td><td>—</td><td>50 ms</td><td>Sin rango de fechas</td></tr>
+  </table>
+  <div class="two">
+    <div class="box"><div class="tag">Regla aplicada en toda la base</div><code>empresa_actual()</code>, <code>ciclo_actual()</code> y las demás funciones de contexto se escriben como <code>(select f())</code> en las 49 políticas RLS y en las 12 vistas que las usan. Postgres las evalúa una vez por consulta (InitPlan) en vez de una vez por fila: medido, contar 125 conteos pasó de 40 ms a 4,7 ms, y la diferencia crece lineal con el volumen.</div>
+    <div class="box"><div class="tag">Índices</div>Compuestos por empresa en <code>skus</code> (bodega, ubicación, bin; último conteo; clase ABC; crítico), <code>conteos</code> (empresa + período, SKU, usuario, fecha), <code>plan_semanal</code> (empresa + fecha, período, usuario) y <code>plan_semanal_skus</code> (SKU). Todas las llaves foráneas de plan y conteos están cubiertas.</div>
+  </div>
+  <div class="box"><div class="tag">Capacidad</div>Con Small, el cliente de referencia usa alrededor del 15% de las conexiones y menos del 20% de CPU en horario de conteo. El siguiente escalón (Medium, 4 GB) es un cambio de configuración de 2 minutos sin tocar la app. Una rutina semanal revisa logs y advisors de capacidad y avisa si aparece presión.</div>
+</section>
+
+<!-- 15 -->
+<section class="page">
+  <div class="kicker">15 · Aplicaciones y servicios externos</div>
+  <h2 class="title">De qué depende InventIA para funcionar</h2>
+  <p class="intro">InventIA no tiene servidor propio: es un archivo HTML estático más un puñado de servicios de terceros. Esta es la lista completa, con para qué se usa cada uno.</p>
+  <table class="t">
+    <tr><th>Servicio</th><th></th><th>Para qué se usa</th></tr>
+    <tr><td>Supabase</td><td>Producción</td><td>Backend completo: Postgres 17.6 (canal GA, compute Small, São Paulo), autenticación, almacenamiento de fotos, cron (pg_cron) y 8 Edge Functions: <code>invite-user</code>, <code>crear-empresa-autoservicio</code>, las 6 de Flow. Única pieza de infraestructura propia.</td></tr>
+    <tr><td>Flow.cl</td><td>Producción</td><td>Pasarela de pago (Chile): registra la tarjeta y cobra la suscripción mensual. El estado se sincroniza consultando su API; el webhook queda como respaldo.</td></tr>
+    <tr><td>Brevo</td><td>Producción</td><td>SMTP que envía los correos de acceso (crear contraseña, restablecerla, código de 6 dígitos) a nombre de "InventIA".</td></tr>
+    <tr><td>Sentry</td><td>Producción</td><td>Monitoreo de errores: captura sola los errores de JavaScript del navegador, con stack trace, empresa y usuario afectado.</td></tr>
+    <tr><td>GitHub</td><td>Producción</td><td>Control de versiones, integración continua (1.630 asserts unitarios y tests end-to-end con navegador real en cada cambio) y hosting del sitio bajo inventiapp.cl.</td></tr>
+    <tr><td>Google Fonts</td><td>Producción</td><td>Sirve las tipografías de la interfaz (Barlow Condensed, Inter, IBM Plex Mono).</td></tr>
+    <tr><td>jsDelivr (CDN)</td><td>Producción</td><td>Sirve SheetJS/xlsx (lee Excel/CSV) y html5-qrcode (cámara para el escáner).</td></tr>
+    <tr><td>Google Analytics</td><td>Producción</td><td>Visitas y eventos del sitio (clics en demo, contacto y Suscribirme). No se usa dentro de la app.</td></tr>
+    <tr><td>Playwright</td><td>Desarrollo</td><td>No corre en producción: tests automatizados con navegador real antes de publicar cada cambio.</td></tr>
+  </table>
+  <div class="box"><div class="tag">Tareas programadas (pg_cron, UTC)</div>05:00 cierre de ciclos de grupo vencidos · 06:00 activación de períodos programados y purga de auditoría · 07:00 refresco de clasificación ABC y vencimiento de suscripciones canceladas · 08:00 reset de la cuenta demo. Todas son funciones que solo <code>service_role</code> puede ejecutar.</div>
+</section>
+
+<!-- 16 -->
+<section class="page">
+  <div class="kicker">16 · Qué queda fuera por ahora</div>
+  <h2 class="title">Explícitamente, no por olvido</h2>
+  <p class="intro">Cada punto de esta lista requiere un dato que hoy el cliente no mantiene, un paso manual de configuración, o no tiene todavía una demanda real detrás. Mejor no prometerlo hasta que corresponda.</p>
+  <div class="box"><div class="tag">No incluido hoy</div>
+    <ul class="checks no" style="margin-top:6px">
+      <li>"Movimiento reciente" de bodega como señal de causa probable: requiere registrar entradas/salidas de stock, no solo conteos (empujaría hacia un WMS)</li>
+      <li>Frecuencia de conteo por SKU según su Clase ABC: la clasificación y el % de avance por clase existen, y la frecuencia existe por grupo; la asignación automática por clase, no</li>
+      <li>Integración directa con SAP (API): proyecto en sí mismo, se evalúa ante un trato real que lo exija</li>
+      <li>Envío automático del informe de cierre por correo: el informe se genera y guarda solo; el envío es manual</li>
+      <li>Aviso por correo a InventIA cuando una empresa se suscribe, cancela o cae en mora: diseñado, pendiente de una clave de API de Brevo</li>
+      <li>CAPTCHA en el login y guía de activación rediseñada para empresas nuevas</li>
+      <li>Zona horaria, idioma y moneda por empresa: hoy fijos en Chile (hora de Santiago, español, pesos)</li>
+      <li>Logo de empresa en la app y los PDF; compresión de fotos en el celular antes de subir</li>
+      <li>Carga masiva de "respaldo" (segundo corte de stock): existió, se sacó por falta de uso, queda en el backlog</li>
+    </ul>
+  </div>
+  <div class="box"><div class="tag">Sobre este documento</div>Es una fotografía del comportamiento real de la plataforma al momento de escribirse, tomada directamente del código, las políticas y funciones de la base de datos, mediciones en producción y capturas de la interfaz, no de la intención original de diseño. Si una regla o pantalla cambia, este documento debe actualizarse junto con el cambio.<br><br>Preguntas técnicas puntuales (esquema de datos, políticas de seguridad exactas, límites de una integración) se responden mejor por escrito: contacto@inventiapp.cl.</div>
+</section>
+
+</body></html>
