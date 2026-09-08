@@ -1399,7 +1399,9 @@ function bindBuscadorLibreResultados(){
       const sku = state.buscadorLibre.resultados.find(s=>s.id===btn.dataset.pickBtn)
         || state.skus.find(s=>s.id===btn.dataset.pickBtn);
       if(!sku) return;
-      setState({skuSeleccionado: sku, conteoOrigenPlan:false, conteoOtraUbicacion:false});
+      // Si el SKU tecleado está en el plan del día de esta persona, el conteo es "Plan" aunque
+      // no lo haya tocado en la lista (pedido de Joel) -- ver origenPlanParaSku.
+      setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false});
     });
   });
 }
@@ -5054,6 +5056,39 @@ function skuEstaEnPlanDelDia(skuCode){
   return !!(pendientes && pendientes.some(s=>s.sku_code===skuCode));
 }
 
+// Un SKU concreto (con su bodega/ubicación/bin) está cubierto por alguna entrada del plan del
+// día del operador (state.contarPlan.entradas), sin pedir nada al servidor. Pedido de Joel: un
+// SKU planificado que el operador tecleaba en el buscador libre (en vez de tocarlo en la lista)
+// quedaba como "Fuera de plan" aunque estuviera en su plan de ese día -- el conteo valía igual,
+// pero la etiqueta mentía. Misma regla de cobertura que skus_universo_entrada_plan_lote:
+// bodega NULL = comodín total; bodega '' = SKU sin bodega; ubicacion_nula = SKU sin ubicación;
+// ubicación/bin vacíos = comodín; solo_sin_ubicacion = SKU sin bodega ni ubicación; y las
+// exclusiones de la entrada. No mira si el SKU ya se contó: acá solo importa si estaba planificado.
+function skuCubiertoPorPlanDelDia(sku){
+  const cp = state.contarPlan;
+  if(!sku || !cp || !Array.isArray(cp.entradas) || !cp.entradas.length) return false;
+  const bodega = sku.bodega==null ? null : sku.bodega;
+  const ubic = sku.ubicacion==null || sku.ubicacion==='' ? null : sku.ubicacion;
+  const bin = sku.storage_bin==null || sku.storage_bin==='' ? null : sku.storage_bin;
+  return cp.entradas.some(e=>{
+    if(Array.isArray(e.skus_excluidos) && e.skus_excluidos.includes(sku.sku_code)) return false;
+    if(e.solo_sin_ubicacion) return bodega===null && ubic===null;
+    if(e.bodega===''){ if(bodega!==null) return false; }
+    else if(e.bodega!=null && e.bodega!==bodega) return false;
+    if(e.ubicacion_nula){ if(ubic!==null) return false; }
+    else if(e.ubicacion!=null && e.ubicacion!=='' && e.ubicacion!==ubic) return false;
+    if(e.storage_bin!=null && e.storage_bin!=='' && e.storage_bin!==bin) return false;
+    return true;
+  });
+}
+
+// Origen "Plan" / "Fuera de plan" al elegir un SKU para contar, venga del escáner o del buscador
+// libre: está en la lista de pendientes visible, o alguna entrada del plan del día lo cubre.
+function origenPlanParaSku(sku){
+  if(!sku) return false;
+  return skuEstaEnPlanDelDia(sku.sku_code) || skuCubiertoPorPlanDelDia(sku);
+}
+
 async function iniciarEscaner(){
   if(escanerInstancia) return; // ya hay una lectura en curso para este modal
   if(typeof Html5Qrcode === 'undefined'){
@@ -5145,7 +5180,7 @@ async function onCodigoEscaneado(codigo){
   }
   const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
   if(coincidencias.length===1){
-    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: skuEstaEnPlanDelDia(coincidencias[0].sku_code), conteoOtraUbicacion:false});
+    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: origenPlanParaSku(coincidencias[0]), conteoOtraUbicacion:false});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
   }else if(coincidencias.length>1){
     // El mismo código existe en más de una bodega o batch (el código físico es el mismo sin
@@ -5161,7 +5196,7 @@ async function onCodigoEscaneado(codigo){
 function elegirSkuEscaneado(skuId){
   const sku = state.skus.find(s=>s.id===skuId);
   if(!sku) return;
-  setState({skuSeleccionado: sku, conteoOrigenPlan: skuEstaEnPlanDelDia(sku.sku_code), conteoOtraUbicacion:false, escanerModal: null});
+  setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, escanerModal: null});
   toast(`SKU ${sku.sku_code} encontrado`);
 }
 
@@ -5175,7 +5210,7 @@ async function asociarCodigoBarras(skuId, codigo){
     await rest(`/skus?id=eq.${skuId}`, {method:'PATCH', body:{codigo_barras: codigo}, prefer:'return=minimal'});
     sku.codigo_barras = codigo;
     toast(`Código asociado a ${sku.sku_code}`);
-    setState({skuSeleccionado: sku, conteoOrigenPlan: skuEstaEnPlanDelDia(sku.sku_code), conteoOtraUbicacion:false, escanerModal: null});
+    setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, escanerModal: null});
   }catch(e){
     toast(e.message,'err');
     setState({escanerModal: {...state.escanerModal, asociando:false}});

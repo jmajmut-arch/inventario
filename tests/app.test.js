@@ -6544,6 +6544,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.skus = skusEscaner;
   ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, skusPendientes: null};
 
+  // Pedido de Joel (caso real: SKU 11376298 planificado para el 1 sep en B501/0100/bin
+  // 005F1006A1, pero tecleado en el buscador libre en vez de tocarlo en la lista): si alguna
+  // entrada del plan del día de esta persona cubre el SKU, el origen es "Plan" aunque no esté en
+  // la lista de pendientes visible. Misma regla de cobertura que el servidor (comodines de
+  // bodega/ubicación/bin, ubicacion_nula, solo_sin_ubicacion y exclusiones).
+  {
+    const contarPlanAntes = ctx.__appstate.contarPlan;
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, skusPendientes: null, entradas: [
+      {id:'cp-bin', fecha:'2026-09-01', bodega:'B501', ubicacion:'0100', storage_bin:'005F1006A1', solo_sin_ubicacion:false, ubicacion_nula:false, skus_excluidos:['EXCLUIDO-1']},
+      {id:'cp-bodega', fecha:'2026-09-01', bodega:'B777', ubicacion:null, storage_bin:null, solo_sin_ubicacion:false, ubicacion_nula:false, skus_excluidos:[]},
+      {id:'cp-nula', fecha:'2026-09-01', bodega:'B888', ubicacion:null, storage_bin:null, solo_sin_ubicacion:false, ubicacion_nula:true, skus_excluidos:[]},
+      {id:'cp-sueltos', fecha:'2026-09-01', bodega:null, ubicacion:null, storage_bin:null, solo_sin_ubicacion:true, ubicacion_nula:false, skus_excluidos:[]},
+    ]};
+    const cubierto = (sku)=> ctx.skuCubiertoPorPlanDelDia(sku);
+    assert(cubierto({sku_code:'11376298', bodega:'B501', ubicacion:'0100', storage_bin:'005F1006A1'})===true, 'un SKU en el bin exacto de una entrada del plan del día está cubierto');
+    assert(cubierto({sku_code:'11376298', bodega:'B501', ubicacion:'0100', storage_bin:'OTRO-BIN'})===false, 'el mismo material en otro bin no está cubierto por una entrada de bin específico');
+    assert(cubierto({sku_code:'EXCLUIDO-1', bodega:'B501', ubicacion:'0100', storage_bin:'005F1006A1'})===false, 'un SKU excluido de la entrada no está cubierto');
+    assert(cubierto({sku_code:'X', bodega:'B777', ubicacion:'ZZ', storage_bin:'Q-1'})===true, 'una entrada de toda la bodega (ubicación y bin vacíos) cubre cualquier posición de esa bodega');
+    assert(cubierto({sku_code:'X', bodega:'B888', ubicacion:null, storage_bin:'Q-1'})===true && cubierto({sku_code:'X', bodega:'B888', ubicacion:'0001', storage_bin:null})===false, 'ubicacion_nula cubre solo los SKU de esa bodega sin ubicación');
+    assert(cubierto({sku_code:'X', bodega:null, ubicacion:null, storage_bin:null})===true && cubierto({sku_code:'X', bodega:'B501', ubicacion:null, storage_bin:null})===false, 'solo_sin_ubicacion cubre solo los SKU sin bodega ni ubicación');
+    assert(cubierto({sku_code:'X', bodega:'B999', ubicacion:'0001', storage_bin:'A'})===false, 'un SKU de una bodega no planificada hoy no está cubierto');
+    // Elegir desde el buscador libre usa este criterio: planificado -> "Plan"; no planificado -> "Fuera de plan".
+    assert(ctx.origenPlanParaSku({sku_code:'11376298', bodega:'B501', ubicacion:'0100', storage_bin:'005F1006A1'})===true, 'un SKU tecleado en el buscador libre que está en el plan del día debe quedar como origen Plan');
+    assert(ctx.origenPlanParaSku({sku_code:'X', bodega:'B999', ubicacion:'0001', storage_bin:'A'})===false, 'un SKU tecleado que no está planificado hoy sigue siendo fuera de plan');
+    ctx.__appstate.contarPlan = contarPlanAntes;
+  }
+
   // renderPlanDelDia: el botón de escanear debe verse junto a la lista de pendientes, para
   // no obligar a abandonar el plan e ir al buscador libre solo para escanear.
   ctx.__appstate.contarPlan = {
