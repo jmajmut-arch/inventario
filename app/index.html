@@ -7487,8 +7487,13 @@ function renderPlanificacion(){
   // entrada -- ver el comentario en resumenPorResponsable sobre por qué sumar por entrada duplica
   // SKU cubiertos por más de una. Una entrada sin detalle todavía ("Calculando…") suma su universo
   // tal cual, como antes.
+  // Un SKU se cuenta UNA sola vez en toda la ventana, no una vez por día (a pedido de Joel, tras
+  // comparar con la base: la semana del 7 al 14 de sep daba 2.009 sumando por día y 1.930 SKU
+  // distintos; Mes y Año, deduplicados por el servidor, sí coincidían). El primer día que lo
+  // planifica se queda con el SKU -- misma regla que resumenEntradasPlan y que el ranking por
+  // responsable de abajo, así el total de arriba y el ranking cuadran entre sí y con el Dashboard.
+  const vistos = new Set();
   const datosPorDia = grupos.map(d=>{
-    const vistos = new Set();
     let cantidad = 0;
     d.entradas.forEach(e=>{
       const det = p.detalle[e.id];

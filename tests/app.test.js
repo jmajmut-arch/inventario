@@ -1698,6 +1698,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     };
     const htmlConSolape = ctx.renderPlanificacion();
     assert(htmlConSolape.includes('SKU a contar por día (3 en total)'), 'sku-c aparece en ambas entradas -- el total debe ser 3 SKU distintos (a, b, c), no 4 (la suma 3+1), obtuvo: '+htmlConSolape);
+
+    // A pedido de Joel, tras comparar con la base: un SKU planificado en DOS DÍAS distintos de la
+    // misma semana también se cuenta una sola vez en toda la ventana (la semana del 7 al 14 de
+    // sep daba 2.009 sumando por día y 1.930 SKU distintos; Mes y Año, deduplicados en el
+    // servidor, sí coincidían). El primer día que lo planifica se lo queda: lunes 3, martes 1.
+    ctx.__appstate.plan = {
+      ...ctx.__appstate.plan,
+      diaFiltro: null,
+      semanaInicio: '2026-08-10',
+      entradas: [
+        {id:'sol1', fecha:'2026-08-10', bodega:'B1', ubicacion:'U1', storage_bin:null, responsable_id:null, responsable_nombre:null, nota:''},
+        {id:'sol3', fecha:'2026-08-11', bodega:'B1', ubicacion:'U1', storage_bin:'BIN-2', responsable_id:null, responsable_nombre:null, nota:''},
+      ],
+      universos: {sol1: 3, sol3: 2},
+      detalle: {
+        sol1: [{id:'sku-a'},{id:'sku-b'},{id:'sku-c'}],
+        sol3: [{id:'sku-c'},{id:'sku-d'}], // sku-c ya quedó planificado el lunes
+      },
+    };
+    const htmlSolapeEntreDias = ctx.renderPlanificacion();
+    assert(htmlSolapeEntreDias.includes('SKU a contar por día (4 en total)'), 'un SKU planificado en dos días de la misma semana debe contarse una sola vez en el total (a, b, c, d = 4), no 5, obtuvo: '+htmlSolapeEntreDias);
     ctx.__appstate.plan = planOriginal;
   }
 
