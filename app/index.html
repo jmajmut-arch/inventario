@@ -499,7 +499,7 @@ let state = {
   // SKU pendientes de todos los bin de esa ubicación (antes exigía elegir el bin exacto, un paso
   // de más que no aportaba — y si una ubicación no tenía bin cargado, no había forma de llegar a
   // ver sus SKU).
-  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), entradas: [], bodega:'', ubicacion:'', skusPendientes: null, desdeCache: false },
+  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), fechaManual:false, entradas: [], bodega:'', ubicacion:'', skusPendientes: null, desdeCache: false },
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [], diferenciasRecientes: [], resumenAbc: [] },
   // Resumen general del Dashboard ("Estado del maestro"): estado de TODO el maestro de SKU activo
@@ -1419,7 +1419,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1968,6 +1968,8 @@ async function cargarPlanSemanal(){
       ? await rest(`/plan_semanal_detalle?fecha=gte.${inicio}&fecha=lte.${fin}&order=fecha.asc`)
       : await restTodo(`/plan_semanal_detalle?fecha=gte.${ventana.desde}&fecha=lte.${ventana.hasta}&order=fecha.asc`);
     if(miSecuencia !== cargarPlanSemanalSecuencia) return; // ver comentario arriba: ya hay una llamada más nueva
+    planCargadoEn = Date.now();
+    planCargadoDia = fechaISO(new Date());
     setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows||[], seleccionados:[]}});
     // Este recálculo de fondo (universo Y detalle de TODAS las entradas visibles) dispara un
     // render() completo, sin relación con el formulario "Agregar a la planificación" que la
@@ -2033,6 +2035,56 @@ async function cargarPlanSemanal(){
 // llama esto para que la próxima vez que se entre a Calendario vuelva a pedir datos frescos.
 function invalidarCalendario(){
   if(state.calendario.cargado) setState({calendario: {...state.calendario, cargado:false}});
+}
+
+/* ---- Mantener el plan "en el día" -------------------------------------------------------
+   Pedido de Joel: al entrar a Contar o a Plan, la pantalla debe estar en el día de hoy y con la
+   información al día. Dos problemas reales que esto resuelve: (1) el día se fijaba una sola vez
+   al abrir la app -- un operador que retoma la PWA a la mañana siguiente seguía viendo el plan de
+   ayer; (2) Plan solo se cargaba al iniciar y tras acciones propias -- lo que planificó otra
+   persona, generó un grupo o cerró el cron nocturno no aparecía hasta recargar la app. */
+const PLAN_REFRESCO_MIN_MS = 60 * 1000; // no repetir la consulta del período completo (1,6 s de servidor) por cada cambio de pestaña
+let planCargadoEn = 0;        // Date.now() de la última carga exitosa de Planificación
+let planCargadoDia = null;    // fechaISO de ese momento, para detectar el cambio de día
+let diaVisibleAnterior = fechaISO(new Date());
+
+// Estado de contarPlan al entrar a la pestaña: siempre se vuelve a pedir el plan (cargado:false),
+// y si la fecha no fue elegida a mano en esta sesión y ya no es hoy, vuelve a hoy.
+function contarPlanAlEntrar(cp){
+  const hoy = fechaISO(new Date());
+  const volverAHoy = !cp.fechaManual && cp.fecha !== hoy;
+  return {...cp, cargado:false, fecha: volverAHoy ? hoy : cp.fecha, ...(volverAHoy ? {bodega:'', ubicacion:'', skusPendientes:null} : {})};
+}
+
+// Recarga Planificación si la última carga es vieja o cambió el día. Si cambió el día y se
+// estaba navegando por semana sin un día puntual, la semana pasa a ser la de hoy.
+function refrescarPlanSiCorresponde(forzar){
+  const hoy = fechaISO(new Date());
+  const cambioDia = planCargadoDia !== null && planCargadoDia !== hoy;
+  const viejo = Date.now() - planCargadoEn > PLAN_REFRESCO_MIN_MS;
+  if(!forzar && !cambioDia && !viejo) return false;
+  if(cambioDia && !state.plan.diaFiltro && !state.plan.cicloFiltro && (state.plan.rango||'semana')==='semana'){
+    setState({plan:{...state.plan, semanaInicio: fechaISO(inicioSemana(new Date(hoy+'T00:00:00')))}});
+  }
+  cargarPlanSemanal();
+  return true;
+}
+
+// Al volver la app a primer plano con otro día en el calendario (PWA que quedó abierta de un día
+// para otro), refresca la vista que se esté mirando para que no quede "en ayer".
+function alVolverAPrimerPlano(){
+  if(typeof document!=='undefined' && document.hidden) return;
+  const hoy = fechaISO(new Date());
+  if(hoy === diaVisibleAnterior) return;
+  diaVisibleAnterior = hoy;
+  if(!state.perfil) return;
+  invalidarCalendario();
+  if(state.view==='conteo') setState({contarPlan: contarPlanAlEntrar(state.contarPlan)});
+  else if(state.view==='plan') refrescarPlanSiCorresponde(true);
+  else if(state.calendario && state.calendario.mes){
+    // El calendario abre en el mes de hoy la próxima vez que se muestre.
+    setState({calendario:{...state.calendario, mes: hoy.slice(0,8)+'01', diaSeleccionado:null, cargado:false}});
+  }
 }
 
 async function excluirSkuDePlan(planId, skuCode){
@@ -9271,8 +9323,9 @@ function bind(){
       // recursión infinita) — pero puede haber cambiado desde la última carga (planificación
       // editada desde otra pestaña, otro día, otra persona). Al volver a seleccionar la
       // pestaña Contar se fuerza a pedirla de nuevo, para no mostrar un plan desactualizado.
-      if(btn.dataset.tab==='conteo') patch.contarPlan = {...state.contarPlan, cargado:false};
+      if(btn.dataset.tab==='conteo') patch.contarPlan = contarPlanAlEntrar(state.contarPlan);
       setState(patch);
+      if(btn.dataset.tab==='plan') refrescarPlanSiCorresponde();
     });
   });
 
@@ -9537,7 +9590,7 @@ function bind(){
     if(btnCalIrContar) btnCalIrContar.addEventListener('click', ()=>{
       const fecha = state.calendario.diaSeleccionado;
       detenerEscaner();
-      setState({view:'conteo', contarPlan:{...state.contarPlan, cargado:false, cargando:false, fecha}});
+      setState({view:'conteo', contarPlan:{...state.contarPlan, cargado:false, cargando:false, fecha, fechaManual:true}});
     });
     const btnCalIrBuscar = document.getElementById('cal-ir-buscar');
     if(btnCalIrBuscar) btnCalIrBuscar.addEventListener('click', ()=> irABuscarDelDia(state.calendario.diaSeleccionado));
@@ -9719,7 +9772,7 @@ function bind(){
       const btnEscanerPlan = document.getElementById('btn-escanear-plan');
       if(btnEscanerPlan) btnEscanerPlan.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
       const fechaEl = document.getElementById('contar-fecha');
-      if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value) cargarPlanDeHoy(e.target.value); });
+      if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value){ state.contarPlan.fechaManual = true; cargarPlanDeHoy(e.target.value); } });
       const btnExportarPlanDia = document.getElementById('btn-exportar-plan-dia');
       if(btnExportarPlanDia) btnExportarPlanDia.addEventListener('click', imprimirPlanDelDia);
       const cBodega = document.getElementById('contar-bodega');
@@ -10339,6 +10392,9 @@ async function iniciarApp(){
   window.addEventListener('online', ()=> sincronizarColaOffline().catch(e=>toast(e.message,'err')));
   // Red de seguridad global (Sentry #227) -- ver mensajeParaRechazoNoCapturado más arriba.
   window.addEventListener('unhandledrejection', e=> toast(mensajeParaRechazoNoCapturado(e.reason), 'err'));
+  // Ver alVolverAPrimerPlano: la PWA puede quedar abierta de un día para otro.
+  document.addEventListener('visibilitychange', alVolverAPrimerPlano);
+  window.addEventListener('focus', alVolverAPrimerPlano);
   procesarRetornoFlow();
   procesarRegistroPlanDesdeUrl();
   await procesarLlegadaPorInvitacion();
