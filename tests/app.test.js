@@ -171,6 +171,25 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/plan_semanal_exclusiones')){
     return { status: 201, ok: true, headers: { get: () => null }, text: async () => '' };
   }
+  if(path.startsWith('/rest/v1/plan_semanal_incluidos')){
+    return { status: 201, ok: true, headers: { get: () => null }, text: async () => '' };
+  }
+  // Planificar por código: buscador (skus_planificables con or=ilike) + marca de "ya en el plan"
+  // (skus_disponibles_planificar por id). ROD-2 ya está cubierto por otra entrada.
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin&or=(sku_code.ilike.')){
+    const t = decodeURIComponent((path.match(/sku_code\.ilike\.\*([^*]*)\*/)||[])[1]||'').toLowerCase();
+    const todos = [
+      {id:'rod-1', sku_code:'ROD-1', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01'},
+      {id:'rod-2', sku_code:'ROD-2', descripcion:'Rodamiento 6206', bodega:'Nave Mina', ubicacion:'Patio', storage_bin:null},
+      {id:'rod-3', sku_code:'ROD-3', descripcion:'Rodamiento suelto', bodega:null, ubicacion:null, storage_bin:null},
+      {id:'rod-4', sku_code:'ROD-4', descripcion:'Rodamiento sin ubicación específica', bodega:'Nave Mina', ubicacion:null, storage_bin:null},
+    ].filter(x=> x.sku_code.toLowerCase().includes(t) || (x.descripcion||'').toLowerCase().includes(t));
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(todos) };
+  }
+  if(path.startsWith('/rest/v1/skus_disponibles_planificar?select=id&id=in.(')){
+    const ids = decodeURIComponent((path.match(/id=in\.\(([^)]*)\)/)||[])[1]||'').split(',').filter(Boolean);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(ids.filter(id=>id!=='rod-2').map(id=>({id}))) };
+  }
   if(path.startsWith('/rest/v1/plan_semanal') && !path.startsWith('/rest/v1/plan_semanal_detalle') && opts && opts.method==='POST'){
     // crearPlanEntrada pide return=representation para conocer el id de la fila recién creada
     // (necesario para mandar las exclusiones de SKU cuando aplica — ver "sin bin, elegir SKU").
@@ -8237,6 +8256,99 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await Promise.resolve(); await Promise.resolve();
   assert(ctx.__appstate.calendario.mes==='2026-09-01', 'el botón de mes anterior debe retroceder a septiembre, obtuvo: '+ctx.__appstate.calendario.mes);
   calendarioFixture = null;
+
+  // ===== Planificar por código de SKU =====
+  // Pedido de Joel: en "Agregar a la planificación" poder buscar materiales por código y armar el
+  // plan con esos SKU puntuales, sin pasar por bodega/ubicación/bin.
+  {
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10', diaFiltro:null, cicloFiltro:'', rango:'semana', entradas:[], universos:{}, detalle:{}, seleccionados:[], modoAgregar:'ubicacion', skusElegidos:[], responsables:[]};
+    let htmlPlanModo = ctx.renderPlanificacion();
+    assert(htmlPlanModo.includes('id="p-modo-ubicacion"') && htmlPlanModo.includes('id="p-modo-sku"'), 'el formulario debe ofrecer los dos modos (Por ubicación / Por código de SKU), obtuvo: '+htmlPlanModo.slice(0,400));
+    assert(/id="p-campos-sku" style="display:none"/.test(htmlPlanModo) && !/id="p-campos-ubicacion" style="display:none"/.test(htmlPlanModo), 'en modo ubicación, los campos por código van ocultos y los de ubicación visibles');
+
+    ctx.cambiarModoAgregarPlan('sku');
+    assert(ctx.__appstate.plan.modoAgregar==='sku', 'cambiarModoAgregarPlan debe guardar el modo');
+    htmlPlanModo = ctx.renderPlanificacion();
+    assert(/id="p-campos-ubicacion" style="display:none"/.test(htmlPlanModo) && !/id="p-campos-sku" style="display:none"/.test(htmlPlanModo), 'en modo SKU, los campos de ubicación van ocultos (siguen en el DOM para no romper la cascada) y el buscador visible');
+    assert(htmlPlanModo.includes('id="p-sku-buscar"') && htmlPlanModo.includes('Aún no has elegido ningún SKU'), 'debe mostrar el buscador y el aviso de que no hay SKU elegidos, obtuvo: '+htmlPlanModo.slice(0,300));
+
+    // Búsqueda: menos de 2 caracteres no consulta; con texto consulta skus_planificables y marca
+    // los ya cubiertos por otra entrada (ROD-2) sin sacarlos de la lista.
+    calls.length = 0;
+    await ctx.buscarSkuParaPlan('r');
+    assert(!calls.some(c=>c.url.includes('/skus_planificables')), 'con menos de 2 caracteres no debe consultar el servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const resultadosEl = makeEl('p-sku-resultados');
+    await ctx.buscarSkuParaPlan('rod');
+    assert(calls.some(c=>c.url.includes('/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin&or=(sku_code.ilike.*rod*,descripcion.ilike.*rod*)')), 'debe buscar por código o descripción en skus_planificables (solo pendientes del período), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar?select=id&id=in.(rod-1,rod-2,rod-3,rod-4)')), 'debe cruzar los resultados contra skus_disponibles_planificar por id para marcar los ya planificados, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(resultadosEl.innerHTML.includes('data-elegir-sku-plan="rod-1"') && resultadosEl.innerHTML.includes('Rodamiento 6205') && resultadosEl.innerHTML.includes('Nave Mina · Interior Nave · A-01'), 'la lista debe mostrar código, descripción y zona de cada resultado, obtuvo: '+resultadosEl.innerHTML);
+    assert((resultadosEl.innerHTML.match(/Ya en el plan/g)||[]).length===1 && /data-elegir-sku-plan="rod-2"[^>]*>[\s\S]*?Ya en el plan/.test(resultadosEl.innerHTML), 'solo ROD-2 (ausente de skus_disponibles_planificar) debe ir marcado "Ya en el plan", obtuvo: '+resultadosEl.innerHTML);
+
+    // Elegir: se agrega una vez (no duplica), el resultado queda deshabilitado como "Elegido";
+    // Enter elige el que calza exacto por código.
+    ctx.elegirSkuParaPlan('rod-1');
+    ctx.elegirSkuParaPlan('rod-1');
+    assert(ctx.__appstate.plan.skusElegidos.length===1 && ctx.__appstate.plan.skusElegidos[0].sku_code==='ROD-1', 'elegir dos veces el mismo SKU debe dejarlo una sola vez, obtuvo: '+JSON.stringify(ctx.__appstate.plan.skusElegidos));
+    assert(/data-elegir-sku-plan="rod-1" disabled/.test(ctx.htmlResultadosSkuPlan()) && ctx.htmlResultadosSkuPlan().includes('Elegido'), 'el SKU ya elegido debe verse deshabilitado y marcado "Elegido", obtuvo: '+ctx.htmlResultadosSkuPlan());
+    await ctx.buscarSkuParaPlan('ROD-3');
+    ctx.elegirPrimerResultadoSkuPlan();
+    assert(ctx.__appstate.plan.skusElegidos.some(s=>s.sku_code==='ROD-3'), 'Enter debe elegir el resultado que calza exacto por código, obtuvo: '+JSON.stringify(ctx.__appstate.plan.skusElegidos));
+    await ctx.buscarSkuParaPlan('rod');
+    ctx.elegirSkuParaPlan('rod-2');
+    ctx.elegirSkuParaPlan('rod-4');
+    const htmlChips = ctx.renderPlanificacion();
+    assert(htmlChips.includes('4 SKU elegidos') && htmlChips.includes('se crearán 4 entradas') && (htmlChips.match(/data-quitar-sku-plan=/g)||[]).length===4, 'debe listar los 4 elegidos como chips y anticipar cuántas entradas se crearán (una por bodega+ubicación), obtuvo: '+htmlChips.slice(htmlChips.indexOf('p-campos-sku'), htmlChips.indexOf('p-campos-sku')+900));
+    ctx.quitarSkuElegidoPlan('rod-4');
+    assert(ctx.__appstate.plan.skusElegidos.length===3 && !ctx.__appstate.plan.skusElegidos.some(s=>s.id==='rod-4'), 'quitar un chip debe sacarlo de los elegidos, obtuvo: '+JSON.stringify(ctx.__appstate.plan.skusElegidos));
+
+    // Agrupación por zona: ROD-1 (Nave Mina/Interior Nave), ROD-2 (Nave Mina/Patio) y ROD-3
+    // (sin bodega ni ubicación) -> 3 entradas.
+    const grupos = ctx.agruparSkusElegidosPorZona(ctx.__appstate.plan.skusElegidos);
+    assert(grupos.length===3, 'debe agrupar por bodega+ubicación (3 zonas distintas), obtuvo: '+JSON.stringify(grupos));
+
+    // Submit del formulario en modo SKU: una fila plan_semanal por zona con por_sku:true y la
+    // lista exacta en plan_semanal_incluidos; sin exclusiones ni foto plan_semanal_skus.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, rango:'semana', diaFiltro:null, cicloFiltro:''};
+    ctx.renderPlanificacion();
+    const viewAntesSku = ctx.__appstate.view;
+    ctx.__appstate.view = 'plan';
+    delete elements['form-plan'];
+    ctx.bind();
+    ctx.__appstate.view = viewAntesSku;
+    makeEl('p-fecha').value = '2026-08-12';
+    makeEl('p-responsable').value = 'u1';
+    makeEl('p-nota').value = 'Urgente';
+    calls.length = 0;
+    const formPlanSku = elements['form-plan'];
+    await new Promise(resolve => { formPlanSku.dispatch('submit', {target: formPlanSku, preventDefault(){}}); setTimeout(resolve, 30); });
+    const postsPlan = calls.filter(c=>c.opts && c.opts.method==='POST' && /\/rest\/v1\/plan_semanal(\?|$)/.test(c.url)).map(c=>JSON.parse(c.opts.body)).flat();
+    assert(postsPlan.length===3 && postsPlan.every(f=>f.por_sku===true && f.fecha==='2026-08-12' && f.responsable_id==='u1' && f.nota==='Urgente' && f.storage_bin===null), 'debe crear 3 entradas por_sku con fecha, responsable y nota, sin storage_bin, obtuvo: '+JSON.stringify(postsPlan));
+    const zonas = postsPlan.map(f=>`${f.bodega}|${f.ubicacion}|${f.solo_sin_ubicacion}|${f.ubicacion_nula}`).sort();
+    assert(JSON.stringify(zonas)===JSON.stringify(['Nave Mina|Interior Nave|false|false','Nave Mina|Patio|false|false','null|null|true|false']), 'cada entrada debe llevar la zona de su grupo (y "SKU sin ubicación" para los sueltos), obtuvo: '+JSON.stringify(zonas));
+    const postsIncl = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_incluidos')).map(c=>JSON.parse(c.opts.body)).flat();
+    assert(postsIncl.length===3 && postsIncl.every(r=>r.plan_id && r.sku_id && r.sku_code) && postsIncl.map(r=>r.sku_code).sort().join(',')==='ROD-1,ROD-2,ROD-3', 'debe guardar la lista exacta en plan_semanal_incluidos (plan_id, sku_id, sku_code), obtuvo: '+JSON.stringify(postsIncl));
+    assert(!calls.some(c=>c.opts && c.opts.method==='POST' && (c.url.includes('/plan_semanal_exclusiones') || c.url.includes('/plan_semanal_skus'))), 'por código no debe mandar exclusiones ni foto plan_semanal_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.plan.skusElegidos.length===0, 'tras agregar, la lista de elegidos debe quedar vacía');
+    assert(calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'tras agregar debe recargar la planificación');
+
+    // Sin elegidos, el submit avisa y no crea nada.
+    calls.length = 0;
+    await ctx.agregarPlanPorSku({fecha:'2026-08-12', responsableId:'', nota:''});
+    assert(!calls.some(c=>c.opts && c.opts.method==='POST'), 'sin SKU elegidos no debe crear entradas, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+    // Etiqueta y universo de una entrada por código en la lista de Planificación.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'ubicacion', entradas:[{id:'pc1', fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:null, por_sku:true, skus_incluidos:['ROD-1'], responsable_nombre:'Ana', ciclo_nombre:null, skus_excluidos:[]}], universos:{pc1:1}, propios:{pc1:1}, detalle:{pc1:[{id:'rod-1', sku_code:'ROD-1', descripcion:'Rodamiento 6205'}]}};
+    const htmlEntradaCodigo = ctx.renderPlanificacion();
+    assert(htmlEntradaCodigo.includes('Por código · Nave Mina · Interior Nave') && htmlEntradaCodigo.includes('1 SKU elegidos por código'), 'la entrada por código debe verse con el prefijo "Por código" y su universo como SKU elegidos, obtuvo: '+htmlEntradaCodigo.slice(htmlEntradaCodigo.indexOf('plan-item-ubic'), htmlEntradaCodigo.indexOf('plan-item-ubic')+400));
+    assert(ctx.etiquetaUbicacionEntradaPlan({solo_sin_ubicacion:true, por_sku:true})==='Por código · SKU sin ubicación' && ctx.etiquetaUbicacionEntradaPlan({bodega:'B', ubicacion:'U', storage_bin:'X'})==='B · U · X', 'etiquetaUbicacionEntradaPlan debe cubrir ambos modos');
+
+    // Contar: una entrada por código cubre exactamente su lista, no toda la zona.
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, entradas:[{id:'pc1', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:null, por_sku:true, skus_incluidos:['ROD-1'], skus_excluidos:[], solo_sin_ubicacion:false, ubicacion_nula:false}], skusPendientes:[]};
+    assert(ctx.skuCubiertoPorPlanDelDia({sku_code:'ROD-1', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01'})===true, 'un SKU de la lista de una entrada por código debe contar como "Plan"');
+    assert(ctx.skuCubiertoPorPlanDelDia({sku_code:'OTRO', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01'})===false, 'otro SKU de la misma zona NO está cubierto por una entrada por código (sería "Fuera de plan")');
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, entradas:[]};
+  }
 
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);
