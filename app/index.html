@@ -487,11 +487,6 @@ let state = {
   // criticidad: ''=todos, 'criticos'=solo críticos, 'no_criticos'=solo no críticos -- a pedido
   // de Joel ("un filtro que permita separar los críticos y el resto").
   resumenGeneral: { fechaDesde:'', fechaHasta:'', criticidad:'', tipoGrafico:'torta', datos:null, cargando:false },
-  ultimosConteos: [],
-  ultimosConteosHayMas: false,
-  ultimosConteosCargandoMas: false,
-  ultimosConteosCicloId: null,
-  dashMaterialesPagina: 0, // página actual de "Materiales contados" (Dashboard operativo), 15 filas por página
   fotoModal: null,        // {urls:[...], index:0}
   descartarReconteoModal: null, // {conteoId, skuCode, motivo, guardando}
   skusPagina: { rows: [], page: 0, total: 0 },
@@ -688,15 +683,8 @@ const TAM_PAGINA_AUDITORIA = 20;
 // Tabla "Diario" del Dashboard operativo: pagina client-side sobre las filas ya cargadas
 // (avance_diario trae hasta 60 de una vez, ver cargarDashboard), 15 a la vez (a pedido de Joel).
 const TAM_PAGINA_DASH_DIARIO = 15;
-// Tabla "Materiales contados" del Dashboard operativo: mismo tamaño de página (15) que Diario,
-// pero paginando sobre state.ultimosConteos -- que se carga del servidor de a TAM_PAGINA_LISTA
-// (30) por tanda (ver cargarUltimosConteos/cargarMasUltimosConteos), un tamaño de carga propio
-// que no conviene mezclar con el de despliegue: 30 alcanza para 2 páginas de 15 sin pedir más al
-// servidor, y cambiar TAM_PAGINA_LISTA afectaría de paso leads, Buscar y Reconteo (que la
-// comparten), algo que Joel no pidió acá.
-const TAM_PAGINA_DASH_MATERIALES = 15;
-// Tabla de resultados de "Buscar" (maestro de SKU): mismo criterio que Materiales contados --
-// se muestra de a 15, pero se sigue cargando del servidor de a TAM_PAGINA_LISTA (30) por tanda
+// Tabla de resultados de "Buscar" (maestro de SKU): se muestra de a 15 (como Diario), pero se
+// sigue cargando del servidor de a TAM_PAGINA_LISTA (30) por tanda
 // (ver buscarConteos/buscarMasConteos), sin tocar esa constante compartida con leads y Reconteo.
 const TAM_PAGINA_BUSCAR = 15;
 // Valor especial del selector "Ubicación general" en Planificación para agrupar los SKU
@@ -1312,7 +1300,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, ultimosConteos:[], ultimosConteosHayMas:false, ultimosConteosCargandoMas:false, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1345,7 +1333,7 @@ async function cargarTodo(){
   // preseleccionado. Antes iban los dos en paralelo y cada arranque de la app pedía DOS veces la
   // planificación (la semana, y al segundo el período completo) -- la semana se descartaba por el
   // token de carrera, pero la base de datos igual la calculaba.
-  const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarUltimosConteos(), cargarSkusPagina(0), cargarReconteos(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
+  const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarSkusPagina(0), cargarReconteos(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
   await Promise.all(tareas);
 }
 
@@ -3486,48 +3474,6 @@ async function cargarResumenGeneralSkus(){
   }
 }
 
-// Igual que el resto de las métricas del dashboard ejecutivo (avance_total, exactitud_por_bodega,
-// etc.): se acota al ciclo de conteo actual, no a todo el histórico — si no, "Conteos recientes"
-// termina mostrando siempre el límite de la página (TAM_PAGINA_LISTA) aunque esos conteos sean de
-// períodos ya cerrados, sin relación con la actividad del período vigente.
-async function cargarUltimosConteos(){
-  try{
-    const cicloId = await rest('/rpc/ciclo_actual', {method:'POST'});
-    const filtroCiclo = cicloId ? `&ciclo_id=eq.${cicloId}` : '';
-    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}${filtroCiclo}`);
-    setState({ultimosConteos: rows||[], ultimosConteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, ultimosConteosCicloId: cicloId||null, dashMaterialesPagina: 0});
-  }catch(e){ /* silencioso */ }
-}
-
-async function cargarMasUltimosConteos(){
-  if(state.ultimosConteosCargandoMas) return;
-  state.ultimosConteosCargandoMas = true;
-  render();
-  try{
-    const filtroCiclo = state.ultimosConteosCicloId ? `&ciclo_id=eq.${state.ultimosConteosCicloId}` : '';
-    const rows = await rest(`/conteos?select=*,skus(sku_code,descripcion),conteo_fotos(foto_url)&order=fecha_conteo.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.ultimosConteos.length}${filtroCiclo}`);
-    state.ultimosConteos = state.ultimosConteos.concat(rows||[]);
-    state.ultimosConteosHayMas = (rows||[]).length === TAM_PAGINA_LISTA;
-  }catch(e){ toast(e.message,'err'); }
-  state.ultimosConteosCargandoMas = false;
-  render();
-}
-
-// Paginado de "Materiales contados" (Dashboard operativo), 15 filas por página -- a diferencia
-// del resto de las tablas paginadas client-side, acá los datos pueden no estar completos
-// todavía: si la página pedida cae fuera de lo ya cargado, primero trae la siguiente tanda del
-// servidor (cargarMasUltimosConteos, de a TAM_PAGINA_LISTA) y recién ahí avanza la página.
-async function avanzarPaginaMateriales(){
-  const siguiente = (state.dashMaterialesPagina||0) + 1;
-  if(siguiente*TAM_PAGINA_DASH_MATERIALES >= state.ultimosConteos.length && state.ultimosConteosHayMas){
-    await cargarMasUltimosConteos();
-  }
-  setState({dashMaterialesPagina: siguiente});
-}
-function retrocederPaginaMateriales(){
-  setState({dashMaterialesPagina: Math.max(0, (state.dashMaterialesPagina||0)-1)});
-}
-
 // Quita caracteres que puedan romper la sintaxis de filtros de PostgREST (,()."*)
 function sanearTextoFiltro(s){
   return String(s||'').replace(/[,()."*]/g, ' ').trim();
@@ -3665,9 +3611,9 @@ function filtrarResultadosBusqueda(rows){
   return rows.filter(r=> (r.fotos||[]).length>0);
 }
 
-// Salto directo a Buscar con un SKU puntual precargado — usado desde "Materiales contados"
-// (Dashboard operativo) para ver el historial completo de un material sin tener que copiar el
-// código y escribirlo a mano. Limpia el resto de los filtros: si quedaran de una búsqueda
+// Salto directo a Buscar con un SKU puntual precargado (botones data-buscar-sku) para ver el
+// historial completo de un material sin tener que copiar el código y escribirlo a mano. Limpia
+// el resto de los filtros: si quedaran de una búsqueda
 // anterior (ubicación, estado, ciclo, checkboxes), el material buscado podría no aparecer.
 function irABuscarSku(skuCode){
   setState({
@@ -3750,8 +3696,8 @@ async function buscarMasConteos(){
   render();
 }
 
-// Paginado de "Buscar" (Maestro de SKU), 15 filas por página -- mismo patrón que
-// avanzarPaginaMateriales: "Solo con fotografías" filtra en el cliente después de traer cada
+// Paginado de "Buscar" (Maestro de SKU), 15 filas por página, sobre tandas de TAM_PAGINA_LISTA
+// del servidor: "Solo con fotografías" filtra en el cliente después de traer cada
 // tanda, así que una sola tanda del servidor puede no alcanzar para completar la página pedida;
 // por eso el while, no un solo llamado, sigue pidiendo tandas mientras falten filas y el
 // servidor todavía tenga más (hayMas).
@@ -4712,7 +4658,7 @@ async function sincronizarColaOffline(){
   state.sincronizandoOffline = false;
   if(enviados>0){
     toast(`${enviados} cambio${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
-    cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
+    cargarDashboard(); cargarResumenGeneralSkus(); cargarReconteos(); refrescarListaSkus();
   }
   render();
 }
@@ -4730,7 +4676,7 @@ async function reintentarAccionOffline(id){
   if(resultado.ok){
     quitarDeColaOffline(id);
     toast(item.tipo==='sku' ? 'SKU sincronizado' : 'Conteo sincronizado');
-    cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos(); refrescarListaSkus();
+    cargarDashboard(); cargarResumenGeneralSkus(); cargarReconteos(); refrescarListaSkus();
   }else if(resultado.red){
     toast('Sigue sin haber conexión','err');
   }else{
@@ -4935,7 +4881,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     toast('Conteo registrado');
     setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
-    cargarDashboard(); cargarResumenGeneralSkus(); cargarUltimosConteos(); cargarReconteos();
+    cargarDashboard(); cargarResumenGeneralSkus(); cargarReconteos();
   }catch(e){
     // Sin conexión de verdad, o señal tan lenta que rest() abortó el intento (ver
     // UMBRAL_ABORTAR_GUARDADO_MS): en ambos casos guardamos el conteo (y sus fotos, en
@@ -5933,8 +5879,9 @@ function renderInformeEjecutivo(){
   // Orden pedido por Joel: avance global, exactitud, adherencia, valorización y proyección
   // primero (el resumen ejecutivo de un vistazo); el resto (detalle/tendencia de cada uno y
   // rankings) queda abajo, agrupado cerca del resumen del que es detalle. La tarjeta "Conteos
-  // recientes" (cantidad de conteos cargados, con reconteos) se sacó a pedido de Joel: no
-  // agregaba valor. El listado "Materiales contados" sigue en la vista Operativo.
+  // recientes" (cantidad de conteos cargados, con reconteos) y el listado "Materiales contados"
+  // de la vista Operativo se sacaron a pedido de Joel: no agregaban valor (Buscar ya lista los
+  // conteos con todos sus filtros).
   return `
     <div class="kpi-grid">
       <div class="tag-card">
@@ -6221,13 +6168,6 @@ function renderDashboard(){
   const diarioPaginaActual = Math.min(state.dashDiarioPagina||0, diarioTotalPaginas-1);
   const diarioRows = state.dash.diario.slice(diarioPaginaActual*TAM_PAGINA_DASH_DIARIO, diarioPaginaActual*TAM_PAGINA_DASH_DIARIO + TAM_PAGINA_DASH_DIARIO);
 
-  // Materiales contados pagina de a 15 filas también, sobre lo ya traído del servidor
-  // (state.ultimosConteos, cargado de a TAM_PAGINA_LISTA por tanda) -- ver avanzarPaginaMateriales,
-  // que pide la siguiente tanda al servidor solo si hace falta para completar la página pedida.
-  const materialesPagina = Math.min(state.dashMaterialesPagina||0, Math.max(0, Math.ceil(state.ultimosConteos.length/TAM_PAGINA_DASH_MATERIALES)-1));
-  const materialesRows = state.ultimosConteos.slice(materialesPagina*TAM_PAGINA_DASH_MATERIALES, materialesPagina*TAM_PAGINA_DASH_MATERIALES + TAM_PAGINA_DASH_MATERIALES);
-  const materialesHaySiguiente = (materialesPagina+1)*TAM_PAGINA_DASH_MATERIALES < state.ultimosConteos.length || state.ultimosConteosHayMas;
-
   const vistaOperativa = `
     <div class="section-head"><h2 style="font-size:17px">Diario ${campoConInfo('SKU contados, con diferencia, reconteos y unidades por día calendario.')}</h2></div>
     <div class="card">
@@ -6245,35 +6185,6 @@ function renderDashboard(){
     <div class="section-head"><h2 style="font-size:17px">Mensual ${campoConInfo('Igual que Diario, agrupado por mes (Mes Año).')}</h2></div>
     <div class="card">${periodTable(state.dash.mensual,'Mes','mes',fmtMes)}</div>
 
-    <div class="section-head"><div><span class="eyebrow">${state.ultimosConteos.length}${state.ultimosConteosHayMas?'+':''}</span><h2 style="font-size:17px">Materiales contados (ciclo actual) ${campoConInfo('Últimos conteos en tiempo real; no cambia con el selector de período de Adherencia — para filtrar conteos puntuales usa Buscar.')}</h2></div></div>
-    <div class="card">
-      ${state.ultimosConteos.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th class="num">Contado</th><th>Estado</th><th>Fecha</th><th class="num">Fotos</th></tr></thead>
-        <tbody>${materialesRows.map(c=>{
-          const skuCode = c.skus? c.skus.sku_code : '';
-          const fotos = (c.conteo_fotos||[]).length;
-          return `<tr>
-          <td class="mono">${skuCode
-            ? `<button class="link-btn" data-buscar-sku="${esc(skuCode)}" title="Buscar este material">${esc(skuCode)}</button>`
-            : '—'}</td>
-          <td class="num">${c.cantidad_contada}</td>
-          <td>${estadoBadge(c.estado, c.diferencia)}</td>
-          <td class="mono" style="font-size:11.5px">
-            ${fmtFechaHora(c.fecha_conteo)}
-            ${fueCapturadoOffline(c.capturado_en, c.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(c.capturado_en)} · sin conexión</div>` : ''}
-          </td>
-          <td class="num">${fotos
-            ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(c.conteo_fotos.map(f=>f.foto_url)))}" aria-label="Ver fotos">${ICONS.camera} ${fotos}</button>`
-            : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera} 0</span>`}</td>
-        </tr>`;
-        }).join('')}</tbody>
-      </table></div>` : `<div class="empty">Todavía no se han registrado conteos.</div>`}
-      ${state.ultimosConteos.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
-        <button class="btn btn-secondary" id="dash-materiales-prev" style="width:auto;flex:none;padding:8px 14px" ${materialesPagina<=0?'disabled':''}>Anterior</button>
-        <span class="hint" style="margin:0">${state.ultimosConteosCargandoMas?'Cargando…':`pág. ${materialesPagina+1}`}</span>
-        <button class="btn btn-secondary" id="dash-materiales-next" style="width:auto;flex:none;padding:8px 14px" ${(!materialesHaySiguiente || state.ultimosConteosCargandoMas)?'disabled':''}>Siguiente</button>
-      </div>` : ''}
-    </div>
   `;
 
   return `
@@ -6995,8 +6906,8 @@ function renderBuscar(){
   const resultadosFiltrados = nombresFiltro
     ? resultados.filter(r=> r.conteo_id && nombresFiltro.includes(r.contado_por || 'Sin asignar'))
     : null;
-  // Igual que Materiales contados (Dashboard operativo): 15 filas por página sobre lo ya
-  // cargado del servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar.
+  // Igual que Diario (Dashboard operativo): 15 filas por página sobre lo ya cargado del
+  // servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar.
   const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(resultados.length/TAM_PAGINA_BUSCAR)-1));
   const resultadosPagina = resultadosFiltrados || resultados.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
   const busquedaHaySiguiente = !resultadosFiltrados && ((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < resultados.length || b.hayMas);
@@ -9030,10 +8941,6 @@ function bind(){
     const btnDashDiarioNext = document.getElementById('dash-diario-next');
     if(btnDashDiarioPrev) btnDashDiarioPrev.addEventListener('click', ()=> setState({dashDiarioPagina: Math.max(0, (state.dashDiarioPagina||0)-1)}));
     if(btnDashDiarioNext) btnDashDiarioNext.addEventListener('click', ()=> setState({dashDiarioPagina: (state.dashDiarioPagina||0)+1}));
-    const btnDashMaterialesPrev = document.getElementById('dash-materiales-prev');
-    const btnDashMaterialesNext = document.getElementById('dash-materiales-next');
-    if(btnDashMaterialesPrev) btnDashMaterialesPrev.addEventListener('click', retrocederPaginaMateriales);
-    if(btnDashMaterialesNext) btnDashMaterialesNext.addEventListener('click', avanzarPaginaMateriales);
     const btnExportarInforme = document.getElementById('btn-exportar-informe');
     if(btnExportarInforme) btnExportarInforme.addEventListener('click', imprimirInformeCiclo);
     // Estado general de SKU (ver renderResumenGeneralSkus): el tipo de gráfico es puramente
