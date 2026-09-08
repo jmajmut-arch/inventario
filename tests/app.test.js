@@ -334,6 +334,11 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Vista previa del plan por grupo (ver calcularVistaPreviaPlanGrupo): trae las filas activas
   // de skus que coinciden con los códigos de los miembros, para filtrar acá cuáles ya vencieron.
+  // Descripciones para el PDF de un ciclo cerrado (ver imprimirHistorialCicloGrupo): el historial
+  // guarda solo código y bodega, así que el PDF las pide al maestro de a 100 códigos.
+  if(path.startsWith('/rest/v1/skus?sku_code=in.')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_code:'SEG-A', bodega:'SB1', descripcion:'Sello de bomba A'}, {sku_code:'SEG-B', bodega:'SB1', descripcion:'Sello de bomba B'}]) };
+  }
   if(path.startsWith('/rest/v1/skus?activo=eq.true&sku_code=in.')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filasVencidasGrupoFixture||[]) };
   }
@@ -5322,6 +5327,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.alternarDetalleHistorialCiclo('grupo-critico', '2026-06-01', '2026-08-29');
   assert(ctx.__appstate.grupos.historialAbierto===null, 'tocar de nuevo el mismo ciclo debe colapsarlo, obtuvo: '+ctx.__appstate.grupos.historialAbierto);
   assert(!calls.some(c=>c.url.includes('/historial_ciclos_grupo?')), 'al colapsar no debe volver a pedir el detalle, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // PDF de un ciclo cerrado (a pedido de Joel): botón por ciclo en el historial, y
+  // imprimirHistorialCicloGrupo arma la hoja con descripción, estado y fecha de cada material.
+  assert(htmlHistorialExpandido.includes('data-pdf-historial-ciclo="2026-06-01|2026-08-29"'), 'cada ciclo cerrado debe tener su botón de PDF, obtuvo: '+htmlHistorialExpandido);
+  const printElHistorial = makeEl('print-plan');
+  makeEl('print-informe'); makeEl('print-buscar');
+  printCalled = 0;
+  calls.length = 0;
+  await ctx.imprimirHistorialCicloGrupo('grupo-critico', '2026-06-01', '2026-08-29');
+  assert(printCalled===1, 'imprimirHistorialCicloGrupo debe llamar a window.print()');
+  assert(calls.some(c=>c.url.includes('/historial_ciclos_grupo?grupo_id=eq.grupo-critico') && c.url.includes('fecha_inicio=eq.2026-06-01')), 'el PDF debe pedir el detalle del ciclo elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/skus?sku_code=in.') && c.url.includes('SEG-A')), 'el PDF debe pedir las descripciones al maestro por código, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(printElHistorial.innerHTML.includes('Cierre de ciclo') && printElHistorial.innerHTML.includes('1 de 2 contados'), 'el PDF debe titularse como cierre de ciclo y resumir contados de total, obtuvo: '+printElHistorial.innerHTML);
+  assert(printElHistorial.innerHTML.includes('SEG-A') && printElHistorial.innerHTML.includes('Sello de bomba A') && printElHistorial.innerHTML.includes('Contado') && printElHistorial.innerHTML.includes('SEG-B') && printElHistorial.innerHTML.includes('Pendiente'), 'el PDF debe listar cada material con descripción y estado, obtuvo: '+printElHistorial.innerHTML);
 
   historialCiclosFixture = null;
   historialDetalleFixture = null;

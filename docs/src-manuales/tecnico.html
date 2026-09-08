@@ -274,7 +274,8 @@
       <li>Vista previa del plan por capacidad: personas × horas por semana × materiales por hora = cupo semanal; reparte los pendientes en semanas y zonas, sin crear nada hasta confirmar</li>
       <li>Generar el plan: una entrada por storage bin, con exclusiones para los materiales de la zona que no son del grupo, sin responsable (se reparte en Plan). Generar de nuevo reemplaza las entradas anteriores del grupo</li>
       <li>Resumen del plan generado por grupo en una llamada (RPC <code>resumen_plan_grupos</code>): entradas, SKU por contar, rango de fechas y entradas por venir</li>
-      <li>Cierre automático de ciclo: cron diario <code>cerrar_ciclos_grupo_vencidos</code> (05:00 UTC) guarda en <code>historial_ciclos_grupo</code> quién quedó contado y quién no, y reinicia la fecha de inicio. Recupera ciclos atrasados si el cron no corrió un día</li>
+      <li>Cierre automático de ciclo: cron diario <code>cerrar_ciclos_grupo_vencidos</code> (05:00 UTC). Cuando <code>fecha_inicio + frecuencia</code> ya pasó, guarda en <code>historial_ciclos_grupo</code> la foto de quién quedó contado y quién no entre la fecha de inicio y el día anterior al cierre, y el ciclo nuevo parte el día del cierre con todo pendiente. Si el cron se atrasa, los conteos intermedios quedan en el ciclo cerrado. Un re-cierre de la misma fecha de inicio reemplaza la foto anterior</li>
+      <li>PDF de cada ciclo cerrado desde el historial (detalle por material con descripción, estado y fecha de conteo)</li>
       <li>Pausar (<code>activo = false</code>) y reactivar con fecha de inicio hoy; al pausar, la app ofrece borrar solo las entradas futuras generadas por ese grupo, nunca las pasadas ni las contadas</li>
     </ul>
     <ul class="checks no">
