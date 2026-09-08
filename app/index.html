@@ -1420,6 +1420,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
+  olvidarCargasPorVista();
   return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
@@ -1448,14 +1449,54 @@ function manejarSesionInvalida(){
 /* =======================================================================
    CARGA DE DATOS
    ======================================================================= */
+/* ---- Arranque por pestaña -------------------------------------------------------------
+   Antes cargarTodo() disparaba ~25 consultas en paralelo al iniciar sesión (dashboard completo,
+   filtros de categorías/unidades/batches, resumen ABC, ubicaciones generales, reconteos, página
+   de SKU, planificación...), casi todas agregados sobre los 63.000 SKU de una empresa real, y se
+   estorbaban entre sí: medido en producción, la misma consulta tardaba 3 veces más en el arranque
+   que sola. Y se cargaban para todos, incluido un operador que solo va a Contar. Ahora al arrancar
+   va solo lo transversal (maestro para el buscador/escáner, períodos, cola offline) y cada pestaña
+   pide lo suyo la primera vez que se muestra (ver asegurarDatosDeVista); las acciones que antes
+   recargaban todo refrescan solo lo que ya está cargado (refrescarSiCargada). */
 async function cargarTodo(){
-  // cargarPlanSemanal() no va acá: lo dispara cargarCiclos() una vez que sabe qué período viene
-  // preseleccionado. Antes iban los dos en paralelo y cada arranque de la app pedía DOS veces la
-  // planificación (la semana, y al segundo el período completo) -- la semana se descartaba por el
-  // token de carrera, pero la base de datos igual la calculaba.
-  const tareas = [cargarSkus(), cargarDashboard(), cargarResumenGeneralSkus(), cargarSkusPagina(0), cargarReconteos(), cargarOpcionesGenerales(), cargarOpcionesCategoriasUnidades(), cargarConteoSinUbicacion(), cargarResponsables(), cargarCiclos(), sincronizarColaOffline()];
+  // cargarPlanSemanal() no va acá: la primera carga la hace la pestaña Plan al mostrarse (ver
+  // refrescarPlanSiCorresponde); cargarCiclos() solo fija el período preseleccionado.
+  const tareas = [cargarSkus(), cargarCiclos(), sincronizarColaOffline(), asegurarDatosDeVista(state.view)];
   await Promise.all(tareas);
 }
+
+// Qué necesita cada pestaña (claves de CARGADORES). Buscar solo usa los períodos (transversal);
+// Calendario y Grupos ya cargan lo suyo con su propio flag `cargado`.
+const CARGAS_POR_VISTA = {
+  dashboard: ['dashboard'],
+  skus: ['skusPagina', 'opcionesSku', 'generales'],
+  reconteo: ['reconteos'],
+  plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
+};
+const CARGADORES = {
+  dashboard: ()=> Promise.all([cargarDashboard(), cargarResumenGeneralSkus()]),
+  skusPagina: ()=> cargarSkusPagina(state.skusPagina.page||0),
+  opcionesSku: ()=> cargarOpcionesCategoriasUnidades(),
+  generales: ()=> cargarOpcionesGenerales(),
+  sinUbicacion: ()=> cargarConteoSinUbicacion(),
+  responsables: ()=> cargarResponsables(),
+  reconteos: ()=> cargarReconteos(),
+  plan: ()=> refrescarPlanSiCorresponde(),
+};
+const cargasHechas = new Set();
+let vistaAseguradaAnterior = null;
+function asegurarDatosDeVista(vista){
+  if(!state.perfil) return Promise.resolve();
+  const pendientes = (CARGAS_POR_VISTA[vista]||[]).filter(k=>!cargasHechas.has(k));
+  pendientes.forEach(k=> cargasHechas.add(k));
+  return Promise.all(pendientes.map(k=> Promise.resolve().then(()=> CARGADORES[k]()).catch(()=>{})));
+}
+// Tras una acción que cambia datos (conteo guardado, cola offline sincronizada, carga masiva):
+// recarga solo lo que alguna pestaña ya pidió; lo demás se pedirá fresco cuando se muestre.
+function refrescarSiCargada(claves){
+  claves.forEach(k=>{ if(cargasHechas.has(k) && CARGADORES[k]) Promise.resolve().then(()=> CARGADORES[k]()).catch(()=>{}); });
+}
+function olvidarCargasPorVista(){ cargasHechas.clear(); vistaAseguradaAnterior = null; }
 
 async function cargarSkus(){
   try{
@@ -1667,7 +1708,7 @@ async function eliminarSkusSinContar(){
 
 function refrescarListaSkus(){
   cargarSkus();
-  cargarSkusPagina(state.skusPagina.page);
+  refrescarSiCargada(['skusPagina']);
 }
 
 /* =======================================================================
@@ -2171,14 +2212,16 @@ async function cargarCiclos(){
     if(!state.plan.cicloFiltroInicializado){
       const actual = (rows||[]).find(c=>c.es_actual);
       setState({plan:{...state.plan, cicloFiltro: actual? actual.id : state.plan.cicloFiltro, cicloFiltroInicializado:true}});
-      cargarPlanSemanal();
+      // La pestaña Plan carga lo suyo al mostrarse (asegurarDatosDeVista); si ya se está mirando,
+      // recargar acá con el período recién preseleccionado.
+      if(state.view==='plan') cargarPlanSemanal();
     }
   }catch(e){
     toast(e.message,'err');
     // Si no se pudieron leer los períodos, la planificación se muestra igual (por semana).
     if(!state.plan.cicloFiltroInicializado){
       setState({plan:{...state.plan, cicloFiltroInicializado:true}});
-      cargarPlanSemanal();
+      if(state.view==='plan') cargarPlanSemanal();
     }
   }
 }
@@ -5282,7 +5325,7 @@ async function sincronizarColaOffline(){
   state.sincronizandoOffline = false;
   if(enviados>0){
     toast(`${enviados} cambio${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
-    cargarDashboard(); cargarResumenGeneralSkus(); cargarReconteos(); refrescarListaSkus();
+    cargarSkus(); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
   }
   render();
 }
@@ -5300,7 +5343,7 @@ async function reintentarAccionOffline(id){
   if(resultado.ok){
     quitarDeColaOffline(id);
     toast(item.tipo==='sku' ? 'SKU sincronizado' : 'Conteo sincronizado');
-    cargarDashboard(); cargarResumenGeneralSkus(); cargarReconteos(); refrescarListaSkus();
+    cargarSkus(); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
   }else if(resultado.red){
     toast('Sigue sin haber conexión','err');
   }else{
@@ -5505,7 +5548,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     toast('Conteo registrado');
     setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
-    cargarDashboard(); cargarResumenGeneralSkus(); cargarReconteos();
+    refrescarSiCargada(['dashboard','reconteos']);
   }catch(e){
     // Sin conexión de verdad, o señal tan lenta que rest() abortó el intento (ver
     // UMBRAL_ABORTAR_GUARDADO_MS): en ambos casos guardamos el conteo (y sus fotos, en
@@ -9147,6 +9190,11 @@ function tabBtn(view,label){
    ======================================================================= */
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
+  if(state.session && state.perfil && state.view !== vistaAseguradaAnterior){
+    vistaAseguradaAnterior = state.view;
+    const vista = state.view;
+    Promise.resolve().then(()=> asegurarDatosDeVista(vista));
+  }
   // Ver capturarFormularioPlan: cualquier render (incluida actividad de fondo sin relación con
   // lo que la persona está llenando) reconstruye toda la pantalla desde cero, así que hay que
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
