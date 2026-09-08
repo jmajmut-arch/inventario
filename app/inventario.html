@@ -488,7 +488,8 @@ let state = {
   // -- {skuId, veces, cargando} o null si todavía no se consultó para el SKU actual. Aviso para
   // no duplicar trabajo si dos personas cuentan lo mismo sin saberlo (a pedido de Joel).
   conteoVecesPeriodo: null,
-  conteoFotos: [],       // [{file, preview}]
+  conteoFotos: [],       // [{file, preview, bytesOriginal}] -- file ya comprimido en el dispositivo (ver comprimirFoto)
+  comprimiendoFotos: null, // progreso de "Comprimir fotos existentes" (Configuraciones): {total, hechas, comprimidas, ahorroBytes, errores, cancelar}
   // true cuando guardarConteo lleva más de UMBRAL_GUARDADO_LENTO_MS esperando la respuesta del
   // servidor (señal mala en bodega/mina) -- muestra la barra de "esto está tardando" además del
   // spinner del botón, ver guardarConteo.
@@ -917,9 +918,7 @@ async function storageUpload(path, file){
 // -- si el proyecto no la tiene habilitada, el llamador debe reintentar sin transform
 // (ver resolverFotoParaPDF, que cae a reducirFotoEnNavegador()).
 async function crearUrlFirmada(fotoUrlORuta, transform){
-  const marcador = `/object/public/${BUCKET}/`;
-  const idx = fotoUrlORuta.indexOf(marcador);
-  const ruta = idx>=0 ? fotoUrlORuta.slice(idx+marcador.length) : fotoUrlORuta;
+  const ruta = rutaFotoDesdeUrl(fotoUrlORuta);
   const body = transform ? {expiresIn:3600, transform} : {expiresIn:3600};
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${BUCKET}/${ruta}`, {
     method:'POST',
@@ -929,6 +928,131 @@ async function crearUrlFirmada(fotoUrlORuta, transform){
   const data = await res.json().catch(()=>({}));
   if(!res.ok || !data.signedURL) throw new Error(data.message || 'No se pudo abrir la foto');
   return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
+}
+
+/* ---- Compresión de fotos en el dispositivo (tarea #121) -------------------------------------
+   Las fotos de cámara pesan 3,3 MB en promedio (máximo 5,2 MB) para verse en un recuadro de la
+   app o del PDF. Antes de subirlas (y antes de encolarlas sin conexión) se reducen acá mismo, en
+   el celular, a máximo 1600 px por lado en JPEG calidad 0,82: 200-400 KB, sin diferencia visible.
+   Reglas de seguridad de esta función: si algo falla (formato raro como HEIC que el navegador no
+   decodifica, canvas no disponible, foto corrupta) o si el resultado no es más chico, se sube la
+   original tal cual, como hasta ahora. Nunca bloquea un conteo. */
+const FOTO_MAX_LADO_PX = 1600;
+const FOTO_CALIDAD_JPEG = 0.82;
+const FOTO_UMBRAL_COMPRIMIR_BYTES = 400 * 1024; // más chica que esto (y ya JPEG) se sube tal cual
+let fotosEnProceso = []; // promesas de compresión en curso (guardarConteo las espera)
+
+async function decodificarImagen(file){
+  // 1) <img>: todos los navegadores actuales (Safari 13.4+, Chrome 81+, Firefox) aplican la
+  //    orientación EXIF de la cámara al dibujarlo en un canvas, así que una foto vertical no
+  //    queda acostada.
+  if(typeof Image !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function'){
+    let url = null;
+    try{ url = URL.createObjectURL(file); }catch(e){ url = null; }
+    if(url){
+      try{
+        return await new Promise((resolve, reject)=>{
+          const im = new Image();
+          im.onload = ()=> resolve(im);
+          im.onerror = ()=> reject(new Error('No se pudo leer la foto'));
+          im.src = url;
+        });
+      }catch(e){ /* sigue con createImageBitmap */ }
+      finally{ try{ URL.revokeObjectURL(url); }catch(e){ /* nada */ } }
+    }
+  }
+  // 2) createImageBitmap, pidiendo la orientación EXIF explícitamente.
+  if(typeof createImageBitmap === 'function'){
+    try{ return await createImageBitmap(file, {imageOrientation:'from-image'}); }catch(e){ /* formato no soportado */ }
+  }
+  return null;
+}
+function nombreFotoJpg(nombre){ return String(nombre||'foto').replace(/\.[^.]+$/, '') + '.jpg'; }
+async function comprimirFoto(file){
+  try{
+    if(!file || typeof file.size !== 'number') return file;
+    if(file.size <= FOTO_UMBRAL_COMPRIMIR_BYTES && String(file.type||'').toLowerCase()==='image/jpeg') return file;
+    if(typeof document === 'undefined') return file;
+    const canvas = document.createElement('canvas');
+    if(!canvas || typeof canvas.getContext !== 'function' || typeof canvas.toBlob !== 'function') return file;
+    const img = await decodificarImagen(file);
+    if(!img) return file;
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    if(!w || !h) return file;
+    const escala = Math.min(1, FOTO_MAX_LADO_PX / Math.max(w, h));
+    const dw = Math.max(1, Math.round(w * escala)), dh = Math.max(1, Math.round(h * escala));
+    canvas.width = dw; canvas.height = dh;
+    const ctx = canvas.getContext('2d');
+    if(!ctx) return file;
+    ctx.drawImage(img, 0, 0, dw, dh);
+    if(typeof img.close === 'function') img.close(); // libera el bitmap de 12 MP
+    const blob = await new Promise(resolve=> canvas.toBlob(resolve, 'image/jpeg', FOTO_CALIDAD_JPEG));
+    if(!blob || !blob.size || blob.size >= file.size) return file; // no ganó nada: va la original
+    const nombre = nombreFotoJpg(file.name);
+    let salida = blob;
+    if(typeof File === 'function'){ try{ salida = new File([blob], nombre, {type:'image/jpeg'}); }catch(e){ salida = blob; } }
+    if(!salida.name){ try{ salida.name = nombre; }catch(e){ /* Blob inmutable en algún navegador: el nombre solo se usa para la extensión */ } }
+    if(!salida.type){ try{ salida.type = 'image/jpeg'; }catch(e){ /* idem */ } }
+    return salida;
+  }catch(e){ return file; }
+}
+// guardarConteo la llama antes de subir/encolar: una foto recién tomada puede seguir comprimiéndose
+// (unos cientos de ms) cuando la persona ya tocó "Guardar conteo".
+async function esperarFotosEnProceso(){
+  if(!fotosEnProceso.length) return;
+  await Promise.all(fotosEnProceso.map(p=> p.catch(()=>{})));
+}
+function rutaFotoDesdeUrl(fotoUrlORuta){
+  const marcador = `/object/public/${BUCKET}/`;
+  const idx = String(fotoUrlORuta||'').indexOf(marcador);
+  return idx>=0 ? fotoUrlORuta.slice(idx+marcador.length) : fotoUrlORuta;
+}
+
+// Una pasada única (Configuraciones, admin) para las fotos que ya estaban subidas a tamaño
+// completo: baja cada una, la comprime con la misma función y la sobrescribe en la MISMA ruta
+// (x-upsert), así conteo_fotos no cambia y nada más se entera. Solo reemplaza si quedó más
+// chica; una falla puntual se cuenta y se sigue con la siguiente. Se puede cancelar.
+async function comprimirFotosExistentes(){
+  if(!perfilCargado() || state.comprimiendoFotos) return;
+  let filas = [];
+  try{ filas = await restTodo('/conteo_fotos?select=id,foto_url&order=created_at.asc'); }
+  catch(e){ toast(e.message,'err'); return; }
+  const progreso = {total: filas.length, hechas:0, comprimidas:0, ahorroBytes:0, errores:0, cancelar:false, terminado:false};
+  setState({comprimiendoFotos: progreso});
+  const pintar = ()=>{
+    const el = document.getElementById('progreso-comprimir-fotos');
+    if(el) el.textContent = textoProgresoComprimirFotos(progreso);
+  };
+  for(const f of filas){
+    if(progreso.cancelar) break;
+    try{
+      const url = await crearUrlFirmada(f.foto_url);
+      const res = await fetch(url);
+      if(!res || !res.ok) throw new Error('No se pudo descargar');
+      const blob = await res.blob();
+      if(blob && blob.size > FOTO_UMBRAL_COMPRIMIR_BYTES){
+        let archivo = blob;
+        if(typeof File === 'function'){ try{ archivo = new File([blob], 'foto.jpg', {type: blob.type || 'image/jpeg'}); }catch(e){ archivo = blob; } }
+        const comprimida = await comprimirFoto(archivo);
+        if(comprimida !== archivo && comprimida.size < blob.size){
+          await storageUpload(rutaFotoDesdeUrl(f.foto_url), comprimida);
+          progreso.comprimidas++;
+          progreso.ahorroBytes += blob.size - comprimida.size;
+        }
+      }
+    }catch(e){ progreso.errores++; }
+    progreso.hechas++;
+    pintar();
+  }
+  progreso.terminado = true;
+  setState({comprimiendoFotos: progreso});
+  toast(progreso.cancelar ? 'Compresión cancelada' : `Listo: ${progreso.comprimidas} foto${progreso.comprimidas===1?'':'s'} comprimida${progreso.comprimidas===1?'':'s'}, ${formatoMB(progreso.ahorroBytes)} liberados`);
+}
+function formatoMB(bytes){ return `${(bytes/1048576).toFixed(1).replace('.',',')} MB`; }
+function textoProgresoComprimirFotos(p){
+  if(!p) return '';
+  const base = `${p.hechas} de ${p.total} revisadas · ${p.comprimidas} comprimidas · ${formatoMB(p.ahorroBytes)} liberados${p.errores? ` · ${p.errores} con error` : ''}`;
+  return p.terminado ? (p.cancelar ? `Cancelado. ${base}` : `Terminado. ${base}`) : `Comprimiendo… ${base}`;
 }
 
 // Reduce una foto en el navegador (canvas) a un cuadrado de `lado` px recortado al centro
@@ -5525,6 +5649,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad)) || Number(cantidad) < 0){ toast('Ingresa una cantidad contada válida','err'); return; }
   if(!perfilCargado()) return;
+  await esperarFotosEnProceso(); // ver comprimirFoto: una foto recién tomada puede seguir comprimiéndose
   // Con conteo ciego, la persona no ve el stock del sistema -- este es el reemplazo del chequeo
   // de cordura que antes hacía ella misma al ver un número muy distinto al que tenía en pantalla.
   // Nunca revela cuál es el valor esperado, solo que el ingresado se aleja mucho de lo habitual.
@@ -7543,7 +7668,7 @@ function renderConteo(){
           </div>
           ${state.conteoFotos.length? `<div class="foto-preview-grid">${state.conteoFotos.map((f,i)=>`
             <div class="foto-preview-item">
-              <img src="${f.preview}">
+              ${f.preview? `<img src="${f.preview}">` : `<div class="hint" style="display:flex;align-items:center;justify-content:center;height:100%;min-height:72px;margin:0">Preparando…</div>`}
               <button type="button" class="foto-preview-remove" data-quitar-foto="${i}" aria-label="Quitar foto">${ICONS.x}</button>
             </div>
           `).join('')}</div>` : ''}
@@ -9091,6 +9216,16 @@ function renderConfiguraciones(){
       </label>
     </div>
     ` : ''}
+    ${esAdmin? `
+    <div class="section-head"><div><span class="eyebrow">Almacenamiento</span><h2 style="font-size:15px">Fotos de conteo ${campoConInfo('Desde ahora cada foto se reduce en el celular antes de subirse (máximo 1600 px por lado, unos 200 a 400 KB) sin diferencia visible. Las fotos subidas antes de esta mejora siguen a tamaño completo (3 a 5 MB cada una): este botón las revisa una por una y reemplaza cada archivo por su versión reducida, en la misma ruta. No cambia ningún conteo ni dato.')}</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Comprime una sola vez las fotos que ya estaban subidas a tamaño completo. Puede tardar varios minutos según cuántas sean; deja esta pestaña abierta mientras corre.</div>
+      ${state.comprimiendoFotos? `
+        <div id="progreso-comprimir-fotos" style="font-size:13px;margin-bottom:10px">${esc(textoProgresoComprimirFotos(state.comprimiendoFotos))}</div>
+        ${state.comprimiendoFotos.terminado? `<button type="button" class="btn btn-secondary" id="btn-comprimir-fotos" style="width:auto;padding:8px 14px">Volver a revisar</button>` : `<button type="button" class="btn btn-secondary" id="btn-cancelar-comprimir-fotos" style="width:auto;padding:8px 14px" ${state.comprimiendoFotos.cancelar?'disabled':''}>${state.comprimiendoFotos.cancelar?'Cancelando…':'Cancelar'}</button>`}
+      ` : `<button type="button" class="btn btn-secondary" id="btn-comprimir-fotos" style="width:auto;padding:8px 14px">Comprimir fotos existentes</button>`}
+    </div>
+    ` : ''}
     ${esAdmin||esSuperAdmin? `
     <div class="section-head"><div><span class="eyebrow">Seguridad</span><h2 style="font-size:15px">Verificación en dos pasos ${campoConInfo('Pide un código de una app autenticadora (Google Authenticator, Authy, 1Password, etc.) además de tu contraseña al iniciar sesión. Recomendado para cuentas administradoras.')}</h2></div></div>
     <div class="card">${renderSeccionMfa()}</div>
@@ -9475,6 +9610,13 @@ function bind(){
   });
 
   if(state.view==='config'){
+    const btnComprimirFotos = document.getElementById('btn-comprimir-fotos');
+    if(btnComprimirFotos) btnComprimirFotos.addEventListener('click', ()=>{
+      if(state.comprimiendoFotos && state.comprimiendoFotos.terminado) state.comprimiendoFotos = null;
+      if(confirm('Se revisarán todas las fotos de conteo de tu empresa y las que pesen más de 400 KB se reemplazarán por una versión reducida (máximo 1600 px). No cambia ningún conteo. ¿Continuar?')) comprimirFotosExistentes();
+    });
+    const btnCancelarComprimir = document.getElementById('btn-cancelar-comprimir-fotos');
+    if(btnCancelarComprimir) btnCancelarComprimir.addEventListener('click', ()=>{ if(state.comprimiendoFotos){ state.comprimiendoFotos.cancelar = true; render(); } });
     document.querySelectorAll('[data-tema-opcion]').forEach(el=>{
       el.addEventListener('click', ()=>{
         const tema = el.dataset.temaOpcion;
@@ -9949,9 +10091,22 @@ function bind(){
       document.getElementById('c-foto').addEventListener('change', e=>{
         const files = Array.from(e.target.files || []);
         files.forEach(file=>{
-          const reader = new FileReader();
-          reader.onload = ev => { state.conteoFotos.push({file, preview: ev.target.result}); conservandoCamposConteo(render); };
-          reader.readAsDataURL(file);
+          // La foto entra de inmediato como "Preparando…" y se reemplaza por la versión
+          // comprimida (o la original si no se pudo) apenas termina -- ver comprimirFoto.
+          const entrada = {file, preview:null, bytesOriginal: file.size, preparando:true};
+          state.conteoFotos.push(entrada);
+          conservandoCamposConteo(render);
+          const tarea = comprimirFoto(file).then(listo=>{
+            entrada.file = listo;
+            entrada.preparando = false;
+            return new Promise(resolve=>{
+              const reader = new FileReader();
+              reader.onload = ev => { entrada.preview = ev.target.result; conservandoCamposConteo(render); resolve(); };
+              reader.onerror = ()=> { conservandoCamposConteo(render); resolve(); };
+              reader.readAsDataURL(listo);
+            });
+          }).finally(()=>{ fotosEnProceso = fotosEnProceso.filter(t=>t!==tarea); });
+          fotosEnProceso.push(tarea);
         });
         e.target.value = ''; // permite volver a elegir/tomar otra foto después
       });

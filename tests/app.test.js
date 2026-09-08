@@ -92,10 +92,13 @@ class ImageMock {
   }
   get src(){ return this._src; }
 }
+let canvasBlobSize = 300*1024; // tamaño del JPEG que "produce" el canvas falso (ver comprimirFoto)
+let blobFotoDescargadaSize = 3*1024*1024; // tamaño de la foto que devuelve la descarga de una URL firmada
 function crearCanvasFalso(){
   const c = { width:0, height:0 };
   c.getContext = ()=> ({ drawImage(){ canvasDibujos.push(Array.from(arguments).slice(1)); } });
   c.toDataURL = (tipo, calidad)=> `data:${tipo};base64,FAKE-${c.width}x${c.height}-q${calidad}`;
+  c.toBlob = (cb, tipo, calidad)=> cb({ size: canvasBlobSize, type: tipo, calidad, canvas: `${c.width}x${c.height}` });
   return c;
 }
 let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
@@ -105,6 +108,7 @@ let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesC
 // devuelve el id ya guardado, en vez del habitual {id:'conteo-nuevo-1'}.
 let conteoIdempotenteYaExistente = null;
 const calls = [];
+let fotoFixtureConteoFotos = null; // filas de conteo_fotos para comprimirFotosExistentes (null = comportamiento previo)
 let etagPublicado = '"v1"';   // ETag que devuelve el servidor para el propio HTML (ver verificarVersionNueva)
 let headVersionFalla = false;  // simula sin señal en el HEAD de versión
 const fakeFetchImpl = async (url, opts) => {
@@ -507,8 +511,15 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
+  if(fotoFixtureConteoFotos && path.startsWith('/rest/v1/conteo_fotos?select=id,foto_url')){
+    return { status:200, ok:true, headers:{ get:(h)=> h==='content-range' ? `0-${fotoFixtureConteoFotos.length-1}/${fotoFixtureConteoFotos.length}` : null }, text: async()=>JSON.stringify(fotoFixtureConteoFotos), json: async()=>fotoFixtureConteoFotos };
+  }
   if(path.startsWith('/storage/v1/object/sign/')){
     const ruta = path.replace('/storage/v1/object/sign/fotos-inventario/', '');
+    // GET de una URL ya firmada (descarga de la foto, ver comprimirFotosExistentes): devuelve el blob.
+    if(!opts || !opts.method || opts.method==='GET'){
+      return { status:200, ok:true, headers:{get:()=>null}, blob: async()=>({ size: blobFotoDescargadaSize, type:'image/jpeg' }), text: async()=>'' };
+    }
     const pideTransform = opts && opts.body && JSON.parse(opts.body).transform;
     if(pideTransform && fallarFirmaConTransform){
       return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'Image transformation is not enabled for this project'}), json: async()=>({message:'Image transformation is not enabled for this project'}) };
@@ -8567,6 +8578,90 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.leerCacheAgregado('generales')===null, 'sin perfil no hay clave de caché');
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
     ctx.invalidarCacheAgregados(['opcionesSku','generales','sinUbicacion']);
+  }
+
+  // ===== Compresión de fotos en el dispositivo (#121) =====
+  {
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.session = ctx.__appstate.session || { access_token:'t', refresh_token:'r', user:{ id:'auth-user-1', email:'ana@minera-andes.cl' } };
+    // Camino principal: <img> desde un object URL (respeta la orientación EXIF en todos los
+    // navegadores actuales). URL.createObjectURL se simula; el ImageMock entrega naturalWidth/Height.
+    const URLAntes = ctx.URL;
+    ctx.URL = { createObjectURL: ()=> 'blob:fake', revokeObjectURL(){} };
+    let bitmapCerrado = 0;
+    ctx.createImageBitmap = async (file)=> ({ width: file.ancho||4000, height: file.alto||3000, close(){ bitmapCerrado++; } });
+    canvasMockDisponible = true; canvasDibujos = []; canvasBlobSize = 300*1024;
+    imagenMockCarga = {w:4000, h:3000};
+    const original = { name:'IMG_0001.HEIC', type:'image/heic', size: 3*1024*1024 };
+    const comprimida = await ctx.comprimirFoto(original);
+    assert(comprimida !== original && comprimida.size===300*1024 && comprimida.type==='image/jpeg' && comprimida.name==='IMG_0001.jpg', 'una foto de 3 MB debe salir como JPEG más chico con extensión .jpg, obtuvo: '+JSON.stringify(comprimida));
+    assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([0,0,1600,1200]) && comprimida.canvas==='1600x1200' && comprimida.calidad===0.82, 'debe escalar a máximo 1600 px por lado (4000x3000 -> 1600x1200) con calidad 0,82, obtuvo: '+JSON.stringify(canvasDibujos)+' '+JSON.stringify(comprimida));
+    assert(bitmapCerrado===0, 'con <img> disponible no debe usar createImageBitmap');
+    // Foto vertical: el lado mayor manda.
+    canvasDibujos = []; imagenMockCarga = {w:3000, h:4000};
+    await ctx.comprimirFoto({ name:'v.jpg', type:'image/jpeg', size: 2*1024*1024 });
+    assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([0,0,1200,1600]), 'una foto vertical debe quedar 1200x1600, obtuvo: '+JSON.stringify(canvasDibujos));
+    // Si <img> no puede (object URL falla), cae a createImageBitmap y libera el bitmap.
+    ctx.URL = { createObjectURL: ()=>{ throw new Error('no'); }, revokeObjectURL(){} };
+    canvasDibujos = [];
+    const porBitmap = await ctx.comprimirFoto({ name:'b.jpg', type:'image/jpeg', size: 2*1024*1024, ancho:4000, alto:3000 });
+    assert(porBitmap.size===300*1024 && JSON.stringify(canvasDibujos[0])===JSON.stringify([0,0,1600,1200]) && bitmapCerrado===1, 'sin object URL debe decodificar con createImageBitmap y cerrarlo al terminar, obtuvo: '+JSON.stringify(canvasDibujos)+' cerrado='+bitmapCerrado);
+    ctx.URL = { createObjectURL: ()=> 'blob:fake', revokeObjectURL(){} };
+    // Ya chica y JPEG: se sube tal cual, sin pasar por canvas.
+    canvasDibujos = []; imagenMockCarga = {w:800, h:600};
+    const chica = { name:'c.jpg', type:'image/jpeg', size: 200*1024 };
+    assert(await ctx.comprimirFoto(chica)===chica && canvasDibujos.length===0, 'una foto ya chica (≤400 KB) y JPEG se sube tal cual');
+    // Si el resultado no es más chico, va la original.
+    canvasBlobSize = 5*1024*1024; imagenMockCarga = {w:4000, h:3000};
+    const noGana = { name:'n.jpg', type:'image/jpeg', size: 1024*1024 };
+    assert(await ctx.comprimirFoto(noGana)===noGana, 'si la comprimida no es más chica, debe subirse la original');
+    canvasBlobSize = 300*1024;
+    // Si no se puede decodificar por ninguna vía (formato raro), va la original sin fallar.
+    ctx.createImageBitmap = async ()=>{ throw new Error('formato no soportado'); };
+    imagenMockCarga = null;
+    const rara = { name:'r.heic', type:'image/heic', size: 3*1024*1024 };
+    assert(await ctx.comprimirFoto(rara)===rara, 'si el navegador no puede decodificar la foto, debe subirse la original');
+    imagenMockCarga = {w:4000, h:3000};
+    ctx.createImageBitmap = async (file)=> ({ width: file.ancho||4000, height: file.alto||3000, close(){} });
+
+    // Comprimir fotos existentes (Configuraciones, admin): baja cada foto, la comprime y la
+    // sobrescribe en la misma ruta; las chicas se saltan; el resumen queda en el estado.
+    fotoFixtureConteoFotos = [
+      {id:'cf1', foto_url:'emp-1/SKU-1/123-abcde.jpg'},
+      {id:'cf2', foto_url:'https://ncvwgsbcvklhbyvurxzz.supabase.co/storage/v1/object/public/fotos-inventario/10001177/1786507275125.jpg'},
+      {id:'cf3', foto_url:'emp-1/SKU-2/chica.jpg'},
+    ];
+    const tamanosDescarga = {'emp-1/SKU-1/123-abcde.jpg': 3*1024*1024, '10001177/1786507275125.jpg': 4*1024*1024, 'emp-1/SKU-2/chica.jpg': 100*1024};
+    const fetchAntesFotos = ctx.fetch;
+    ctx.fetch = async (url, opts)=>{
+      const u = new URL(url);
+      if(u.pathname.startsWith('/storage/v1/object/sign/') && (!opts || !opts.method || opts.method==='GET')){
+        const ruta = decodeURIComponent(u.pathname.replace('/storage/v1/object/sign/fotos-inventario/', ''));
+        calls.push({url, opts});
+        return { status:200, ok:true, headers:{get:()=>null}, blob: async()=>({ size: tamanosDescarga[ruta]||0, type:'image/jpeg' }) };
+      }
+      return fetchAntesFotos(url, opts);
+    };
+    calls.length = 0;
+    await ctx.comprimirFotosExistentes();
+    ctx.fetch = fetchAntesFotos;
+    const subidas = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/storage/v1/object/fotos-inventario/'));
+    assert(subidas.length===2 && subidas.every(c=>c.opts.headers['x-upsert']==='true' && c.opts.headers['Content-Type']==='image/jpeg'), 'debe sobrescribir (x-upsert) solo las 2 fotos grandes, como JPEG, obtuvo: '+JSON.stringify(subidas.map(c=>[c.url, c.opts.headers])));
+    assert(subidas.some(c=>c.url.endsWith('/fotos-inventario/emp-1/SKU-1/123-abcde.jpg')) && subidas.some(c=>c.url.endsWith('/fotos-inventario/10001177/1786507275125.jpg')), 'debe escribir en la MISMA ruta de cada foto (incluida una URL pública antigua normalizada), obtuvo: '+JSON.stringify(subidas.map(c=>c.url)));
+    assert(!subidas.some(c=>c.url.includes('chica.jpg')), 'una foto que ya pesa menos de 400 KB no debe tocarse');
+    const p = ctx.__appstate.comprimiendoFotos;
+    assert(p && p.terminado && p.total===3 && p.hechas===3 && p.comprimidas===2 && p.errores===0 && p.ahorroBytes===(3*1024*1024-300*1024)+(4*1024*1024-300*1024), 'el resumen debe reflejar 3 revisadas, 2 comprimidas y el ahorro en bytes, obtuvo: '+JSON.stringify(p));
+    assert(ctx.textoProgresoComprimirFotos(p).startsWith('Terminado. 3 de 3 revisadas · 2 comprimidas · 6,4 MB liberados'), 'el texto de progreso debe resumir en MB, obtuvo: '+ctx.textoProgresoComprimirFotos(p));
+    const htmlConfigFotos = ctx.renderConfiguraciones();
+    assert(htmlConfigFotos.includes('Fotos de conteo') && htmlConfigFotos.includes('id="btn-comprimir-fotos"'), 'Configuraciones (admin) debe mostrar la tarjeta de fotos con el botón, obtuvo: '+htmlConfigFotos.slice(htmlConfigFotos.indexOf('Fotos de conteo')-100, htmlConfigFotos.indexOf('Fotos de conteo')+600));
+    ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    assert(!ctx.renderConfiguraciones().includes('btn-comprimir-fotos'), 'un operador no debe ver la herramienta de compresión');
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.comprimiendoFotos = null;
+    fotoFixtureConteoFotos = null;
+    canvasMockDisponible = false; imagenMockCarga = null;
+    delete ctx.createImageBitmap;
+    ctx.URL = URLAntes;
   }
 
   if(fallos > 0){

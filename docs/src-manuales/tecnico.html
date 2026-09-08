@@ -413,7 +413,7 @@
       <li>Ninguna función de la base es ejecutable por <code>anon</code> ni por <code>PUBLIC</code>: EXECUTE revocado en las 49 funciones y en los privilegios por defecto. Los usuarios con sesión pueden ejecutar 30 funciones de negocio; las 19 restantes (triggers, cron, mantenimiento, reset de la demo) solo <code>service_role</code></li>
       <li>Funciones <code>SECURITY DEFINER</code> expuestas a usuarios con sesión: 11, todas con verificación interna de empresa y rol (ej. <code>descartar_reconteo</code>, <code>mi_estado_bloqueo</code>, <code>refrescar_clasificacion_abc</code>)</li>
       <li>Trigger <code>validar_responsable_misma_empresa</code>: rechaza un responsable de otra empresa en <code>plan_semanal</code></li>
-      <li>Fotos en bucket privado con enlaces firmados y temporales; hasta 20 MB por foto, solo formatos de imagen; rutas por empresa</li>
+      <li>Fotos en bucket privado con enlaces firmados y temporales; hasta 20 MB por foto, solo formatos de imagen; rutas por empresa. Cada foto se comprime en el dispositivo antes de subirse (máximo 1600 px, JPEG 0,82; la original si no se puede). Configuraciones permite comprimir las ya subidas en su misma ruta (UPDATE acotado a la carpeta de la empresa)</li>
       <li>Contraseñas verificadas contra bases filtradas; límite de intentos de inicio de sesión; código de acceso de 6 dígitos como alternativa al link; MFA TOTP opcional (aal2); una sola sesión activa por usuario</li>
       <li>Conteo ciego endurecido en la base (permisos por columna): ni consultando la API directa se obtiene el stock</li>
       <li>Errores del navegador capturados por Sentry; respaldos diarios de Supabase verificados con una restauración real</li>
