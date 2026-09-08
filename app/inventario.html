@@ -545,6 +545,7 @@ let state = {
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
+  versionNueva: false,     // hay una versión de la app publicada más nueva que la que corre esta pestaña (ver verificarVersionNueva)
   offlineModal: false,
   exportarModal: false,
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
@@ -2070,10 +2071,51 @@ function refrescarPlanSiCorresponde(forzar){
   return true;
 }
 
+/* ---- Aviso de versión nueva ------------------------------------------------------------
+   Hallazgo real (logs del 7 de septiembre): una pestaña de escritorio que llevaba días abierta
+   seguía corriendo una versión antigua de la app y llamó 4.000 veces a una función que ya no
+   existía en el código nuevo, a 5 s cada una -- horas de CPU de la base de datos en una tarde. La
+   app es un solo HTML servido por GitHub Pages: no hay build ni número de versión, así que la
+   "versión" es el ETag (o Last-Modified) que el servidor devuelve para el propio HTML. Al
+   arrancar se guarda el publicado en ese momento; al volver a primer plano y cada 15 minutos se
+   vuelve a pedir con HEAD (sin caché, sin pasar por el service worker) y, si cambió, se muestra
+   una barra "Hay una versión nueva" con el botón Recargar. Nunca recarga sola: la persona puede
+   estar a mitad de un conteo. */
+const VERSION_CHECK_CADA_MS = 15 * 60 * 1000;
+let versionPublicadaAlArrancar = null;
+let versionChequeoEnCurso = null;
+async function leerVersionPublicada(){
+  try{
+    const ruta = (typeof location!=='undefined' && location.pathname) ? location.pathname : './';
+    const res = await fetch(ruta, {method:'HEAD', cache:'no-store'});
+    if(!res || !res.ok) return null;
+    return res.headers.get('etag') || res.headers.get('last-modified') || null;
+  }catch(e){ return null; } // sin señal o servidor caído: no es motivo para molestar
+}
+// Devuelve true si hay una versión nueva (y deja state.versionNueva para que se muestre la barra).
+async function verificarVersionNueva(){
+  if(state.versionNueva) return true;
+  if(versionChequeoEnCurso) return versionChequeoEnCurso;
+  versionChequeoEnCurso = (async ()=>{
+    const v = await leerVersionPublicada();
+    if(!v) return false;
+    if(versionPublicadaAlArrancar===null){ versionPublicadaAlArrancar = v; return false; }
+    if(v===versionPublicadaAlArrancar) return false;
+    setState({versionNueva:true});
+    return true;
+  })();
+  try{ return await versionChequeoEnCurso; }
+  finally{ versionChequeoEnCurso = null; }
+}
+function recargarPorVersionNueva(){
+  if(typeof location!=='undefined' && location.reload) location.reload();
+}
+
 // Al volver la app a primer plano con otro día en el calendario (PWA que quedó abierta de un día
 // para otro), refresca la vista que se esté mirando para que no quede "en ayer".
 function alVolverAPrimerPlano(){
   if(typeof document!=='undefined' && document.hidden) return;
+  verificarVersionNueva();
   const hoy = fechaISO(new Date());
   if(hoy === diaVisibleAnterior) return;
   diaVisibleAnterior = hoy;
@@ -9061,6 +9103,12 @@ function renderShell(){
         </div>
       </div>
     </div>
+    ${state.versionNueva? `
+    <div id="banner-version" style="background:var(--amber-soft, rgba(224,178,60,.15));color:var(--text);border-bottom:1px solid var(--amber);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
+      <span>Hay una versión nueva de InventIA. Recarga para usarla: lo que tengas guardado sin conexión no se pierde.</span>
+      <button id="btn-recargar-version" class="btn btn-primary" style="width:auto;padding:6px 12px">Recargar</button>
+    </div>
+    ` : ''}
     ${state.colaOffline.length? `
     <div id="banner-offline" style="background:rgba(224,178,60,.15);color:var(--warn);border-bottom:1px solid var(--warn);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
       <span>${state.colaOffline.length} cambio${state.colaOffline.length===1?'':'s'} guardado${state.colaOffline.length===1?'':'s'} sin conexión, pendiente${state.colaOffline.length===1?'':'s'} de sincronizar.</span>
@@ -9311,6 +9359,8 @@ function bind(){
   document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=> setState({exportarModal:true}));
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
+  const btnRecargarVersion = document.getElementById('btn-recargar-version');
+  if(btnRecargarVersion) btnRecargarVersion.addEventListener('click', recargarPorVersionNueva);
   const btnVerOffline = document.getElementById('btn-ver-offline');
   if(btnVerOffline) btnVerOffline.addEventListener('click', ()=> setState({offlineModal:true}));
   document.querySelectorAll('.tab').forEach(btn=>{
@@ -10399,6 +10449,9 @@ async function iniciarApp(){
   procesarRegistroPlanDesdeUrl();
   await procesarLlegadaPorInvitacion();
   if(!state.debeCrearPassword) await restaurarSesionGuardada();
+  // Ver verificarVersionNueva: fija la versión publicada al arrancar y la revisa cada 15 min.
+  verificarVersionNueva();
+  setInterval(()=>{ verificarVersionNueva(); }, VERSION_CHECK_CADA_MS);
   if(state.avisoFlow){
     const ok = state.avisoFlow === 'ok';
     state.avisoFlow = null;

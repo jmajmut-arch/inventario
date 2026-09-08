@@ -105,8 +105,14 @@ let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesC
 // devuelve el id ya guardado, en vez del habitual {id:'conteo-nuevo-1'}.
 let conteoIdempotenteYaExistente = null;
 const calls = [];
+let etagPublicado = '"v1"';   // ETag que devuelve el servidor para el propio HTML (ver verificarVersionNueva)
+let headVersionFalla = false;  // simula sin señal en el HEAD de versión
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
+  if(opts && opts.method==='HEAD'){
+    if(headVersionFalla) throw new TypeError('Failed to fetch');
+    return { status:200, ok:true, headers:{ get:(h)=> h==='etag' ? etagPublicado : null }, text: async()=>'' };
+  }
   const u = new URL(url);
   const path = u.pathname + u.search;
   if(path.startsWith('/rest/v1/rpc/mi_estado_bloqueo')){
@@ -8408,6 +8414,36 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.contarPlan.fecha===ayer && ctx.__appstate.contarPlan.cargado===true, 'si el día no cambió desde la última vez, volver a primer plano no debe tocar nada');
     ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, fecha:hoy, fechaManual:false, cargado:false, cargando:false, entradas:[]};
     ctx.__appstate.view = viewAntesContar;
+  }
+
+  // ===== Aviso de versión nueva (pestañas con código viejo) =====
+  {
+    // El bloque anterior (alVolverAPrimerPlano) dejó una revisión de versión en vuelo; se deja
+    // terminar antes de medir las llamadas de este bloque.
+    await new Promise(r=>setTimeout(r, 20));
+    calls.length = 0;
+    assert(await ctx.verificarVersionNueva()===false, 'con la misma versión publicada, la revisión no avisa');
+    const head = calls.find(c=>c.opts && c.opts.method==='HEAD');
+    assert(!!head && head.opts.cache==='no-store' && String(head.url).endsWith('/index.html'), 'debe pedir el propio HTML con HEAD y sin caché, obtuvo: '+JSON.stringify(calls.map(c=>[c.url, c.opts && c.opts.method])));
+    assert(await ctx.verificarVersionNueva()===false && ctx.__appstate.versionNueva===false, 'misma versión publicada: sin aviso');
+    headVersionFalla = true;
+    assert(await ctx.verificarVersionNueva()===false && ctx.__appstate.versionNueva===false, 'sin señal, la revisión no debe fallar ni avisar');
+    headVersionFalla = false;
+    etagPublicado = '"v2"';
+    assert(await ctx.verificarVersionNueva()===true && ctx.__appstate.versionNueva===true, 'con otro ETag publicado debe marcar versionNueva');
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.session = ctx.__appstate.session || { access_token:'t', refresh_token:'r', user:{ id:'auth-user-1', email:'ana@minera-andes.cl' } };
+    const htmlShell = ctx.renderShell();
+    assert(htmlShell.includes('id="banner-version"') && htmlShell.includes('Hay una versión nueva de InventIA') && htmlShell.includes('id="btn-recargar-version"'), 'el shell debe mostrar la barra de versión nueva con el botón Recargar, obtuvo: '+htmlShell.slice(0, 600));
+    // Al volver a primer plano también se revisa la versión (aunque no cambie el día).
+    ctx.__appstate.versionNueva = false;
+    etagPublicado = '"v3"';
+    calls.length = 0;
+    ctx.alVolverAPrimerPlano();
+    await new Promise(r=>setTimeout(r, 20));
+    assert(calls.some(c=>c.opts && c.opts.method==='HEAD') && ctx.__appstate.versionNueva===true, 'volver a primer plano debe revisar la versión publicada, obtuvo: '+JSON.stringify(calls.map(c=>[c.url, c.opts && c.opts.method])));
+    ctx.__appstate.versionNueva = false;
+    etagPublicado = '"v1"';
   }
 
   if(fallos > 0){
