@@ -778,7 +778,7 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
-  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
+  if(/^\/rest\/v1\/skus_(planificables|disponibles_planificar)\?activo=eq\.true&select=/.test(path) && path.includes('bodega=is.null') && path.includes('ubicacion=eq.Piso') && !path.includes('storage_bin=eq.')){
     // "Piso" (bodega=is.null) no tiene ningún storage_bin cargado -> cargarBinsPara cae al
     // listado de SKU puntuales (ver "sin bin, elegir SKU" más abajo en este archivo).
     // SKU-P3 ya está cubierto por OTRA entrada de plan vigente: skus_disponibles_planificar (la
@@ -875,15 +875,24 @@ const fakeFetchImpl = async (url, opts) => {
     const planIds = enLote ? enLote.split(',') : [(path.match(/plan_id=eq\.([^&]+)/)||[])[1]];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(planIds.flatMap(id=>snapshots[id]||[])) };
   }
+  // Bins pedidos por una consulta de universo: storage_bin=eq.X (un bin) o storage_bin=in.("a","b")
+  // (varios bins en una sola consulta, ver skusDeUbicacionPorBins). null = sin filtro de bin.
+  const binsPedidos = (p)=>{
+    const eq = (p.match(/storage_bin=eq\.([^&]+)/)||[])[1];
+    if(eq) return [decodeURIComponent(eq)];
+    const lista = (decodeURIComponent(p).match(/storage_bin=in\.\(([^)]*)\)/)||[])[1];
+    if(lista) return lista.split(',').map(b=>b.replace(/^"|"$/g,''));
+    return null;
+  };
   // Universo de una zona para el generador de plan por grupo (ver confirmarVistaPreviaComoPlan):
   // bodega/ubicación de prueba dedicadas. Con storage_bin=eq.X (una entrada por bin, ver el fix
   // del bug real de exclusiones gigantes) filtra la misma fixture por bin, igual que haría
   // PostgREST de verdad -- sin bin, devuelve la zona completa (camino "sin bodega ni ubicación"
   // no llega acá, ver universoZonaSinUbicacionFixture / soloSinUbicacion más abajo).
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BGRP') && path.includes('ubicacion=eq.UGRP')){
-    const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=') && path.includes('bodega=eq.BGRP') && path.includes('ubicacion=eq.UGRP')){
+    const bins = binsPedidos(path);
     const todas = universoZonaGrupoFixture || [];
-    const filas = binFiltro ? todas.filter(f=>f.storage_bin===binFiltro) : todas;
+    const filas = bins ? todas.filter(f=>bins.includes(f.storage_bin)) : todas;
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
   }
   // Universo sintético de una zona "gigante" (BHUGE/UHUGE), generado sobre la marcha en vez de
@@ -891,7 +900,7 @@ const fakeFetchImpl = async (url, opts) => {
   // (bug real: excluir todo lo que no sea del grupo en una bodega+ubicación de decenas de miles de
   // SKU rompía con 431 "Request Header Fields Too Large" al leerlo de vuelta). Pagina de verdad
   // (respeta el header Range) porque el total supera el tamaño de página de skusDeUbicacion.
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BHUGE') && path.includes('ubicacion=eq.UHUGE')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=') && path.includes('bodega=eq.BHUGE') && path.includes('ubicacion=eq.UHUGE')){
     const total = universoZonaGiganteLen;
     const rangeHeader = (opts && opts.headers && opts.headers.Range) || '0-999';
     const [desde, hasta] = rangeHeader.split('-').map(Number);
@@ -902,24 +911,23 @@ const fakeFetchImpl = async (url, opts) => {
   // Universo de una zona "sin ubicación específica" (bodega conocida, ubicación IS NULL) -- a
   // pedido de Joel, esta zona ya se incluye en el plan real con el filtro explícito ubicacionEsNula
   // (bodega=eq.X&ubicacion=is.null), no con "sin filtro" (que traería TODAS las ubicaciones).
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida') && path.includes('bodega=eq.BSINUBIC') && path.includes('ubicacion=is.null')){
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=') && path.includes('bodega=eq.BSINUBIC') && path.includes('ubicacion=is.null')){
     const filas = universoZonaSinUbicacionFixture || [];
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${filas.length-1}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida')){
-    const binFiltro = (path.match(/storage_bin=eq\.([^&]+)/)||[])[1];
-    const filas = binFiltro==='A-01'
-      ? [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20, critico:true, clase_abc:'A'}]
-      : binFiltro==='A-02'
-        ? [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8, critico:false, clase_abc:'B'}]
-        // Mismo sku_code, dos filas (una por batch): reproduce el pedido de Joel de mostrar el
-        // SOH desglosado por batch en Contar -- ambas deben sobrevivir al armar el plan del día.
-        : binFiltro==='BX-01'
-          ? [
-              {id:'id-batch-a', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'A', unidad_medida:'LT', stock_sistema:5},
-              {id:'id-batch-b', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'B', unidad_medida:'LT', stock_sistema:9},
-            ]
-          : [];
+  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=')){
+    // Responde por bin (eq. o in.(...) con varios): igual que haría PostgREST de verdad.
+    const porBin = {
+      'A-01': [{id:'id-001', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', unidad_medida:'UN', stock_sistema:20, critico:true, clase_abc:'A'}],
+      'A-02': [{id:'id-002', sku_code:'SKU-002', descripcion:'Tuerca M8', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', unidad_medida:'UN', stock_sistema:8, critico:false, clase_abc:'B'}],
+      // Mismo sku_code, dos filas (una por batch): reproduce el pedido de Joel de mostrar el
+      // SOH desglosado por batch en Contar -- ambas deben sobrevivir al armar el plan del día.
+      'BX-01': [
+        {id:'id-batch-a', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'A', unidad_medida:'LT', stock_sistema:5},
+        {id:'id-batch-b', sku_code:'SKU-DOSBATCH', descripcion:'Aceite hidráulico', bodega:'Bodega Batch Test', ubicacion:'Zona X', storage_bin:'BX-01', batch:'B', unidad_medida:'LT', stock_sistema:9},
+      ],
+    };
+    const filas = (binsPedidos(path)||[]).flatMap(b=>porBin[b]||[]);
     return {
       status: 200,
       ok: true,
@@ -1438,6 +1446,42 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // y no contra cualquier otra que comparta el mismo código en otra bodega/ubicación.
   assert(filasSnapshot.some(f=>f.sku_code==='SKU-001' && f.sku_id==='id-001') && filasSnapshot.some(f=>f.sku_code==='SKU-002' && f.sku_id==='id-002'), 'la foto debe guardar sku_id (el id de la fila exacta), no solo sku_code, obtuvo: '+JSON.stringify(filasSnapshot));
 
+  // Perf (#140): la foto de las dos entradas salió de UNA consulta in.(...) con solo id/código/bin,
+  // no de una consulta de 15 columnas por bin.
+  const fotosUniverso = calls.filter(c=>c.url.includes('/skus_planificables?'));
+  assert(fotosUniverso.length===1 && decodeURIComponent(fotosUniverso[0].url).includes('storage_bin=in.("A-01","A-02")') && fotosUniverso[0].url.includes('select=id,sku_code,storage_bin&'), 'la foto de varios bins debe pedirse en una sola consulta in.(...) con columnas mínimas, obtuvo: '+JSON.stringify(fotosUniverso.map(c=>c.url)));
+  // Con el universo ya conocido (generador de Grupos), no se pide nada al servidor para la foto.
+  calls.length = 0;
+  await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:'', universoConocido:[{id:'id-001', sku_code:'SKU-001', storage_bin:'A-01'}]});
+  assert(!calls.some(c=>c.url.includes('/skus_planificables?')), 'con universoConocido no debe volver a pedir el universo para la foto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const fotoConocida = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_skus'));
+  assert(!!fotoConocida && JSON.parse(fotoConocida.opts.body).some(f=>f.sku_code==='SKU-001' && f.sku_id==='id-001' && f.storage_bin_original==='A-01'), 'la foto debe salir del universo conocido, obtuvo: '+JSON.stringify(fotoConocida && fotoConocida.opts.body));
+  // filtroBin: un bin -> eq., varios -> in.(...) con comillas (bins con coma o espacio no rompen
+  // la sintaxis de PostgREST), lista vacía -> sin filtro.
+  assert(ctx.filtroBin('A-01')==='&storage_bin=eq.A-01' && ctx.filtroBin(['A-01'])==='&storage_bin=eq.A-01', 'un solo bin debe ir como eq., obtuvo: '+ctx.filtroBin(['A-01']));
+  assert(decodeURIComponent(ctx.filtroBin(['A-01','R 2,B']))==='&storage_bin=in.("A-01","R 2,B")', 'varios bins deben ir como in.(...) entre comillas, obtuvo: '+decodeURIComponent(ctx.filtroBin(['A-01','R 2,B'])));
+  assert(ctx.filtroBin([])==='' && ctx.filtroBin('')==='' && ctx.filtroBin(null)==='', 'sin bins no debe filtrar');
+  // contarUniversoUbicacionPorBins: una consulta de conteo por tanda (no una por bin), sumando.
+  {
+    const fetchOriginalBins = ctx.fetch;
+    const conteosBins = [];
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(opts && opts.headers && opts.headers.Range==='0-0' && u.pathname.endsWith('/skus_planificables')){
+        conteosBins.push(decodeURIComponent(u.search));
+        const n = ((u.search.match(/storage_bin=in\.\(([^)]*)\)/)||[])[1]||'').split(',').length;
+        return { status:200, ok:true, headers:{ get:(h)=> h==='content-range' ? `0-0/${n*10}` : null }, text: async()=>'[]' };
+      }
+      return fetchOriginalBins(url, opts);
+    };
+    const BINS_POR_CONSULTA = vm.runInContext('BINS_POR_CONSULTA', ctx);
+    const muchosBins = Array.from({length: BINS_POR_CONSULTA + 5}, (_,i)=>'BIN-'+i);
+    const totalBins = await ctx.contarUniversoUbicacionPorBins({bodega:'Nave Mina', ubicacion:'Interior Nave', excluidos:[], soloSinUbicacion:false}, muchosBins);
+    assert(conteosBins.length===2, 'con más bins que BINS_POR_CONSULTA debe hacer 2 consultas (una por tanda), no una por bin, obtuvo: '+conteosBins.length);
+    assert(totalBins===(BINS_POR_CONSULTA+5)*10, 'debe sumar los conteos de todas las tandas, obtuvo: '+totalBins);
+    ctx.fetch = fetchOriginalBins;
+  }
+
   // Sin bins seleccionados ni responsable -> una sola fila con storage_bin y responsable_id null.
   calls.length = 0;
   await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:[], responsableId:'', nota:''});
@@ -1493,6 +1537,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(elements['p-bin'].innerHTML.includes('SKU-P1') && elements['p-bin'].innerHTML.includes('SKU-P2'), 'debe listar los SKU de la ubicación como opciones, obtuvo: '+elements['p-bin'].innerHTML);
   assert(elements['p-bin-hint'].textContent.includes('No hay storage bin cargado') && elements['p-bin-hint'].textContent.includes('elegir SKU puntuales'), 'debe explicar que se pueden elegir SKU puntuales, obtuvo: '+elements['p-bin-hint'].textContent);
   assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar')), 'la lista de SKU para elegir (sin bin) debe salir de skus_disponibles_planificar, no de skus_planificables, para no ofrecer SKU ya cubiertos por otra entrada del plan, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Perf (#140): la lista pide solo id/código/descripción con tope (MAX+1 filas, no toda la
+  // ubicación paginada), y el universo completo (base de las exclusiones) solo el código.
+  const listaSinBin = calls.find(c=>c.url.includes('/skus_disponibles_planificar') && c.url.includes('ubicacion=eq.Piso'));
+  const universoSinBin = calls.find(c=>c.url.includes('/skus_planificables?') && c.url.includes('ubicacion=eq.Piso'));
+  assert(!!listaSinBin && listaSinBin.url.includes('select=id,sku_code,descripcion&') && listaSinBin.opts.headers.Range==='0-300', 'la lista de SKU sin bin debe pedir columnas mínimas y solo hasta MAX+1 filas (Range 0-300), obtuvo: '+JSON.stringify(listaSinBin && {url:listaSinBin.url, range:listaSinBin.opts.headers.Range}));
+  assert(!!universoSinBin && universoSinBin.url.includes('select=sku_code&'), 'el universo completo (base de exclusiones) debe pedir solo sku_code, obtuvo: '+JSON.stringify(universoSinBin && universoSinBin.url));
+  // Con más SKU de los listables, skusDeUbicacion corta en la primera página (maxFilas) en vez de
+  // bajar la ubicación entera: BHUGE/UHUGE simula 3.005 filas y respeta el header Range.
+  {
+    universoZonaGiganteLen = 3005;
+    calls.length = 0;
+    const primeraPagina = await ctx.skusDeUbicacion({bodega:'BHUGE', ubicacion:'UHUGE', storage_bin:'', excluidos:[], soloSinUbicacion:false, campos:'id,sku_code', maxFilas:301});
+    const pedidas = calls.filter(c=>c.url.includes('bodega=eq.BHUGE'));
+    assert(primeraPagina.length===301 && pedidas.length===1 && pedidas[0].opts.headers.Range==='0-300', 'con maxFilas debe hacer UNA consulta (Range 0-300) y devolver 301 filas aunque el total sea 3.005, obtuvo: '+JSON.stringify({filas:primeraPagina.length, consultas:pedidas.map(c=>c.opts.headers.Range)}));
+    universoZonaGiganteLen = 0;
+  }
   // El resumen también debe funcionar en modo "SKU puntuales" (sin storage bin cargado): al
   // cargar, con todo marcado, muestra el total; eligiendo solo uno a mano, se recalcula en vivo.
   assert(elements['p-bin-resumen'].textContent === '(2 SKU)', 'en modo SKU puntuales, el resumen debe mostrar el total de SKU disponibles (SKU-P1 y SKU-P2), obtuvo: '+elements['p-bin-resumen'].textContent);
@@ -4995,8 +5055,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await promesaConfirmar;
   assert(ctx.__appstate.grupos.progresoPlan===null, 'al terminar, la barra de progreso debe limpiarse, obtuvo: '+ctx.__appstate.grupos.progresoPlan);
   assert(/Grupo Plan Real/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe mencionar el nombre del grupo, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
-  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP') && c.url.includes('storage_bin=eq.A-01')), 'debe pedir el universo del bin A-01 (no el de toda la zona) antes de crear su entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP') && c.url.includes('storage_bin=eq.A-02')), 'debe pedir el universo del bin A-02 (no el de toda la zona) antes de crear su entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Perf (#140): el universo de los DOS bins de la zona se pide en UNA sola consulta (in.(...)),
+  // solo con id/código/bin, y no se vuelve a pedir para la foto de cada entrada -- antes eran dos
+  // consultas de 15 columnas por bin (con 322 entradas reales, cerca de 1.000 viajes al servidor).
+  const universosZona = calls.filter(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP'));
+  assert(universosZona.length===1 && decodeURIComponent(universosZona[0].url).includes('storage_bin=in.("A-01","A-02")') && universosZona[0].url.includes('select=id,sku_code,storage_bin&'), 'debe pedir el universo de los bins A-01 y A-02 en UNA consulta in.(...) con solo id/código/bin (y no repetirla para la foto), obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/skus_planificables')).map(c=>c.url)));
   const postsPlanGrupo = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal'));
   assert(postsPlanGrupo.length===2, 'debe crear una entrada de plan_semanal POR storage bin (no una para toda la zona), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const cuerposPlanGrupo = postsPlanGrupo.map(c=>JSON.parse(c.opts.body)[0]);

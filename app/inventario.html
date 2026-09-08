@@ -1885,6 +1885,23 @@ function filtroBodega(bodega){
 // vigente (skus_disponibles_planificar) — solo para armar una entrada NUEVA. No usar esto para
 // calcular el universo/detalle de una entrada YA CREADA: se anularía a sí misma (todo lo que
 // cubre "ya está planificado" por ella).
+// storage_bin puede ser un texto (un bin: eq.) o una lista de bins (in.(...)): una sola consulta
+// para varios bins en vez de una por bin -- ver contarUniversoUbicacionPorBins/skusDeUbicacionPorBins.
+function filtroBin(storage_bin){
+  if(Array.isArray(storage_bin)){
+    const bins = storage_bin.filter(Boolean);
+    if(!bins.length) return '';
+    if(bins.length===1) return `&storage_bin=eq.${encodeURIComponent(bins[0])}`;
+    return `&storage_bin=in.(${bins.map(b=>encodeURIComponent('"'+b.replace(/"/g,'\\"')+'"')).join(',')})`;
+  }
+  return storage_bin ? `&storage_bin=eq.${encodeURIComponent(storage_bin)}` : '';
+}
+
+// Columnas del universo de SKU que usa Contar/Planificación cuando necesita el detalle completo.
+const CAMPOS_UNIVERSO_SKU = 'id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia';
+// Tope de bins por consulta in.(...): mantiene la URL corta (PostgREST la rechaza si es enorme).
+const BINS_POR_CONSULTA = 80;
+
 async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados}){
   let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true`;
   if(soloSinUbicacion){
@@ -1897,7 +1914,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
     // sobre las zonas "sin ubicación" que quedaban fuera del plan automático de Grupos.
     if(ubicacionEsNula) filtro += '&ubicacion=is.null';
     else if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
-    if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+    filtro += filtroBin(storage_bin);
   }
   filtro += filtroExclusion(excluidos);
   const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1${filtro}`, {
@@ -1915,8 +1932,12 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 
 // Trae el detalle completo (no solo el conteo) de los SKU de una ubicación planificada,
 // paginando de a 1000 filas vía Range para no chocar con el límite de fila de PostgREST.
-async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados}){
-  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia&order=storage_bin.asc,sku_code.asc`;
+// campos: columnas a traer (por defecto el detalle completo, CAMPOS_UNIVERSO_SKU); cuando solo
+// hacen falta códigos/ids (exclusiones, fotos del plan, listar SKU) se pide lo mínimo -- con
+// ubicaciones de decenas de miles de SKU la diferencia de bytes es grande. maxFilas: deja de
+// paginar al llegar a ese tope (quien llama solo quiere saber si hay "más de N").
+async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados, campos, maxFilas}){
+  let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=${campos || CAMPOS_UNIVERSO_SKU}&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
   }else{
@@ -1924,10 +1945,10 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloS
     // Ver el mismo comentario en contarUniversoUbicacion sobre ubicacionEsNula.
     if(ubicacionEsNula) filtro += '&ubicacion=is.null';
     else if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
-    if(storage_bin) filtro += `&storage_bin=eq.${encodeURIComponent(storage_bin)}`;
+    filtro += filtroBin(storage_bin);
   }
   filtro += filtroExclusion(excluidos);
-  const TAM_PAGINA = 1000;
+  const TAM_PAGINA = maxFilas ? Math.min(1000, maxFilas) : 1000;
   let desde = 0, total = Infinity, filas = [];
   while(desde < total){
     const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1${filtro}`, {
@@ -1947,8 +1968,36 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloS
     total = range && range.includes('/') ? Number(range.split('/')[1]) : filas.length;
     desde += TAM_PAGINA;
     if(!data.length) break;
+    if(maxFilas && filas.length >= maxFilas) break;
   }
   return filas;
+}
+
+// Varios storage bin de una misma bodega+ubicación en UNA consulta (in.(...)) en vez de una por
+// bin, en tandas de BINS_POR_CONSULTA. Con datos reales (Escondida, B521/0105 tiene 148 bins) el
+// formulario de Planificación y el generador de Grupos hacían cientos de viajes al servidor por
+// una sola acción; ahora son uno o dos. Devuelve un Map bin -> filas (los bins sin SKU quedan con []).
+async function skusDeUbicacionPorBins(base, bins, campos){
+  const unicos = [...new Set(bins.filter(Boolean))];
+  const porBin = new Map(unicos.map(b=>[b, []]));
+  for(let i=0; i<unicos.length; i+=BINS_POR_CONSULTA){
+    const tanda = unicos.slice(i, i+BINS_POR_CONSULTA);
+    const filas = await skusDeUbicacion({...base, storage_bin: tanda, campos: campos || 'id,sku_code,storage_bin'});
+    for(const f of filas){ if(porBin.has(f.storage_bin)) porBin.get(f.storage_bin).push(f); }
+  }
+  return porBin;
+}
+
+// Cuenta el universo de varios storage bin (o de toda la selección si la lista viene vacía) en
+// una sola consulta por tanda, en vez de una por bin.
+async function contarUniversoUbicacionPorBins(base, bins){
+  const unicos = [...new Set((bins||[]).filter(Boolean))];
+  if(!unicos.length) return contarUniversoUbicacion({...base, storage_bin: ''});
+  let total = 0;
+  for(let i=0; i<unicos.length; i+=BINS_POR_CONSULTA){
+    total += await contarUniversoUbicacion({...base, storage_bin: unicos.slice(i, i+BINS_POR_CONSULTA)});
+  }
+  return total;
 }
 
 // Universo completo (todas las columnas que usa Contar) de VARIAS entradas del plan en UNA sola
@@ -3157,7 +3206,7 @@ async function confirmarVistaPreviaComoPlan(){
         if(sinBodegaNiUbicacion || ubicacionEsNula){
           const universo = await skusDeUbicacion({
             bodega: bodegaParaZona, ubicacion:'', storage_bin:'', excluidos:[],
-            soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula,
+            soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula, campos:'id,sku_code,storage_bin',
           });
           const codigosDelGrupo = new Set(z.materiales.map(m=>m.sku_code));
           // Set: un código ajeno al grupo puede aparecer más de una vez en el universo (más de un
@@ -3186,10 +3235,18 @@ async function confirmarVistaPreviaComoPlan(){
           if(!porBin.has(bin)) porBin.set(bin, []);
           porBin.get(bin).push(m);
         });
+        // El universo de TODOS los bins de la zona se pide en una sola consulta (in.(...), solo
+        // id/código/bin) y se reparte por bin; después cada entrada recibe su universo ya conocido
+        // para no volver a pedirlo al guardar la foto. Antes eran dos consultas de 15 columnas por
+        // bin: con datos reales, un grupo de 322 entradas hacía cerca de 1.000 viajes al servidor.
+        const baseZona = {bodega: bodegaParaZona, ubicacion: z.ubicacion, excluidos:[]};
+        let universosPorBin = new Map();
+        try{ universosPorBin = await skusDeUbicacionPorBins(baseZona, [...porBin.keys()]); }
+        catch(e){ entradasFallidas += porBin.size; for(let k=0; k<porBin.size; k++) avanzarProgreso(); continue; }
         for(const [bin, materialesBin] of porBin){
-          const universoBin = await skusDeUbicacion({
-            bodega: bodegaParaZona, ubicacion: z.ubicacion, storage_bin: bin, excluidos:[],
-          });
+          const universoBin = bin
+            ? (universosPorBin.get(bin) || [])
+            : await skusDeUbicacion({...baseZona, storage_bin:'', campos:'id,sku_code,storage_bin'});
           const codigosBin = new Set(materialesBin.map(m=>m.sku_code));
           const skusExcluidosBin = [...new Set(universoBin.map(s=>s.sku_code).filter(code=>!codigosBin.has(code)))];
           if(skusExcluidosBin.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += materialesBin.length; avanzarProgreso(); continue; }
@@ -3198,6 +3255,7 @@ async function confirmarVistaPreviaComoPlan(){
               fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storageBins: bin ? [bin] : [], skusExcluidos: skusExcluidosBin,
               soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId:'',
               nota: `Generado automáticamente por el grupo "${grupo.nombre}"`, silencioso:true,
+              universoConocido: bin ? universoBin : undefined,
             });
             creadas++;
           }catch(e){ entradasFallidas++; }
@@ -3712,7 +3770,9 @@ async function elegirCascadaContar(cambios){
 // skusIncluidos (opcional): lista explícita [{id, sku_code}] elegida buscando por código (ver
 // agregarPlanPorSku). La entrada queda con por_sku=true y cubre exactamente esos SKU
 // (plan_semanal_incluidos), sin cascada de bins, exclusiones ni foto de universo.
-async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, ubicacionEsNula, cicloId, silencioso, skusIncluidos}){
+// universoConocido (opcional): filas {id, sku_code, storage_bin} del universo de los bins de esta
+// entrada, si quien llama ya las pidió (generador de Grupos): evita volver a pedirlas para la foto.
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, ubicacionEsNula, cicloId, silencioso, skusIncluidos, universoConocido}){
   if(!fecha){ if(!silencioso) toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
   // "SKU sin ubicación" es una sola entrada (no tiene bodega/ubicación/bin que cascadear). Lo
@@ -3758,10 +3818,16 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
     if(!porSku && !soloSinUbicacion && filas && filas.length){
       const conBin = filas.filter(f=>f.storage_bin);
       if(conBin.length){
-        const snapshots = await Promise.all(conBin.map(f=>
-          skusDeUbicacion({bodega:f.bodega, ubicacion:f.ubicacion, storage_bin:f.storage_bin, excluidos:[], soloSinUbicacion:false})
-        ));
-        const filasSnapshot = conBin.flatMap((f,i)=>snapshots[i].map(s=>({plan_id:f.id, sku_code:s.sku_code, sku_id:s.id, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion})));
+        // Todas las filas comparten bodega+ubicación (una entrada = una cascada): los bins van en
+        // UNA consulta (in.(...)) con solo id/código/bin, no una consulta con 15 columnas por bin.
+        let porBin;
+        if(universoConocido){
+          porBin = new Map();
+          for(const s of universoConocido){ if(!porBin.has(s.storage_bin)) porBin.set(s.storage_bin, []); porBin.get(s.storage_bin).push(s); }
+        }else{
+          porBin = await skusDeUbicacionPorBins({bodega:conBin[0].bodega, ubicacion:conBin[0].ubicacion, excluidos:[], soloSinUbicacion:false}, conBin.map(f=>f.storage_bin));
+        }
+        const filasSnapshot = conBin.flatMap(f=>(porBin.get(f.storage_bin)||[]).map(s=>({plan_id:f.id, sku_code:s.sku_code, sku_id:s.id, storage_bin_original:f.storage_bin, bodega_original:f.bodega, ubicacion_original:f.ubicacion})));
         if(filasSnapshot.length){
           await rest('/plan_semanal_skus', {method:'POST', body:filasSnapshot, prefer:'return=minimal', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
         }
@@ -10405,13 +10471,13 @@ function bind(){
       if(selBinEl.dataset.modo!=='skus'){
         try{
           const base = {bodega: soloSinUbicacion ? '' : bodegaParaEnviar, ubicacion: ubicacionElegida, excluidos:[], soloSinUbicacion};
-          const binsAContar = storageBins.length ? storageBins : [''];
-          const [totales, disponibles] = await Promise.all([
-            Promise.all(binsAContar.map(bin=> contarUniversoUbicacion({...base, storage_bin: bin}))),
-            Promise.all(binsAContar.map(bin=> contarUniversoUbicacion({...base, storage_bin: bin, excluirYaPlanificados:true}))),
+          // Una consulta para todos los bins elegidos (in.(...)), no una por bin: con decenas de
+          // bins marcados a mano eran cientos de viajes al servidor antes de poder agregar.
+          const [total, disponibles] = await Promise.all([
+            contarUniversoUbicacionPorBins(base, storageBins),
+            contarUniversoUbicacionPorBins({...base, excluirYaPlanificados:true}, storageBins),
           ]);
-          const total = totales.reduce((s,n)=>s+n, 0);
-          const yaPlanificados = total - disponibles.reduce((s,n)=>s+n, 0);
+          const yaPlanificados = total - disponibles;
           if(yaPlanificados>0 && !confirm(`${yaPlanificados} de los ${total} SKU de esta selección ya están planificados en otra entrada de este período y quedarían dos veces en el plan. ¿Agregar igual?`)) return;
         }catch(e){ /* el aviso es informativo: si no se pudo calcular, se agrega igual */ }
       }
@@ -10544,10 +10610,14 @@ function bind(){
         // comentario en contarUniversoUbicacion). Por eso se guarda acá la lista COMPLETA (sin
         // excluirYaPlanificados) como base real para calcular exclusiones, aunque el <select>
         // solo muestre/permita elegir de la lista angosta.
-        const [skus, skusUniversoCompleto] = await Promise.all([
-          skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true}),
-          skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false}),
-        ]);
+        // Solo id/código/descripción (no las 15 columnas) y con tope: si hay más SKU de los que se
+        // pueden listar (MAX_SKU_SIN_BIN_LISTABLES), no se sigue paginando ni se pide el universo
+        // completo -- con datos reales una ubicación sin bins puede tener 32.000 SKU (66 páginas
+        // que se bajaban enteras para terminar mostrando "puedes agregar igual").
+        const skus = await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true, campos:'id,sku_code,descripcion', maxFilas: MAX_SKU_SIN_BIN_LISTABLES+1});
+        const skusUniversoCompleto = (skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES)
+          ? await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, campos:'sku_code'})
+          : [];
         // Elementos frescos otra vez, tras este segundo await.
         selBin = document.getElementById('p-bin');
         chkTodos = document.getElementById('p-bin-todos');
