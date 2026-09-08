@@ -75,6 +75,29 @@ const universoEntradaPlanFixture = {
   ],
 };
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
+// Simulan el navegador al reducir fotos para el PDF (reducirFotoEnNavegador): `imagenMockCarga`
+// = {w,h} hace que new Image() "cargue" con esas dimensiones, null hace que falle; con
+// `canvasMockDisponible` document.createElement('canvas') devuelve un canvas falso que registra
+// los drawImage en `canvasDibujos` y devuelve un data URL con el tamaño y la calidad pedidos.
+let imagenMockCarga = null;
+let canvasMockDisponible = false;
+let canvasDibujos = [];
+class ImageMock {
+  set src(v){
+    this._src = v;
+    Promise.resolve().then(()=>{
+      if(imagenMockCarga){ this.naturalWidth = imagenMockCarga.w; this.naturalHeight = imagenMockCarga.h; if(this.onload) this.onload(); }
+      else if(this.onerror) this.onerror();
+    });
+  }
+  get src(){ return this._src; }
+}
+function crearCanvasFalso(){
+  const c = { width:0, height:0 };
+  c.getContext = ()=> ({ drawImage(){ canvasDibujos.push(Array.from(arguments).slice(1)); } });
+  c.toDataURL = (tipo, calidad)=> `data:${tipo};base64,FAKE-${c.width}x${c.height}-q${calidad}`;
+  return c;
+}
 let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
 let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesCiclo); null = sin mockear (usa default vacío)
 // Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
@@ -904,7 +927,7 @@ const documentMock = {
   documentElement: { setAttribute(){} },
   getElementById(id){ return makeEl(id); },
   querySelectorAll(){ return []; },
-  createElement(){ return makeEl('tmp'+Math.random()); },
+  createElement(tag){ return (tag==='canvas' && canvasMockDisponible) ? crearCanvasFalso() : makeEl('tmp'+Math.random()); },
   addEventListener(){},
 };
 
@@ -1001,7 +1024,7 @@ const sandbox = {
   crypto,
   atob,
   btoa,
-  Image: class {},
+  Image: ImageMock,
   FileReader: class {},
   location: { hash: '', pathname: '/index.html', search: '' },
   history: { replaceState: () => {} },
@@ -7619,9 +7642,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // SKU-EXP-4 (no crítico) debe quedar sin color especial.
   assert((printBuscarEl.innerHTML.match(/<th style="color:var\(--danger\);font-weight:600">Crítico<\/th>/g)||[]).length===1, 'debe haber exactamente una etiqueta "Crítico" en rojo (solo SKU-EXP-1 es crítico entre los seleccionados), obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('<th>Crítico</th>'), 'el material no crítico (SKU-EXP-4) debe mostrar la etiqueta "Crítico" sin color especial, obtuvo: '+printBuscarEl.innerHTML);
+  // La foto se firma sin transform (Image Transformations tiene cuota de 100 imágenes/mes en el
+  // plan Pro) y, como este "navegador" no tiene canvas, va la URL firmada original.
   assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'debe incrustar la foto (la más reciente, a.jpg) resuelta a su URL firmada, obtuvo: '+printBuscarEl.innerHTML);
-  assert(printBuscarEl.innerHTML.includes('transform=1'), 'debe pedir la foto redimensionada (Image Transformations) para que el PDF no descargue la foto original de varios MB, obtuvo: '+printBuscarEl.innerHTML);
-  assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && JSON.parse(c.opts.body).transform && JSON.parse(c.opts.body).transform.width===400), 'la firma debe pedir un transform con un ancho acotado, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('a.jpg')).map(c=>c.opts.body)));
+  assert(!printBuscarEl.innerHTML.includes('transform=1'), 'no debe pedir la foto vía Image Transformations de Supabase (cuota mensual), obtuvo: '+printBuscarEl.innerHTML);
+  assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg')) && !calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && JSON.parse(c.opts.body).transform), 'la firma debe pedirse sin transform, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('a.jpg')).map(c=>c.opts.body)));
   assert(printBuscarEl.innerHTML.includes('SKU-EXP-4') && printBuscarEl.innerHTML.includes('Sin foto') && printBuscarEl.innerHTML.includes('No contado'), 'un SKU nunca contado y sin fotos debe avisar "Sin foto" y "No contado" en vez de romperse, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('Rodamiento con desgaste visible en el borde'), 'el PDF debe traer la observación que se llenó en Tomar inventario, obtuvo: '+printBuscarEl.innerHTML);
   assert(printBuscarEl.innerHTML.includes('Diferencia -2'), 'debe mostrar la magnitud real de la diferencia cuando no hay conteo ciego, obtuvo: '+printBuscarEl.innerHTML);
@@ -7635,15 +7660,39 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printBuscarEl.innerHTML.includes('Con diferencia') && !printBuscarEl.innerHTML.includes('Diferencia -2'), 'con conteo ciego activo, el PDF no debe revelar la magnitud de la diferencia, obtuvo: '+printBuscarEl.innerHTML);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
 
-  // Si el proyecto no tiene Image Transformations habilitadas, la firma con transform falla --
-  // debe reintentar sin transform y seguir mostrando la foto (aunque sea a tamaño original) en
-  // vez de dejar la ficha en "Sin foto".
-  fallarFirmaConTransform = true;
+  // Sentry: los dos mensajes que la app muestra a propósito (sesión cerrada por "una sesión por
+  // usuario" y sin conexión) van en ignoreErrors, configurado ANTES del Loader Script para que
+  // lo respete; si no, cada pérdida de señal abría un issue en GitHub (Sentry #278, #371).
+  {
+    const iOnLoad = html.indexOf('window.sentryOnLoad');
+    const iLoader = html.indexOf('js.sentry-cdn.com');
+    assert(iOnLoad>0 && iLoader>0 && iOnLoad<iLoader, 'window.sentryOnLoad debe definirse antes del Loader Script de Sentry en <head>');
+    const bloque = html.slice(iOnLoad, iLoader);
+    assert(bloque.includes('ignoreErrors') && bloque.includes("'Tu sesión terminó'") && bloque.includes("'No se pudo conectar. Revisa tu conexión'"), 'sentryOnLoad debe ignorar los mensajes de sesión terminada y sin conexión, obtuvo: '+bloque);
+    assert(vm.runInContext('MENSAJE_SESION_TERMINADA', ctx).startsWith('Tu sesión terminó') && vm.runInContext('MENSAJE_SIN_CONEXION', ctx).startsWith('No se pudo conectar. Revisa tu conexión'), 'los patrones de ignoreErrors deben seguir calzando con los mensajes reales de la app');
+  }
+
+  // Con canvas disponible, la foto se reduce en el navegador: recorte cuadrado al centro de la
+  // foto original (1600x1200 -> 1200x1200 desde x=200) escalado a 400x400, JPEG calidad 0.7, y
+  // el PDF incrusta el data URL en vez de la URL firmada (sin pedirle nada a Supabase).
+  canvasMockDisponible = true; imagenMockCarga = {w:1600, h:1200}; canvasDibujos = [];
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1']};
   printBuscarEl.innerHTML = '';
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('transform=1'), 'si falla la firma con transform (Image Transformations no habilitadas), debe reintentar sin transform y seguir mostrando la foto, obtuvo: '+printBuscarEl.innerHTML);
-  fallarFirmaConTransform = false;
+  assert(printBuscarEl.innerHTML.includes('data:image/jpeg;base64,FAKE-400x400-q0.7'), 'con canvas, el PDF debe incrustar la foto reducida a 400x400 en JPEG calidad 0.7, obtuvo: '+printBuscarEl.innerHTML);
+  assert(!printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg'), 'con la foto reducida, el PDF no debe incrustar la URL firmada de la original, obtuvo: '+printBuscarEl.innerHTML);
+  assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([200,0,1200,1200,0,0,400,400]), 'debe recortar el cuadrado central de la foto (1200x1200 desde x=200) y escalarlo a 400x400, obtuvo: '+JSON.stringify(canvasDibujos));
+  // Foto más chica que 400px: no se agranda.
+  imagenMockCarga = {w:300, h:500}; canvasDibujos = [];
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(printBuscarEl.innerHTML.includes('FAKE-300x300-q0.7') && JSON.stringify(canvasDibujos[0])===JSON.stringify([0,100,300,300,0,0,300,300]), 'una foto más chica que 400px se recorta al cuadrado pero no se agranda, obtuvo: '+printBuscarEl.innerHTML+' '+JSON.stringify(canvasDibujos));
+  // Si la foto no carga en el navegador (CORS, archivo corrupto), va la URL firmada original.
+  imagenMockCarga = null;
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('data:image/'), 'si la foto no carga para reducirla, el PDF debe usar la URL firmada original en vez de quedar "Sin foto", obtuvo: '+printBuscarEl.innerHTML);
+  canvasMockDisponible = false;
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
 
   // Salto de página: la 1ra hoja lleva el título ("Detalle de materiales" + el resumen), que

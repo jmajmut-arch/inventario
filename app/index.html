@@ -2,6 +2,21 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<script data-sentry-config>
+  // Sentry solo debe avisar de errores de verdad. Estos dos mensajes los muestra la propia app
+  // a propósito (sesión cerrada por "una sesión por usuario" y pérdida de señal en terreno) y
+  // algún flujo los deja escapar como promesa rechazada; sin este filtro llegaban a Sentry y
+  // abrían un issue en GitHub cada vez que alguien perdía señal o cambiaba de dispositivo.
+  // El Loader Script llama a sentryOnLoad antes de inicializar y respeta estas opciones.
+  window.sentryOnLoad = function(){
+    Sentry.init({
+      ignoreErrors: [
+        'Tu sesión terminó',
+        'No se pudo conectar. Revisa tu conexión'
+      ]
+    });
+  };
+</script>
 <script
   src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js"
   crossorigin="anonymous"
@@ -892,8 +907,9 @@ async function storageUpload(path, file){
 // Genera una URL temporal para ver una foto del bucket privado. Acepta tanto
 // una ruta nueva (empresa_id/sku/archivo) como una URL pública completa de
 // fotos subidas antes de que el bucket pasara a privado. `transform` (opcional)
-// pide una versión redimensionada/comprimida vía Supabase Image Transformations
-// -- si el proyecto no la tiene habilitada, el llamador debe reintentar sin transform.
+// pide una versión redimensionada/comprimida vía Supabase Image Transformations;
+// hoy la app no lo usa (cuota mensual de 100 imágenes en el plan Pro), las fotos se
+// reducen en el navegador con reducirFotoEnNavegador().
 async function crearUrlFirmada(fotoUrlORuta, transform){
   const marcador = `/object/public/${BUCKET}/`;
   const idx = fotoUrlORuta.indexOf(marcador);
@@ -907,6 +923,41 @@ async function crearUrlFirmada(fotoUrlORuta, transform){
   const data = await res.json().catch(()=>({}));
   if(!res.ok || !data.signedURL) throw new Error(data.message || 'No se pudo abrir la foto');
   return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
+}
+
+// Reduce una foto en el navegador (canvas) a un cuadrado de `lado` px recortado al centro
+// ("cover") y la devuelve como data URL JPEG, lista para incrustar en un PDF. No agranda fotos
+// más chicas que `lado`. Devuelve null si algo falla (sin canvas, foto corrupta, bloqueo CORS)
+// para que el llamador use la URL original: mejor una foto pesada que ninguna.
+const FOTO_PDF_LADO_PX = 400;
+async function reducirFotoEnNavegador(url, lado=FOTO_PDF_LADO_PX, calidad=0.7){
+  try{
+    if(typeof Image==='undefined' || typeof document==='undefined') return null;
+    const canvas = document.createElement('canvas');
+    if(!canvas || typeof canvas.getContext!=='function' || typeof canvas.toDataURL!=='function') return null;
+    const img = await new Promise((resolve, reject)=>{
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      // Tope de espera: si la foto nunca termina de cargar (señal mala), el PDF sigue con la
+      // URL original en vez de quedarse colgado en "Generando PDF".
+      const tope = setTimeout(()=> reject(new Error('La foto tardó demasiado en cargar')), 15000);
+      im.onload = ()=>{ clearTimeout(tope); resolve(im); };
+      im.onerror = ()=>{ clearTimeout(tope); reject(new Error('No se pudo cargar la foto para reducirla')); };
+      im.src = url;
+    });
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    if(!w || !h) return null;
+    const recorte = Math.min(w, h);
+    const destino = Math.min(lado, recorte);
+    canvas.width = destino; canvas.height = destino;
+    const ctx = canvas.getContext('2d');
+    if(!ctx) return null;
+    ctx.drawImage(img, (w-recorte)/2, (h-recorte)/2, recorte, recorte, 0, 0, destino, destino);
+    const dataUrl = canvas.toDataURL('image/jpeg', calidad);
+    return (typeof dataUrl==='string' && dataUrl.startsWith('data:image/')) ? dataUrl : null;
+  }catch(e){
+    return null;
+  }
 }
 
 /* =======================================================================
@@ -4054,11 +4105,14 @@ async function exportarSeleccionadosBusquedaPDF(){
       const foto = (r.fotos||[])[0];
       let fotoUrl = null;
       if(foto){
-        // Pide una versión redimensionada -- las fotos originales pesan varios MB (resolución de
-        // cámara) para un recuadro de 130x130px en el PDF. Si el proyecto no tiene habilitadas las
-        // Image Transformations de Supabase, reintenta con la foto original en vez de romperse.
-        try{ fotoUrl = await crearUrlFirmada(foto.foto_url, {width:400, height:400, resize:'cover', quality:70}); }
-        catch(e){ try{ fotoUrl = await crearUrlFirmada(foto.foto_url); }catch(e2){ /* sigue sin foto si falla también la firma sin redimensionar */ } }
+        // Las fotos originales pesan varios MB (resolución de cámara) para un recuadro de
+        // 130x130px en el PDF: se reducen acá, en el navegador, en vez de pedirle a Supabase una
+        // versión transformada (Image Transformations tiene una cuota mensual de 100 imágenes en
+        // el plan Pro y la pasamos). Si el navegador no puede reducirla, va la foto original.
+        try{
+          fotoUrl = await crearUrlFirmada(foto.foto_url);
+          fotoUrl = (await reducirFotoEnNavegador(fotoUrl)) || fotoUrl;
+        }catch(e){ /* sigue sin foto si falla la firma */ }
       }
       return fichaBusquedaPDF(r, fotoUrl, ocultar);
     }));
@@ -4677,8 +4731,8 @@ function pareceFalloDeRed(e){
 // Red de seguridad global para promesas rechazadas que se le escapan a su propio catch (Sentry
 // #227): con decenas de rest()/authRequest()/storageUpload() en la app, un catch(e) olvidado en
 // algún flujo puntual deja el TypeError de "sin conexión" (u otro error) como promesa rechazada
-// sin capturar -- Sentry lo ve igual (tiene su propio listener aparte, ver window.addEventListener
-// más abajo en iniciarApp), pero la persona se queda sin ningún aviso en pantalla. Esto no
+// sin capturar -- Sentry lo vería igual (tiene su propio listener aparte), pero ese mensaje está
+// en su ignoreErrors (ver <head>), y la persona se quedaría sin ningún aviso en pantalla. Esto no
 // reemplaza los catch puntuales (que siguen dando mensajes más específicos), es el piso mínimo
 // para que ninguno se escape en silencio.
 function mensajeParaRechazoNoCapturado(motivo){

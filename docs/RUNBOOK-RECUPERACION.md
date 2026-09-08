@@ -1579,6 +1579,15 @@ seguridad propia de la app, ver `mensajeParaRechazoNoCapturado` en
 nuevo, tomar su nuevo loader script ID y reemplazar el `src` en ambos
 archivos.
 
+**Errores esperados ignorados**: en la app (no en el landing) hay un
+`<script data-sentry-config>` antes del loader que define `window.sentryOnLoad`
+con `ignoreErrors` para los dos mensajes que la app muestra a propósito:
+"Tu sesión terminó…" (una sesión por usuario) y "No se pudo conectar…" (sin
+señal). Sin eso, cada pérdida de señal o cambio de dispositivo abría un issue
+en GitHub (ver issues #278 y #371). Si se cambia el texto de
+`MENSAJE_SESION_TERMINADA` o `MENSAJE_SIN_CONEXION`, hay que actualizar esos
+patrones (el test lo verifica).
+
 **Alertas de Sentry → GitHub**: configurado (Sentry → Alerts → "Notify via
 GitHub") para crear un issue automático en `jmajmut-arch/inventario` por cada
 error nuevo — así es como llegan los issues con label `sentry` (o body que
