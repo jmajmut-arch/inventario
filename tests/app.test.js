@@ -52,7 +52,7 @@ let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
 let reconteoPorSemanaFixture = []; // filas del RPC reconteo_pendiente_por_semana ({semana, pendientes})
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
-// Universo/detalle por plan_id para el RPC skus_universo_entrada_plan (ver skusUniversoEntradaPlan):
+// Universo/detalle por plan_id para los RPC universo_entradas_plan_* (ver universoEntradasPlanContar):
 // reemplaza los viejos filtros armados en la URL (bodega=eq./ubicacion=eq./storage_bin=eq.) por un
 // solo parámetro p_plan_id -- acá se simula devolviendo, para cada id de plan_semanal ya usado en
 // los fixtures de este archivo, el mismo universo que antes se armaba a mano por bodega+bin.
@@ -432,13 +432,15 @@ const fakeFetchImpl = async (url, opts) => {
     planIds.forEach(id=>{ if((universoEntradaPlanFixture[id]||[]).length) resumen[id] = universoEntradaPlanFixture[id].map(f=>({id:f.id, sku_code:f.sku_code, descripcion:f.descripcion})); });
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(resumen) };
   }
-  // skus_universo_entrada_plan (ver skusUniversoEntradaPlan): fix del bug real "Cargando SKU…"
-  // (una entrada con miles de exclusiones armaba una URL gigante, sku_code=not.in.(...), que el
-  // servidor rechazaba o tardaba en responder) -- ahora solo manda el plan_id, ver fixture arriba.
-  if(path.startsWith('/rest/v1/rpc/skus_universo_entrada_plan')){
-    const planId = opts && opts.body ? JSON.parse(opts.body).p_plan_id : null;
-    const filas = universoEntradaPlanFixture[planId] || [];
-    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${Math.max(filas.length-1,0)}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
+  // universo_entradas_plan_contar (ver universoEntradasPlanContar): el plan del día en Contar y su
+  // PDF piden el universo COMPLETO de todas las entradas en una sola llamada (antes era el RPC
+  // skus_universo_entrada_plan, una llamada por entrada). Forma real: un solo jsonb
+  // { "<plan_id>": [fila completa, ...] }; las entradas sin SKU no vienen como clave.
+  if(path.startsWith('/rest/v1/rpc/universo_entradas_plan_contar')){
+    const planIds = opts && opts.body ? JSON.parse(opts.body).p_plan_ids : [];
+    const porEntrada = {};
+    planIds.forEach(id=>{ if((universoEntradaPlanFixture[id]||[]).length) porEntrada[id] = universoEntradaPlanFixture[id]; });
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(porEntrada) };
   }
   if(path.startsWith('/rest/v1/skus_resumen_abc')){
     const filas = [
@@ -799,8 +801,11 @@ const fakeFetchImpl = async (url, opts) => {
         {sku_code:'SKU-888', sku_id:'id-888-a', storage_bin_original:'DIS-01', bodega_original:'Bodega Disambig', ubicacion_original:'Zona Test'},
       ],
     };
-    const planId = (path.match(/plan_id=eq\.([^&]+)/)||[])[1];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(snapshots[planId]||[]) };
+    // Forma real desde skusMovidosDeEntradas: plan_id=in.(a,b,...) (una sola consulta para todas
+    // las entradas con bin). Se conserva eq. por compatibilidad con otros llamadores.
+    const enLote = (decodeURIComponent(path).match(/plan_id=in\.\(([^)]*)\)/)||[])[1];
+    const planIds = enLote ? enLote.split(',') : [(path.match(/plan_id=eq\.([^&]+)/)||[])[1]];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(planIds.flatMap(id=>snapshots[id]||[])) };
   }
   // Universo de una zona para el generador de plan por grupo (ver confirmarVistaPreviaComoPlan):
   // bodega/ubicación de prueba dedicadas. Con storage_bin=eq.X (una entrada por bin, ver el fix
@@ -6915,8 +6920,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // pero su bin actual (A-02) sigue activo -> ya viene por el fetch normal, no debe duplicarse.
   // SKU-777 se planificó acá pero una carga lo reasignó a otra bodega+ubicación completa (ya no
   // "Nave Mina · Interior Nave") -> debe recuperarse igual, marcado con el cambio de ubicación.
+  calls.length = 0;
   await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
   const skusJuntos = ctx.__appstate.contarPlan.skusPendientes;
+  // #139: el universo de TODAS las entradas activas viaja en UN solo RPC (antes uno por entrada),
+  // y las fotos de plan_semanal_skus en UNA sola consulta con plan_id=in.(...).
+  const llamadasUniversoContar = calls.filter(c=>c.url.includes('/rpc/universo_entradas_plan_contar'));
+  assert(llamadasUniversoContar.length===1, 'elegirCascadaContar debe pedir el universo de todas las entradas en UNA sola llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const idsUniversoContar = JSON.parse(llamadasUniversoContar[0].opts.body).p_plan_ids;
+  assert(idsUniversoContar.includes('mp1') && idsUniversoContar.includes('mp2'), 'la llamada única debe llevar los plan_id de todas las entradas activas (mp1 y mp2), obtuvo: '+JSON.stringify(idsUniversoContar));
+  assert(!calls.some(c=>c.url.includes('/rpc/skus_universo_entrada_plan')), 'ya no debe usarse el RPC por entrada skus_universo_entrada_plan, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const llamadasFotos = calls.filter(c=>c.url.includes('/plan_semanal_skus?'));
+  assert(llamadasFotos.length===1 && decodeURIComponent(llamadasFotos[0].url).includes('plan_id=in.(mp1,mp2)'), 'las fotos de plan_semanal_skus deben pedirse en UNA sola consulta con plan_id=in.(mp1,mp2), obtuvo: '+JSON.stringify(llamadasFotos.map(c=>c.url)));
   assert(Array.isArray(skusJuntos) && skusJuntos.length===4 && skusJuntos.some(s=>s.sku_code==='SKU-001') && skusJuntos.some(s=>s.sku_code==='SKU-002'), 'elegirCascadaContar debe juntar los SKU pendientes de todos los bin de la ubicación (SKU-001 de A-01 y SKU-002 de A-02) más los SKU recuperados, obtuvo: '+JSON.stringify(skusJuntos));
   // Bug real (Sentry, Rage Click): tocar un SKU del plan del día no hacía nada con catálogos
   // grandes porque el click buscaba el SKU en state.skus (solo trae los primeros 500) en vez de
@@ -6941,7 +6956,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const fetchOriginalCascadaOffline = ctx.fetch;
   ctx.fetch = async (url, opts) => {
     const u = new URL(url);
-    if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan') throw new ctx.__TypeError('Failed to fetch');
+    if(u.pathname==='/rest/v1/rpc/universo_entradas_plan_contar') throw new ctx.__TypeError('Failed to fetch');
     return fetchOriginalCascadaOffline(url, opts);
   };
   await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
@@ -6954,7 +6969,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const toastsAntesCascadaOffline = toastRootCascadaOffline ? toastRootCascadaOffline.hijos.length : 0;
   ctx.fetch = async (url, opts) => {
     const u = new URL(url);
-    if(u.pathname==='/rest/v1/rpc/skus_universo_entrada_plan') throw new ctx.__TypeError('Failed to fetch');
+    if(u.pathname==='/rest/v1/rpc/universo_entradas_plan_contar') throw new ctx.__TypeError('Failed to fetch');
     return fetchOriginalCascadaOffline(url, opts);
   };
   await ctx.elegirCascadaContar({bodega:'__sin_ubicacion__', ubicacion:''});
@@ -7030,8 +7045,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.contarPlan = cpBase;
   printEl.innerHTML = '';
   printCalled = 0;
+  calls.length = 0;
   await ctx.imprimirPlanDelDia();
   assert(printCalled===1, 'imprimirPlanDelDia debe llamar a window.print()');
+  // #139: el PDF del plan del día también pide el universo de todas las entradas de una vez.
+  const llamadasUniversoPdfDia = calls.filter(c=>c.url.includes('/rpc/universo_entradas_plan_contar'));
+  assert(llamadasUniversoPdfDia.length===1 && JSON.parse(llamadasUniversoPdfDia[0].opts.body).p_plan_ids.length===cpBase.entradas.length, 'imprimirPlanDelDia debe pedir el universo de todas las entradas en UNA sola llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(printEl.innerHTML.includes('Plan del día'), 'el PDF debe titularse "Plan del día", obtuvo: '+printEl.innerHTML);
   assert(printEl.innerHTML.includes('Joel'), 'el PDF debe indicar el nombre de la cuenta logueada, obtuvo: '+printEl.innerHTML);
   assert(printEl.innerHTML.includes('SKU-001') && printEl.innerHTML.includes('SKU-002'), 'el PDF debe listar los SKU de las entradas con bin (mp1 y mp2), obtuvo: '+printEl.innerHTML);
