@@ -21,7 +21,7 @@ No hay backend propio que desplegar: toda la lógica de servidor vive en Supabas
 
 - **Multiempresa**: cada empresa ve solo sus datos (Row Level Security por `empresa_id` en todas las tablas y vistas). Planes Básico, Profesional y Empresa con límites y funciones por plan.
 - **Maestro de materiales** cargado desde el export de SAP (CSV) o a mano; bodegas, ubicaciones, storage bins, batches, clase ABC y criticidad.
-- **Planificación**: entradas por fecha, bodega, ubicación y bin; grupos de conteo con frecuencia propia y generación automática de plan; vistas Día, Semana, Mes, Año y Período; calendario; hoja de conteo en PDF.
+- **Planificación**: entradas por fecha, bodega, ubicación y bin, o por código de SKU (lista exacta de materiales); grupos de conteo con frecuencia propia y generación automática de plan; vistas Día, Semana, Mes, Año y Período; calendario; hoja de conteo en PDF.
 - **Contar**: plan del día por responsable, escáner de códigos con la cámara, conteo ciego opcional, fotos de respaldo, guardado optimista y cola offline cuando no hay señal.
 - **Reconteo** de diferencias con gráfico por semana y descarte justificado.
 - **Dashboard** por ciclo de conteo: avance, exactitud en unidades y ubicación, proyección de término, ranking por responsable e informe de ciclo en PDF.
@@ -33,7 +33,7 @@ No hay backend propio que desplegar: toda la lógica de servidor vive en Supabas
 
 Proyecto `inventario-toma-fisica`, región `sa-east-1`, Postgres 17.
 
-- Tablas: `empresas`, `planes`, `usuarios`, `skus`, `conteos`, `conteo_fotos`, `plan_semanal` (y `plan_semanal_skus`, `plan_semanal_exclusiones`), `grupos_conteo`, `skus_grupos_conteo`, `historial_ciclos_grupo`, `ciclos_conteo`, `informes_ciclo`, `responsables_proceso`, `cargas_masivas`, `auditoria`, `flow_eventos`, `leads_demo`.
+- Tablas: `empresas`, `planes`, `usuarios`, `skus`, `conteos`, `conteo_fotos`, `plan_semanal` (y `plan_semanal_skus`, `plan_semanal_exclusiones`, `plan_semanal_incluidos`), `grupos_conteo`, `skus_grupos_conteo`, `historial_ciclos_grupo`, `ciclos_conteo`, `informes_ciclo`, `responsables_proceso`, `cargas_masivas`, `auditoria`, `flow_eventos`, `leads_demo`.
 - Las vistas y funciones RPC que usa la app filtran siempre por `empresa_actual()`. Las funciones son ejecutables solo por usuarios autenticados; las de mantenimiento (cron) solo por el servicio.
 - Fotos en el bucket privado `fotos-inventario`, con rutas por empresa y URLs firmadas.
 - Edge Functions: `invite-user`, `crear-empresa-autoservicio`, `flow-iniciar-suscripcion`, `flow-registro-callback`, `flow-webhook-cobro`, `flow-sincronizar-suscripcion`, `flow-cambiar-plan`, `flow-cancelar-suscripcion`.

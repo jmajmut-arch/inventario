@@ -243,6 +243,7 @@
       <li>Un mismo SKU cubierto por dos entradas se cuenta una sola vez en los totales de la ventana (regla "gana la entrada más temprana por fecha y creación", igual en cliente y servidor)</li>
       <li>Aviso de solapamiento antes de agregar: cuántos SKU de la entrada nueva ya están planificados en el período (<code>skus_planificables</code> vs <code>skus_disponibles_planificar</code>)</li>
       <li>Exclusiones puntuales por entrada (<code>plan_semanal_exclusiones</code>) resueltas en el servidor: nunca viajan por la URL</li>
+      <li>Entradas por código de SKU (<code>por_sku</code> + lista exacta en <code>plan_semanal_incluidos</code>), agrupadas por bodega y ubicación; las resuelven las mismas funciones que el resto (universo, calendario, disponibles)</li>
       <li>Exportar PDF con el listado completo de la ventana en una sola llamada (<code>universo_entradas_plan_hoja</code>)</li>
     </ul>
     <ul class="checks no">
