@@ -44,6 +44,8 @@ let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo a
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
 let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeguimientoGrupo) -- undefined = ninguno
 let contarCriticosDistintosFixture = 0; // respuesta del RPC contar_criticos_distintos (ver cargarGrupos)
+let posicionesGrupoFixture = {}; // por grupo_id: {materiales, posiciones} (RPC posiciones_por_grupo, ver cargarGrupos)
+let resumenPlanGruposFixture = {}; // por grupo_id: {entradas, desde, hasta, por_venir, skus_por_contar} (RPC resumen_plan_grupos)
 let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
@@ -276,6 +278,20 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Conteo real de materiales críticos (código+bodega distintos, no filas) para mostrar en la
   // lista de Grupos junto al grupo automático (ver cargarGrupos).
+  // posiciones_por_grupo: "3 materiales · 8 posiciones" en Grupos (una sola llamada para todos
+  // los grupos). Solo devuelve filas para los ids que tenga el fixture.
+  // resumen_plan_grupos: "Plan generado: 8 entradas · 47 SKU por contar · 14 sep – 9 nov · 3 por
+  // venir" (una sola llamada para todos los grupos, en segundo plano tras mostrar la lista).
+  if(path.startsWith('/rest/v1/rpc/resumen_plan_grupos')){
+    const ids = opts && opts.body ? JSON.parse(opts.body).p_grupo_ids : [];
+    const filas = ids.filter(id=>resumenPlanGruposFixture[id]).map(id=>({grupo_id:id, ...resumenPlanGruposFixture[id]}));
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  if(path.startsWith('/rest/v1/rpc/posiciones_por_grupo')){
+    const ids = opts && opts.body ? JSON.parse(opts.body).p_grupo_ids : [];
+    const filas = ids.filter(id=>posicionesGrupoFixture[id]).map(id=>({grupo_id:id, ...posicionesGrupoFixture[id]}));
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/rpc/contar_criticos_distintos')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(contarCriticosDistintosFixture) };
   }
@@ -4428,6 +4444,46 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const htmlGrupos = ctx.renderGrupos();
   assert(htmlGrupos.includes('IE') && htmlGrupos.includes('2 materiales') && htmlGrupos.includes('cada 180 días'), 'renderGrupos debe listar el grupo con su cantidad de miembros y frecuencia, obtuvo: '+htmlGrupos);
+  assert(!htmlGrupos.includes('posiciones'), 'si el RPC de posiciones no trae el grupo, no debe inventarse una cifra, obtuvo: '+htmlGrupos);
+
+  // "3 materiales · 8 posiciones" (pedido de Joel: al filtrar Buscar por un grupo de 3 materiales
+  // salían 8 filas, una por posición activa del maestro). Una sola llamada para todos los grupos.
+  posicionesGrupoFixture = {'grupo-1': {materiales:2, posiciones:5}};
+  calls.length = 0;
+  await ctx.cargarGrupos();
+  const rpcPosiciones = calls.filter(c=>c.url.includes('/rpc/posiciones_por_grupo'));
+  assert(rpcPosiciones.length===1 && JSON.parse(rpcPosiciones[0].opts.body).p_grupo_ids.includes('grupo-1'), 'cargarGrupos debe pedir las posiciones de todos los grupos en UNA llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const htmlGruposPosiciones = ctx.renderGrupos();
+  assert(htmlGruposPosiciones.includes('2 materiales · 5 posiciones'), 'la lista debe mostrar "N materiales · M posiciones", obtuvo: '+htmlGruposPosiciones);
+  ctx.__appstate.grupos.grupoAbierto = 'grupo-1';
+  ctx.__appstate.grupos.seguimiento = {totalMiembros:2, nuncaContados:0, contadosCiclo:0, pendientesCiclo:0, tieneFrecuencia:false, contadosSemana:0, contadosMes:0, cicloActual:null, cicloGrupo:null};
+  ctx.__appstate.grupos.seguimientoCargando = false;
+  const htmlDetallePosiciones = ctx.renderGrupos();
+  assert(/<strong[^>]*>2<\/strong> materiales · <strong[^>]*>5<\/strong> posiciones en el maestro/.test(htmlDetallePosiciones) && htmlDetallePosiciones.includes('Buscar y el plan trabajan por posición'), 'el detalle del grupo debe explicar materiales vs posiciones, obtuvo: '+htmlDetallePosiciones);
+  ctx.__appstate.grupos.grupoAbierto = null;
+  ctx.__appstate.grupos.seguimiento = null;
+  posicionesGrupoFixture = {};
+
+  // "Plan generado: …" (pedido de Joel: aclarar qué son las "8 entradas", cuántos SKU quedan por
+  // contar, el rango de fechas y cuántas están por venir). Una sola llamada para todos los grupos,
+  // en segundo plano después de mostrar la lista.
+  resumenPlanGruposFixture = {'grupo-1': {entradas:8, desde:'2026-09-14', hasta:'2026-11-09', por_venir:3, skus_por_contar:47}};
+  calls.length = 0;
+  await ctx.cargarGrupos();
+  await new Promise(r=>setTimeout(r, 20));
+  const rpcResumenPlan = calls.filter(c=>c.url.includes('/rpc/resumen_plan_grupos'));
+  assert(rpcResumenPlan.length===1 && JSON.parse(rpcResumenPlan[0].opts.body).p_grupo_ids.includes('grupo-1'), 'cargarGrupos debe pedir el resumen del plan de todos los grupos en UNA llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const htmlPlanGrupo = ctx.renderGrupos();
+  const rangoEsperado = `${ctx.fmtDiaCorto('2026-09-14')} – ${ctx.fmtDiaCorto('2026-11-09')}`; // el formato corto depende del ICU del entorno
+  assert(htmlPlanGrupo.includes(`Plan generado: 8 entradas (ubicaciones o storage bins por fecha) · 47 SKU por contar · ${rangoEsperado} · 3 por venir`), 'la lista debe explicar el plan generado del grupo, obtuvo: '+htmlPlanGrupo);
+  assert(!htmlPlanGrupo.includes('8 entradas de plan'), 'con el resumen cargado, la línea vieja "N entradas de plan" no debe repetirse, obtuvo: '+htmlPlanGrupo);
+  ctx.__appstate.grupos.grupoAbierto = 'grupo-1';
+  const htmlFichaPlan = ctx.renderGrupos();
+  assert(htmlFichaPlan.includes('Plan generado: 8 entradas') && htmlFichaPlan.includes('Generar de nuevo reemplaza esas entradas'), 'la ficha del grupo debe mostrar el mismo resumen del plan, obtuvo: '+htmlFichaPlan);
+  ctx.__appstate.grupos.grupoAbierto = null;
+  resumenPlanGruposFixture = {};
+  await ctx.cargarGrupos();
+  await new Promise(r=>setTimeout(r, 20));
   assert(htmlGrupos.includes('data-ver-grupo="grupo-1"'), 'debe ofrecer un botón para ver el detalle de cada grupo, obtuvo: '+htmlGrupos);
 
   // El formulario de creación debe ofrecer elegir la fecha de inicio del ciclo, no solo la
