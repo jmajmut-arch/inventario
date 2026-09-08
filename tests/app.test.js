@@ -4939,6 +4939,86 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/grupos_conteo?select=')), 'después de guardar debe recargar la lista de grupos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.editandoFechaInicioId===null, 'al guardar, debe cerrarse el modo edición, obtuvo: '+ctx.__appstate.grupos.editandoFechaInicioId);
 
+  // ===== Pausar / reactivar un grupo (pregunta de Joel: "¿cómo detengo un grupo?") =====
+  // Pausar solo cambia activo=false (no borra nada); los pausados se listan aparte con "Reactivar".
+  {
+    const fixtureGruposAntes = gruposConteoFixture;
+    const entradasAntes = entradasPlanGrupoFixture;
+    gruposConteoFixture = [
+      {id:'g-activo', nombre:'Activo', frecuencia_dias:30, activo:true, miembros:[{count:2}]},
+      {id:'g-pausado', nombre:'Dormido', frecuencia_dias:60, activo:false, miembros:[{count:5}]},
+    ];
+    calls.length = 0;
+    await ctx.cargarGrupos();
+    const getGrupos = calls.find(c=>c.url.includes('/grupos_conteo?select='));
+    assert(!!getGrupos && !getGrupos.url.includes('activo=eq.true'), 'cargarGrupos debe traer también los grupos pausados (sin filtrar activo=eq.true), obtuvo: '+(getGrupos && getGrupos.url));
+    assert(ctx.__appstate.grupos.lista.length===1 && ctx.__appstate.grupos.lista[0].id==='g-activo', 'la lista de grupos debe seguir siendo solo los activos (es lo que usan Buscar y el plan automático), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.lista.map(g=>g.id)));
+    assert(ctx.__appstate.grupos.pausados.length===1 && ctx.__appstate.grupos.pausados[0].id==='g-pausado', 'los pausados deben quedar aparte, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.pausados));
+    ctx.__appstate.grupos.grupoAbierto = null;
+    const htmlListaConPausado = ctx.renderGrupos();
+    assert(htmlListaConPausado.includes('Grupos pausados') && htmlListaConPausado.includes('Dormido') && htmlListaConPausado.includes('data-reactivar-grupo="g-pausado"'), 'la lista debe mostrar una sección de grupos pausados con botón Reactivar, obtuvo: '+htmlListaConPausado);
+    assert(!htmlListaConPausado.includes('data-ver-grupo="g-pausado"'), 'un grupo pausado no debe aparecer entre los activos, obtuvo: '+htmlListaConPausado);
+    assert(ctx.gruposParaFiltroBuscar().every(g=>g.id!=='g-pausado'), 'un grupo pausado no debe ofrecerse como filtro en Buscar, obtuvo: '+JSON.stringify(ctx.gruposParaFiltroBuscar().map(g=>g.id)));
+
+    // Detalle: botón "Pausar grupo".
+    ctx.__appstate.grupos.grupoAbierto = 'g-activo';
+    const htmlDetallePausar = ctx.renderGrupos();
+    assert(htmlDetallePausar.includes('id="btn-pausar-grupo"'), 'el detalle del grupo debe ofrecer "Pausar grupo", obtuvo: '+htmlDetallePausar);
+
+    // Cancelar la confirmación: no toca nada.
+    confirmRespuesta = false;
+    confirmLlamadas.length = 0;
+    calls.length = 0;
+    await ctx.pausarGrupo('g-activo');
+    assert(confirmLlamadas.length===1 && /Pausar el grupo "Activo"/.test(confirmLlamadas[0]) && /se conservan/.test(confirmLlamadas[0]), 'pausar debe pedir confirmación explicando que no borra nada, obtuvo: '+JSON.stringify(confirmLlamadas));
+    assert(!calls.some(c=>c.opts && (c.opts.method==='PATCH' || c.opts.method==='DELETE')), 'si se cancela, no debe hacerse ningún PATCH ni DELETE, obtuvo: '+JSON.stringify(calls.map(c=>c.opts && c.opts.method+' '+c.url)));
+
+    // Confirmar, sin entradas de plan futuras: solo PATCH activo=false, ningún DELETE, un solo confirm.
+    confirmRespuesta = true;
+    confirmLlamadas.length = 0;
+    entradasPlanGrupoFixture = {};
+    calls.length = 0;
+    await ctx.pausarGrupo('g-activo');
+    const patchPausa = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/grupos_conteo?id=eq.g-activo'));
+    assert(!!patchPausa && JSON.parse(patchPausa.opts.body).activo===false && JSON.parse(patchPausa.opts.body).fecha_inicio===undefined, 'pausar debe hacer PATCH activo=false y nada más, obtuvo: '+JSON.stringify(patchPausa && patchPausa.opts.body));
+    assert(!calls.some(c=>c.opts && c.opts.method==='DELETE'), 'sin entradas de plan futuras no debe borrarse nada, obtuvo: '+JSON.stringify(calls.filter(c=>c.opts && c.opts.method==='DELETE').map(c=>c.url)));
+    assert(confirmLlamadas.length===1, 'sin entradas futuras no debe hacerse la segunda pregunta, obtuvo: '+JSON.stringify(confirmLlamadas));
+    assert(ctx.__appstate.grupos.grupoAbierto===null && calls.some(c=>c.url.includes('/grupos_conteo?select=')), 'tras pausar debe volver a la lista y recargarla, obtuvo: '+JSON.stringify({abierto:ctx.__appstate.grupos.grupoAbierto}));
+
+    // Con entradas de plan futuras generadas por el grupo: segunda pregunta y DELETE por id
+    // (exactamente las listadas), nunca por un filtro amplio.
+    gruposConteoFixture = [{id:'g-activo', nombre:'Activo', frecuencia_dias:30, activo:true, miembros:[{count:2}]}];
+    await ctx.cargarGrupos();
+    ctx.__appstate.grupos.grupoAbierto = 'g-activo';
+    entradasPlanGrupoFixture = {'Activo': 3};
+    confirmLlamadas.length = 0;
+    calls.length = 0;
+    await ctx.pausarGrupo('g-activo');
+    const manana = ctx.fechaISO(ctx.sumarDias(new Date(), 1));
+    const getFuturas = calls.find(c=>c.url.includes('/plan_semanal?nota=eq.') && c.url.includes('fecha=gte.'));
+    assert(!!getFuturas && getFuturas.url.includes(`fecha=gte.${manana}`) && decodeURIComponent(getFuturas.url).includes('Generado automáticamente por el grupo "Activo"'), 'debe listar solo las entradas del grupo de mañana en adelante (las de hoy y anteriores no se tocan), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(confirmLlamadas.length===2 && /3 entradas de plan/.test(confirmLlamadas[1]) && /mañana en adelante/.test(confirmLlamadas[1]), 'debe preguntar aparte, indicando cuántas entradas futuras se eliminarían, obtuvo: '+JSON.stringify(confirmLlamadas));
+    const deletePlan = calls.find(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?'));
+    assert(!!deletePlan && deletePlan.url.includes('id=in.(previa-Activo-0,previa-Activo-1,previa-Activo-2)'), 'el borrado debe ser por los ids exactos que se listaron, obtuvo: '+JSON.stringify(calls.filter(c=>c.opts && c.opts.method==='DELETE').map(c=>c.url)));
+    assert(!calls.some(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/grupos_conteo')), 'nunca debe borrarse el grupo, obtuvo: '+JSON.stringify(calls.filter(c=>c.opts && c.opts.method==='DELETE').map(c=>c.url)));
+
+    // Reactivar: PATCH activo=true con ciclo nuevo desde hoy.
+    gruposConteoFixture = [{id:'g-pausado', nombre:'Dormido', frecuencia_dias:60, activo:false, miembros:[{count:5}]}];
+    await ctx.cargarGrupos();
+    confirmLlamadas.length = 0;
+    calls.length = 0;
+    await ctx.reactivarGrupo('g-pausado');
+    const patchReactivar = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/grupos_conteo?id=eq.g-pausado'));
+    assert(!!patchReactivar && JSON.parse(patchReactivar.opts.body).activo===true && JSON.parse(patchReactivar.opts.body).fecha_inicio===ctx.fechaISO(new Date()), 'reactivar debe hacer PATCH activo=true con fecha_inicio de hoy (ciclo nuevo, sin cerrar de golpe los ciclos del tiempo pausado), obtuvo: '+JSON.stringify(patchReactivar && patchReactivar.opts.body));
+    assert(confirmLlamadas.length===1 && /Reactivar el grupo "Dormido"/.test(confirmLlamadas[0]), 'reactivar debe pedir confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
+
+    gruposConteoFixture = fixtureGruposAntes;
+    entradasPlanGrupoFixture = entradasAntes;
+    confirmRespuesta = true;
+    await ctx.cargarGrupos();
+    ctx.__appstate.grupos.grupoAbierto = 'grupo-seguimiento';
+  }
+
   // Sin fecha (campo vacío), no debe hacer nada -- ni PATCH, ni cerrar el formulario.
   ctx.__appstate.grupos.editandoFechaInicioId = 'grupo-seguimiento';
   calls.length = 0;

@@ -513,7 +513,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorPersona:10, ritmoPorHora:15, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, progresoPlan:null, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
+  grupos: { cargado:false, cargando:false, lista:[], pausados:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorPersona:10, ritmoPorHora:15, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, progresoPlan:null, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -1300,7 +1300,7 @@ async function ingresarConCodigo(email, codigo){
 // "Salir" o porque el servidor ya no reconoce el refresh_token guardado (sesión terminada
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -2091,7 +2091,12 @@ async function cargarGrupos(){
     // el conteo real vía RPC (contar_criticos_distintos, cuenta materiales, no filas -- rápida,
     // usa el índice idx_skus_empresa_activo_critico) -- a lo más un grupo automático por empresa,
     // así que es un solo pedido extra, no N+1.
-    const rows = await rest('/grupos_conteo?select=*,miembros:skus_grupos_conteo(count)&activo=eq.true&order=nombre.asc') || [];
+    // Se traen también los pausados (activo=false, ver pausarGrupo): van aparte, en `pausados`,
+    // para poder reactivarlos; `lista` sigue siendo solo los activos (es lo que usan Buscar, el
+    // plan automático y el resto).
+    const todos = await rest('/grupos_conteo?select=*,miembros:skus_grupos_conteo(count)&order=nombre.asc') || [];
+    const rows = todos.filter(g=>g.activo!==false);
+    const pausados = todos.filter(g=>g.activo===false);
     const grupoAutomatico = rows.find(g=>g.automatico_critico);
     if(grupoAutomatico){
       const total = await rest('/rpc/contar_criticos_distintos', {method:'POST', body:{}});
@@ -2118,7 +2123,7 @@ async function cargarGrupos(){
         grupo.entradasPlan = range && range.includes('/') ? Number(range.split('/')[1]) : 0;
       }catch(e){ grupo.entradasPlan = null; }
     }));
-    setState({grupos: {...state.grupos, lista: rows, cargado:true, cargando:false}});
+    setState({grupos: {...state.grupos, lista: rows, pausados, cargado:true, cargando:false}});
   }catch(e){
     setState({grupos: {...state.grupos, cargando:false}});
     toast(e.message,'err');
@@ -2274,6 +2279,57 @@ async function cargarSeguimientoGrupo(grupoId){
 // editarFechaInicioCiclo). Solo tiene sentido si el grupo tiene frecuencia (si no, no hay ciclo
 // que trackear). Recalcula el seguimiento al toque para que "día X de Y" se vea actualizado sin
 // esperar a la próxima carga.
+// Pausar un grupo (pregunta de Joel: "¿cómo detengo un grupo?"). Solo cambia activo=false, no
+// borra nada: el cron cerrar_ciclos_grupo_vencidos lo ignora (deja de cerrar ciclos), sale de la
+// lista y de los filtros de Buscar, y conserva materiales e historial. A pedido de Joel se
+// prefirió esto a un "Eliminar grupo": no hay política de DELETE sobre grupos_conteo y el
+// historial de ciclos apunta al grupo, así que borrar no es posible ni deseable. Aparte, en un
+// segundo paso explícito, se ofrece eliminar SOLO las entradas de plan futuras (de mañana en
+// adelante) que generó su plan automático -- por id, exactamente las que se acaban de listar, para
+// que no sigan apareciendo en Planificación ni en el plan del día de cada operador.
+async function pausarGrupo(id){
+  const grupo = (state.grupos.lista||[]).find(g=>g.id===id);
+  if(!grupo || !perfilCargado()) return;
+  if(!confirm(`¿Pausar el grupo "${grupo.nombre}"?\n\nDeja de cerrar ciclos y sale de la lista y de los filtros de Buscar. Sus materiales y su historial se conservan. Puedes reactivarlo cuando quieras.`)) return;
+  try{
+    await rest(`/grupos_conteo?id=eq.${encodeURIComponent(id)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
+    toast(`Grupo "${grupo.nombre}" pausado`);
+  }catch(e){ toast(e.message,'err'); return; }
+  try{
+    const manana = fechaISO(sumarDias(new Date(), 1));
+    const nota = `Generado automáticamente por el grupo "${grupo.nombre}"`;
+    const futuras = await restTodo(`/plan_semanal?nota=eq.${encodeURIComponent(nota)}&fecha=gte.${manana}&select=id&order=fecha.asc`);
+    if(futuras.length && confirm(`El grupo tiene ${futuras.length} entrada${futuras.length===1?'':'s'} de plan generada${futuras.length===1?'':'s'} automáticamente para mañana en adelante. ¿Eliminarla${futuras.length===1?'':'s'} de la Planificación?\n\nLas de hoy y las anteriores no se tocan. Si eliges Cancelar, quedan tal cual.`)){
+      // De a 200 ids por llamada para no armar una URL gigante (322 entradas con datos reales).
+      for(let i=0; i<futuras.length; i+=200){
+        const ids = futuras.slice(i, i+200).map(f=>f.id);
+        await rest(`/plan_semanal?id=in.(${ids.join(',')})`, {method:'DELETE'});
+      }
+      toast(`${futuras.length} entrada${futuras.length===1?'':'s'} de plan eliminada${futuras.length===1?'':'s'}`);
+      cargarPlanSemanal(); refrescarOpcionesUbicacion(); invalidarCalendario();
+    }
+  }catch(e){ toast(e.message,'err'); }
+  volverAListaGrupos();
+  await cargarGrupos();
+}
+
+// Reactivar un grupo pausado: vuelve a activo con un ciclo nuevo que arranca hoy (si se dejara la
+// fecha de inicio vieja, el cron cerraría de golpe todos los ciclos "vencidos" del tiempo que
+// estuvo pausado). La fecha se puede ajustar después con "Editar inicio".
+async function reactivarGrupo(id){
+  const grupo = (state.grupos.pausados||[]).find(g=>g.id===id);
+  if(!grupo || !perfilCargado()) return;
+  const hoy = fechaISO(new Date());
+  if(!confirm(`¿Reactivar el grupo "${grupo.nombre}"?\n\nArranca un ciclo nuevo desde hoy (${fmtFecha(hoy)}). Puedes cambiar la fecha de inicio después con "Editar inicio".`)) return;
+  try{
+    await rest(`/grupos_conteo?id=eq.${encodeURIComponent(id)}`, {method:'PATCH', body:{activo:true, fecha_inicio: hoy}, prefer:'return=minimal'});
+    toast(`Grupo "${grupo.nombre}" reactivado`);
+    await cargarGrupos();
+  }catch(e){
+    toast(/idx_grupos_conteo_automatico_critico_unico/i.test(e.message||'') ? 'Ya existe otro grupo automático de Crítico activo' : e.message, 'err');
+  }
+}
+
 async function editarFechaInicioGrupo(id, fechaInicio){
   if(!fechaInicio || !perfilCargado()) return;
   try{
@@ -7987,6 +8043,23 @@ function renderGrupos(){
         </div>
       `;}).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay grupos creados.</div>`}
     </div>
+    ${(g.pausados||[]).length? `
+    <div class="section-head" style="margin-top:14px"><h2 style="font-size:15px">Grupos pausados</h2></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:6px">No cierran ciclos ni aparecen en Buscar. Conservan sus materiales y su historial.</div>
+      ${g.pausados.map(grupo=>{
+        const cantidad = (grupo.miembros && grupo.miembros[0] && grupo.miembros[0].count) || 0;
+        return `
+        <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="flex:1">
+            <div class="plan-item-ubic" style="font-weight:500;color:var(--text-dim)">${esc(grupo.nombre)}</div>
+            <div class="hint" style="margin-top:2px">${grupo.automatico_critico? 'Automático (Crítico)' : `${cantidad} material${cantidad===1?'':'es'}`}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''} · pausado</div>
+          </div>
+          <button type="button" class="btn btn-secondary" data-reactivar-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Reactivar</button>
+        </div>`;
+      }).join('')}
+    </div>
+    ` : ''}
   `;
 }
 
@@ -8014,7 +8087,10 @@ function renderDetalleGrupo(){
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
   return `
     <div class="section-head"><div><span class="eyebrow">Grupo${grupo && grupo.automatico_critico? ' · Automático' : ''}</span><h2>${esc(grupo? grupo.nombre : '')}</h2></div></div>
-    <button type="button" id="btn-volver-grupos" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;margin-bottom:12px">← Volver a grupos</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button type="button" id="btn-volver-grupos" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px">← Volver a grupos</button>
+      <button type="button" id="btn-pausar-grupo" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;color:var(--warn)" title="Deja de cerrar ciclos y sale de la lista; conserva materiales e historial. Se puede reactivar.">Pausar grupo</button>
+    </div>
     <div class="card">
       <div class="hint" style="margin-bottom:8px">Seguimiento</div>
       ${g.seguimientoCargando? `<div class="hint" style="text-align:center;padding:12px 0">Cargando…</div>` : !g.seguimiento ? '' : `
@@ -8834,8 +8910,13 @@ function bind(){
       document.querySelectorAll('[data-ver-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> abrirGrupo(btn.dataset.verGrupo));
       });
+      document.querySelectorAll('[data-reactivar-grupo]').forEach(btn=>{
+        btn.addEventListener('click', ()=> reactivarGrupo(btn.dataset.reactivarGrupo));
+      });
     }else{
       document.getElementById('btn-volver-grupos').addEventListener('click', volverAListaGrupos);
+      const btnPausarGrupo = document.getElementById('btn-pausar-grupo');
+      if(btnPausarGrupo) btnPausarGrupo.addEventListener('click', ()=> pausarGrupo(state.grupos.grupoAbierto));
       document.querySelectorAll('[data-quitar-miembro-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> quitarMiembroGrupo(btn.dataset.quitarMiembroGrupo));
       });
