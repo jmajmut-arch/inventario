@@ -6484,6 +6484,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.bodega.nuevoSku = {sku_code:'SKU-DUP-EXISTE', descripcion:'Repetido', unidad_medida:'UN', bodega:'', storage_bin:'', guardando:false};
     elements['toast-root'].hijos.length = 0;
     assert((await ctx.crearSkuDesdeIngreso())===false && JSON.stringify(elements['toast-root'].hijos).includes('ya existe'), 'un código repetido avisa que ya existe, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    // Comprobante PDF: cabecera, líneas y, en la salida, firmas de quien entrega y recibe.
+    const cabIng = {documento_id:'doc-1', numero:'ING-000007', tipo:'ingreso', sku_code:'BOD-001', descripcion:'Filtro', cantidad:5, unidad_medida:'UN', fecha:'2026-09-08', proveedor_nombre:'Proveedor Uno', numero_guia:'GD-100', numero_oc:'OC-9', usuario_nombre:'Ana'};
+    const htmlComp = ctx.comprobanteDocumentoBodegaHTML(cabIng, [cabIng], [{tipo:'guia', url:'data:x'}]);
+    assert(htmlComp.includes('Comprobante de ingreso ING-000007') && htmlComp.includes('Proveedor Uno') && htmlComp.includes('GD-100') && htmlComp.includes('BOD-001') && htmlComp.includes('<strong>5</strong>') && htmlComp.includes('Guía') && !htmlComp.includes('Recibe:'), 'el comprobante de ingreso lleva proveedor, guía, líneas, total y foto, obtuvo: '+htmlComp);
+    const cabSal = {...cabIng, numero:'SAL-000003', tipo:'salida', retirado_por_nombre:'Juan Retira', retirado_por_area:'Mantención', destino:'Taller', despachado_por_nombre:'Ana'};
+    const htmlCompSal = ctx.comprobanteDocumentoBodegaHTML(cabSal, [cabSal], []);
+    assert(htmlCompSal.includes('Comprobante de salida') && htmlCompSal.includes('Juan Retira · Mantención') && htmlCompSal.includes('Recibe: Juan Retira') && htmlCompSal.includes('Entrega: Ana'), 'el comprobante de salida lleva quién retira, destino y firmas, obtuvo: '+htmlCompSal);
+    ctx.__appstate.bodega.movimientos = [cabIng];
+    assert(ctx.renderMovimientosBodega().includes('data-comprobante-doc="doc-1"'), 'Movimientos ofrece el PDF por documento');
+    // Dashboard: tarjeta de bodega con pendientes y últimos movimientos, solo con el módulo activo.
+    ctx.__appstate.bodega.pendientes = [{id:'p1'},{id:'p2'}];
+    ctx.__appstate.bodega.ultimosMovimientos = [{id:'u1', numero:'ING-000007', tipo:'ingreso', sku_code:'BOD-001', cantidad:5, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08'}];
+    const htmlDash = ctx.renderResumenBodegaDashboard();
+    assert(htmlDash.includes('2 pendientes de aprobación') && htmlDash.includes('ING-000007') && htmlDash.includes('data-ir-vista="movimientos"') && htmlDash.includes('data-ir-vista="stock"'), 'la tarjeta del Dashboard muestra pendientes, últimos movimientos y accesos, obtuvo: '+htmlDash);
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
+    assert(ctx.renderResumenBodegaDashboard()==='', 'sin el módulo no hay tarjeta de bodega en el Dashboard');
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
+    assert(ctx.renderStockBodega().includes('id="btn-exportar-stock"'), 'Stock ofrece exportar a Excel');
     ctx.__appstate.kardexModal = null; ctx.__appstate.ajusteBodegaModal = null;
     ctx.__appstate.reconteos = [];
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
