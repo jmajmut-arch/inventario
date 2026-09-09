@@ -42,6 +42,7 @@ let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVist
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
 let universoZonaGiganteLen = 0;
 let bodegaRpcFalla = false; // simula sin conexión al registrar un documento de bodega
+let ajusteEstadoMock = 'aprobado'; // estado que devuelve registrar_ajuste_bodega (admin: aprobado; operador: pendiente_aprobacion)
 let aperturaBodegaHecha = false; // si ya existe un movimiento de apertura (carga masiva con módulo activo) // tamaño simulado del universo de BHUGE/UHUGE (ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
 let grupoAutomaticoDuplicado = false; // simula el rechazo del índice único al crear un 2do grupo automático
@@ -957,6 +958,17 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega') || path.startsWith('/rest/v1/rpc/registrar_apertura_bodega')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=> path.includes('apertura') ? '12' : '' };
+  }
+  if(path.startsWith('/rest/v1/rpc/registrar_ajuste_bodega')){
+    const body = JSON.parse(opts.body);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'mov-aj', numero:'AJU-000001', estado: ajusteEstadoMock, delta: body.p_cantidad_nueva - 6, stock: body.p_cantidad_nueva}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/anular_movimiento_bodega')) return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  if(path.startsWith('/rest/v1/kardex_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'k2', numero:'SAL-000003', tipo:'salida', cantidad:2, efecto:-2, saldo:4, fecha:'2026-09-08', retirado_por_nombre:'Juan Retira', destino:'Taller', usuario_nombre:'Ana', unidad_medida:'UN'},
+      {id:'k1', numero:'APE-000001', tipo:'apertura', cantidad:6, efecto:6, saldo:6, fecha:'2026-09-01', motivo:'Saldo inicial', usuario_nombre:'Ana', unidad_medida:'UN'},
+    ]) };
   }
   if(path.startsWith('/rest/v1/movimiento_fotos')){
     if(opts && opts.method==='POST') return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
@@ -6388,6 +6400,67 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const htmlSa = ctx.renderSuperAdmin();
     assert(htmlSa.includes('class="sa-empresa-bodega" data-empresa-id="emp-x" checked'), 'el súper admin tiene el interruptor Bodega por empresa, obtuvo: '+htmlSa.slice(0,800));
     ctx.__appstate.perfil.es_super_admin = false;
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.bodega = ctx.bodegaEstadoInicial();
+    ctx.__appstate.view = 'dashboard';
+  }
+
+  // ===== Módulo de bodega, fase 2: ajustes de stock con aprobación (manual desde Stock y desde
+  // Reconteo) y kardex por SKU. Ver registrar_ajuste_bodega / kardex_bodega. =====
+  {
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', modulo_bodega_habilitado:true, planes:{nombre:'profesional', etiqueta:'Profesional'}} };
+    ctx.__appstate.bodega = ctx.bodegaEstadoInicial();
+    ctx.__appstate.view = 'stock';
+    await ctx.cargarStockBodega();
+    const htmlStock = ctx.renderStockBodega();
+    assert(htmlStock.includes('data-ajustar-sku="sku-b1"') && htmlStock.includes('data-kardex-sku="sku-b1"') && htmlStock.includes('>Ajustar<'), 'Stock ofrece Ajustar y Kardex por SKU (admin), obtuvo: '+htmlStock);
+    // Modal de ajuste: cantidad y motivo obligatorios; el RPC recibe la cantidad física.
+    ctx.abrirAjusteBodega({skuId:'sku-b1', skuCode:'BOD-001', stockActual:'6'});
+    const htmlAj = ctx.renderAjusteBodegaModal();
+    assert(htmlAj.includes('Ajustar stock') && htmlAj.includes('stock actual <strong>6</strong>') && htmlAj.includes('id="form-ajuste-bodega"'), 'el admin ve "Ajustar stock" con el stock actual, obtuvo: '+htmlAj);
+    calls.length = 0;
+    ctx.__appstate.ajusteBodegaModal.cantidadNueva = '4';
+    await ctx.registrarAjusteBodega();
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_ajuste_bodega')) && ctx.__appstate.ajusteBodegaModal, 'sin motivo no llama al RPC');
+    ctx.__appstate.ajusteBodegaModal.motivo = 'Merma por rotura';
+    calls.length = 0;
+    await ctx.registrarAjusteBodega();
+    const rpcAj = calls.find(c=>c.url.includes('/rpc/registrar_ajuste_bodega'));
+    const bodyAj = rpcAj && JSON.parse(rpcAj.opts.body);
+    assert(bodyAj && bodyAj.p_sku_id==='sku-b1' && bodyAj.p_cantidad_nueva===4 && bodyAj.p_motivo==='Merma por rotura' && bodyAj.p_conteo_id===null, 'el ajuste manda SKU, cantidad física y motivo, obtuvo: '+JSON.stringify(bodyAj));
+    assert(ctx.__appstate.ajusteBodegaModal===null && JSON.stringify(elements['toast-root'].hijos).includes('ajustado a 4'), 'tras ajustar se cierra el modal y avisa, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    // Operador: propone y queda pendiente de aprobación.
+    ctx.__appstate.perfil.rol = 'operador';
+    ajusteEstadoMock = 'pendiente_aprobacion';
+    assert(ctx.renderStockBodega().includes('>Proponer ajuste<'), 'el operador ve "Proponer ajuste" en Stock');
+    ctx.abrirAjusteBodega({skuId:'sku-b1', skuCode:'BOD-001', stockActual:'6', cantidadNueva:'5', motivo:'Faltan'});
+    assert(ctx.renderAjusteBodegaModal().includes('Proponer ajuste de stock') && ctx.renderAjusteBodegaModal().includes('Enviar a aprobación'), 'el operador ve el modal de propuesta');
+    elements['toast-root'].hijos.length = 0;
+    await ctx.registrarAjusteBodega();
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('enviado a aprobación'), 'al operador se le avisa que queda pendiente, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    ajusteEstadoMock = 'aprobado';
+    ctx.__appstate.perfil.rol = 'admin';
+    // Reconteo: botón con la cantidad contada y el conteo de respaldo, solo con el módulo activo.
+    ctx.__appstate.reconteos = [{id:'sku-r1', sku_code:'FIL-1', descripcion:'Filtro', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, conteo_id:'c-1', ultimo_conteo_fecha:'2026-09-08T10:00:00Z', fotos:[]}];
+    const htmlRec = ctx.renderReconteo();
+    assert(htmlRec.includes('data-ajustar-sku="sku-r1"') && htmlRec.includes('data-ajustar-cantidad="8"') && htmlRec.includes('data-ajustar-conteo="c-1"') && htmlRec.includes('Ajustar stock'), 'Reconteo ofrece ajustar al stock con la cantidad contada y el conteo, obtuvo: '+htmlRec);
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
+    assert(!ctx.renderReconteo().includes('data-ajustar-sku='), 'sin el módulo Reconteo no ofrece ajustar');
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
+    // Kardex: movimientos aprobados con efecto y saldo corrido.
+    calls.length = 0;
+    await ctx.abrirKardexBodega('sku-b1', 'BOD-001');
+    const htmlK = ctx.renderKardexModal();
+    assert(htmlK.includes('BOD-001') && htmlK.includes('APE-000001') && htmlK.includes('SAL-000003') && htmlK.includes('>-2<') && htmlK.includes('<strong>4</strong>'), 'el kardex muestra los movimientos con su efecto y saldo, obtuvo: '+htmlK);
+    assert(calls.some(c=>c.url.includes('/kardex_bodega?') && c.url.includes('sku_id=eq.sku-b1')), 'el kardex se pide por SKU al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Movimientos: un ajuste suelto aprobado se lista con signo y motivo, y el admin puede anularlo.
+    ctx.__appstate.view = 'movimientos';
+    ctx.__appstate.bodega.movimientos = [{id:'mov-aj', documento_id:null, numero:'AJU-000001', tipo:'ajuste', sku_id:'sku-b1', sku_code:'BOD-001', cantidad:-2, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08', motivo:'Merma'}];
+    ctx.__appstate.bodega.movimientosCargados = true;
+    const htmlMovAj = ctx.renderMovimientosBodega();
+    assert(htmlMovAj.includes('data-anular-mov="mov-aj"') && htmlMovAj.includes('-2 UN') && htmlMovAj.includes('Merma'), 'un ajuste aprobado se lista con signo, motivo y Anular, obtuvo: '+htmlMovAj);
+    ctx.__appstate.kardexModal = null; ctx.__appstate.ajusteBodegaModal = null;
+    ctx.__appstate.reconteos = [];
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
     ctx.__appstate.bodega = ctx.bodegaEstadoInicial();
     ctx.__appstate.view = 'dashboard';

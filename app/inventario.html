@@ -512,6 +512,8 @@ let state = {
   resumenGeneral: { criticidad:'', tipoGrafico:'torta', datos:null, cargando:false },
   fotoModal: null,        // {urls:[...], index:0}
   descartarReconteoModal: null, // {conteoId, skuCode, motivo, guardando}
+  ajusteBodegaModal: null, // {skuId, skuCode, stockActual, cantidadNueva, conteoId, motivo, guardando} (ver registrar_ajuste_bodega)
+  kardexModal: null, // {skuId, skuCode, filas, cargando} (ver vista kardex_bodega)
   skusPagina: { rows: [], page: 0, total: 0 },
   skusSeleccionados: [],
   reconteos: [],
@@ -1569,7 +1571,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -5148,6 +5150,59 @@ async function resolverMovimientoBodega(movimientoId, aprobar){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Ajuste de stock (fase 2): se propone la cantidad física y el servidor calcula el delta y decide
+// el estado (admin: aplicado de inmediato; operador: pendiente de aprobación). Si un ajuste
+// pendiente se aprueba después de que el stock cambió, el servidor recalcula el delta para llegar
+// a la cantidad propuesta. Ver registrar_ajuste_bodega / resolver_movimiento_bodega.
+function abrirAjusteBodega({skuId, skuCode, stockActual, cantidadNueva, conteoId, motivo}){
+  setState({ajusteBodegaModal:{skuId, skuCode, stockActual: (stockActual===''||stockActual==null) ? null : Number(stockActual), cantidadNueva: (cantidadNueva==null) ? '' : String(cantidadNueva), conteoId: conteoId||null, motivo: motivo||'', guardando:false}});
+}
+async function registrarAjusteBodega(){
+  const m = state.ajusteBodegaModal;
+  if(!m || m.guardando) return;
+  const cantidad = Number(m.cantidadNueva);
+  if(m.cantidadNueva==='' || isNaN(cantidad) || cantidad<0){ toast('Indica la cantidad física (0 o más)','err'); return; }
+  const motivo = (m.motivo||'').trim();
+  if(!motivo){ toast('Indica el motivo','err'); return; }
+  setState({ajusteBodegaModal:{...m, guardando:true}});
+  try{
+    const r = await rest('/rpc/registrar_ajuste_bodega', {method:'POST', body:{p_sku_id:m.skuId, p_cantidad_nueva:cantidad, p_motivo:motivo, p_conteo_id:m.conteoId}});
+    setState({ajusteBodegaModal:null});
+    toast(r && r.estado==='aprobado' ? `Stock de ${m.skuCode} ajustado a ${cantidad}` : `Ajuste de ${m.skuCode} enviado a aprobación`, 'ok');
+    state.bodega.stockCargado = false; state.bodega.movimientosCargados = false;
+    if(state.view==='stock') cargarStockBodega();
+    if(state.view==='movimientos') cargarMovimientosBodega();
+    if(state.view==='reconteo') cargarReconteos();
+    cargarPendientesBodega();
+  }catch(e){
+    setState({ajusteBodegaModal:{...state.ajusteBodegaModal, guardando:false}});
+    toast(e.message,'err');
+  }
+}
+
+// Anula un movimiento suelto (ajuste o apertura); los de un documento se anulan con el documento.
+async function anularMovimientoBodega(movimientoId, numero){
+  const motivo = prompt(`Motivo para anular ${numero}:`);
+  if(motivo===null) return;
+  if(!motivo.trim()){ toast('Indica el motivo','err'); return; }
+  try{
+    await rest('/rpc/anular_movimiento_bodega', {method:'POST', body:{p_movimiento_id: movimientoId, p_motivo: motivo.trim()}});
+    toast(`${numero} anulado`);
+    state.bodega.stockCargado = false;
+    await cargarMovimientosBodega();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Kardex por SKU: movimientos aprobados con saldo corrido (vista kardex_bodega). Se muestra en un
+// modal desde Stock, Movimientos, Reconteo y Buscar.
+async function abrirKardexBodega(skuId, skuCode){
+  setState({kardexModal:{skuId, skuCode, filas:[], cargando:true}});
+  try{
+    const filas = await rest(`/kardex_bodega?select=id,numero,tipo,cantidad,efecto,saldo,fecha,motivo,proveedor_nombre,numero_guia,numero_oc,retirado_por_nombre,destino,usuario_nombre,unidad_medida&sku_id=eq.${encodeURIComponent(skuId)}&order=fecha.desc,aplicado_en.desc,numero.desc&limit=200`) || [];
+    if(state.kardexModal && state.kardexModal.skuId===skuId) setState({kardexModal:{...state.kardexModal, filas, cargando:false}});
+  }catch(e){ setState({kardexModal:null}); toast(e.message,'err'); }
+}
+
 async function guardarListaBodega(tabla, fila){
   try{
     await rest(`/${tabla}`, {method:'POST', body:[{...fila, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
@@ -6895,6 +6950,59 @@ function renderDescartarReconteoModal(){
   </div>`;
 }
 
+function renderAjusteBodegaModal(){
+  const m = state.ajusteBodegaModal;
+  if(!m) return '';
+  const esAdmin = state.perfil && state.perfil.rol==='admin';
+  const mostrarStock = m.stockActual!=null && !ocultarStockOperador();
+  return `<div class="foto-modal-backdrop" id="ajuste-bodega-backdrop">
+    <div class="card" style="width:min(92vw,440px);margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">${esAdmin?'Ajustar stock':'Proponer ajuste de stock'}</h2>
+        <button id="ajuste-bodega-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(m.skuCode)}</span>${mostrarStock?` · stock actual <strong>${m.stockActual}</strong>`:''}. ${esAdmin ? 'El ajuste se aplica de inmediato y queda en el kardex con tu nombre.' : 'Un administrador debe aprobarlo antes de que cambie el stock.'}</div>
+      <form id="form-ajuste-bodega">
+        <label for="ajuste-bodega-cantidad">Cantidad física</label>
+        <input type="number" id="ajuste-bodega-cantidad" min="0" step="any" required value="${esc(m.cantidadNueva)}" placeholder="Lo que hay en la bodega">
+        <label for="ajuste-bodega-motivo" style="margin-top:8px">Motivo</label>
+        <textarea id="ajuste-bodega-motivo" rows="2" required placeholder="Ej: merma por rotura, reconteo confirmado">${esc(m.motivo||'')}</textarea>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" ${m.guardando?'disabled':''}>${m.guardando?'<span class="spinner"></span> Guardando…':(esAdmin?'Ajustar':'Enviar a aprobación')}</button>
+          <button type="button" class="btn btn-secondary" id="ajuste-bodega-cancelar" style="width:auto">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+}
+
+function renderKardexModal(){
+  const k = state.kardexModal;
+  if(!k) return '';
+  const detalle = f => f.tipo==='ingreso' ? `${esc(f.proveedor_nombre||'')}${f.numero_guia?` · GD ${esc(f.numero_guia)}`:''}${f.numero_oc?` · OC ${esc(f.numero_oc)}`:''}`
+    : f.tipo==='salida' ? `Retira ${esc(f.retirado_por_nombre||'—')}${f.destino?` · ${esc(f.destino)}`:''}`
+    : esc(f.motivo||'');
+  return `<div class="foto-modal-backdrop" id="kardex-backdrop">
+    <div class="card" style="width:min(94vw,680px);margin-bottom:0;max-height:88vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div><span class="eyebrow">Kardex</span><h2 style="margin:0;font-size:17px"><span class="mono">${esc(k.skuCode)}</span></h2></div>
+        <button id="kardex-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      <div style="overflow:auto">
+      ${k.cargando ? `<div class="empty"><div class="glyph">…</div>Cargando…</div>` : k.filas.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Movimiento</th><th>Detalle</th><th class="num">Cant.</th><th class="num">Saldo</th></tr></thead>
+        <tbody>${k.filas.map(f=>`<tr>
+          <td style="white-space:nowrap"><span class="mono" style="font-size:11.5px">${esc(f.numero)}</span><div style="font-size:11px;color:var(--text-faint)">${etiquetaTipoMovimiento(f.tipo)} · ${fmtFecha(f.fecha)}</div></td>
+          <td style="font-size:12px">${detalle(f)}${f.usuario_nombre?`<div class="hint" style="margin:0">${esc(f.usuario_nombre)}</div>`:''}</td>
+          <td class="num" style="white-space:nowrap;color:${Number(f.efecto)<0?'var(--danger)':'var(--good)'}">${Number(f.efecto)>0?'+':''}${f.efecto}</td>
+          <td class="num" style="white-space:nowrap"><strong>${f.saldo}</strong> ${esc(f.unidad_medida||'')}</td>
+        </tr>`).join('')}</tbody></table></div><div class="hint" style="margin-top:6px">Solo movimientos aprobados, del más reciente al más antiguo.${k.filas.length>=200?' Se muestran los últimos 200.':''}</div>`
+      : `<div class="empty"><div class="glyph">✓</div>Sin movimientos aprobados todavía.</div>`}
+      </div>
+    </div>
+  </div>`;
+}
+
 // Se movió acá desde la vista "Buscar" (era un formulario más al final de esa pantalla, poco
 // descubrible) a pedido: ahora se abre desde un ícono propio en la barra superior, disponible
 // desde cualquier vista.
@@ -8077,6 +8185,9 @@ function renderReconteo(){
   // "Descartar" (solo admin, ver descartarReconteo): saca un material de la lista sin recontarlo
   // físicamente, para cuando el problema era un error en el dato maestro y no algo por verificar.
   const esAdmin = state.perfil && state.perfil.rol === 'admin';
+  // Con el módulo de bodega activo, la diferencia confirmada se puede llevar al stock como un
+  // ajuste (admin: inmediato; operador: queda pendiente de aprobación). Ver abrirAjusteBodega.
+  const bodegaActiva = moduloBodegaActivo();
   // Gráfico por semana (pedido de Joel): pendientes por semana ISO del último conteo ("36S"),
   // tocar una barra filtra la tabla a esa semana. Los datos vienen de reconteo_pendiente_por_semana.
   const porSemana = state.reconteosPorSemana || [];
@@ -8121,7 +8232,7 @@ function renderReconteo(){
           <td class="num">${(r.fotos||[]).length
             ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(r.fotos))}" aria-label="Ver fotos">${ICONS.camera}${r.fotos.length>1?` ${r.fotos.length}`:''}</button>`
             : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
-          <td class="num" style="white-space:nowrap"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button>${esAdmin?` <button class="btn btn-secondary" data-descartar-reconteo="${r.conteo_id}" data-descartar-reconteo-sku="${esc(r.sku_code)}" style="width:auto;padding:6px 12px;font-size:12px">Descartar</button>`:''}</td>
+          <td class="num" style="white-space:nowrap"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button>${esAdmin?` <button class="btn btn-secondary" data-descartar-reconteo="${r.conteo_id}" data-descartar-reconteo-sku="${esc(r.sku_code)}" style="width:auto;padding:6px 12px;font-size:12px">Descartar</button>`:''}${bodegaActiva?` <button class="btn btn-secondary" data-ajustar-sku="${esc(r.id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${ocultarSistema||r.stock_sistema==null?'':r.stock_sistema}" data-ajustar-cantidad="${r.ultima_cantidad_contada}" data-ajustar-conteo="${esc(r.conteo_id||'')}" data-ajustar-motivo="${esc(`Reconteo del ${fmtFecha(r.ultimo_conteo_fecha)}: se contaron ${r.ultima_cantidad_contada}`)}" style="width:auto;padding:6px 12px;font-size:12px">${esAdmin?'Ajustar stock':'Proponer ajuste'}</button>`:''}</td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">${textoBusqueda?'?':'✓'}</div>${textoBusqueda ? `Ningún pendiente coincide con «${esc(textoBusqueda)}»${semanaActiva?' en esta semana':''}.` : (semanaActiva ? 'No quedan pendientes en esta semana.' : 'No hay materiales con diferencias pendientes.')}</div>`}
       ${state.reconteosHayMas? `<div style="text-align:center;margin-top:12px">
@@ -8300,9 +8411,9 @@ function renderBuscar(){
               ${contado && fueCapturadoOffline(r.capturado_en, r.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(r.capturado_en)} · sin conexión</div>` : ''}
             </td>
             <td style="font-size:12px;color:var(--text-dim)">${esc(r.ciclo_nombre || '—')}</td>
-            <td class="num">${fotos.length
+            <td class="num" style="white-space:nowrap">${fotos.length
               ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`
-              : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
+              : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}${moduloBodegaActivo()?` <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:4px 8px;font-size:11px">Kardex</button>`:''}</td>
             <td>${claseAbcBadge(r.clase_abc)}</td>
           </tr>`;
         }).join('')}</tbody>
@@ -9766,7 +9877,7 @@ function renderMovimientosBodega(){
     <div class="card" style="margin-bottom:12px;border-color:var(--amber)">
       <div class="hint" style="margin-bottom:8px"><strong>${pend.length} pendiente${pend.length===1?'':'s'}</strong> de tu decisión.</div>
       ${pend.map(m=>`<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap">
-        <div style="flex:1;min-width:200px"><span class="mono">${esc(m.numero)}</span> · ${etiquetaTipoMovimiento(m.tipo)} · <span class="mono">${esc(m.sku_code)}</span> · ${m.cantidad} ${esc(m.unidad_medida||'')}${m.estado==='pendiente_revision' ? `<div class="hint" style="margin:0">Registrado sin conexión con saldo ${m.saldo_local!=null?m.saldo_local:'—'}; el saldo real no alcanzaba.</div>` : (m.motivo?`<div class="hint" style="margin:0">${esc(m.motivo)}</div>`:'')}</div>
+        <div style="flex:1;min-width:200px"><span class="mono">${esc(m.numero)}</span> · ${etiquetaTipoMovimiento(m.tipo)} · <span class="mono">${esc(m.sku_code)}</span> · ${m.tipo==='ajuste' ? `${m.cantidad>0?'+':''}${m.cantidad} ${esc(m.unidad_medida||'')}${m.saldo_local!=null?` (deja el stock en ${Number(m.saldo_local)+Number(m.cantidad)})`:''}` : `${m.cantidad} ${esc(m.unidad_medida||'')}`}${m.estado==='pendiente_revision' ? `<div class="hint" style="margin:0">Registrado sin conexión con saldo ${m.saldo_local!=null?m.saldo_local:'—'}; el saldo real no alcanzaba.</div>` : (m.motivo?`<div class="hint" style="margin:0">${esc(m.motivo)}</div>`:'')}</div>
         <div style="display:flex;gap:6px"><button type="button" class="btn btn-primary" data-aprobar-mov="${esc(m.id)}" style="width:auto;padding:6px 12px;font-size:12px">Aprobar</button><button type="button" class="btn btn-secondary" data-rechazar-mov="${esc(m.id)}" style="width:auto;padding:6px 12px;font-size:12px">Rechazar</button></div>
       </div>`).join('')}
     </div>` : ''}
@@ -9781,11 +9892,11 @@ function renderMovimientosBodega(){
           <td class="mono" style="font-size:11.5px">${esc(m.numero)}</td>
           <td>${etiquetaTipoMovimiento(m.tipo)}</td>
           <td class="mono">${esc(m.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(m.descripcion||'')}${m.storage_bin?` · ${esc(m.storage_bin)}`:''}</div></td>
-          <td class="num">${m.cantidad} ${esc(m.unidad_medida||'')}</td>
+          <td class="num">${m.tipo==='ajuste' && m.cantidad>0 ? '+' : ''}${m.cantidad} ${esc(m.unidad_medida||'')}</td>
           <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(m.fecha)}</td>
           <td>${badgeEstadoMovimiento(m.estado)}</td>
-          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
+          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
         </tr>`; }).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.movimientosCargados ? 'Aún no hay movimientos.' : 'Cargando…'}</div>`}
     </div>
   `;
@@ -9794,6 +9905,7 @@ function renderMovimientosBodega(){
 function renderStockBodega(){
   const b = state.bodega;
   const rows = b.stock;
+  const esAdminBodega = state.perfil && state.perfil.rol==='admin';
   const totalValor = rows.reduce((s,r)=>s+(Number(r.valor)||0), 0);
   return `
     <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>Stock actual</h2></div></div>
@@ -9803,8 +9915,8 @@ function renderStockBodega(){
         <button type="submit" class="btn btn-primary" style="width:auto;padding:0 14px;height:40px">Buscar</button>
       </form>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Bin</th><th class="num">Stock</th><th class="num">Valor</th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <thead><tr><th>SKU</th><th>Bin</th><th class="num">Stock</th><th class="num">Valor</th><th></th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
   `;
 }
@@ -9998,7 +10110,7 @@ function render(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -10855,6 +10967,27 @@ function bind(){
       descartarReconteo();
     });
   }
+  if(state.ajusteBodegaModal){
+    const cerrar = ()=> setState({ajusteBodegaModal:null});
+    document.getElementById('ajuste-bodega-close').addEventListener('click', cerrar);
+    document.getElementById('ajuste-bodega-cancelar').addEventListener('click', cerrar);
+    document.getElementById('ajuste-bodega-backdrop').addEventListener('click', e=>{ if(e.target.id==='ajuste-bodega-backdrop') cerrar(); });
+    document.getElementById('form-ajuste-bodega').addEventListener('submit', e=>{
+      e.preventDefault();
+      state.ajusteBodegaModal.cantidadNueva = document.getElementById('ajuste-bodega-cantidad').value;
+      state.ajusteBodegaModal.motivo = document.getElementById('ajuste-bodega-motivo').value;
+      registrarAjusteBodega();
+    });
+  }
+  if(state.kardexModal){
+    const cerrar = ()=> setState({kardexModal:null});
+    document.getElementById('kardex-close').addEventListener('click', cerrar);
+    document.getElementById('kardex-backdrop').addEventListener('click', e=>{ if(e.target.id==='kardex-backdrop') cerrar(); });
+  }
+  // Botones del módulo de bodega que aparecen en varias vistas (Stock, Movimientos, Reconteo, Buscar).
+  document.querySelectorAll('[data-kardex-sku]').forEach(btn=> btn.addEventListener('click', ()=> abrirKardexBodega(btn.dataset.kardexSku, btn.dataset.kardexCodigo)));
+  document.querySelectorAll('[data-ajustar-sku]').forEach(btn=> btn.addEventListener('click', ()=> abrirAjusteBodega({skuId:btn.dataset.ajustarSku, skuCode:btn.dataset.ajustarCodigo, stockActual:btn.dataset.ajustarStock, cantidadNueva:btn.dataset.ajustarCantidad, conteoId:btn.dataset.ajustarConteo, motivo:btn.dataset.ajustarMotivo})));
+  document.querySelectorAll('[data-anular-mov]').forEach(btn=> btn.addEventListener('click', ()=> anularMovimientoBodega(btn.dataset.anularMov, btn.dataset.numero)));
 
   if(state.view==='buscar'){
     // Mismo patrón que Grupos/Períodos: cargar la lista una sola vez, en segundo plano, para
