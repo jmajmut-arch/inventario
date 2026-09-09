@@ -6528,6 +6528,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.renderResumenBodegaDashboard()==='', 'sin el módulo no hay tarjeta de bodega en el Dashboard');
     ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
     assert(ctx.renderStockBodega().includes('id="btn-exportar-stock"'), 'Stock ofrece exportar a Excel');
+    // Bug real (Minera Test): tras guardar un ingreso, el Dashboard y Movimientos se quedaban con
+    // los datos de antes, porque asegurarDatosDeVista solo carga la primera vez. refrescarBodega
+    // vuelve a pedir lo que alguna vista ya tenía cargado.
+    ctx.__appstate.view = 'movimientos';
+    await ctx.asegurarDatosDeVista('movimientos');
+    await ctx.asegurarDatosDeVista('dashboard');
+    ctx.__appstate.view = 'ingreso';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    ctx.agregarLineaBodega({id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', stock_sistema:6}, 3);
+    ctx.__appstate.bodega.doc.numeroGuia = 'GD-777';
+    ctx.__appstate.bodega.doc.fotoGuia = {file:{name:'g.jpg', type:'image/jpeg', size:10}, preview:'data:', preparando:false};
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    await new Promise(r=>setTimeout(r,0));
+    assert(calls.some(c=>c.url.includes('/movimientos_bodega_detalle')), 'tras guardar un ingreso se vuelve a pedir la lista de movimientos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras guardar un ingreso se refresca la tarjeta del Dashboard (valorización), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+
     // ===== Fase 3: reportes de consumo e ingresos, valorización y stock mínimo =====
     ctx.__appstate.view = 'reportes';
     calls.length = 0;
