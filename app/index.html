@@ -764,7 +764,7 @@ function bodegaEstadoInicial(){
   return {
     proveedores: [], personas: [], listasCargadas: false,
     doc: documentoBodegaVacio(),
-    busqueda: { texto:'', resultados:[], buscando:false },
+    busqueda: { texto:'', resultados:[], buscando:false, error:null },
     nuevoSku: null, // {sku_code, descripcion, unidad_medida, bodega, storage_bin, guardando} (SKU nuevo desde Ingreso)
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
@@ -5068,15 +5068,21 @@ let bodegaBusquedaSecuencia = 0;
 async function buscarSkuBodega(texto){
   const t = sanearTextoFiltro(texto);
   const seq = ++bodegaBusquedaSecuencia;
-  state.bodega.busqueda = {texto, resultados: t.length>=2 ? state.bodega.busqueda.resultados : [], buscando: t.length>=2};
+  state.bodega.busqueda = {texto, resultados: t.length>=2 ? state.bodega.busqueda.resultados : [], buscando: t.length>=2, error:null};
   render();
   if(t.length<2) return;
   try{
     const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
     if(seq!==bodegaBusquedaSecuencia) return;
-    state.bodega.busqueda = {texto, resultados: rows, buscando:false};
+    state.bodega.busqueda = {texto, resultados: rows, buscando:false, error:null};
     render();
-  }catch(e){ if(seq===bodegaBusquedaSecuencia){ state.bodega.busqueda.buscando=false; render(); } }
+  }catch(e){
+    // Antes se tragaba el error y la pantalla decía "Sin resultados": un fallo del servidor
+    // (por ejemplo una columna que la vista no expone) parecía que el material no existía.
+    if(seq!==bodegaBusquedaSecuencia) return;
+    state.bodega.busqueda = {texto, resultados: [], buscando:false, error: pareceFalloDeRed(e) ? 'Sin conexión: no se pudo buscar.' : e.message};
+    render();
+  }
 }
 
 // SKU nuevo desde Ingreso (decisión de Joel: cualquier rol puede crearlo). Nace con stock 0 y el
@@ -10047,12 +10053,13 @@ function renderDocumentoBodega(tipo){
         <button type="button" id="btn-escanear-bodega" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
       </div>
       ${q.buscando ? `<div class="hint">Buscando…</div>` : ''}
+      ${q.error ? `<div class="hint" style="color:var(--danger)">No se pudo buscar: ${esc(q.error)}</div>` : ''}
       ${q.resultados.length ? `<div class="sku-picks" style="margin-top:6px">${q.resultados.map(s=>`
         <div class="sku-pick" style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
           <div style="flex:1;min-width:0"><div class="mono">${esc(s.sku_code)}${s.batch?` <span class="hint" style="display:inline">· ${esc(s.batch)}</span>`:''}</div><div class="hint" style="margin:0">${esc(s.descripcion||'')}${s.storage_bin?` · ${esc(s.storage_bin)}`:''} · stock ${s.stock_sistema==null?'—':s.stock_sistema}</div></div>
           <input type="number" class="bd-cantidad" data-sku-id="${esc(s.id)}" min="0" step="any" placeholder="Cant." style="width:84px;margin:0">
           <button type="button" class="btn btn-primary bd-agregar" data-sku-id="${esc(s.id)}" style="width:auto;padding:6px 10px">Agregar</button>
-        </div>`).join('')}</div>` : (q.texto.length>=2 && !q.buscando ? `<div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Sin resultados.${esIngreso && !b.nuevoSku ? ` <button type="button" class="link-btn" id="btn-nuevo-sku-bodega">Crear SKU nuevo «${esc(q.texto.trim())}»</button>` : ''}</div>` : '')}
+        </div>`).join('')}</div>` : (q.texto.length>=2 && !q.buscando && !q.error ? `<div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Sin resultados.${esIngreso && !b.nuevoSku ? ` <button type="button" class="link-btn" id="btn-nuevo-sku-bodega">Crear SKU nuevo «${esc(q.texto.trim())}»</button>` : ''}</div>` : '')}
       ${esIngreso && b.nuevoSku ? `<form id="form-nuevo-sku-bodega" class="card" style="margin-top:10px;background:var(--bg)">
         <div class="hint" style="margin-bottom:8px"><strong>SKU nuevo.</strong> Nace con stock 0; este ingreso le pone el saldo.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">

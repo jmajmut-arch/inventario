@@ -42,6 +42,7 @@ let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVist
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
 let universoZonaGiganteLen = 0;
 let bodegaRpcFalla = false; // simula sin conexión al registrar un documento de bodega
+let buscadorBodegaFalla = null; // mensaje de error a devolver en el buscador de bodega
 let aperturaPendientes = 0; // materiales con stock y sin movimiento, para registrar_apertura_bodega
 let ajusteEstadoMock = 'aprobado'; // estado que devuelve registrar_ajuste_bodega (admin: aprobado; operador: pendiente_aprobacion)
 let aperturaBodegaHecha = false; // si ya existe un movimiento de apertura (carga masiva con módulo activo) // tamaño simulado del universo de BHUGE/UHUGE (ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO)
@@ -949,6 +950,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'per-1', nombre:'Juan Retira', area:'Mantención', activo:true}]) };
   }
   if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=')){
+    if(buscadorBodegaFalla) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: buscadorBodegaFalla}) };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Central', ubicacion:'0100', storage_bin:'R-1', batch:null, stock_sistema:3, costo_unitario:1000, tipo_material:'Repuesto', unidad_medida:'UN'}]) };
   }
   if(path.startsWith('/rest/v1/rpc/registrar_documento_bodega')){
@@ -6584,6 +6586,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     aperturaPendientes = 0;
     await ctx.cargarValorizacionBodega();
     assert(!ctx.renderMovimientosBodega().includes('id="btn-apertura-bodega"'), 'sin materiales pendientes el aviso desaparece');
+
+    // Si el servidor rechaza la búsqueda (ej. una columna que la vista no expone), hay que decirlo:
+    // antes se veía como "Sin resultados" y parecía que el material no existía (caso real: el SKU
+    // 11594426 de Minera Test, con skus_lectura sin tipo_material).
+    ctx.__appstate.view = 'ingreso';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    buscadorBodegaFalla = 'column skus_lectura.tipo_material does not exist';
+    await ctx.buscarSkuBodega('11594426');
+    buscadorBodegaFalla = null;
+    const htmlErr = ctx.renderDocumentoBodega('ingreso');
+    assert(ctx.__appstate.bodega.busqueda.error && htmlErr.includes('No se pudo buscar'), 'un error del servidor se muestra, no se disfraza de "sin resultados", obtuvo: '+JSON.stringify(ctx.__appstate.bodega.busqueda));
+    assert(!htmlErr.includes('id="btn-nuevo-sku-bodega"'), 'con un error no se ofrece crear el SKU: no sabemos si existe');
+    await ctx.buscarSkuBodega('BOD');
+    assert(ctx.__appstate.bodega.busqueda.error===null && ctx.__appstate.bodega.busqueda.resultados.length===1, 'una búsqueda exitosa limpia el error');
 
     // Monto del ingreso: costo unitario por línea, sugerido desde el maestro y editable. Viaja al
     // servidor por línea; el total del documento se muestra en el formulario.
