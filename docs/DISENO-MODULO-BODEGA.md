@@ -270,7 +270,7 @@ como hoy, sin un toque extra.
 | 2 | Ajustar stock desde Reconteo con aprobación, propuesta de ajuste manual, tarjeta de pendientes, kardex en Buscar, comprobantes PDF, exportar Excel, manuales | 1 semana |
 | 3 | Reportes de consumo por persona y área e ingresos por proveedor, tarjeta en Dashboard, valorización, stock mínimo con alertas (opcional) | 0,5 a 1 semana |
 
-Cada fase se publica por separado y se puede usar desde la primera. Antes de cada una, se mide
+Las tres fases están publicadas (septiembre de 2026). Cada fase se publica por separado y se puede usar desde la primera. Antes de cada una, se mide
 con datos reales que ninguna pantalla existente se haga más lenta.
 
 ## 9. Preguntas abiertas y decisiones

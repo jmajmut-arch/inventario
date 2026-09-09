@@ -964,6 +964,18 @@ const fakeFetchImpl = async (url, opts) => {
     if(fila.sku_code==='SKU-DUP-EXISTE') return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}) };
     return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'sku-nuevo', ...fila}]) };
   }
+  if(path.startsWith('/rest/v1/rpc/reporte_consumo_bodega')){
+    const body = JSON.parse(opts.body);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(body.p_agrupar==='area'
+      ? [{clave:'Mantención', cantidad:20, valor:40000, movimientos:2}]
+      : [{clave:'Juan Retira', cantidad:12, valor:24000, movimientos:2},{clave:'Sin indicar', cantidad:3, valor:0, movimientos:1}]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/reporte_ingresos_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{clave:'Proveedor Uno', cantidad:30, valor:60000, movimientos:3}]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/resumen_valorizacion_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({valor_total:150000, skus_con_costo:8, skus_sin_costo:2, skus_con_stock:10, bajo_minimo:3}) };
+  }
   if(path.startsWith('/rest/v1/rpc/registrar_ajuste_bodega')){
     const body = JSON.parse(opts.body);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'mov-aj', numero:'AJU-000001', estado: ajusteEstadoMock, delta: body.p_cantidad_nueva - 6, stock: body.p_cantidad_nueva}) };
@@ -992,7 +1004,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(aperturaBodegaHecha ? [{id:'mov-ap'}] : []) };
   }
   if(path.startsWith('/rest/v1/stock_actual')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, valor:6000}]) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, valor:6000}]) };
   }
   // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
   // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
@@ -4575,6 +4587,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filaSinCritico = JSON.parse(postSinCritico.opts.body)[0];
   assert(!('critico' in filaSinCritico), 'sin columna Crítico en el archivo, el campo no debe mandarse en absoluto (para no pisar el valor ya guardado en una empresa que ya lo tenía marcado), obtuvo: '+JSON.stringify(filaSinCritico));
 
+  // Stock mínimo del módulo de bodega: viaja en el Excel como columna opcional, con la misma
+  // regla que "Crítico" — si el archivo no la trae, no se manda y no se pisa lo ya guardado.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'minimos.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock', stock_minimo:'Minimo' },
+    data: [ { Codigo:'SKU-MIN-1', Bodega:'Nave', Stock:'5', Minimo:'12' }, { Codigo:'SKU-MIN-2', Bodega:'Nave', Stock:'5', Minimo:'' } ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const filasMinimo = JSON.parse(calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus')).opts.body);
+  assert(filasMinimo.find(f=>f.sku_code==='SKU-MIN-1').stock_minimo===12 && filasMinimo.find(f=>f.sku_code==='SKU-MIN-2').stock_minimo===null, 'la carga masiva debe traer el stock mínimo y dejarlo en null cuando la celda viene vacía, obtuvo: '+JSON.stringify(filasMinimo));
+  assert(!('stock_minimo' in filaSinCritico), 'sin columna de stock mínimo, el campo no debe mandarse');
+
   // Tras una carga masiva que trae costo o stock, debe refrescar la clasificación ABC (el
   // matview no se recalcula solo, ver skus_valor_abc_mv/refrescar_clasificacion_abc).
   assert(calls.some(c=>c.url.includes('/rpc/refrescar_clasificacion_abc') && c.opts.method==='POST'), 'tras cargar stock/costo, la carga masiva debe refrescar la clasificación ABC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
@@ -6502,6 +6528,54 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.renderResumenBodegaDashboard()==='', 'sin el módulo no hay tarjeta de bodega en el Dashboard');
     ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
     assert(ctx.renderStockBodega().includes('id="btn-exportar-stock"'), 'Stock ofrece exportar a Excel');
+    // ===== Fase 3: reportes de consumo e ingresos, valorización y stock mínimo =====
+    ctx.__appstate.view = 'reportes';
+    calls.length = 0;
+    await ctx.cargarReportesBodega();
+    const rpcCon = calls.find(c=>c.url.includes('/rpc/reporte_consumo_bodega'));
+    const rpcIng = calls.find(c=>c.url.includes('/rpc/reporte_ingresos_bodega'));
+    const bodyCon = rpcCon && JSON.parse(rpcCon.opts.body);
+    assert(bodyCon && bodyCon.p_desde && bodyCon.p_hasta && bodyCon.p_agrupar==='persona' && rpcIng, 'los reportes se piden al servidor con rango y agrupación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const htmlRep = ctx.renderReportesBodega();
+    assert(htmlRep.includes('Juan Retira') && htmlRep.includes('Proveedor Uno') && htmlRep.includes('$150.000') && htmlRep.includes('3</div>') && htmlRep.includes('bajo su mínimo'), 'Reportes muestra consumo, ingresos, valorización y bajo mínimo, obtuvo: '+htmlRep);
+    assert(htmlRep.includes('<strong>$24.000</strong>') || htmlRep.includes('<strong>$24.000</strong>'), 'la tabla de consumo totaliza el valor, obtuvo: '+htmlRep);
+    assert(htmlRep.includes('con stock pero sin costo'), 'se avisa cuántos materiales quedan fuera del total por no tener costo');
+    // Agrupar por área vuelve a pedir al servidor con la nueva agrupación.
+    ctx.__appstate.bodega.reportes = {...ctx.__appstate.bodega.reportes, consumoAgrupar:'area'};
+    calls.length = 0;
+    await ctx.cargarReportesBodega();
+    assert(JSON.parse(calls.find(c=>c.url.includes('/rpc/reporte_consumo_bodega')).opts.body).p_agrupar==='area' && ctx.__appstate.bodega.reportes.consumo[0].clave==='Mantención', 'cambiar la agrupación reconsulta, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.reportes.consumo));
+    // Rango invertido: no consulta.
+    ctx.__appstate.bodega.reportes = {...ctx.__appstate.bodega.reportes, desde:'2026-09-30', hasta:'2026-09-01'};
+    calls.length = 0;
+    await ctx.cargarReportesBodega();
+    assert(!calls.some(c=>c.url.includes('/rpc/reporte_consumo_bodega')), 'con el rango invertido no se consulta');
+    ctx.__appstate.bodega.reportes = ctx.reportesBodegaVacios();
+    // Reportes es solo para administradores.
+    assert(ctx.vistaBloqueadaParaRol('reportes')===false, 'un admin puede entrar a Reportes');
+    ctx.__appstate.perfil.rol = 'operador';
+    assert(ctx.vistaBloqueadaParaRol('reportes')===true, 'un operador no puede entrar a Reportes');
+    ctx.__appstate.perfil.rol = 'admin';
+    // Stock mínimo: editable por el admin, con marca de bajo mínimo y filtro propio.
+    ctx.__appstate.view = 'stock';
+    await ctx.cargarStockBodega();
+    const htmlStockMin = ctx.renderStockBodega();
+    assert(htmlStockMin.includes('data-min-sku="sku-b1"') && htmlStockMin.includes('Bajo mínimo') && htmlStockMin.includes('id="stock-bajo-minimo"'), 'Stock permite editar el mínimo y marca los que están bajo, obtuvo: '+htmlStockMin);
+    calls.length = 0;
+    await ctx.guardarStockMinimo('sku-b1', '12');
+    const patchMin = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/skus?id=eq.sku-b1'));
+    assert(patchMin && JSON.parse(patchMin.opts.body).stock_minimo===12, 'guardar el mínimo hace PATCH al SKU, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    calls.length = 0;
+    await ctx.guardarStockMinimo('sku-b1', '');
+    assert(JSON.parse(calls.find(c=>c.opts && c.opts.method==='PATCH').opts.body).stock_minimo===null, 'dejar el mínimo vacío lo quita');
+    calls.length = 0;
+    await ctx.guardarStockMinimo('sku-b1', '-5');
+    assert(!calls.some(c=>c.opts && c.opts.method==='PATCH'), 'un mínimo negativo no se guarda');
+    ctx.__appstate.bodega.stockSoloBajoMinimo = true;
+    calls.length = 0;
+    await ctx.cargarStockBodega();
+    assert(calls.some(c=>c.url.includes('bajo_minimo=is.true')), 'el filtro "solo bajo el mínimo" va al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.bodega.stockSoloBajoMinimo = false;
     ctx.__appstate.kardexModal = null; ctx.__appstate.ajusteBodegaModal = null;
     ctx.__appstate.reconteos = [];
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
