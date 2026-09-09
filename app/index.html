@@ -359,7 +359,9 @@ textarea{resize:vertical;min-height:60px;}
      imprimible es siempre la misma sin importar la configuración de quien imprime.  */
   @page{size:A4;margin:12mm;}
   html,body{background:#fff;}
-  #app,#toast-root{display:none;}
+  /* La marca de agua con el nombre de quien usa la app es para la pantalla: salía impresa en
+     los comprobantes, la hoja de conteo y los informes. */
+  #app,#toast-root,#marca-agua{display:none;}
   #print-plan{display:block;padding:0;color:#000;background:#fff;}
   #print-plan h1{font-size:17px;margin:0 0 2px;}
   #print-plan .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
@@ -748,6 +750,7 @@ function bodegaEstadoInicial(){
     nuevoSku: null, // {sku_code, descripcion, unidad_medida, bodega, storage_bin, guardando} (SKU nuevo desde Ingreso)
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
+    ultimosMovimientos: [], ultimosCargados: false, // tarjeta de bodega en el Dashboard
     stock: [], stockTexto: '', stockCargado: false,
     guardando: false, ultimoDocumento: null,
   };
@@ -1619,7 +1622,7 @@ async function cargarTodo(){
 // Qué necesita cada pestaña (claves de CARGADORES). Buscar solo usa los períodos (transversal);
 // Calendario y Grupos ya cargan lo suyo con su propio flag `cargado`.
 const CARGAS_POR_VISTA = {
-  dashboard: ['dashboard'],
+  dashboard: ['dashboard', 'bodegaResumen'],
   skus: ['skusPagina', 'opcionesSku', 'generales'],
   reconteo: ['reconteos'],
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
@@ -1641,6 +1644,7 @@ const CARGADORES = {
   bodegaMovimientos: ()=> cargarMovimientosBodega(),
   bodegaPendientes: ()=> cargarPendientesBodega(),
   bodegaStock: ()=> cargarStockBodega(),
+  bodegaResumen: ()=> moduloBodegaActivo() ? Promise.all([cargarPendientesBodega(), cargarUltimosMovimientosBodega()]) : Promise.resolve(),
   reconteos: ()=> cargarReconteos(),
   plan: ()=> refrescarPlanSiCorresponde(),
 };
@@ -5232,6 +5236,71 @@ async function abrirKardexBodega(skuId, skuCode){
   }catch(e){ setState({kardexModal:null}); toast(e.message,'err'); }
 }
 
+// Tarjeta de bodega en el Dashboard: últimos movimientos (los pendientes vienen de cargarPendientesBodega).
+async function cargarUltimosMovimientosBodega(){
+  try{
+    const rows = await rest('/movimientos_bodega_detalle?select=id,numero,tipo,sku_code,cantidad,unidad_medida,estado,fecha,usuario_nombre&order=created_at.desc&limit=6') || [];
+    setState({bodega:{...state.bodega, ultimosMovimientos: rows, ultimosCargados:true}});
+  }catch(e){ /* silencioso: la tarjeta muestra "Cargando…" y se reintenta al volver */ }
+}
+
+// Comprobante PDF de un ingreso o salida: mismo contenedor de impresión que Buscar y fotos
+// reducidas (resolverFotoParaPDF). Para la salida incluye líneas de firma de quien entrega y recibe.
+async function imprimirComprobanteBodega(documentoId){
+  const filas = state.bodega.movimientos.filter(m=>m.documento_id===documentoId);
+  if(!filas.length){ toast('No encontré el documento en la lista','err'); return; }
+  const fotos = state.bodega.fotosPorDocumento[documentoId] || [];
+  const fotosPdf = (await Promise.all(fotos.map(async f=>{ try{ const r = await resolverFotoParaPDF(f.foto_url); return {tipo:f.tipo, url:r.url}; }catch(e){ return null; } }))).filter(Boolean);
+  document.getElementById('print-informe').innerHTML = '';
+  document.getElementById('print-plan').innerHTML = '';
+  const contenedor = document.getElementById('print-buscar');
+  contenedor.innerHTML = comprobanteDocumentoBodegaHTML(filas[0], filas, fotosPdf);
+  await esperarFotosDelPDF(contenedor);
+  window.print();
+}
+function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
+  const empresa = state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '';
+  const esIngreso = cab.tipo==='ingreso';
+  const total = filas.reduce((s,l)=>s+Number(l.cantidad),0);
+  const dato = (k,v)=> v ? `<div><span style="color:#555">${k}:</span> ${esc(String(v))}</div>` : '';
+  const th = (t,der)=>`<th style="text-align:${der?'right':'left'};border-bottom:1px solid #000;padding:4px">${t}</th>`;
+  const td = (t,der)=>`<td style="padding:4px;border-bottom:1px solid #ddd${der?';text-align:right':''}">${t}</td>`;
+  return `
+    <h1>${esIngreso?'Comprobante de ingreso':'Comprobante de salida'} ${esc(cab.numero)}</h1>
+    <div class="print-meta">${esc(empresa)} · ${fmtFecha(cab.fecha)} · Registró ${esc(cab.usuario_nombre||'')}${cab.documento_anulado_en?' · ANULADO':''}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:12px">
+      ${esIngreso ? dato('Proveedor', cab.proveedor_nombre)+dato('Guía de despacho', cab.numero_guia)+dato('Orden de compra', cab.numero_oc) : dato('Retira', cab.retirado_por_nombre ? `${cab.retirado_por_nombre}${cab.retirado_por_area?' · '+cab.retirado_por_area:''}` : '')+dato('Despacha', cab.despachado_por_nombre||cab.usuario_nombre)+dato('Destino', cab.destino)}
+      ${dato('Observación', cab.documento_observacion)}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">
+      <thead><tr>${th('SKU')}${th('Descripción')}${th('Bin')}${th('Cantidad',true)}</tr></thead>
+      <tbody>${filas.map(l=>`<tr>${td(`<span style="font-family:monospace">${esc(l.sku_code)}${l.batch?` · ${esc(l.batch)}`:''}</span>`)}${td(esc(l.descripcion||''))}${td(esc(l.storage_bin||'—'))}${td(`${l.cantidad} ${esc(l.unidad_medida||'')}`,true)}</tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3" style="padding:4px;text-align:right">Total</td><td style="padding:4px;text-align:right"><strong>${total}</strong></td></tr></tfoot>
+    </table>
+    ${fotos.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${fotos.map(f=>`<figure style="margin:0;font-size:10px;text-align:center"><img src="${esc(f.url)}" style="width:130px;height:130px;object-fit:cover;border:1px solid #ccc"><figcaption>${f.tipo==='guia'?'Guía':'Material'}</figcaption></figure>`).join('')}</div>` : ''}
+    ${esIngreso ? '' : `<div style="display:flex;gap:40px;margin-top:48px;font-size:12px"><div style="flex:1;border-top:1px solid #000;padding-top:4px">Entrega: ${esc(cab.despachado_por_nombre||cab.usuario_nombre||'')}</div><div style="flex:1;border-top:1px solid #000;padding-top:4px">Recibe: ${esc(cab.retirado_por_nombre||'')}</div></div>`}
+    <div class="print-meta" style="margin-top:16px">Generado ${new Date().toLocaleString('es-CL')} · InventIA</div>`;
+}
+
+// Excel del stock actual completo (no solo los 300 de pantalla): pagina por limit/offset.
+async function exportarStockExcel(){
+  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+  const TAM = 1000, MAX = 20000; let filas = [];
+  try{
+    for(let offset=0; offset<MAX; offset+=TAM){
+      const pagina = await rest(`/stock_actual?select=*&order=sku_code.asc&limit=${TAM}&offset=${offset}`) || [];
+      filas = filas.concat(pagina);
+      if(pagina.length<TAM) break;
+    }
+  }catch(e){ toast(e.message,'err'); return; }
+  const rows = filas.map(r=>({'SKU': r.sku_code, 'Descripción': r.descripcion, 'Batch': r.batch||'', 'Bin': r.storage_bin||'', 'Stock': Number(r.stock), 'Unidad': r.unidad_medida||'', 'Costo unitario': r.costo_unitario!=null?Number(r.costo_unitario):'', 'Valor': r.valor!=null?Number(r.valor):''}));
+  if(!rows.length){ toast('No hay stock para exportar','err'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock');
+  XLSX.writeFile(wb, `stock-bodega-${fechaISO(new Date())}.xlsx`);
+}
+
 async function guardarListaBodega(tabla, fila){
   try{
     await rest(`/${tabla}`, {method:'POST', body:[{...fila, empresa_id: state.perfil.empresa_id}], prefer:'return=minimal'});
@@ -7577,6 +7646,7 @@ function renderDashboard(){
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
+    ${renderResumenBodegaDashboard()}
     ${renderResumenGeneralSkus()}
     ${modo==='operativo'? renderAdherenciaPlan() : ''}
     ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
@@ -9909,6 +9979,20 @@ function badgeEstadoMovimiento(e){
   return e==='aprobado' ? '<span class="badge badge-ok">Aprobado</span>' : e==='anulado' ? '<span class="badge badge-danger">Anulado</span>' : e==='pendiente_revision' ? '<span class="badge badge-warn">En revisión</span>' : '<span class="badge badge-warn">Por aprobar</span>';
 }
 
+// Tarjeta de bodega en el Dashboard: pendientes de aprobación y últimos movimientos, con
+// accesos a Movimientos y Stock. Solo con el módulo activo.
+function renderResumenBodegaDashboard(){
+  if(!moduloBodegaActivo()) return '';
+  const b = state.bodega; const pend = (b.pendientes||[]).length; const ult = b.ultimosMovimientos||[];
+  return `<div class="card" style="margin-bottom:14px${pend?';border-color:var(--amber)':''}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <div><span class="eyebrow">Bodega</span><h3 style="margin:0;font-size:15px">${pend ? `${pend} pendiente${pend===1?'':'s'} de aprobación` : 'Sin pendientes de aprobación'}</h3></div>
+      <div style="display:flex;gap:6px"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:6px 12px;font-size:12px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:6px 12px;font-size:12px">Stock</button></div>
+    </div>
+    ${ult.length ? `<div class="hint" style="margin-bottom:4px">Últimos movimientos</div>${ult.map(m=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:12.5px"><span><span class="mono">${esc(m.numero)}</span> · ${etiquetaTipoMovimiento(m.tipo)} · <span class="mono">${esc(m.sku_code)}</span></span><span class="num" style="white-space:nowrap">${m.tipo==='ajuste'&&m.cantidad>0?'+':''}${m.cantidad} ${esc(m.unidad_medida||'')} ${badgeEstadoMovimiento(m.estado)}</span></div>`).join('')}` : `<div class="hint">${b.ultimosCargados?'Aún no hay movimientos.':'Cargando…'}</div>`}
+  </div>`;
+}
+
 function renderMovimientosBodega(){
   const b = state.bodega;
   const esAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
@@ -9939,7 +10023,7 @@ function renderMovimientosBodega(){
           <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(m.fecha)}</td>
           <td>${badgeEstadoMovimiento(m.estado)}</td>
-          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
+          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${m.documento_id ? ` <button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(m.documento_id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
         </tr>`; }).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.movimientosCargados ? 'Aún no hay movimientos.' : 'Cargando…'}</div>`}
     </div>
   `;
@@ -9956,6 +10040,7 @@ function renderStockBodega(){
       <form id="form-stock-bodega" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
         <input type="text" id="stock-texto" placeholder="Código, descripción o bin" value="${esc(b.stockTexto)}" style="flex:1;margin:0">
         <button type="submit" class="btn btn-primary" style="width:auto;padding:0 14px;height:40px">Buscar</button>
+        <button type="button" class="btn btn-secondary" id="btn-exportar-stock" style="width:auto;padding:0 12px;height:40px">Excel</button>
       </form>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Bin</th><th class="num">Stock</th><th class="num">Valor</th><th></th></tr></thead>
@@ -10407,6 +10492,7 @@ function bind(){
     const btnExp = document.getElementById('btn-exportar-movimientos');
     if(btnExp) btnExp.addEventListener('click', exportarMovimientosExcel);
     document.querySelectorAll('[data-anular-doc]').forEach(btn=> btn.addEventListener('click', ()=> anularDocumentoBodega(btn.dataset.anularDoc, btn.dataset.numero)));
+    document.querySelectorAll('[data-comprobante-doc]').forEach(btn=> btn.addEventListener('click', ()=> imprimirComprobanteBodega(btn.dataset.comprobanteDoc)));
     document.querySelectorAll('[data-aprobar-mov]').forEach(btn=> btn.addEventListener('click', ()=> resolverMovimientoBodega(btn.dataset.aprobarMov, true)));
     document.querySelectorAll('[data-rechazar-mov]').forEach(btn=> btn.addEventListener('click', ()=> resolverMovimientoBodega(btn.dataset.rechazarMov, false)));
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
@@ -10419,6 +10505,8 @@ function bind(){
   if(state.view==='stock'){
     const form = document.getElementById('form-stock-bodega');
     if(form) form.addEventListener('submit', e=>{ e.preventDefault(); state.bodega.stockTexto = document.getElementById('stock-texto').value; cargarStockBodega(); });
+    const btnExcel = document.getElementById('btn-exportar-stock');
+    if(btnExcel) btnExcel.addEventListener('click', exportarStockExcel);
   }
   if(state.view==='config'){
     document.querySelectorAll('.form-lista-bodega').forEach(form=>{
