@@ -515,6 +515,9 @@ let state = {
   fotoModal: null,        // {urls:[...], index:0}
   descartarReconteoModal: null, // {conteoId, skuCode, motivo, guardando}
   ajusteBodegaModal: null, // {skuId, skuCode, stockActual, cantidadNueva, conteoId, motivo, guardando} (ver registrar_ajuste_bodega)
+  // {id, skuCode, batch, bodega, ubicacion, storage_bin, guardando} -- mover un material de sitio
+  // sin duplicarlo (ver guardarUbicacionSku).
+  ubicacionSkuModal: null,
   kardexModal: null, // {skuId, skuCode, filas, cargando} (ver vista kardex_bodega)
   skusPagina: { rows: [], page: 0, total: 0 },
   skusSeleccionados: [],
@@ -1597,7 +1600,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -5674,6 +5677,49 @@ function esErrorCodigoSkuDuplicado(e){
 function mensajeCodigoSkuDuplicado(skuCode, bodega, batch, ubicacion, storageBin){
   return `El código ${skuCode} ya existe${bodega? ` en ${bodega}` : ' sin bodega asignada'}${batch? ` con batch ${batch}` : ''}${ubicacion? ` en ${ubicacion}` : ''}${storageBin? ` (bin ${storageBin})` : ''}. Para actualizarlo, usa la carga masiva.`;
 }
+// Mover un material de sitio. Hasta ahora la ubicación solo se podía fijar al crearlo: volver a
+// cargarlo por Excel con otro bin no lo movía, creaba una segunda fila (la identidad de un
+// material es código + ubicación general + específica + bin + batch, ver el índice
+// skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key). Como es la MISMA fila la que cambia,
+// el material conserva su historial de conteos, su kardex y su stock; la planificación ya sabía
+// avisar "cambió de bin" cuando esto pasa (ver diferenciasDeUbicacionEnPlan).
+function mensajeUbicacionOcupada(m){
+  return `Ya existe ${m.skuCode} en ese sitio${m.batch? ` con batch ${m.batch}` : ''}. Dos materiales no pueden compartir la misma ubicación: junta primero sus saldos o mueve el otro.`;
+}
+
+async function guardarUbicacionSku(){
+  const m = state.ubicacionSkuModal;
+  if(!m || m.guardando) return false;
+  const destino = {
+    bodega: (m.bodega||'').trim() || null,
+    ubicacion: (m.ubicacion||'').trim() || null,
+    storage_bin: (m.storage_bin||'').trim() || null,
+  };
+  if(destino.bodega===m.bodegaOriginal && destino.ubicacion===m.ubicacionOriginal && destino.storage_bin===m.binOriginal){
+    setState({ubicacionSkuModal:null});
+    return true;
+  }
+  setState({ubicacionSkuModal:{...m, guardando:true}});
+  try{
+    await rest(`/skus?id=eq.${encodeURIComponent(m.id)}`, {method:'PATCH', body:destino, prefer:'return=minimal'});
+    setState({ubicacionSkuModal:null});
+    toast(`${m.skuCode} movido a ${describirUbicacion(destino)}`);
+    // La ubicación alimenta el universo de planificación y los selectores de bodega/bin: esas
+    // listas tienen que volver a pedirse, no servirse del caché.
+    refrescarListaSkus();
+    return true;
+  }catch(e){
+    setState({ubicacionSkuModal:{...state.ubicacionSkuModal, guardando:false}});
+    toast(esErrorCodigoSkuDuplicado(e) ? mensajeUbicacionOcupada(m) : e.message, 'err');
+    return false;
+  }
+}
+
+function describirUbicacion({bodega, ubicacion, storage_bin}){
+  const partes = [bodega, ubicacion, storage_bin].filter(Boolean);
+  return partes.length ? partes.join(' · ') : 'sin ubicación';
+}
+
 async function crearSkuManual(payload){
   if(!perfilCargado()) return false;
   const capturadoEn = new Date().toISOString();
@@ -7224,6 +7270,33 @@ function renderAjusteBodegaModal(){
   </div>`;
 }
 
+function renderUbicacionSkuModal(){
+  const m = state.ubicacionSkuModal;
+  if(!m) return '';
+  const origen = describirUbicacion({bodega:m.bodegaOriginal, ubicacion:m.ubicacionOriginal, storage_bin:m.binOriginal});
+  return `<div class="foto-modal-backdrop" id="ubicacion-sku-backdrop">
+    <div class="card" style="width:min(92vw,440px);margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">Mover material</h2>
+        <button id="ubicacion-sku-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(m.skuCode)}</span>${m.batch?` · batch ${esc(m.batch)}`:''}${m.descripcion?`<div style="margin-top:2px">${esc(m.descripcion)}</div>`:''}<div style="margin-top:4px">Hoy está en <strong>${esc(origen)}</strong>. Conserva su historial de conteos y su stock.</div></div>
+      <form id="form-ubicacion-sku">
+        <label for="us-bodega">Ubicación general</label>
+        <input type="text" id="us-bodega" list="dl-sku-bodegas" autocomplete="off" value="${esc(m.bodega||'')}" placeholder="Sin bodega">
+        <label for="us-ubic" style="margin-top:8px">Ubicación específica</label>
+        <input type="text" id="us-ubic" autocomplete="off" value="${esc(m.ubicacion||'')}" placeholder="Sin ubicación específica">
+        <label for="us-bin" style="margin-top:8px">Storage bin</label>
+        <input type="text" id="us-bin" autocomplete="off" value="${esc(m.storage_bin||'')}" placeholder="Sin bin">
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" ${m.guardando?'disabled':''}>${m.guardando?'<span class="spinner"></span> Moviendo…':'Mover'}</button>
+          <button type="button" class="btn btn-secondary" id="ubicacion-sku-cancelar" style="width:auto">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+}
+
 function renderKardexModal(){
   const k = state.kardexModal;
   if(!k) return '';
@@ -8058,7 +8131,7 @@ function renderTablaSkus(){
       </div>
       <div class="hint" style="margin-bottom:10px">🟢 Último conteo cuadrado · 🟡 Diferencia positiva (sobrante) · 🔴 Diferencia negativa (faltante)</div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th>${ocultarStockOperador()?'':'<th class="num">Stock</th>'}<th>Clase</th></tr></thead>
+        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th>${ocultarStockOperador()?'':'<th class="num">Stock</th>'}<th>Clase</th>${esAdmin?'<th></th>':''}</tr></thead>
         <tbody>${sp.rows.map(s=>{
           return `<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
@@ -8071,6 +8144,7 @@ function renderTablaSkus(){
           <td class="mono">${esc(s.batch||'—')}</td>
           ${ocultarStockOperador()?'':`<td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>`}
           <td>${claseAbcBadge(s.clase_abc)}</td>
+          ${esAdmin?`<td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-mover-sku="${esc(s.id)}" style="width:auto;padding:5px 10px;font-size:12px">Mover</button></td>`:''}
         </tr>`;
         }).join('')}</tbody>
       </table></div>
@@ -10472,7 +10546,7 @@ function render(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -11136,6 +11210,18 @@ function bind(){
     const btnNext = document.getElementById('skus-pag-next');
     if(btnPrev) btnPrev.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page-1));
     if(btnNext) btnNext.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page+1));
+    document.querySelectorAll('[data-mover-sku]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const sku = state.skusPagina.rows.find(r=>r.id===btn.dataset.moverSku);
+        if(!sku) return;
+        setState({ubicacionSkuModal:{
+          id: sku.id, skuCode: sku.sku_code, descripcion: sku.descripcion, batch: sku.batch,
+          bodega: sku.bodega||'', ubicacion: sku.ubicacion||'', storage_bin: sku.storage_bin||'',
+          bodegaOriginal: sku.bodega||null, ubicacionOriginal: sku.ubicacion||null, binOriginal: sku.storage_bin||null,
+          guardando:false,
+        }});
+      });
+    });
     document.querySelectorAll('.chk-sku').forEach(chk=>{
       chk.addEventListener('change', e=>{
         const id = chk.dataset.skuId;
@@ -11345,6 +11431,22 @@ function bind(){
         setState({descartarReconteoModal:{conteoId:btn.dataset.descartarReconteo, skuCode:btn.dataset.descartarReconteoSku, motivo:'', guardando:false}});
       });
     });
+  }
+
+  if(state.ubicacionSkuModal){
+    // Los tres campos se guardan en el estado a medida que se escriben: cualquier render de
+    // fondo (la cola offline, una recarga de datos) reconstruye la pantalla entera, y sin esto
+    // lo tipeado se perdería a medio llenar.
+    const cerrar = ()=> setState({ubicacionSkuModal:null});
+    document.getElementById('ubicacion-sku-close').addEventListener('click', cerrar);
+    document.getElementById('ubicacion-sku-cancelar').addEventListener('click', cerrar);
+    document.getElementById('ubicacion-sku-backdrop').addEventListener('click', e=>{ if(e.target.id==='ubicacion-sku-backdrop') cerrar(); });
+    [['us-bodega','bodega'],['us-ubic','ubicacion'],['us-bin','storage_bin']].forEach(([id, campo])=>{
+      document.getElementById(id).addEventListener('input', e=>{
+        state.ubicacionSkuModal = {...state.ubicacionSkuModal, [campo]: e.target.value};
+      });
+    });
+    document.getElementById('form-ubicacion-sku').addEventListener('submit', e=>{ e.preventDefault(); guardarUbicacionSku(); });
   }
 
   if(state.descartarReconteoModal){
