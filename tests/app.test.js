@@ -42,6 +42,7 @@ let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVist
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
 let universoZonaGiganteLen = 0;
 let bodegaRpcFalla = false; // simula sin conexión al registrar un documento de bodega
+let aperturaPendientes = 0; // materiales con stock y sin movimiento, para registrar_apertura_bodega
 let ajusteEstadoMock = 'aprobado'; // estado que devuelve registrar_ajuste_bodega (admin: aprobado; operador: pendiente_aprobacion)
 let aperturaBodegaHecha = false; // si ya existe un movimiento de apertura (carga masiva con módulo activo) // tamaño simulado del universo de BHUGE/UHUGE (ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
@@ -947,8 +948,8 @@ const fakeFetchImpl = async (url, opts) => {
     if(opts && (opts.method==='POST' || opts.method==='PATCH')) return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'per-1', nombre:'Juan Retira', area:'Mantención', activo:true}]) };
   }
-  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida&or=')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Central', ubicacion:'0100', storage_bin:'R-1', batch:null, stock_sistema:3, unidad_medida:'UN'}]) };
+  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Central', ubicacion:'0100', storage_bin:'R-1', batch:null, stock_sistema:3, costo_unitario:1000, tipo_material:'Repuesto', unidad_medida:'UN'}]) };
   }
   if(path.startsWith('/rest/v1/rpc/registrar_documento_bodega')){
     const body = JSON.parse(opts.body);
@@ -956,8 +957,15 @@ const fakeFetchImpl = async (url, opts) => {
     const numero = body.p_tipo==='ingreso' ? 'ING-000007' : 'SAL-000003';
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({documento:{id:'doc-1', numero, tipo:body.p_tipo}, movimientos: body.p_lineas.map((l,i)=>({id:'mov-'+i, estado: (body.p_tipo==='salida' && l.saldo_local!=null && l.cantidad>l.saldo_local) ? 'pendiente_revision' : 'aprobado'})), repetido:false}) };
   }
-  if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega') || path.startsWith('/rest/v1/rpc/registrar_apertura_bodega')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=> path.includes('apertura') ? '12' : '' };
+  if(path.startsWith('/rest/v1/rpc/registrar_apertura_bodega')){
+    // Devuelve lotes hasta agotar aperturaPendientes (ver registrar_apertura_bodega).
+    const limite = JSON.parse(opts.body).p_limite || 1000;
+    const registrados = Math.min(limite, aperturaPendientes);
+    aperturaPendientes -= registrados;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({registrados, restantes: aperturaPendientes}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   if(path.startsWith('/rest/v1/skus?select=id,sku_code,descripcion') && opts && opts.method==='POST'){
     const fila = JSON.parse(opts.body)[0];
@@ -974,7 +982,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{clave:'Proveedor Uno', cantidad:30, valor:60000, movimientos:3}]) };
   }
   if(path.startsWith('/rest/v1/rpc/resumen_valorizacion_bodega')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({valor_total:150000, skus_con_costo:8, skus_sin_costo:2, skus_con_stock:10, bajo_minimo:3}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({valor_total:150000, skus_con_costo:8, skus_sin_costo:2, skus_con_stock:10, bajo_minimo:3, sin_apertura: aperturaPendientes}) };
   }
   if(path.startsWith('/rest/v1/rpc/registrar_ajuste_bodega')){
     const body = JSON.parse(opts.body);
@@ -1004,7 +1012,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(aperturaBodegaHecha ? [{id:'mov-ap'}] : []) };
   }
   if(path.startsWith('/rest/v1/stock_actual')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, valor:6000}]) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
   }
   // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
   // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
@@ -4600,6 +4608,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const filasMinimo = JSON.parse(calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus')).opts.body);
   assert(filasMinimo.find(f=>f.sku_code==='SKU-MIN-1').stock_minimo===12 && filasMinimo.find(f=>f.sku_code==='SKU-MIN-2').stock_minimo===null, 'la carga masiva debe traer el stock mínimo y dejarlo en null cuando la celda viene vacía, obtuvo: '+JSON.stringify(filasMinimo));
   assert(!('stock_minimo' in filaSinCritico), 'sin columna de stock mínimo, el campo no debe mandarse');
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'tipos.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock', tipo_material:'Tipo' },
+    data: [ { Codigo:'SKU-TIPO-1', Bodega:'Nave', Stock:'5', Tipo:'Sustancia peligrosa' } ],
+  };
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const filaTipo = JSON.parse(calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus')).opts.body)[0];
+  assert(filaTipo.tipo_material==='Sustancia peligrosa', 'la carga masiva trae el tipo de material, obtuvo: '+JSON.stringify(filaTipo));
+  assert(!('tipo_material' in filaSinCritico), 'sin columna de tipo, el campo no debe mandarse');
 
   // Tras una carga masiva que trae costo o stock, debe refrescar la clasificación ABC (el
   // matview no se recalcula solo, ver skus_valor_abc_mv/refrescar_clasificacion_abc).
@@ -6544,6 +6563,62 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r,0));
     assert(calls.some(c=>c.url.includes('/movimientos_bodega_detalle')), 'tras guardar un ingreso se vuelve a pedir la lista de movimientos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras guardar un ingreso se refresca la tarjeta del Dashboard (valorización), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+
+    // Apertura de stock: cuando una empresa activó el módulo con materiales ya cargados, esos
+    // materiales tienen saldo pero kardex vacío. El aviso y el botón aparecen en Movimientos y la
+    // apertura se registra por lotes, porque un catálogo real son decenas de miles de SKU.
+    aperturaPendientes = 2500;
+    ctx.__appstate.view = 'movimientos';
+    await ctx.cargarValorizacionBodega();
+    assert(ctx.renderMovimientosBodega().includes('id="btn-apertura-bodega"') && ctx.renderMovimientosBodega().includes('2.500 materiales'), 'Movimientos avisa cuántos materiales faltan y ofrece el botón, obtuvo: '+ctx.renderMovimientosBodega().slice(0,700));
+    ctx.__appstate.perfil.rol = 'operador';
+    assert(!ctx.renderMovimientosBodega().includes('id="btn-apertura-bodega"'), 'un operador no ve el botón de apertura');
+    ctx.__appstate.perfil.rol = 'admin';
+    calls.length = 0;
+    const hechos = await ctx.registrarAperturaBodega();
+    const llamadas = calls.filter(c=>c.url.includes('/rpc/registrar_apertura_bodega'));
+    assert(hechos===2500 && llamadas.length===3 && JSON.parse(llamadas[0].opts.body).p_limite===1000, 'la apertura se hace por lotes hasta terminar, obtuvo: '+hechos+' en '+llamadas.length+' llamadas');
+    assert(ctx.__appstate.bodega.aperturaProgreso===null && JSON.stringify(elements['toast-root'].hijos).includes('2.500'), 'al terminar limpia el progreso y avisa cuántos registró, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras la apertura se refrescan los datos de bodega');
+    aperturaPendientes = 0;
+    await ctx.cargarValorizacionBodega();
+    assert(!ctx.renderMovimientosBodega().includes('id="btn-apertura-bodega"'), 'sin materiales pendientes el aviso desaparece');
+
+    // Monto del ingreso: costo unitario por línea, sugerido desde el maestro y editable. Viaja al
+    // servidor por línea; el total del documento se muestra en el formulario.
+    ctx.__appstate.view = 'ingreso';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    await ctx.buscarSkuBodega('BOD');
+    const skuCosto = ctx.__appstate.bodega.busqueda.resultados[0];
+    ctx.agregarLineaBodega(skuCosto, 2);
+    assert(ctx.__appstate.bodega.doc.lineas[0].costo_unitario===1000, 'la línea toma el costo del maestro como sugerencia, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc.lineas[0]));
+    const htmlIng = ctx.renderDocumentoBodega('ingreso');
+    assert(htmlIng.includes('data-costo-sku="sku-b1"') && htmlIng.includes('monto del ingreso') && htmlIng.includes('$2.000'), 'el ingreso muestra costo por línea y el monto total, obtuvo: '+htmlIng.slice(htmlIng.indexOf('Costo unit.')-200, htmlIng.indexOf('Costo unit.')+900));
+    assert(!ctx.renderDocumentoBodega('salida').includes('data-costo-sku='), 'la salida no pide costo');
+    ctx.__appstate.bodega.doc.lineas[0].costo_unitario = 1500;
+    ctx.__appstate.bodega.doc.numeroGuia = 'GD-9'; ctx.__appstate.bodega.doc.fotoGuia = {file:{name:'g.jpg', type:'image/jpeg', size:10}, preview:'data:', preparando:false};
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    const bodyCosto = JSON.parse(calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega')).opts.body);
+    assert(bodyCosto.p_lineas[0].costo_unitario===1500, 'el costo por línea viaja al servidor, obtuvo: '+JSON.stringify(bodyCosto.p_lineas));
+
+    // Tipo de material: al crear el SKU desde el ingreso, en Stock y como agrupación de reportes.
+    ctx.__appstate.bodega.busqueda = {texto:'NUEVO-T', resultados:[], buscando:false};
+    ctx.__appstate.bodega.nuevoSku = {sku_code:'NUEVO-T', descripcion:'Guantes', unidad_medida:'PAR', bodega:'', storage_bin:'', tipo_material:'EPP', guardando:false};
+    assert(ctx.renderDocumentoBodega('ingreso').includes('id="ns-tipo"'), 'el formulario de SKU nuevo pide el tipo de material');
+    calls.length = 0;
+    await ctx.crearSkuDesdeIngreso();
+    assert(JSON.parse(calls.find(c=>c.url.includes('/rest/v1/skus?select=') && c.opts.method==='POST').opts.body)[0].tipo_material==='EPP', 'el SKU nuevo se crea con su tipo de material');
+    ctx.__appstate.view = 'stock';
+    await ctx.cargarStockBodega();
+    assert(ctx.renderStockBodega().includes('data-tipo-sku="sku-b1"') && ctx.renderStockBodega().includes('Sustancia peligrosa'), 'Stock deja elegir el tipo de material, obtuvo: '+ctx.renderStockBodega().slice(0,400));
+    calls.length = 0;
+    await ctx.guardarTipoMaterial('sku-b1', 'Sustancia peligrosa');
+    const patchTipo = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/skus?id=eq.sku-b1'));
+    assert(patchTipo && JSON.parse(patchTipo.opts.body).tipo_material==='Sustancia peligrosa', 'guardar el tipo hace PATCH al SKU, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.view = 'reportes';
+    assert(ctx.renderReportesBodega().includes('Por tipo de material'), 'los reportes se pueden agrupar por tipo de material');
     ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
 
     // ===== Fase 3: reportes de consumo e ingresos, valorización y stock mínimo =====
