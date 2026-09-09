@@ -1018,6 +1018,11 @@ const fakeFetchImpl = async (url, opts) => {
   if(path==='/rest/v1/skus' && opts && opts.method==='POST' && JSON.parse(opts.body)[0].sku_code==='SKU-DUP-EXISTE'){
     return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}) };
   }
+  // Mismo índice único, pero al MOVER una fila existente (PATCH): el destino ya está ocupado por
+  // otra fila del mismo código -- ver guardarUbicacionSku / mensajeUbicacionOcupada.
+  if(path.startsWith('/rest/v1/skus?id=eq.') && opts && opts.method==='PATCH' && JSON.parse(opts.body).storage_bin==='BIN-OCUPADO'){
+    return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}) };
+  }
   // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
   // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
   if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
@@ -4491,6 +4496,61 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlTablaOperador = ctx.renderTablaSkus();
   assert(!htmlTablaOperador.includes('class="chk-sku"'), 'un operador no debe ver los checkboxes de selección de SKU, obtuvo: '+htmlTablaOperador);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // ===== Mover un material de ubicación =====
+  // Hasta ahora la ubicación solo se fijaba al crear el material: recargarlo por Excel con otro
+  // bin no lo movía, creaba una segunda fila (la identidad incluye ubicación general, específica
+  // y bin). Mover la MISMA fila conserva su historial de conteos, su kardex y su stock.
+  ctx.__appstate.skusPagina = { rows:[{id:'sku-mover', sku_code:'SKU-MOVER', descripcion:'Bomba', batch:null, bodega:'B501', ubicacion:'0102', storage_bin:'N1E-P5-I09', stock_sistema:4}], page:0, total:1 };
+  const htmlMoverAdmin = ctx.renderTablaSkus();
+  assert(htmlMoverAdmin.includes('data-mover-sku="sku-mover"'), 'un admin debe ver el botón para mover el material, obtuvo: '+htmlMoverAdmin);
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  assert(!ctx.renderTablaSkus().includes('data-mover-sku'), 'un operador no debe poder mover materiales');
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  const abrirModalMover = (extra={}) => { ctx.__appstate.ubicacionSkuModal = {
+    id:'sku-mover', skuCode:'SKU-MOVER', descripcion:'Bomba', batch:null,
+    bodega:'B501', ubicacion:'0102', storage_bin:'N1E-P5-I09',
+    bodegaOriginal:'B501', ubicacionOriginal:'0102', binOriginal:'N1E-P5-I09',
+    guardando:false, ...extra }; };
+
+  // El modal dice de dónde sale y aclara que el material no pierde su historial.
+  abrirModalMover();
+  const htmlModalMover = ctx.renderUbicacionSkuModal();
+  assert(htmlModalMover.includes('SKU-MOVER') && htmlModalMover.includes('B501 · 0102 · N1E-P5-I09') && htmlModalMover.includes('historial'), 'el modal muestra el sitio actual y avisa que conserva el historial, obtuvo: '+htmlModalMover);
+
+  // Guardar manda un PATCH con los tres campos y cierra el modal.
+  abrirModalMover({bodega:'B521', ubicacion:'0300', storage_bin:'A-01-02'});
+  calls.length = 0;
+  assert((await ctx.guardarUbicacionSku())===true, 'mover a un sitio libre debe funcionar');
+  const patchMover = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/rest/v1/skus?id=eq.sku-mover'));
+  assert(!!patchMover, 'debe mandar un PATCH a la fila del material, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(JSON.stringify(JSON.parse(patchMover.opts.body))==='{"bodega":"B521","ubicacion":"0300","storage_bin":"A-01-02"}', 'el PATCH lleva solo la ubicación, obtuvo: '+patchMover.opts.body);
+  assert(ctx.__appstate.ubicacionSkuModal===null, 'tras mover, el modal se cierra');
+
+  // Campos vacíos = sin ubicación (null), no cadena vacía: la identidad de la fila se calcula con
+  // COALESCE sobre estos campos, y '' y NULL tienen que significar lo mismo.
+  abrirModalMover({bodega:'  ', ubicacion:'', storage_bin:''});
+  calls.length = 0;
+  await ctx.guardarUbicacionSku();
+  const patchVacio = calls.find(c=>c.opts && c.opts.method==='PATCH');
+  assert(JSON.stringify(JSON.parse(patchVacio.opts.body))==='{"bodega":null,"ubicacion":null,"storage_bin":null}', 'dejar los campos vacíos manda null, no cadenas vacías, obtuvo: '+patchVacio.opts.body);
+
+  // Sin cambios no se llama a la red: cerrar el modal no debe escribir en la base.
+  abrirModalMover();
+  calls.length = 0;
+  assert((await ctx.guardarUbicacionSku())===true, 'guardar sin cambios se resuelve bien');
+  assert(calls.length===0, 'si no cambió nada, no se manda ningún PATCH, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Destino ocupado: mensaje claro en vez del error crudo de Postgres, y el modal queda abierto
+  // para corregir en vez de perder lo escrito.
+  abrirModalMover({storage_bin:'BIN-OCUPADO'});
+  elements['toast-root'].hijos.length = 0;
+  assert((await ctx.guardarUbicacionSku())===false, 'mover a un sitio ocupado debe fallar');
+  const avisoOcupado = JSON.stringify(elements['toast-root'].hijos);
+  assert(avisoOcupado.includes('Ya existe SKU-MOVER en ese sitio') && !avisoOcupado.includes('duplicate key'), 'el choque se explica en castellano, no con el error de Postgres, obtuvo: '+avisoOcupado);
+  assert(ctx.__appstate.ubicacionSkuModal && ctx.__appstate.ubicacionSkuModal.guardando===false, 'tras el choque el modal sigue abierto y se puede reintentar');
+  ctx.__appstate.ubicacionSkuModal = null;
 
   // renderTablaSkus: en vez de pintar el fondo de toda la fila, muestra un ícono de color junto
   // al SKU según su último conteo — rojo (diferencia negativa/faltante), amarillo (diferencia
