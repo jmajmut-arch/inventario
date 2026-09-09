@@ -381,9 +381,11 @@
         <li><span class="num">2</span><div><b>Salida.</b> Agrega los materiales, elige quién retira (lista que mantiene el administrador), quién despacha y el destino. No se puede sacar más de lo que hay: si el material está físicamente pero el sistema dice que no, cuéntalo primero y ajusta el stock.</div></li>
         <li><span class="num">3</span><div><b>Ajustar el stock.</b> Desde Reconteo, <b>Ajustar stock</b> lleva la cantidad contada al stock; desde Stock, <b>Ajustar</b> sirve para mermas o correcciones. El administrador lo aplica de inmediato; el operador lo propone y queda pendiente de aprobación.</div></li>
         <li><span class="num">4</span><div><b>Movimientos y Stock.</b> En Movimientos ves todo lo registrado, apruebas o rechazas pendientes (admin), anulas con motivo e imprimes el comprobante en PDF. En Stock ves el saldo por material, su <b>Kardex</b> (cada movimiento con saldo corrido) y exportas a Excel.</div></li>
+        <li><span class="num">5</span><div><b>Reportes.</b> Desde el Inicio o el Dashboard, con un rango de fechas: cuánto consumió cada persona, área o destino, cuánto ingresó cada proveedor, y la valorización del stock. Todo exportable a Excel. En Stock puedes fijar un <b>mínimo</b> por material (o cargarlo en la columna "Stock mínimo" del Excel) y filtrar los que están bajo ese mínimo.</div></li>
       </ol>
       <div class="box new"><div class="tag">Sin señal</div>Ingresos y salidas se guardan en el celular y se envían solos al volver la conexión. Una salida registrada sin señal que ya no alcanza el stock queda "pendiente de revisión" para el administrador, sin perderse.</div>
       <div class="box"><div class="tag">Cómo se activa</div>Lo activa InventIA por empresa. La primera carga de Excel después de activarlo registra la apertura del stock; desde ahí el saldo solo cambia con ingresos, salidas y ajustes.</div>
+      <div class="box"><div class="tag">Sobre la valorización</div>El valor sale del costo unitario del maestro de materiales. Los materiales con stock pero sin costo cargado se informan aparte y no se suman al total, para que la cifra no quede corta sin avisar.</div>
     </div>
     <div class="shot"><img src="img/bodega-inicio.png" alt="Inicio del módulo de bodega"><div class="cap">Inicio → Ingreso, Salida, Inventario y Dashboard</div></div>
   </div>

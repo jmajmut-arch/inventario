@@ -729,7 +729,7 @@ const BODEGA_VACIA = '__bodega_vacia__';
 // Pestañas de la barra inferior a las que un operador (rol !== admin, sin ser super-admin) no
 // tiene acceso — a pedido: se muestran igual (con un candado) en vez de ocultarlas o dejarlas
 // entrar, para que quede claro que la función existe pero es solo para administradores.
-const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos', 'grupos'];
+const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos', 'grupos', 'reportes'];
 // Vistas con tablas/gráficos densos pensadas para admin/súper-admin en pantalla grande (ver
 // main.ancho) -- las VISTAS_SOLO_ADMIN de arriba, más Configuraciones (equipo, panel de
 // súper-admin), a diferencia de Contar/Reconteo/Buscar que se usan sobre todo desde el celular
@@ -738,10 +738,25 @@ const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario', 'movimiento
 // Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md): se activa por empresa desde súper admin.
 // Con el módulo activo la app entra a una pantalla de inicio con Ingreso, Salida, Inventario y
 // Dashboard; sin él, nada cambia respecto de antes.
-const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock'];
+// 'reportes' es de bodega pero no tiene pestaña propia (la barra ya lleva cinco): se entra
+// desde el Inicio y desde la tarjeta del Dashboard.
+const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock', 'reportes'];
 function moduloBodegaActivo(){
   return !!(state.perfil && state.perfil.empresas && state.perfil.empresas.modulo_bodega_habilitado);
 }
+// Rango por defecto de los reportes: desde el día 1 del mes en curso hasta hoy.
+function reportesBodegaVacios(){
+  const hoy = new Date();
+  return {
+    desde: fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), 1)),
+    hasta: fechaISO(hoy),
+    consumoAgrupar: 'persona',
+    ingresosAgrupar: 'proveedor',
+    consumo: [], ingresos: [],
+    cargando: false, cargado: false,
+  };
+}
+
 function bodegaEstadoInicial(){
   return {
     proveedores: [], personas: [], listasCargadas: false,
@@ -751,6 +766,9 @@ function bodegaEstadoInicial(){
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
     ultimosMovimientos: [], ultimosCargados: false, // tarjeta de bodega en el Dashboard
+    valorizacion: null, // {valor_total, skus_con_costo, skus_sin_costo, skus_con_stock, bajo_minimo}
+    stockSoloBajoMinimo: false,
+    reportes: reportesBodegaVacios(),
     stock: [], stockTexto: '', stockCargado: false,
     guardando: false, ultimoDocumento: null,
   };
@@ -1631,6 +1649,7 @@ const CARGAS_POR_VISTA = {
   salida: ['bodegaListas', 'responsables'],
   movimientos: ['bodegaMovimientos', 'bodegaPendientes'],
   stock: ['bodegaStock'],
+  reportes: ['bodegaReportes'],
   config: ['bodegaListas'],
 };
 const CARGADORES = {
@@ -1644,7 +1663,8 @@ const CARGADORES = {
   bodegaMovimientos: ()=> cargarMovimientosBodega(),
   bodegaPendientes: ()=> cargarPendientesBodega(),
   bodegaStock: ()=> cargarStockBodega(),
-  bodegaResumen: ()=> moduloBodegaActivo() ? Promise.all([cargarPendientesBodega(), cargarUltimosMovimientosBodega()]) : Promise.resolve(),
+  bodegaResumen: ()=> moduloBodegaActivo() ? Promise.all([cargarPendientesBodega(), cargarUltimosMovimientosBodega(), cargarValorizacionBodega()]) : Promise.resolve(),
+  bodegaReportes: ()=> cargarReportesBodega(),
   reconteos: ()=> cargarReconteos(),
   plan: ()=> refrescarPlanSiCorresponde(),
 };
@@ -5031,7 +5051,8 @@ async function cargarStockBodega(){
   try{
     const t = sanearTextoFiltro(state.bodega.stockTexto);
     const filtro = t ? `&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*,storage_bin.ilike.*${encodeURIComponent(t)}*)` : '';
-    const rows = await rest(`/stock_actual?select=*&order=sku_code.asc&limit=300${filtro}`) || [];
+    const soloBajo = state.bodega.stockSoloBajoMinimo ? '&bajo_minimo=is.true' : '';
+    const rows = await rest(`/stock_actual?select=*&order=sku_code.asc&limit=300${filtro}${soloBajo}`) || [];
     setState({bodega: {...state.bodega, stock: rows, stockCargado:true}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -5244,6 +5265,60 @@ async function cargarUltimosMovimientosBodega(){
   }catch(e){ /* silencioso: la tarjeta muestra "Cargando…" y se reintenta al volver */ }
 }
 
+// Valorización del stock y cuántos materiales están bajo su mínimo (ver resumen_valorizacion_bodega).
+async function cargarValorizacionBodega(){
+  try{
+    const v = await rest('/rpc/resumen_valorizacion_bodega', {method:'POST', body:{}});
+    setState({bodega:{...state.bodega, valorizacion: v || null}});
+  }catch(e){ /* silencioso: la tarjeta muestra lo que tenga */ }
+}
+
+// Reportes de bodega: consumo (salidas) e ingresos agrupados, en el rango elegido. Los agrega el
+// servidor (ver reporte_consumo_bodega / reporte_ingresos_bodega), no el navegador.
+async function cargarReportesBodega(){
+  const r = state.bodega.reportes;
+  if(r.desde > r.hasta){ toast('La fecha "Desde" no puede ser posterior a "Hasta"','err'); return; }
+  setState({bodega:{...state.bodega, reportes:{...r, cargando:true}}});
+  try{
+    // La valorización viaja en la misma tanda para que las tres tarjetas aparezcan juntas.
+    const [consumo, ingresos, valorizacion] = await Promise.all([
+      rest('/rpc/reporte_consumo_bodega', {method:'POST', body:{p_desde:r.desde, p_hasta:r.hasta, p_agrupar:r.consumoAgrupar}}),
+      rest('/rpc/reporte_ingresos_bodega', {method:'POST', body:{p_desde:r.desde, p_hasta:r.hasta, p_agrupar:r.ingresosAgrupar}}),
+      state.bodega.valorizacion ? Promise.resolve(state.bodega.valorizacion) : rest('/rpc/resumen_valorizacion_bodega', {method:'POST', body:{}}).catch(()=>null),
+    ]);
+    setState({bodega:{...state.bodega, valorizacion: valorizacion || state.bodega.valorizacion, reportes:{...state.bodega.reportes, consumo: consumo||[], ingresos: ingresos||[], cargando:false, cargado:true}}});
+  }catch(e){
+    setState({bodega:{...state.bodega, reportes:{...state.bodega.reportes, cargando:false}}});
+    toast(e.message,'err');
+  }
+}
+
+// Stock mínimo por material (solo admin): vacío = sin mínimo, no alerta.
+async function guardarStockMinimo(skuId, valor){
+  const txt = String(valor==null?'':valor).trim();
+  const minimo = txt==='' ? null : Number(txt);
+  if(minimo!==null && (isNaN(minimo) || minimo < 0)){ toast('El mínimo debe ser 0 o más','err'); return; }
+  try{
+    await rest(`/skus?id=eq.${encodeURIComponent(skuId)}`, {method:'PATCH', body:{stock_minimo: minimo}, prefer:'return=minimal'});
+    const stock = state.bodega.stock.map(r=> r.sku_id===skuId ? {...r, stock_minimo: minimo, bajo_minimo: minimo!=null && Number(r.stock) < minimo} : r);
+    setState({bodega:{...state.bodega, stock}});
+    cargarValorizacionBodega();
+    toast(minimo===null ? 'Mínimo quitado' : `Mínimo guardado en ${minimo}`);
+  }catch(e){ toast(e.message,'err'); }
+}
+
+function exportarReporteBodegaExcel(){
+  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+  const r = state.bodega.reportes;
+  if(!r.consumo.length && !r.ingresos.length){ toast('No hay datos para exportar','err'); return; }
+  const hoja = (filas, etiqueta) => filas.map(f=>({[etiqueta]: f.clave, 'Cantidad': Number(f.cantidad), 'Valor': Number(f.valor), 'Movimientos': Number(f.movimientos)}));
+  const wb = XLSX.utils.book_new();
+  if(r.consumo.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hoja(r.consumo, etiquetaAgrupacionBodega(r.consumoAgrupar))), 'Consumo');
+  if(r.ingresos.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hoja(r.ingresos, etiquetaAgrupacionBodega(r.ingresosAgrupar))), 'Ingresos');
+  XLSX.writeFile(wb, `reportes-bodega-${r.desde}_a_${r.hasta}.xlsx`);
+}
+function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', destino:'Destino', sku:'Material', proveedor:'Proveedor'}[a] || a; }
+
 // Comprobante PDF de un ingreso o salida: mismo contenedor de impresión que Buscar y fotos
 // reducidas (resolverFotoParaPDF). Para la salida incluye líneas de firma de quien entrega y recibe.
 async function imprimirComprobanteBodega(documentoId){
@@ -5429,6 +5504,11 @@ const CAMPOS_SKU = [
     alias:['categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
   { campo:'critico', obligatorio:false, etiqueta:'Crítico',
     alias:['critico','es critico','sku critico','critical','is critical'] },
+  // Módulo de bodega: fijar el mínimo uno por uno no escala con catálogos grandes, así que el
+  // Excel también puede traerlo. Igual que "Crítico", si la columna no viene no se toca lo que
+  // el SKU ya tenía.
+  { campo:'stock_minimo', obligatorio:false, etiqueta:'Stock mínimo',
+    alias:['stock minimo','stock_minimo','minimo','min stock','stock min','cantidad minima','punto de reorden','reorder point','minimum stock','min'] },
   // Estas cuatro son solo informativas (ver infoStockPorTipo/renderConteo/renderReconteo): se
   // muestran junto al stock sistema en Contar y Reconteo para dar contexto, pero la diferencia
   // de un conteo sigue calculándose solo contra stock_sistema -- no se suman ni se restan de
@@ -5662,6 +5742,7 @@ async function confirmarCargaMasiva(){
       // false) -- así el upsert (resolution=merge-duplicates) no pisa el valor que ya tenía cada
       // SKU en la base. Solo se sobrescribe cuando la persona de verdad mandó esa columna.
       ...(mapeo.critico? {critico: parsearBooleanoCarga(valor(row,'critico'))} : {}),
+      ...(mapeo.stock_minimo? {stock_minimo: valor(row,'stock_minimo')!=='' ? Number(valor(row,'stock_minimo')) : null} : {}),
       // Solo informativos (ver comentario en CAMPOS_SKU) -- se omiten enteros si el archivo no
       // trae esa columna, para no pisar con null lo que ya tenía el SKU en cargas anteriores.
       ...(mapeo.stock_bloqueado? {stock_bloqueado: valor(row,'stock_bloqueado')!=='' ? Number(valor(row,'stock_bloqueado')) : null} : {}),
@@ -9887,7 +9968,7 @@ function renderInicio(){
       ${tile('salida','Salida','Entregar material: quién retira y para qué','salida')}
       ${tile('conteo','Inventario','Planificar, contar y recontar','conteo')}
       ${esAdmin ? tile('dashboard','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
-      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button></div>`}
+      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button></div>`}
     </div>
   `;
 }
@@ -9987,8 +10068,9 @@ function renderResumenBodegaDashboard(){
   return `<div class="card" style="margin-bottom:14px${pend?';border-color:var(--amber)':''}">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
       <div><span class="eyebrow">Bodega</span><h3 style="margin:0;font-size:15px">${pend ? `${pend} pendiente${pend===1?'':'s'} de aprobación` : 'Sin pendientes de aprobación'}</h3></div>
-      <div style="display:flex;gap:6px"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:6px 12px;font-size:12px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:6px 12px;font-size:12px">Stock</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:6px 12px;font-size:12px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:6px 12px;font-size:12px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:6px 12px;font-size:12px">Reportes</button></div>
     </div>
+    ${b.valorizacion ? `<div class="hint" style="margin-bottom:6px">Stock valorizado en <strong>$${Math.round(Number(b.valorizacion.valor_total)||0).toLocaleString('es-CL')}</strong>${Number(b.valorizacion.bajo_minimo)?` · <span style="color:var(--warn)">${b.valorizacion.bajo_minimo} bajo su mínimo</span>`:''}</div>` : ''}
     ${ult.length ? `<div class="hint" style="margin-bottom:4px">Últimos movimientos</div>${ult.map(m=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:12.5px"><span><span class="mono">${esc(m.numero)}</span> · ${etiquetaTipoMovimiento(m.tipo)} · <span class="mono">${esc(m.sku_code)}</span></span><span class="num" style="white-space:nowrap">${m.tipo==='ajuste'&&m.cantidad>0?'+':''}${m.cantidad} ${esc(m.unidad_medida||'')} ${badgeEstadoMovimiento(m.estado)}</span></div>`).join('')}` : `<div class="hint">${b.ultimosCargados?'Aún no hay movimientos.':'Cargando…'}</div>`}
   </div>`;
 }
@@ -10042,10 +10124,56 @@ function renderStockBodega(){
         <button type="submit" class="btn btn-primary" style="width:auto;padding:0 14px;height:40px">Buscar</button>
         <button type="button" class="btn btn-secondary" id="btn-exportar-stock" style="width:auto;padding:0 12px;height:40px">Excel</button>
       </form>
+      <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Bin</th><th class="num">Stock</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <thead><tr><th>SKU</th><th>Bin</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Valor</th><th></th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
+  `;
+}
+
+function renderReportesBodega(){
+  const b = state.bodega; const r = b.reportes; const v = b.valorizacion;
+  const money = n => '$'+Math.round(Number(n)||0).toLocaleString('es-CL');
+  const tabla = (filas, agrupar, cargando) => filas.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>${etiquetaAgrupacionBodega(agrupar)}</th><th class="num">Cantidad</th><th class="num">Valor</th><th class="num">Movs.</th></tr></thead>
+      <tbody>${filas.map(f=>`<tr><td>${esc(f.clave)}</td><td class="num">${Number(f.cantidad).toLocaleString('es-CL')}</td><td class="num">${Number(f.valor)?money(f.valor):'—'}</td><td class="num">${f.movimientos}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td><strong>Total</strong></td><td class="num"><strong>${filas.reduce((s,f)=>s+Number(f.cantidad),0).toLocaleString('es-CL')}</strong></td><td class="num"><strong>${money(filas.reduce((s,f)=>s+Number(f.valor),0))}</strong></td><td class="num"><strong>${filas.reduce((s,f)=>s+Number(f.movimientos),0)}</strong></td></tr></tfoot>
+    </table></div>` : `<div class="empty"><div class="glyph">${cargando?'…':'✓'}</div>${cargando?'Cargando…':'Sin movimientos en este rango.'}</div>`;
+  const opciones = (sel, ops) => ops.map(([v2,t])=>`<option value="${v2}" ${sel===v2?'selected':''}>${t}</option>`).join('');
+  return `
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>Reportes</h2></div></div>
+    <div class="card" style="margin-bottom:14px">
+      <form id="form-reportes-bodega" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div><label for="rep-desde">Desde</label><input type="date" id="rep-desde" value="${esc(r.desde)}" style="margin:0"></div>
+        <div><label for="rep-hasta">Hasta</label><input type="date" id="rep-hasta" value="${esc(r.hasta)}" style="margin:0"></div>
+        <button type="submit" class="btn btn-primary" style="width:auto;padding:0 14px;height:40px" ${r.cargando?'disabled':''}>${r.cargando?'Cargando…':'Ver'}</button>
+        <button type="button" class="btn btn-secondary" id="btn-exportar-reportes" style="width:auto;padding:0 12px;height:40px">Excel</button>
+      </form>
+    </div>
+    ${v ? `<div class="card" style="margin-bottom:14px">
+      <div class="hint" style="margin-bottom:8px">Valorización del stock actual</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap">
+        <div><div style="font-size:22px;font-weight:700">${money(v.valor_total)}</div><div class="hint" style="margin:0">${v.skus_con_costo} materiales con costo cargado</div></div>
+        ${Number(v.skus_sin_costo) ? `<div><div style="font-size:22px;font-weight:700;color:var(--warn)">${v.skus_sin_costo}</div><div class="hint" style="margin:0">con stock pero sin costo: no entran en el total</div></div>` : ''}
+        ${Number(v.bajo_minimo) ? `<div><div style="font-size:22px;font-weight:700;color:var(--warn)">${v.bajo_minimo}</div><div class="hint" style="margin:0">bajo su mínimo · <button type="button" class="link-btn" data-ir-vista="stock">ver en Stock</button></div></div>` : ''}
+      </div>
+    </div>` : ''}
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <h3 style="margin:0;font-size:15px">Consumo (salidas)</h3>
+        <select id="rep-consumo-agrupar" style="width:auto;margin:0">${opciones(r.consumoAgrupar, [['persona','Por persona'],['area','Por área'],['destino','Por destino'],['sku','Por material']])}</select>
+      </div>
+      ${tabla(r.consumo, r.consumoAgrupar, r.cargando)}
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <h3 style="margin:0;font-size:15px">Ingresos</h3>
+        <select id="rep-ingresos-agrupar" style="width:auto;margin:0">${opciones(r.ingresosAgrupar, [['proveedor','Por proveedor'],['sku','Por material']])}</select>
+      </div>
+      ${tabla(r.ingresos, r.ingresosAgrupar, r.cargando)}
+    </div>
+    <div class="hint" style="margin-top:10px">El valor usa el costo unitario del maestro de materiales. Solo se consideran movimientos aprobados.</div>
   `;
 }
 
@@ -10142,7 +10270,7 @@ function bindDocumentoBodega(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock'}[v];
 }
 
 function renderShell(){
@@ -10163,6 +10291,7 @@ function renderShell(){
     salida: ()=> renderDocumentoBodega('salida'),
     movimientos: renderMovimientosBodega,
     stock: renderStockBodega,
+    reportes: renderReportesBodega,
   }[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
@@ -10507,6 +10636,26 @@ function bind(){
     if(form) form.addEventListener('submit', e=>{ e.preventDefault(); state.bodega.stockTexto = document.getElementById('stock-texto').value; cargarStockBodega(); });
     const btnExcel = document.getElementById('btn-exportar-stock');
     if(btnExcel) btnExcel.addEventListener('click', exportarStockExcel);
+    const chkBajo = document.getElementById('stock-bajo-minimo');
+    if(chkBajo) chkBajo.addEventListener('change', ()=>{ state.bodega.stockSoloBajoMinimo = chkBajo.checked; cargarStockBodega(); });
+    document.querySelectorAll('.stock-minimo').forEach(inp=>{
+      inp.addEventListener('change', ()=> guardarStockMinimo(inp.dataset.minSku, inp.value));
+      inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
+    });
+  }
+  if(state.view==='reportes'){
+    const form = document.getElementById('form-reportes-bodega');
+    if(form) form.addEventListener('submit', e=>{
+      e.preventDefault();
+      state.bodega.reportes = {...state.bodega.reportes, desde: document.getElementById('rep-desde').value, hasta: document.getElementById('rep-hasta').value};
+      cargarReportesBodega();
+    });
+    const btnRepExcel = document.getElementById('btn-exportar-reportes');
+    if(btnRepExcel) btnRepExcel.addEventListener('click', exportarReporteBodegaExcel);
+    const selCon = document.getElementById('rep-consumo-agrupar');
+    if(selCon) selCon.addEventListener('change', ()=>{ state.bodega.reportes = {...state.bodega.reportes, consumoAgrupar: selCon.value}; cargarReportesBodega(); });
+    const selIng = document.getElementById('rep-ingresos-agrupar');
+    if(selIng) selIng.addEventListener('change', ()=>{ state.bodega.reportes = {...state.bodega.reportes, ingresosAgrupar: selIng.value}; cargarReportesBodega(); });
   }
   if(state.view==='config'){
     document.querySelectorAll('.form-lista-bodega').forEach(form=>{
