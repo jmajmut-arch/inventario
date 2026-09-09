@@ -8,8 +8,8 @@
 :root{--bg:#faf6ee;--surface:#ffffff;--text:#241a10;--dim:#5f5142;--faint:#8a7a68;--amber:#bd5b2c;--amber-dim:#8c4520;--on-amber:#fffaf3;--line:#e7dcc4;--good:#3f7d4f;--ink:#1e2a30}
 @page{size:A4;margin:0}
 html{background:#d9d2c4}
-body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,Segoe UI,sans-serif;font-size:8.9pt;line-height:1.32;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{width:210mm;min-height:297mm;margin:0 auto;background:var(--bg);box-sizing:border-box;padding:7mm 11mm 4mm;display:flex;flex-direction:column;gap:2.2mm}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,Segoe UI,sans-serif;font-size:9.3pt;line-height:1.36;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;min-height:297mm;margin:0 auto;background:var(--bg);box-sizing:border-box;padding:8mm 11mm 6mm;display:flex;flex-direction:column;gap:3mm}
 @media screen{.page{box-shadow:0 10px 40px rgba(0,0,0,.18);margin:18px auto}}
 @media print{html{background:var(--bg)}.page{box-shadow:none;margin:0}}
 h1,h2,h3{margin:0;font-family:'Barlow Condensed','Arial Narrow',Impact,sans-serif;text-wrap:balance}
@@ -26,7 +26,7 @@ p{margin:0}
 .hdr .meta b{display:block;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11pt;color:var(--amber-dim);letter-spacing:.6px;text-transform:uppercase}
 /* sections */
 .eyebrow{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10pt;letter-spacing:1.2px;text-transform:uppercase;color:var(--amber-dim);margin-bottom:1.3mm}
-.row{display:grid;gap:2.4mm}
+.row{display:grid;gap:3mm}
 .r2{grid-template-columns:1fr 1fr}
 .r3{grid-template-columns:1.25fr 1fr}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:2.2mm;padding:2.8mm 3.4mm}
@@ -46,13 +46,13 @@ li b{font-weight:600}
 .step{position:relative;padding:2.6mm 2.8mm 2.6mm;background:var(--surface);border:1px solid var(--line);border-radius:2mm}
 .step::before{counter-increment:s;content:counter(s);position:absolute;top:-2.4mm;left:2.4mm;width:5.2mm;height:5.2mm;border-radius:50%;background:var(--amber);color:var(--on-amber);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10pt;display:flex;align-items:center;justify-content:center}
 .step h3{font-size:11.5pt;font-weight:700;margin:1mm 0 .6mm}
-.step p{font-size:8.2pt;color:var(--dim)}
+.step p{font-size:8.6pt;color:var(--dim)}
 /* modules */
 .mod{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2.8mm}
 .mod .card{position:relative}
 .mod h3{font-size:13pt;font-weight:700;margin-bottom:.8mm}
 .mod .new{position:absolute;top:2.6mm;right:3mm;background:var(--good);color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:8.5pt;letter-spacing:.8px;padding:.6mm 1.8mm;border-radius:1mm;text-transform:uppercase}
-.mod p{font-size:8.3pt;color:var(--dim)}
+.mod p{font-size:8.7pt;color:var(--dim)}
 /* trust */
 .trust{display:grid;grid-template-columns:repeat(5,1fr);gap:2.6mm}
 .trust div{border-top:2px solid var(--amber);padding-top:1.3mm;font-size:8pt;color:var(--dim)}
@@ -60,7 +60,7 @@ li b{font-weight:600}
 /* plans */
 .bottom{display:grid;grid-template-columns:1.6fr 1fr;gap:3.2mm;margin-top:auto}
 table{width:100%;border-collapse:collapse;font-size:8.6pt}
-th,td{text-align:left;padding:1.2mm 1.6mm;border-bottom:1px solid var(--line);vertical-align:top}
+th{width:52%}th,td{text-align:left;padding:1.2mm 1.6mm;border-bottom:1px solid var(--line);vertical-align:top}
 th{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12pt;color:var(--text)}
 th small{display:block;font-family:'Inter',sans-serif;font-weight:400;font-size:7.8pt;color:var(--faint);letter-spacing:0;text-transform:none}
 td.price{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14pt;color:var(--amber-dim);line-height:1;white-space:nowrap}
@@ -138,11 +138,11 @@ td ul{padding-left:3.4mm}td li{margin:.3mm 0}
     <div>
       <div class="eyebrow">Planes</div>
       <table>
-        <tr><th>Básico<small>1 bodega, 1 administrador y 1 operador</small></th><td class="price num">USD 160<small>al mes, $187.000 CLP con IVA</small></td><td><ul><li>Carga de SKU y conteo con foto</li><li>Modo sin señal</li><li>Dashboard de avance</li></ul></td></tr>
-        <tr class="best"><th>Profesional<small>Hasta 2 bodegas, 1 administrador y 2 operadores</small></th><td class="price num">USD 300<small>al mes, $350.000 CLP con IVA</small></td><td><ul><li>Todo lo del Básico</li><li>Dashboard ejecutivo y auditoría</li><li>Soporte prioritario</li></ul></td></tr>
-        <tr><th>Empresa<small>Usuarios ilimitados, multiplanta</small></th><td class="price num">A medida<small>según tu operación</small></td><td><ul><li>Roles y permisos avanzados</li><li>Onboarding asistido</li><li>Soporte dedicado</li></ul></td></tr>
+        <tr><th>Básico<small>1 bodega, 1 administrador y 1 operador. Para partir con el conteo digital.</small></th><td><ul><li>Carga de SKU y conteo con foto</li><li>Modo sin señal</li><li>Dashboard de avance</li></ul></td></tr>
+        <tr class="best"><th>Profesional<small>Hasta 2 bodegas, 1 administrador y 2 operadores. Equipos en terreno.</small></th><td><ul><li>Todo lo del Básico</li><li>Dashboard ejecutivo y auditoría</li><li>Soporte prioritario</li></ul></td></tr>
+        <tr><th>Empresa<small>Usuarios ilimitados, varias plantas o empresas.</small></th><td><ul><li>Roles y permisos avanzados</li><li>Onboarding asistido</li><li>Soporte dedicado</li></ul></td></tr>
       </table>
-      <p class="fine">Precios netos en USD; cobro mensual en CLP con tarjeta, IVA incluido, dólar de referencia $980. Cambia de plan cuando quieras. El módulo Bodega se activa por empresa en cualquier plan.</p>
+      <p class="fine">Cotización según el tamaño de tu operación. Puedes cambiar de plan cuando quieras. El módulo Bodega se activa por empresa en cualquier plan.</p>
     </div>
     <div class="cta">
       <h2>Pruébalo con tu propia bodega</h2>
