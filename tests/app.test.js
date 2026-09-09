@@ -437,17 +437,63 @@ const fakeFetchImpl = async (url, opts) => {
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/rpc/ranking_responsable')){
-    const filas = [
-      {nombre:'Ana Torres', cantidad:2},
-      {nombre:'Beto', cantidad:1},
-      {nombre:'Sin asignar', cantidad:1},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
-  }
-  if(path.startsWith('/rest/v1/rpc/diferencias_recientes')){
-    const filas = [ {sin_diferencia:9, con_diferencia:1} ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  // El Dashboard entero llega en una sola respuesta (RPC dashboard_ejecutivo). Antes la app pedía
+  // 14 endpoints en paralelo: el trabajo en la base era mínimo, pero cada llamada pagaba su
+  // preflight CORS, su verificación de token y su turno en el pool. Los datos de acá son los
+  // mismos que devolvían esos endpoints por separado.
+  if(path.startsWith('/rest/v1/rpc/dashboard_ejecutivo')){
+    const cuerpo = opts && opts.body ? JSON.parse(opts.body) : {};
+    const panel = {
+      total: [],
+      diario: [],
+      semanal: [],
+      mensual: [],
+      ranking: [
+        {nombre:'Ana Torres', cantidad:2},
+        {nombre:'Beto', cantidad:1},
+        {nombre:'Sin asignar', cantidad:1},
+      ],
+      exactitudBodega: [
+        {bodega:'Nave Mina', skus_contados:20, sin_diferencia:16, con_diferencia:4, ubicacion_correcta:18},
+        {bodega:'Nave Planta', skus_contados:10, sin_diferencia:4, con_diferencia:6, ubicacion_correcta:9},
+      ],
+      // Dos meses de historia: Nave Mina mejora 30 puntos (60%->90%), Nave Planta baja 10 (80%->70%).
+      exactitudMensual: [
+        {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:6, con_diferencia:4, ubicacion_correcta:10},
+        {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:8, con_diferencia:2, ubicacion_correcta:10},
+        {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
+        {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:7, con_diferencia:3, ubicacion_correcta:10},
+      ],
+      // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario),
+      // top 10 excedentes y top 10 pérdidas, por separado.
+      topDiferenciasPositivas: [
+        {id:'topPos1', sku_code:'SKU-TOP-POS', descripcion:'Cable eléctrico', stock_sistema:10, ultima_cantidad_contada:40, ultima_diferencia:30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', costo_unitario:5000, valor_diferencia_linea:150000},
+      ],
+      topDiferenciasNegativas: [
+        {id:'topNeg1', sku_code:'SKU-TOP-NEG', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Ubicación distinta y recurrente', costo_unitario:10000, valor_diferencia_linea:-300000},
+      ],
+      valorizacion: [
+        {bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000},
+        {bodega:'Nave Planta', valor_contado:500000, valor_perdidas:-20000, valor_excedentes:10000},
+      ],
+      avancePlanPorCiclo: [
+        {ciclo_id:'ciclo-actual', bodega:'Nave Mina', total_planificados:8, contados:6},
+        {ciclo_id:'ciclo-actual', bodega:'Nave Planta', total_planificados:2, contados:2},
+        {ciclo_id:'ciclo-viejo', bodega:'Nave Mina', total_planificados:10, contados:5},
+      ],
+      diferenciasRecientes: [ {sin_diferencia:9, con_diferencia:1} ],
+      resumenAbc: [
+        {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0, skus_contados:1, pct_avance:33.3},
+        {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0, skus_contados:2, pct_avance:28.6},
+        {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0, skus_contados:4, pct_avance:20.0},
+      ],
+      // El estado del maestro viaja en la misma respuesta, ya filtrado por la criticidad que la
+      // pantalla tenga puesta (por eso el mock mira p_criticidad en vez de ignorarlo).
+      resumenGeneral: [ cuerpo.p_criticidad
+        ? {total_activo:10, no_contado:6, cuadrado:3, con_diferencia:1, pendiente:0}
+        : (resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, pendiente:2}) ],
+    };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(panel) };
   }
   // Estado general de SKU (Dashboard, ver cargarResumenGeneralSkus/renderResumenGeneralSkus):
   // un count(*) con FILTER agregado, PostgREST lo devuelve como un array de una sola fila (misma
@@ -507,14 +553,6 @@ const fakeFetchImpl = async (url, opts) => {
     const porEntrada = {};
     planIds.forEach(id=>{ if((universoEntradaPlanFixture[id]||[]).length) porEntrada[id] = universoEntradaPlanFixture[id]; });
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(porEntrada) };
-  }
-  if(path.startsWith('/rest/v1/skus_resumen_abc')){
-    const filas = [
-      {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0, skus_contados:1, pct_avance:33.3},
-      {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0, skus_contados:2, pct_avance:28.6},
-      {clase_abc:'C', cantidad_sku:20, pct_sku:66.7, valor_total:500000, pct_valor:5.0, skus_contados:4, pct_avance:20.0},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(fotoFixtureConteoFotos && path.startsWith('/rest/v1/conteo_fotos?select=id,foto_url')){
     return { status:200, ok:true, headers:{ get:(h)=> h==='content-range' ? `0-${fotoFixtureConteoFotos.length-1}/${fotoFixtureConteoFotos.length}` : null }, text: async()=>JSON.stringify(fotoFixtureConteoFotos), json: async()=>fotoFixtureConteoFotos };
@@ -620,20 +658,6 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario),
-  // top 10 excedentes (valor_diferencia_linea=gt.0) y top 10 pérdidas (lt.0), por separado.
-  if(path.startsWith('/rest/v1/reconteo_pendiente') && path.includes('valor_diferencia_linea=gt.0')){
-    const filas = [
-      {id:'topPos1', sku_code:'SKU-TOP-POS', descripcion:'Cable eléctrico', stock_sistema:10, ultima_cantidad_contada:40, ultima_diferencia:30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', costo_unitario:5000, valor_diferencia_linea:150000},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
-  }
-  if(path.startsWith('/rest/v1/reconteo_pendiente') && path.includes('valor_diferencia_linea=lt.0')){
-    const filas = [
-      {id:'topNeg1', sku_code:'SKU-TOP-NEG', descripcion:'Motor eléctrico', stock_sistema:50, ultima_cantidad_contada:20, ultima_diferencia:-30, diferencia_abs:30, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Ubicación distinta y recurrente', costo_unitario:10000, valor_diferencia_linea:-300000},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
-  }
   // reconteo_pendiente_por_semana: gráfico de pendientes por semana en Reconteo (ver cargarReconteos).
   if(path.startsWith('/rest/v1/rpc/reconteo_pendiente_por_semana')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(reconteoPorSemanaFixture) };
@@ -648,41 +672,9 @@ const fakeFetchImpl = async (url, opts) => {
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/exactitud_por_bodega')){
-    const filas = [
-      {bodega:'Nave Mina', skus_contados:20, sin_diferencia:16, con_diferencia:4, ubicacion_correcta:18},
-      {bodega:'Nave Planta', skus_contados:10, sin_diferencia:4, con_diferencia:6, ubicacion_correcta:9},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
-  }
   if(path.startsWith('/rest/v1/conteos_exportables')){
     const filas = conteosExportablesFixture;
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' ? `0-${Math.max(filas.length-1,0)}/${filas.length}` : null}, text: async()=>JSON.stringify(filas) };
-  }
-  if(path.startsWith('/rest/v1/exactitud_mensual')){
-    // Dos meses de historia: Nave Mina mejora 30 puntos (60%->90%), Nave Planta baja 10 (80%->70%).
-    const filas = [
-      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:6, con_diferencia:4, ubicacion_correcta:10},
-      {mes:'2026-06-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:8, con_diferencia:2, ubicacion_correcta:10},
-      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:10, sin_diferencia:9, con_diferencia:1, ubicacion_correcta:10},
-      {mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Planta', skus_contados:10, sin_diferencia:7, con_diferencia:3, ubicacion_correcta:10},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
-  }
-  if(path.startsWith('/rest/v1/valorizacion_diferencias')){
-    const filas = [
-      {bodega:'Nave Mina', valor_contado:1000000, valor_perdidas:-150000, valor_excedentes:40000},
-      {bodega:'Nave Planta', valor_contado:500000, valor_perdidas:-20000, valor_excedentes:10000},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
-  }
-  if(path.startsWith('/rest/v1/avance_plan_por_ciclo')){
-    const filas = [
-      {ciclo_id:'ciclo-actual', bodega:'Nave Mina', total_planificados:8, contados:6},
-      {ciclo_id:'ciclo-actual', bodega:'Nave Planta', total_planificados:2, contados:2},
-      {ciclo_id:'ciclo-viejo', bodega:'Nave Mina', total_planificados:10, contados:5},
-    ];
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/auditoria')){
     const todas = [
@@ -2442,50 +2434,57 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const proyReciente = ctx.proyeccionTermino(200, 100, diarioReciente);
   assert(proyReciente.detalle.includes('2 días más') && proyReciente.detalle.includes('50.0 SKU/día'), 'con datos de solo 2 días, el ritmo debe calcularse sobre esos 2 días (50/día), no sobre la ventana fija de 14, obtuvo: '+JSON.stringify(proyReciente));
 
-  // cargarDashboard: el ranking por responsable ahora se calcula en SQL (rpc/ranking_responsable,
-  // ver ranking_responsable_en_sql), no trayendo filas crudas y agrupando en JS — evita el límite
-  // de 5000 filas que tenía el enfoque anterior si un cliente crece mucho en volumen.
+  // cargarDashboard: el panel completo viaja en UNA sola llamada (rpc/dashboard_ejecutivo).
+  // Antes eran 14 endpoints en paralelo. El trabajo en la base era mínimo (2 a 73 ms por consulta
+  // con los 63.000 materiales de Escondida), pero cada llamada pagaba su preflight CORS, su
+  // verificación de token y su turno en el pool: 28 idas y vueltas para pintar una pantalla que
+  // además no mostraba nada hasta que contestaba la última. Joel: "el Dashboard se demora
+  // muchooooo". Esta aserción es la que protege ese arreglo: si alguien vuelve a repartir el
+  // panel en varias consultas, falla acá.
   ctx.__appstate.session = { access_token:'x', user:{id:'user-1', email:'a@b.com'} };
   calls.length = 0;
   await ctx.cargarDashboard();
-  const rankingCall = calls.find(c=>c.url.includes('/rest/v1/rpc/ranking_responsable'));
-  assert(!!rankingCall && rankingCall.opts.method==='POST' && JSON.parse(rankingCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC ranking_responsable con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking que devuelve el RPC en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
+  const panelCalls = calls.filter(c=>c.url.includes('/rest/v1/rpc/dashboard_ejecutivo'));
+  assert(calls.length===1 && panelCalls.length===1, 'cargarDashboard debe hacer UNA sola llamada, al RPC dashboard_ejecutivo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(panelCalls[0].opts.method==='POST' && JSON.parse(panelCalls[0].opts.body).p_dias===14, 'cargarDashboard debe mandar la ventana de días al RPC, obtuvo: '+(panelCalls[0]&&panelCalls[0].opts.body));
 
-  // cargarDashboard: "Diferencias" ahora viene de rpc/diferencias_recientes (último conteo de
-  // cada SKU, no cada conteo crudo) — mismo bug de fondo que "Fuera de plan": un SKU recontado
-  // no debe contar dos veces (una con diferencia, otra sin ella).
-  const diferenciasCall = calls.find(c=>c.url.includes('/rest/v1/rpc/diferencias_recientes'));
-  assert(!!diferenciasCall && diferenciasCall.opts.method==='POST' && JSON.parse(diferenciasCall.opts.body).dias===14, 'cargarDashboard debe llamar al RPC diferencias_recientes con la ventana de días, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.dash.diferenciasRecientes.length===1 && ctx.__appstate.dash.diferenciasRecientes[0].sin_diferencia===9, 'cargarDashboard debe dejar el resultado del RPC en state.dash.diferenciasRecientes, obtuvo: '+JSON.stringify(ctx.__appstate.dash.diferenciasRecientes));
+  // El ranking por responsable se calcula en SQL (ver ranking_responsable_en_sql), no trayendo
+  // filas crudas y agrupando en JS — evita el límite de 5000 filas si un cliente crece mucho.
+  assert(ctx.__appstate.dash.ranking.length===3 && ctx.__appstate.dash.ranking[0].nombre==='Ana Torres', 'cargarDashboard debe dejar el ranking en state.dash.ranking, obtuvo: '+JSON.stringify(ctx.__appstate.dash.ranking));
 
-  // cargarDashboard: clasificación ABC (skus_resumen_abc, ya agregada por clase en la base).
-  const resumenAbcCall = calls.find(c=>c.url.includes('/rest/v1/skus_resumen_abc'));
-  assert(!!resumenAbcCall, 'cargarDashboard debe pedir /skus_resumen_abc, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // "Diferencias" viene del último conteo de cada SKU, no de cada conteo crudo — mismo bug de
+  // fondo que "Fuera de plan": un SKU recontado no debe contar dos veces (una con diferencia,
+  // otra sin ella).
+  assert(ctx.__appstate.dash.diferenciasRecientes.length===1 && ctx.__appstate.dash.diferenciasRecientes[0].sin_diferencia===9, 'cargarDashboard debe dejar las diferencias recientes en state.dash.diferenciasRecientes, obtuvo: '+JSON.stringify(ctx.__appstate.dash.diferenciasRecientes));
+
+  // Clasificación ABC: ya viene agregada por clase desde la base.
   assert(ctx.__appstate.dash.resumenAbc.length===3 && ctx.__appstate.dash.resumenAbc.find(r=>r.clase_abc==='A').cantidad_sku===3, 'cargarDashboard debe dejar el resumen ABC en state.dash.resumenAbc, obtuvo: '+JSON.stringify(ctx.__appstate.dash.resumenAbc));
 
-  // cargarDashboard: exactitud de unidades/ubicación (vista exactitud_por_bodega) y top
-  // materiales con diferencia (reconteo_pendiente ordenado por diferencia_abs desc).
-  const exactitudCall = calls.find(c=>c.url.includes('/exactitud_por_bodega'));
-  assert(!!exactitudCall, 'cargarDashboard debe pedir /exactitud_por_bodega, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Exactitud de unidades/ubicación por bodega y por mes calendario (esta última agrupa por mes,
+  // no por ciclo, para poder comparar meses aunque la empresa nunca haya usado ciclos).
   assert(ctx.__appstate.dash.exactitudBodega.length===2 && ctx.__appstate.dash.exactitudBodega[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la exactitud por bodega en state.dash.exactitudBodega, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudBodega));
-  // exactitud_mensual: a diferencia de exactitud_por_bodega, agrupa por mes calendario (no por
-  // ciclo) para poder comparar meses aunque la empresa nunca haya usado ciclos.
-  const exactitudMensualCall = calls.find(c=>c.url.includes('/exactitud_mensual'));
-  assert(!!exactitudMensualCall, 'cargarDashboard debe pedir /exactitud_mensual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.exactitudMensual.length===4, 'cargarDashboard debe dejar la exactitud mensual en state.dash.exactitudMensual, obtuvo: '+JSON.stringify(ctx.__appstate.dash.exactitudMensual));
-  const topPositivasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=gt.0'));
-  const topNegativasCall = calls.find(c=>c.url.includes('/reconteo_pendiente') && c.url.includes('valor_diferencia_linea=lt.0'));
-  assert(!!topPositivasCall && topPositivasCall.url.includes('order=valor_diferencia_linea.desc') && topPositivasCall.url.includes('limit=10'), 'cargarDashboard debe pedir el top 10 de excedentes ordenado por valor (costo total de la línea), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(!!topNegativasCall && topNegativasCall.url.includes('order=valor_diferencia_linea.asc') && topNegativasCall.url.includes('limit=10'), 'cargarDashboard debe pedir el top 10 de pérdidas ordenado por valor (costo total de la línea), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // Top materiales con diferencia: por costo total de la línea (diferencia x costo_unitario, ver
+  // reconteo_pendiente.valor_diferencia_linea), no por magnitud en unidades — excedentes y
+  // pérdidas en listas separadas.
   assert(ctx.__appstate.dash.topDiferenciasPositivas.length===1 && ctx.__appstate.dash.topDiferenciasPositivas[0].sku_code==='SKU-TOP-POS', 'cargarDashboard debe dejar el top de excedentes en state.dash.topDiferenciasPositivas, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferenciasPositivas));
   assert(ctx.__appstate.dash.topDiferenciasNegativas.length===1 && ctx.__appstate.dash.topDiferenciasNegativas[0].sku_code==='SKU-TOP-NEG', 'cargarDashboard debe dejar el top de pérdidas en state.dash.topDiferenciasNegativas, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferenciasNegativas));
-  const valorizacionCall = calls.find(c=>c.url.includes('/valorizacion_diferencias'));
-  assert(!!valorizacionCall, 'cargarDashboard debe pedir /valorizacion_diferencias, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.valorizacion.length===2 && ctx.__appstate.dash.valorizacion[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la valorización por bodega en state.dash.valorizacion, obtuvo: '+JSON.stringify(ctx.__appstate.dash.valorizacion));
-  const avancePlanCall = calls.find(c=>c.url.includes('/avance_plan_por_ciclo'));
-  assert(!!avancePlanCall, 'cargarDashboard debe pedir /avance_plan_por_ciclo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.dash.avancePlanPorCiclo.length===3 && ctx.__appstate.dash.avancePlanPorCiclo[0].bodega==='Nave Mina', 'cargarDashboard debe dejar el avance del plan por ciclo/bodega en state.dash.avancePlanPorCiclo, obtuvo: '+JSON.stringify(ctx.__appstate.dash.avancePlanPorCiclo));
+
+  // El estado del maestro (recuadro "Estado general") viaja en la misma respuesta: por eso el
+  // panel ya no necesita una segunda llamada a resumen_general_skus al abrirse.
+  assert(ctx.__appstate.resumenGeneral.datos && ctx.__appstate.resumenGeneral.datos.total_activo===100 && ctx.__appstate.resumenGeneral.cargando===false, 'cargarDashboard debe dejar el estado del maestro en state.resumenGeneral.datos, obtuvo: '+JSON.stringify(ctx.__appstate.resumenGeneral));
+
+  // ...y respeta el filtro de criticidad que esté puesto. Si no viajara, recargar el panel
+  // después de guardar un conteo (ver refrescarSiCargada) borraría el filtro sin avisar.
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, criticidad:'critico'};
+  calls.length = 0;
+  await ctx.cargarDashboard();
+  assert(JSON.parse(calls[0].opts.body).p_criticidad==='critico', 'cargarDashboard debe mandar la criticidad elegida al RPC, obtuvo: '+calls[0].opts.body);
+  assert(ctx.__appstate.resumenGeneral.datos.total_activo===10, 'con filtro de criticidad, el estado del maestro debe ser el filtrado, obtuvo: '+JSON.stringify(ctx.__appstate.resumenGeneral.datos));
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, criticidad:''};
 
   // ===== Dashboard: "Adherencia al plan" por período (selector client-side, no dispara fetch) =====
   // A pedido de Joel: pasa a medir cobertura contra TODO lo planificado en el período (no "de lo
@@ -9109,7 +9108,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r, 30));
     let urls = urlsDe();
     assert(urls.some(u=>u.startsWith('/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc&limit=500')) && urls.some(u=>u.startsWith('/rest/v1/ciclos_conteo')), 'el arranque debe pedir el maestro (500) y los períodos, obtuvo: '+JSON.stringify(urls));
-    assert(urls.some(u=>u.startsWith('/rest/v1/avance_total')) && urls.some(u=>u.startsWith('/rest/v1/rpc/resumen_general_skus')), 'con vista inicial Dashboard debe cargar el dashboard y el resumen general, obtuvo: '+JSON.stringify(urls));
+    assert(urls.some(u=>u.startsWith('/rest/v1/rpc/dashboard_ejecutivo')), 'con vista inicial Dashboard debe cargar el panel (una sola llamada, que ya trae el estado del maestro), obtuvo: '+JSON.stringify(urls));
     // La página de SKU pide skus_lectura sin limit=500 (pagina con Range); la lista de Reconteo
     // ordena por ultimo_conteo_fecha (el dashboard también consulta reconteo_pendiente, pero es su
     // top 10 por valor de diferencia).
@@ -9141,7 +9140,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.refrescarSiCargada(['dashboard','reconteos','skusPagina']);
     await new Promise(r=>setTimeout(r, 30));
     urls = urlsDe();
-    assert(urls.some(u=>u.startsWith('/rest/v1/avance_total')) && urls.some(esPaginaSku) && !urls.some(esListaReconteo), 'refrescarSiCargada debe recargar dashboard y página de SKU (ya vistos) pero no reconteos (nunca mostrado), obtuvo: '+JSON.stringify(urls));
+    assert(urls.some(u=>u.startsWith('/rest/v1/rpc/dashboard_ejecutivo')) && urls.some(esPaginaSku) && !urls.some(esListaReconteo), 'refrescarSiCargada debe recargar dashboard y página de SKU (ya vistos) pero no reconteos (nunca mostrado), obtuvo: '+JSON.stringify(urls));
     // El render detecta el cambio de vista y pide lo de la nueva pestaña (en microtarea).
     ctx.__appstate.view = 'reconteo';
     calls.length = 0;
