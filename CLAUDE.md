@@ -32,6 +32,12 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   columnas hay que actualizar `tests/esquema-supabase.json`**.
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
+- **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
+  14 consultas de 2 a 73 ms cada una: lo caro era que fueran 14 (cada una con su preflight CORS,
+  su verificación de token y su turno en el pool) y que la pantalla no mostrara nada hasta la
+  última. Antes de optimizar una consulta, contar cuántas llamadas hace la pantalla. Cuando se
+  junten varias en una función, verificar que el JSON nuevo sea idéntico al que armaban las
+  consultas originales, con datos reales, antes de tocar la app.
 - **Medir con datos reales, no con la demo.** Escondida tiene más de 63.000 materiales; lo que
   funciona con 9 filas puede superar el `statement_timeout` de 8 s del rol `authenticated`. Toda
   operación masiva va por lotes, con avance visible. Medir con `EXPLAIN (ANALYZE)` o cronometrando
