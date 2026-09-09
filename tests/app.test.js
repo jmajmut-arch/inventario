@@ -42,6 +42,7 @@ let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVist
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
 let universoZonaGiganteLen = 0;
 let bodegaRpcFalla = false; // simula sin conexión al registrar un documento de bodega
+let aperturaPendientes = 0; // materiales con stock y sin movimiento, para registrar_apertura_bodega
 let ajusteEstadoMock = 'aprobado'; // estado que devuelve registrar_ajuste_bodega (admin: aprobado; operador: pendiente_aprobacion)
 let aperturaBodegaHecha = false; // si ya existe un movimiento de apertura (carga masiva con módulo activo) // tamaño simulado del universo de BHUGE/UHUGE (ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO)
 let criticosAutomaticoFixture = null; // filas de skus.critico=true (ver grupo automático "Crítico")
@@ -956,8 +957,15 @@ const fakeFetchImpl = async (url, opts) => {
     const numero = body.p_tipo==='ingreso' ? 'ING-000007' : 'SAL-000003';
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({documento:{id:'doc-1', numero, tipo:body.p_tipo}, movimientos: body.p_lineas.map((l,i)=>({id:'mov-'+i, estado: (body.p_tipo==='salida' && l.saldo_local!=null && l.cantidad>l.saldo_local) ? 'pendiente_revision' : 'aprobado'})), repetido:false}) };
   }
-  if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega') || path.startsWith('/rest/v1/rpc/registrar_apertura_bodega')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=> path.includes('apertura') ? '12' : '' };
+  if(path.startsWith('/rest/v1/rpc/registrar_apertura_bodega')){
+    // Devuelve lotes hasta agotar aperturaPendientes (ver registrar_apertura_bodega).
+    const limite = JSON.parse(opts.body).p_limite || 1000;
+    const registrados = Math.min(limite, aperturaPendientes);
+    aperturaPendientes -= registrados;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({registrados, restantes: aperturaPendientes}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   if(path.startsWith('/rest/v1/skus?select=id,sku_code,descripcion') && opts && opts.method==='POST'){
     const fila = JSON.parse(opts.body)[0];
@@ -974,7 +982,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{clave:'Proveedor Uno', cantidad:30, valor:60000, movimientos:3}]) };
   }
   if(path.startsWith('/rest/v1/rpc/resumen_valorizacion_bodega')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({valor_total:150000, skus_con_costo:8, skus_sin_costo:2, skus_con_stock:10, bajo_minimo:3}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({valor_total:150000, skus_con_costo:8, skus_sin_costo:2, skus_con_stock:10, bajo_minimo:3, sin_apertura: aperturaPendientes}) };
   }
   if(path.startsWith('/rest/v1/rpc/registrar_ajuste_bodega')){
     const body = JSON.parse(opts.body);
@@ -6545,6 +6553,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(calls.some(c=>c.url.includes('/movimientos_bodega_detalle')), 'tras guardar un ingreso se vuelve a pedir la lista de movimientos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras guardar un ingreso se refresca la tarjeta del Dashboard (valorización), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+
+    // Apertura de stock: cuando una empresa activó el módulo con materiales ya cargados, esos
+    // materiales tienen saldo pero kardex vacío. El aviso y el botón aparecen en Movimientos y la
+    // apertura se registra por lotes, porque un catálogo real son decenas de miles de SKU.
+    aperturaPendientes = 2500;
+    ctx.__appstate.view = 'movimientos';
+    await ctx.cargarValorizacionBodega();
+    assert(ctx.renderMovimientosBodega().includes('id="btn-apertura-bodega"') && ctx.renderMovimientosBodega().includes('2.500 materiales'), 'Movimientos avisa cuántos materiales faltan y ofrece el botón, obtuvo: '+ctx.renderMovimientosBodega().slice(0,700));
+    ctx.__appstate.perfil.rol = 'operador';
+    assert(!ctx.renderMovimientosBodega().includes('id="btn-apertura-bodega"'), 'un operador no ve el botón de apertura');
+    ctx.__appstate.perfil.rol = 'admin';
+    calls.length = 0;
+    const hechos = await ctx.registrarAperturaBodega();
+    const llamadas = calls.filter(c=>c.url.includes('/rpc/registrar_apertura_bodega'));
+    assert(hechos===2500 && llamadas.length===3 && JSON.parse(llamadas[0].opts.body).p_limite===1000, 'la apertura se hace por lotes hasta terminar, obtuvo: '+hechos+' en '+llamadas.length+' llamadas');
+    assert(ctx.__appstate.bodega.aperturaProgreso===null && JSON.stringify(elements['toast-root'].hijos).includes('2.500'), 'al terminar limpia el progreso y avisa cuántos registró, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras la apertura se refrescan los datos de bodega');
+    aperturaPendientes = 0;
+    await ctx.cargarValorizacionBodega();
+    assert(!ctx.renderMovimientosBodega().includes('id="btn-apertura-bodega"'), 'sin materiales pendientes el aviso desaparece');
 
     // ===== Fase 3: reportes de consumo e ingresos, valorización y stock mínimo =====
     ctx.__appstate.view = 'reportes';

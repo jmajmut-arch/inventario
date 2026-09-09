@@ -766,7 +766,8 @@ function bodegaEstadoInicial(){
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
     ultimosMovimientos: [], ultimosCargados: false, // tarjeta de bodega en el Dashboard
-    valorizacion: null, // {valor_total, skus_con_costo, skus_sin_costo, skus_con_stock, bajo_minimo}
+    valorizacion: null, // {valor_total, skus_con_costo, skus_sin_costo, skus_con_stock, bajo_minimo, sin_apertura}
+    aperturaProgreso: null, // {hechos, total} mientras corre la apertura por lotes
     stockSoloBajoMinimo: false,
     reportes: reportesBodegaVacios(),
     stock: [], stockTexto: '', stockCargado: false,
@@ -1647,8 +1648,8 @@ const CARGAS_POR_VISTA = {
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables'],
   salida: ['bodegaListas', 'responsables'],
-  movimientos: ['bodegaMovimientos', 'bodegaPendientes'],
-  stock: ['bodegaStock'],
+  movimientos: ['bodegaMovimientos', 'bodegaPendientes', 'bodegaValorizacion'],
+  stock: ['bodegaStock', 'bodegaValorizacion'],
   reportes: ['bodegaReportes'],
   config: ['bodegaListas'],
 };
@@ -1663,6 +1664,7 @@ const CARGADORES = {
   bodegaMovimientos: ()=> cargarMovimientosBodega(),
   bodegaPendientes: ()=> cargarPendientesBodega(),
   bodegaStock: ()=> cargarStockBodega(),
+  bodegaValorizacion: ()=> moduloBodegaActivo() ? cargarValorizacionBodega() : Promise.resolve(),
   bodegaResumen: ()=> moduloBodegaActivo() ? Promise.all([cargarPendientesBodega(), cargarUltimosMovimientosBodega(), cargarValorizacionBodega()]) : Promise.resolve(),
   bodegaReportes: ()=> cargarReportesBodega(),
   reconteos: ()=> cargarReconteos(),
@@ -5209,7 +5211,7 @@ function refrescarBodega(){
   state.bodega.movimientosCargados = false;
   state.bodega.stockCargado = false;
   state.bodega.pendientesCargados = false;
-  refrescarSiCargada(['bodegaMovimientos','bodegaPendientes','bodegaStock','bodegaResumen']);
+  refrescarSiCargada(['bodegaMovimientos','bodegaPendientes','bodegaStock','bodegaValorizacion','bodegaResumen']);
 }
 
 // Ajuste de stock (fase 2): se propone la cantidad física y el servidor calcula el delta y decide
@@ -5400,11 +5402,36 @@ async function hayAperturaBodega(){
   try{ const rows = await rest('/movimientos_bodega?select=id&tipo=eq.apertura&limit=1'); return !!(rows && rows.length); }
   catch(e){ return false; }
 }
-async function registrarAperturaBodega(){
+// La apertura va por lotes (ver registrar_apertura_bodega): con un catálogo real son decenas de
+// miles de SKU y una sola llamada supera el límite de tiempo del servidor. Se llama hasta que no
+// queden materiales sin apertura, mostrando el avance.
+const APERTURA_BODEGA_LOTE = 1000;
+async function registrarAperturaBodega({silencioso=false}={}){
+  let hechos = 0, total = null, vueltas = 0;
   try{
-    const n = await rest('/rpc/registrar_apertura_bodega', {method:'POST', body:{}});
-    if(Number(n)>0) toast(`Saldo inicial de bodega registrado para ${n} SKU`);
-  }catch(e){ toast('No se pudo registrar el saldo inicial de bodega: '+e.message, 'err'); }
+    while(vueltas++ < 500){
+      const r = await rest('/rpc/registrar_apertura_bodega', {method:'POST', body:{p_limite: APERTURA_BODEGA_LOTE}, timeoutMs: 60000});
+      const registrados = Number(r && r.registrados) || 0;
+      const restantes = Number(r && r.restantes) || 0;
+      hechos += registrados;
+      if(total===null) total = hechos + restantes;
+      if(!silencioso) setState({bodega: {...state.bodega, aperturaProgreso: {hechos, total}}});
+      if(registrados===0 || restantes===0) break;
+    }
+    if(!silencioso) setState({bodega: {...state.bodega, aperturaProgreso: null}});
+    if(hechos>0){
+      toast(`Apertura registrada: ${hechos.toLocaleString('es-CL')} material${hechos===1?'':'es'} con su saldo inicial`);
+      refrescarBodega();
+    } else if(!silencioso){
+      toast('No hay materiales con stock pendientes de apertura');
+    }
+    return hechos;
+  }catch(e){
+    if(!silencioso) setState({bodega: {...state.bodega, aperturaProgreso: null}});
+    toast('No se pudo registrar el saldo inicial de bodega: '+e.message, 'err');
+    if(hechos>0) refrescarBodega();
+    return hechos;
+  }
 }
 
 /* =======================================================================
@@ -5779,7 +5806,7 @@ async function confirmarCargaMasiva(){
       insertados += bloque.length;
       setState({cargaMasivaProgreso: {actual:insertados, total:lote.length}});
     }
-    if(bodegaActiva && !aperturaYaHecha) await registrarAperturaBodega();
+    if(bodegaActiva && !aperturaYaHecha) await registrarAperturaBodega({silencioso:true});
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
       await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
@@ -10086,6 +10113,13 @@ function renderMovimientosBodega(){
   const pend = b.pendientes || [];
   return `
     <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>Movimientos</h2></div></div>
+    ${esAdmin && b.valorizacion && Number(b.valorizacion.sin_apertura) ? `
+    <div class="card" style="margin-bottom:12px;border-color:var(--amber)">
+      <div class="hint" style="margin-bottom:8px"><strong>${Number(b.valorizacion.sin_apertura).toLocaleString('es-CL')} material${Number(b.valorizacion.sin_apertura)===1?'':'es'}</strong> tiene${Number(b.valorizacion.sin_apertura)===1?'':'n'} stock cargado pero ningún movimiento registrado, así que su kardex parte vacío. Registra la apertura para dejar ese saldo como punto de partida; el stock no cambia.</div>
+      ${b.aperturaProgreso
+        ? `<div class="hint" style="margin:0"><span class="spinner"></span> Registrando apertura… ${b.aperturaProgreso.hechos.toLocaleString('es-CL')} de ${Number(b.aperturaProgreso.total||0).toLocaleString('es-CL')}</div>`
+        : `<button type="button" class="btn btn-primary" id="btn-apertura-bodega" style="width:auto;padding:8px 14px">Registrar apertura de stock</button>`}
+    </div>` : ''}
     ${esAdmin && pend.length ? `
     <div class="card" style="margin-bottom:12px;border-color:var(--amber)">
       <div class="hint" style="margin-bottom:8px"><strong>${pend.length} pendiente${pend.length===1?'':'s'}</strong> de tu decisión.</div>
@@ -10626,6 +10660,12 @@ function bind(){
     if(btnExp) btnExp.addEventListener('click', exportarMovimientosExcel);
     document.querySelectorAll('[data-anular-doc]').forEach(btn=> btn.addEventListener('click', ()=> anularDocumentoBodega(btn.dataset.anularDoc, btn.dataset.numero)));
     document.querySelectorAll('[data-comprobante-doc]').forEach(btn=> btn.addEventListener('click', ()=> imprimirComprobanteBodega(btn.dataset.comprobanteDoc)));
+    const btnApertura = document.getElementById('btn-apertura-bodega');
+    if(btnApertura) btnApertura.addEventListener('click', ()=>{
+      const n = Number(state.bodega.valorizacion && state.bodega.valorizacion.sin_apertura) || 0;
+      if(!confirm(`Se va a registrar la apertura de ${n.toLocaleString('es-CL')} material${n===1?'':'es'} con el stock que tienen hoy. El stock no cambia: queda como primer movimiento del kardex. ¿Continuar?`)) return;
+      registrarAperturaBodega();
+    });
     document.querySelectorAll('[data-aprobar-mov]').forEach(btn=> btn.addEventListener('click', ()=> resolverMovimientoBodega(btn.dataset.aprobarMov, true)));
     document.querySelectorAll('[data-rechazar-mov]').forEach(btn=> btn.addEventListener('click', ()=> resolverMovimientoBodega(btn.dataset.rechazarMov, false)));
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{
