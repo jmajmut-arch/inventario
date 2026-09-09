@@ -740,6 +740,9 @@ const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario', 'movimiento
 // Dashboard; sin él, nada cambia respecto de antes.
 // 'reportes' es de bodega pero no tiene pestaña propia (la barra ya lleva cinco): se entra
 // desde el Inicio y desde la tarjeta del Dashboard.
+// Clasificación de manejo del material (pedido de Joel). En la base es texto libre: una empresa
+// puede traer los suyos desde el Excel; esta lista es la que ofrece la app.
+const TIPOS_MATERIAL = ['EPP', 'Repuesto', 'Sustancia peligrosa', 'Componente', 'Otros'];
 const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock', 'reportes'];
 function moduloBodegaActivo(){
   return !!(state.perfil && state.perfil.empresas && state.perfil.empresas.modulo_bodega_habilitado);
@@ -5069,7 +5072,7 @@ async function buscarSkuBodega(texto){
   render();
   if(t.length<2) return;
   try{
-    const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
+    const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
     if(seq!==bodegaBusquedaSecuencia) return;
     state.bodega.busqueda = {texto, resultados: rows, buscando:false};
     render();
@@ -5086,9 +5089,9 @@ async function crearSkuDesdeIngreso(){
   if(!codigo){ toast('Indica el código del material','err'); return false; }
   if(!descripcion){ toast('Indica la descripción','err'); return false; }
   state.bodega.nuevoSku = {...n, sku_code: codigo, descripcion, guardando:true}; render();
-  const fila = { sku_code: codigo, descripcion, unidad_medida: (n.unidad_medida||'UN').trim().toUpperCase() || 'UN', bodega: (n.bodega||'').trim() || null, storage_bin: (n.storage_bin||'').trim() || null, stock_sistema: 0, activo: true, empresa_id: state.perfil.empresa_id, capturado_en: new Date().toISOString() };
+  const fila = { sku_code: codigo, descripcion, unidad_medida: (n.unidad_medida||'UN').trim().toUpperCase() || 'UN', bodega: (n.bodega||'').trim() || null, storage_bin: (n.storage_bin||'').trim() || null, tipo_material: (n.tipo_material||'').trim() || null, stock_sistema: 0, activo: true, empresa_id: state.perfil.empresa_id, capturado_en: new Date().toISOString() };
   try{
-    const rows = await rest('/skus?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida', {method:'POST', body:[fila], prefer:'return=representation'});
+    const rows = await rest('/skus?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material', {method:'POST', body:[fila], prefer:'return=representation'});
     const sku = (rows||[])[0];
     if(!sku) throw new Error('El servidor no devolvió el SKU creado');
     state.bodega.nuevoSku = null;
@@ -5112,7 +5115,8 @@ function agregarLineaBodega(sku, cantidad){
     return false;
   }
   const lineas = state.bodega.doc.lineas.filter(l=>l.sku_id!==sku.id);
-  lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema});
+  // El costo del maestro viene como sugerencia editable; si el material no tiene, queda vacío.
+  lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema, costo_unitario: sku.costo_unitario!=null ? Number(sku.costo_unitario) : null});
   state.bodega.doc.lineas = lineas;
   state.bodega.busqueda = {texto:'', resultados:[], buscando:false};
   render();
@@ -5136,7 +5140,7 @@ async function registrarDocumentoBodega(tipo){
   await esperarFotosEnProceso();
   const idempotencyKey = crypto.randomUUID();
   const payload = {
-    p_tipo: tipo, p_lineas: d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad})), p_fecha: fechaISO(new Date()),
+    p_tipo: tipo, p_lineas: d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null})), p_fecha: fechaISO(new Date()),
     p_proveedor_id: d.proveedorId||null, p_numero_oc: d.numeroOc.trim()||null, p_numero_guia: d.numeroGuia.trim()||null,
     p_retirado_por_id: d.retiradoPorId||null, p_despachado_por_id: d.despachadoPorId||null, p_destino: d.destino.trim()||null,
     p_observacion: d.observacion.trim()||null, p_idempotency_key: idempotencyKey,
@@ -5158,7 +5162,7 @@ async function registrarDocumentoBodega(tipo){
     if(pareceFalloDeRed(e) && planIncluye('offline_habilitado')){
       // Sin conexión: se guarda con el saldo que se ve ahora (saldo_local) para que el servidor
       // decida al sincronizar (caso C del diseño). Las fotos van a IndexedDB.
-      payload.p_lineas = d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, saldo_local: l.stock_sistema!=null ? Number(l.stock_sistema) : null}));
+      payload.p_lineas = d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null, saldo_local: l.stock_sistema!=null ? Number(l.stock_sistema) : null}));
       const item = encolarAccionOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Ingreso':'Salida'} de ${d.lineas.length} material${d.lineas.length===1?'':'es'}`, idempotency_key: idempotencyKey});
       try{ await guardarFotosOffline(item.id, fotos.map(f=> new File([f.file], `${f.tipo}-${f.file.name||'foto.jpg'}`, {type: f.file.type||'image/jpeg'}))); }catch(err){ /* sin IndexedDB: se guarda sin fotos */ }
       state.bodega.doc = documentoBodegaVacio();
@@ -5313,6 +5317,18 @@ async function guardarStockMinimo(skuId, valor){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Tipo de material (EPP, repuesto, sustancia peligrosa, componente, otros): es del material, no
+// del movimiento, así que se guarda en el maestro y sirve para agrupar consumo e ingresos.
+async function guardarTipoMaterial(skuId, tipo){
+  const valor = (tipo||'').trim() || null;
+  try{
+    await rest(`/skus?id=eq.${encodeURIComponent(skuId)}`, {method:'PATCH', body:{tipo_material: valor}, prefer:'return=minimal'});
+    const stock = state.bodega.stock.map(r=> r.sku_id===skuId ? {...r, tipo_material: valor} : r);
+    setState({bodega:{...state.bodega, stock}});
+    toast(valor ? `Tipo guardado: ${valor}` : 'Tipo quitado');
+  }catch(e){ toast(e.message,'err'); }
+}
+
 function exportarReporteBodegaExcel(){
   if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
   const r = state.bodega.reportes;
@@ -5323,7 +5339,7 @@ function exportarReporteBodegaExcel(){
   if(r.ingresos.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hoja(r.ingresos, etiquetaAgrupacionBodega(r.ingresosAgrupar))), 'Ingresos');
   XLSX.writeFile(wb, `reportes-bodega-${r.desde}_a_${r.hasta}.xlsx`);
 }
-function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', destino:'Destino', sku:'Material', proveedor:'Proveedor'}[a] || a; }
+function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', destino:'Destino', sku:'Material', proveedor:'Proveedor', tipo:'Tipo de material'}[a] || a; }
 
 // Comprobante PDF de un ingreso o salida: mismo contenedor de impresión que Buscar y fotos
 // reducidas (resolverFotoParaPDF). Para la salida incluye líneas de firma de quien entrega y recibe.
@@ -5343,6 +5359,9 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
   const empresa = state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '';
   const esIngreso = cab.tipo==='ingreso';
   const total = filas.reduce((s,l)=>s+Number(l.cantidad),0);
+  const hayMonto = filas.some(l=> l.costo_aplicado!=null);
+  const totalMonto = filas.reduce((s,l)=> s + (l.costo_aplicado!=null ? Number(l.costo_aplicado)*Number(l.cantidad) : 0), 0);
+  const money = n => '$'+Math.round(Number(n)||0).toLocaleString('es-CL');
   const dato = (k,v)=> v ? `<div><span style="color:#555">${k}:</span> ${esc(String(v))}</div>` : '';
   const th = (t,der)=>`<th style="text-align:${der?'right':'left'};border-bottom:1px solid #000;padding:4px">${t}</th>`;
   const td = (t,der)=>`<td style="padding:4px;border-bottom:1px solid #ddd${der?';text-align:right':''}">${t}</td>`;
@@ -5354,9 +5373,9 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
       ${dato('Observación', cab.documento_observacion)}
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">
-      <thead><tr>${th('SKU')}${th('Descripción')}${th('Bin')}${th('Cantidad',true)}</tr></thead>
-      <tbody>${filas.map(l=>`<tr>${td(`<span style="font-family:monospace">${esc(l.sku_code)}${l.batch?` · ${esc(l.batch)}`:''}</span>`)}${td(esc(l.descripcion||''))}${td(esc(l.storage_bin||'—'))}${td(`${l.cantidad} ${esc(l.unidad_medida||'')}`,true)}</tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="3" style="padding:4px;text-align:right">Total</td><td style="padding:4px;text-align:right"><strong>${total}</strong></td></tr></tfoot>
+      <thead><tr>${th('SKU')}${th('Descripción')}${th('Bin')}${th('Cantidad',true)}${hayMonto?th('Costo unit.',true)+th('Monto',true):''}</tr></thead>
+      <tbody>${filas.map(l=>`<tr>${td(`<span style="font-family:monospace">${esc(l.sku_code)}${l.batch?` · ${esc(l.batch)}`:''}</span>`)}${td(esc(l.descripcion||''))}${td(esc(l.storage_bin||'—'))}${td(`${l.cantidad} ${esc(l.unidad_medida||'')}`,true)}${hayMonto?td(l.costo_aplicado!=null?money(l.costo_aplicado):'—',true)+td(l.costo_aplicado!=null?money(Number(l.costo_aplicado)*Number(l.cantidad)):'—',true):''}</tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3" style="padding:4px;text-align:right">Total</td><td style="padding:4px;text-align:right"><strong>${total}</strong></td>${hayMonto?`<td></td><td style="padding:4px;text-align:right"><strong>${money(totalMonto)}</strong></td>`:''}</tr></tfoot>
     </table>
     ${fotos.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${fotos.map(f=>`<figure style="margin:0;font-size:10px;text-align:center"><img src="${esc(f.url)}" style="width:130px;height:130px;object-fit:cover;border:1px solid #ccc"><figcaption>${f.tipo==='guia'?'Guía':'Material'}</figcaption></figure>`).join('')}</div>` : ''}
     ${esIngreso ? '' : `<div style="display:flex;gap:40px;margin-top:48px;font-size:12px"><div style="flex:1;border-top:1px solid #000;padding-top:4px">Entrega: ${esc(cab.despachado_por_nombre||cab.usuario_nombre||'')}</div><div style="flex:1;border-top:1px solid #000;padding-top:4px">Recibe: ${esc(cab.retirado_por_nombre||'')}</div></div>`}
@@ -5374,7 +5393,7 @@ async function exportarStockExcel(){
       if(pagina.length<TAM) break;
     }
   }catch(e){ toast(e.message,'err'); return; }
-  const rows = filas.map(r=>({'SKU': r.sku_code, 'Descripción': r.descripcion, 'Batch': r.batch||'', 'Bin': r.storage_bin||'', 'Stock': Number(r.stock), 'Unidad': r.unidad_medida||'', 'Costo unitario': r.costo_unitario!=null?Number(r.costo_unitario):'', 'Valor': r.valor!=null?Number(r.valor):''}));
+  const rows = filas.map(r=>({'SKU': r.sku_code, 'Descripción': r.descripcion, 'Batch': r.batch||'', 'Bin': r.storage_bin||'', 'Stock': Number(r.stock), 'Unidad': r.unidad_medida||'', 'Tipo': r.tipo_material||'', 'Mínimo': r.stock_minimo!=null?Number(r.stock_minimo):'', 'Costo unitario': r.costo_unitario!=null?Number(r.costo_unitario):'', 'Valor': r.valor!=null?Number(r.valor):''}));
   if(!rows.length){ toast('No hay stock para exportar','err'); return; }
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -5538,6 +5557,8 @@ const CAMPOS_SKU = [
   // Módulo de bodega: fijar el mínimo uno por uno no escala con catálogos grandes, así que el
   // Excel también puede traerlo. Igual que "Crítico", si la columna no viene no se toca lo que
   // el SKU ya tenía.
+  { campo:'tipo_material', obligatorio:false, etiqueta:'Tipo de material',
+    alias:['tipo de material','tipo_material','tipo material','tipo','clasificacion','clasificación','material type','tipo de articulo'] },
   { campo:'stock_minimo', obligatorio:false, etiqueta:'Stock mínimo',
     alias:['stock minimo','stock_minimo','minimo','min stock','stock min','cantidad minima','punto de reorden','reorder point','minimum stock','min'] },
   // Estas cuatro son solo informativas (ver infoStockPorTipo/renderConteo/renderReconteo): se
@@ -5774,6 +5795,7 @@ async function confirmarCargaMasiva(){
       // SKU en la base. Solo se sobrescribe cuando la persona de verdad mandó esa columna.
       ...(mapeo.critico? {critico: parsearBooleanoCarga(valor(row,'critico'))} : {}),
       ...(mapeo.stock_minimo? {stock_minimo: valor(row,'stock_minimo')!=='' ? Number(valor(row,'stock_minimo')) : null} : {}),
+      ...(mapeo.tipo_material? {tipo_material: valor(row,'tipo_material') || null} : {}),
       // Solo informativos (ver comentario en CAMPOS_SKU) -- se omiten enteros si el archivo no
       // trae esa columna, para no pisar con null lo que ya tenía el SKU en cargas anteriores.
       ...(mapeo.stock_bloqueado? {stock_bloqueado: valor(row,'stock_bloqueado')!=='' ? Number(valor(row,'stock_bloqueado')) : null} : {}),
@@ -10011,6 +10033,10 @@ function renderDocumentoBodega(tipo){
   const personas = b.personas.filter(p=>p.activo);
   const usuarios = (state.plan && state.plan.responsables) || [];
   const totalLineas = d.lineas.reduce((s,l)=>s+l.cantidad, 0);
+  // Monto del ingreso: costo unitario por línea (opcional). El total del documento es la suma de
+  // las líneas que lo tengan; se avisa si alguna quedó sin costo para que el total no engañe.
+  const totalMonto = d.lineas.reduce((s,l)=> s + (l.costo_unitario!=null ? l.cantidad*Number(l.costo_unitario) : 0), 0);
+  const lineasSinCosto = d.lineas.filter(l=> l.costo_unitario==null).length;
   return `
     <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${esIngreso?'Ingreso de material':'Salida de material'}</h2></div></div>
     ${b.ultimoDocumento ? `<div class="card" style="margin-bottom:12px;border-color:var(--ok)"><div class="hint" style="margin:0">Último documento guardado: <strong>${esc(b.ultimoDocumento.numero)}</strong>. <button type="button" class="link-btn" data-ir-vista="movimientos">Ver movimientos</button></div></div>` : ''}
@@ -10033,6 +10059,7 @@ function renderDocumentoBodega(tipo){
           <div style="grid-column:1/-1"><label for="ns-codigo">Código</label><input type="text" id="ns-codigo" required value="${esc(b.nuevoSku.sku_code||'')}" style="margin:0"></div>
           <div style="grid-column:1/-1"><label for="ns-descripcion">Descripción</label><input type="text" id="ns-descripcion" required value="${esc(b.nuevoSku.descripcion||'')}" style="margin:0"></div>
           <div><label for="ns-unidad">Unidad</label><input type="text" id="ns-unidad" value="${esc(b.nuevoSku.unidad_medida||'UN')}" placeholder="UN, LT, KG" style="margin:0"></div>
+          <div style="grid-column:1/-1"><label for="ns-tipo">Tipo de material</label><select id="ns-tipo" style="margin:0"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${b.nuevoSku.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}</select></div>
           <div><label for="ns-bin">Bin</label><input type="text" id="ns-bin" value="${esc(b.nuevoSku.storage_bin||'')}" placeholder="Opcional" style="margin:0"></div>
           <div style="grid-column:1/-1"><label for="ns-bodega">Ubicación general</label><input type="text" id="ns-bodega" value="${esc(b.nuevoSku.bodega||'')}" placeholder="Opcional" style="margin:0"></div>
         </div>
@@ -10042,13 +10069,15 @@ function renderDocumentoBodega(tipo){
         </div>
       </form>` : ''}
       ${d.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
-        <thead><tr><th>SKU</th><th class="num">Cantidad</th><th></th></tr></thead>
+        <thead><tr><th>SKU</th><th class="num">Cantidad</th>${esIngreso?'<th class="num">Costo unit.</th><th class="num">Monto</th>':''}<th></th></tr></thead>
         <tbody>${d.lineas.map(l=>`<tr>
           <td class="mono">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}${l.batch?` · ${esc(l.batch)}`:''}</div></td>
           <td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>
+          ${esIngreso?`<td class="num"><input type="number" class="bd-costo" data-costo-sku="${esc(l.sku_id)}" min="0" step="any" value="${l.costo_unitario!=null?l.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right"></td>
+          <td class="num">${l.costo_unitario!=null?'$'+Math.round(l.cantidad*Number(l.costo_unitario)).toLocaleString('es-CL'):'—'}</td>`:''}
           <td class="num"><button type="button" class="icon-btn" data-quitar-linea="${esc(l.sku_id)}" aria-label="Quitar">${ICONS.x}</button></td>
         </tr>`).join('')}</tbody></table></div>
-        <div class="hint" style="margin-top:6px">${d.lineas.length} material${d.lineas.length===1?'':'es'} · ${totalLineas} unidades</div>` : `<div class="hint" style="margin-top:10px">Busca o escanea cada material y agrégalo con su cantidad.</div>`}
+        <div class="hint" style="margin-top:6px">${d.lineas.length} material${d.lineas.length===1?'':'es'} · ${totalLineas} unidades${esIngreso && totalMonto ? ` · monto del ingreso <strong>$${Math.round(totalMonto).toLocaleString('es-CL')}</strong>${lineasSinCosto?` (${lineasSinCosto} sin costo)`:''}` : ''}</div>` : `<div class="hint" style="margin-top:10px">Busca o escanea cada material y agrégalo con su cantidad.</div>`}
     </div>
     <div class="card" style="margin-top:12px">
       <form id="form-doc-bodega" data-tipo="${tipo}">
@@ -10164,8 +10193,8 @@ function renderStockBodega(){
       </form>
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Bin</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Valor</th><th></th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
   `;
 }
@@ -10200,14 +10229,14 @@ function renderReportesBodega(){
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
         <h3 style="margin:0;font-size:15px">Consumo (salidas)</h3>
-        <select id="rep-consumo-agrupar" style="width:auto;margin:0">${opciones(r.consumoAgrupar, [['persona','Por persona'],['area','Por área'],['destino','Por destino'],['sku','Por material']])}</select>
+        <select id="rep-consumo-agrupar" style="width:auto;margin:0">${opciones(r.consumoAgrupar, [['persona','Por persona'],['area','Por área'],['destino','Por destino'],['tipo','Por tipo de material'],['sku','Por material']])}</select>
       </div>
       ${tabla(r.consumo, r.consumoAgrupar, r.cargando)}
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
         <h3 style="margin:0;font-size:15px">Ingresos</h3>
-        <select id="rep-ingresos-agrupar" style="width:auto;margin:0">${opciones(r.ingresosAgrupar, [['proveedor','Por proveedor'],['sku','Por material']])}</select>
+        <select id="rep-ingresos-agrupar" style="width:auto;margin:0">${opciones(r.ingresosAgrupar, [['proveedor','Por proveedor'],['tipo','Por tipo de material'],['sku','Por material']])}</select>
       </div>
       ${tabla(r.ingresos, r.ingresosAgrupar, r.cargando)}
     </div>
@@ -10233,6 +10262,7 @@ function exportarMovimientosExcel(){
     'N°': m.numero, 'Tipo': etiquetaTipoMovimiento(m.tipo), 'Fecha': m.fecha, 'SKU': m.sku_code, 'Descripción': m.descripcion, 'Batch': m.batch||'', 'Bin': m.storage_bin||'',
     'Cantidad': m.cantidad, 'Unidad': m.unidad_medida||'', 'Estado': m.estado, 'Proveedor': m.proveedor_nombre||'', 'Guía': m.numero_guia||'', 'OC': m.numero_oc||'',
     'Retira': m.retirado_por_nombre||'', 'Área': m.retirado_por_area||'', 'Despacha': m.despachado_por_nombre||'', 'Destino': m.destino||'', 'Motivo': m.motivo||m.anulado_motivo||'', 'Registró': m.usuario_nombre||'',
+    'Tipo material': m.tipo_material||'', 'Costo unitario': m.costo_aplicado!=null?Number(m.costo_aplicado):'', 'Monto': m.costo_aplicado!=null?Number(m.costo_aplicado)*Number(m.cantidad):'',
   }));
   if(!rows.length){ toast('No hay movimientos para exportar','err'); return; }
   if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
@@ -10262,6 +10292,14 @@ function capturarCamposDocumentoBodega(){
   if(g('bd-despacha')) d.despachadoPorId = g('bd-despacha').value;
   if(g('bd-destino')) d.destino = g('bd-destino').value;
   if(g('bd-obs')) d.observacion = g('bd-obs').value;
+  // Costo por línea del ingreso (ver renderDocumentoBodega): vacío = sin informar, no cero.
+  document.querySelectorAll('.bd-costo').forEach(inp=>{
+    const linea = d.lineas.find(l=>l.sku_id===inp.dataset.costoSku);
+    if(!linea) return;
+    const txt = (inp.value||'').trim();
+    const n = Number(txt);
+    linea.costo_unitario = (txt==='' || isNaN(n) || n<0) ? null : n;
+  });
 }
 function bindDocumentoBodega(){
   const tipo = state.view;
@@ -10274,10 +10312,10 @@ function bindDocumentoBodega(){
   const btnEsc = document.getElementById('btn-escanear-bodega');
   if(btnEsc) btnEsc.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); setState({escanerModal: {codigo:null, error:null, destino:'bodega'}}); });
   const btnNuevo = document.getElementById('btn-nuevo-sku-bodega');
-  if(btnNuevo) btnNuevo.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); state.bodega.nuevoSku = {sku_code: state.bodega.busqueda.texto.trim().toUpperCase(), descripcion:'', unidad_medida:'UN', bodega:'', storage_bin:'', guardando:false}; render(); });
+  if(btnNuevo) btnNuevo.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); state.bodega.nuevoSku = {sku_code: state.bodega.busqueda.texto.trim().toUpperCase(), descripcion:'', unidad_medida:'UN', bodega:'', storage_bin:'', tipo_material:'', guardando:false}; render(); });
   const formNuevo = document.getElementById('form-nuevo-sku-bodega');
   if(formNuevo){
-    const leer = ()=>{ const n = state.bodega.nuevoSku; if(!n) return; n.sku_code = document.getElementById('ns-codigo').value; n.descripcion = document.getElementById('ns-descripcion').value; n.unidad_medida = document.getElementById('ns-unidad').value; n.storage_bin = document.getElementById('ns-bin').value; n.bodega = document.getElementById('ns-bodega').value; };
+    const leer = ()=>{ const n = state.bodega.nuevoSku; if(!n) return; n.sku_code = document.getElementById('ns-codigo').value; n.descripcion = document.getElementById('ns-descripcion').value; n.unidad_medida = document.getElementById('ns-unidad').value; n.storage_bin = document.getElementById('ns-bin').value; n.bodega = document.getElementById('ns-bodega').value; n.tipo_material = document.getElementById('ns-tipo').value; };
     formNuevo.addEventListener('submit', e=>{ e.preventDefault(); capturarCamposDocumentoBodega(); leer(); crearSkuDesdeIngreso(); });
     document.getElementById('btn-cancelar-nuevo-sku').addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); state.bodega.nuevoSku = null; render(); });
   }
@@ -10291,6 +10329,10 @@ function bindDocumentoBodega(){
   });
   document.querySelectorAll('.bd-cantidad').forEach(inp=>{
     inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); const btn = document.querySelector(`.bd-agregar[data-sku-id="${inp.dataset.skuId}"]`); if(btn) btn.click(); } });
+  });
+  document.querySelectorAll('.bd-costo').forEach(inp=>{
+    inp.addEventListener('change', ()=>{ capturarCamposDocumentoBodega(); render(); });
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
   });
   document.querySelectorAll('[data-quitar-linea]').forEach(btn=> btn.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); quitarLineaBodega(btn.dataset.quitarLinea); }));
   const fotoGuia = document.getElementById('bd-foto-guia');
@@ -10682,6 +10724,7 @@ function bind(){
     if(btnExcel) btnExcel.addEventListener('click', exportarStockExcel);
     const chkBajo = document.getElementById('stock-bajo-minimo');
     if(chkBajo) chkBajo.addEventListener('change', ()=>{ state.bodega.stockSoloBajoMinimo = chkBajo.checked; cargarStockBodega(); });
+    document.querySelectorAll('.stock-tipo').forEach(sel=> sel.addEventListener('change', ()=> guardarTipoMaterial(sel.dataset.tipoSku, sel.value)));
     document.querySelectorAll('.stock-minimo').forEach(inp=>{
       inp.addEventListener('change', ()=> guardarStockMinimo(inp.dataset.minSku, inp.value));
       inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
