@@ -1644,7 +1644,7 @@ async function cargarTodo(){
 // Qué necesita cada pestaña (claves de CARGADORES). Buscar solo usa los períodos (transversal);
 // Calendario y Grupos ya cargan lo suyo con su propio flag `cargado`.
 const CARGAS_POR_VISTA = {
-  dashboard: ['dashboard', 'bodegaResumen'],
+  dashboard: ['dashboard'], // una sola llamada: trae el panel, el estado del maestro y las tarjetas de bodega
   skus: ['skusPagina', 'opcionesSku', 'generales'],
   reconteo: ['reconteos'],
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
@@ -1668,7 +1668,6 @@ const CARGADORES = {
   bodegaPendientes: ()=> cargarPendientesBodega(),
   bodegaStock: ()=> cargarStockBodega(),
   bodegaValorizacion: ()=> moduloBodegaActivo() ? cargarValorizacionBodega() : Promise.resolve(),
-  bodegaResumen: ()=> moduloBodegaActivo() ? Promise.all([cargarPendientesBodega(), cargarUltimosMovimientosBodega(), cargarValorizacionBodega()]) : Promise.resolve(),
   bodegaReportes: ()=> cargarReportesBodega(),
   reconteos: ()=> cargarReconteos(),
   plan: ()=> refrescarPlanSiCorresponde(),
@@ -4332,6 +4331,17 @@ async function cargarDashboard(){
       // puesta; cargarResumenGeneralSkus queda solo para cuando la persona cambia ese filtro.
       resumenGeneral: {...state.resumenGeneral, datos: (d.resumenGeneral&&d.resumenGeneral[0])||null, cargando:false},
     });
+    // Las tres tarjetas de bodega del panel viajan en la misma respuesta. Vienen solo si el
+    // módulo está activo (y los pendientes, solo para administradores): las mismas condiciones
+    // que la app comprobaba antes de pedirlas por separado. Los cargadores sueltos siguen
+    // existiendo porque Inicio, Movimientos y Stock también los usan.
+    if(d.bodega){
+      setState({bodega:{...state.bodega,
+        pendientes: d.bodega.pendientes||[], pendientesCargados:true,
+        ultimosMovimientos: d.bodega.ultimosMovimientos||[], ultimosCargados:true,
+        valorizacion: d.bodega.valorizacion || state.bodega.valorizacion,
+      }});
+    }
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -5221,7 +5231,7 @@ function refrescarBodega(){
   state.bodega.movimientosCargados = false;
   state.bodega.stockCargado = false;
   state.bodega.pendientesCargados = false;
-  refrescarSiCargada(['bodegaMovimientos','bodegaPendientes','bodegaStock','bodegaValorizacion','bodegaResumen']);
+  refrescarSiCargada(['bodegaMovimientos','bodegaPendientes','bodegaStock','bodegaValorizacion','dashboard']);
 }
 
 // Ajuste de stock (fase 2): se propone la cantidad física y el servidor calcula el delta y decide

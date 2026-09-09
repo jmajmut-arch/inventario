@@ -56,6 +56,9 @@ let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (v
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
+// Bloque de bodega dentro de la respuesta del Dashboard: null cuando la empresa no tiene el
+// módulo activo, que es lo que devuelve la función real en ese caso.
+let dashboardBodegaFixture = null;
 let reconteoPorSemanaFixture = []; // filas del RPC reconteo_pendiente_por_semana ({semana, pendientes})
 let calendarioFixture = null; // filas que devuelve resumen_calendario_mes (ver mock más abajo)
 // Universo/detalle por plan_id para los RPC universo_entradas_plan_* (ver universoEntradasPlanContar):
@@ -492,6 +495,7 @@ const fakeFetchImpl = async (url, opts) => {
       resumenGeneral: [ cuerpo.p_criticidad
         ? {total_activo:10, no_contado:6, cuadrado:3, con_diferencia:1, pendiente:0}
         : (resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, pendiente:2}) ],
+      bodega: dashboardBodegaFixture,
     };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(panel) };
   }
@@ -6547,6 +6551,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
     assert(ctx.renderResumenBodegaDashboard()==='', 'sin el módulo no hay tarjeta de bodega en el Dashboard');
     ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
+    // ...y esos datos llegan en la MISMA respuesta del panel, no en tres llamadas aparte. Con el
+    // módulo apagado la función devuelve bodega en null y la app no toca esas tarjetas.
+    dashboardBodegaFixture = {
+      pendientes: [{id:'pp1'}],
+      ultimosMovimientos: [{id:'uu1', numero:'ING-000009', tipo:'ingreso', sku_code:'BOD-002', cantidad:2, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-09'}],
+      valorizacion: {valor_total:8697626.17, skus_con_stock:9, bajo_minimo:0, sin_apertura:0},
+    };
+    calls.length = 0;
+    await ctx.cargarDashboard();
+    const pidioBodegaAparte = calls.some(c=>c.url.includes('/movimientos_bodega_pendientes') || c.url.includes('/movimientos_bodega_detalle') || c.url.includes('/rpc/resumen_valorizacion_bodega'));
+    assert(calls.filter(c=>c.url.includes('/rpc/dashboard_ejecutivo')).length===1 && !pidioBodegaAparte, 'con bodega activa el Dashboard sigue siendo UNA sola llamada: no debe pedir las tarjetas por separado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.bodega.pendientes.length===1 && ctx.__appstate.bodega.pendientesCargados===true, 'los pendientes de bodega vienen en la respuesta del panel, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.pendientes));
+    assert(ctx.__appstate.bodega.ultimosMovimientos[0].numero==='ING-000009' && ctx.__appstate.bodega.ultimosCargados===true, 'los últimos movimientos vienen en la respuesta del panel, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.ultimosMovimientos));
+    assert(ctx.__appstate.bodega.valorizacion && ctx.__appstate.bodega.valorizacion.valor_total===8697626.17, 'la valorización viene en la respuesta del panel, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.valorizacion));
+    dashboardBodegaFixture = null;
     assert(ctx.renderStockBodega().includes('id="btn-exportar-stock"'), 'Stock ofrece exportar a Excel');
     // Bug real (Minera Test): tras guardar un ingreso, el Dashboard y Movimientos se quedaban con
     // los datos de antes, porque asegurarDatosDeVista solo carga la primera vez. refrescarBodega
@@ -6563,7 +6582,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.registrarDocumentoBodega('ingreso');
     await new Promise(r=>setTimeout(r,0));
     assert(calls.some(c=>c.url.includes('/movimientos_bodega_detalle')), 'tras guardar un ingreso se vuelve a pedir la lista de movimientos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-    assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras guardar un ingreso se refresca la tarjeta del Dashboard (valorización), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras guardar un ingreso se refresca la valorización de Movimientos/Stock, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/rpc/dashboard_ejecutivo')), 'tras guardar un ingreso se refresca el Dashboard, que ahora trae sus tarjetas de bodega en la misma llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
 
     // Apertura de stock: cuando una empresa activó el módulo con materiales ya cargados, esos
