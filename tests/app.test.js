@@ -959,6 +959,11 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega') || path.startsWith('/rest/v1/rpc/registrar_apertura_bodega')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=> path.includes('apertura') ? '12' : '' };
   }
+  if(path.startsWith('/rest/v1/skus?select=id,sku_code,descripcion') && opts && opts.method==='POST'){
+    const fila = JSON.parse(opts.body)[0];
+    if(fila.sku_code==='SKU-DUP-EXISTE') return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}) };
+    return { status:201, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'sku-nuevo', ...fila}]) };
+  }
   if(path.startsWith('/rest/v1/rpc/registrar_ajuste_bodega')){
     const body = JSON.parse(opts.body);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'mov-aj', numero:'AJU-000001', estado: ajusteEstadoMock, delta: body.p_cantidad_nueva - 6, stock: body.p_cantidad_nueva}) };
@@ -6459,6 +6464,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.bodega.movimientosCargados = true;
     const htmlMovAj = ctx.renderMovimientosBodega();
     assert(htmlMovAj.includes('data-anular-mov="mov-aj"') && htmlMovAj.includes('-2 UN') && htmlMovAj.includes('Merma'), 'un ajuste aprobado se lista con signo, motivo y Anular, obtuvo: '+htmlMovAj);
+    // SKU nuevo desde Ingreso: solo en Ingreso, cuando la búsqueda no encuentra el código; nace con
+    // stock 0 y queda listo para agregarle la cantidad.
+    ctx.__appstate.view = 'ingreso';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    ctx.__appstate.bodega.busqueda = {texto:'NUEVO-9', resultados:[], buscando:false};
+    assert(ctx.renderDocumentoBodega('ingreso').includes('id="btn-nuevo-sku-bodega"') && !ctx.renderDocumentoBodega('salida').includes('id="btn-nuevo-sku-bodega"'), 'Ingreso ofrece crear el SKU cuando no existe; Salida no');
+    ctx.__appstate.bodega.nuevoSku = {sku_code:'nuevo-9', descripcion:'', unidad_medida:'UN', bodega:'', storage_bin:'', guardando:false};
+    assert(ctx.renderDocumentoBodega('ingreso').includes('id="form-nuevo-sku-bodega"'), 'se muestra el mini formulario del SKU nuevo');
+    calls.length = 0;
+    assert((await ctx.crearSkuDesdeIngreso())===false && !calls.some(c=>c.url.includes('/rest/v1/skus?select=')), 'sin descripción no crea el SKU');
+    ctx.__appstate.bodega.nuevoSku.descripcion = 'Perno nuevo'; ctx.__appstate.bodega.nuevoSku.unidad_medida = 'un';
+    calls.length = 0;
+    assert((await ctx.crearSkuDesdeIngreso())===true, 'con código y descripción crea el SKU');
+    const postNuevo = calls.find(c=>c.url.includes('/rest/v1/skus?select=') && c.opts.method==='POST');
+    const filaNuevo = postNuevo && JSON.parse(postNuevo.opts.body)[0];
+    assert(filaNuevo && filaNuevo.sku_code==='NUEVO-9' && filaNuevo.unidad_medida==='UN' && filaNuevo.stock_sistema===0 && filaNuevo.empresa_id==='emp-1' && JSON.stringify(postNuevo.opts.headers).includes('return=representation'), 'el SKU nuevo se crea con stock 0, código en mayúsculas y pidiendo la fila de vuelta, obtuvo: '+JSON.stringify(filaNuevo)+' '+JSON.stringify(postNuevo && postNuevo.opts));
+    assert(ctx.__appstate.bodega.nuevoSku===null && ctx.__appstate.bodega.busqueda.resultados.length===1 && ctx.__appstate.bodega.busqueda.resultados[0].id==='sku-nuevo', 'tras crearlo, el SKU queda como resultado listo para agregar, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.busqueda));
+    ctx.__appstate.bodega.nuevoSku = {sku_code:'SKU-DUP-EXISTE', descripcion:'Repetido', unidad_medida:'UN', bodega:'', storage_bin:'', guardando:false};
+    elements['toast-root'].hijos.length = 0;
+    assert((await ctx.crearSkuDesdeIngreso())===false && JSON.stringify(elements['toast-root'].hijos).includes('ya existe'), 'un código repetido avisa que ya existe, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
     ctx.__appstate.kardexModal = null; ctx.__appstate.ajusteBodegaModal = null;
     ctx.__appstate.reconteos = [];
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };

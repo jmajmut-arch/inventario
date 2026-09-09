@@ -745,6 +745,7 @@ function bodegaEstadoInicial(){
     proveedores: [], personas: [], listasCargadas: false,
     doc: documentoBodegaVacio(),
     busqueda: { texto:'', resultados:[], buscando:false },
+    nuevoSku: null, // {sku_code, descripcion, unidad_medida, bodega, storage_bin, guardando} (SKU nuevo desde Ingreso)
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
     stock: [], stockTexto: '', stockCargado: false,
@@ -5046,6 +5047,34 @@ async function buscarSkuBodega(texto){
     state.bodega.busqueda = {texto, resultados: rows, buscando:false};
     render();
   }catch(e){ if(seq===bodegaBusquedaSecuencia){ state.bodega.busqueda.buscando=false; render(); } }
+}
+
+// SKU nuevo desde Ingreso (decisión de Joel: cualquier rol puede crearlo). Nace con stock 0 y el
+// propio ingreso le pone el saldo, así el kardex parte del primer movimiento y no de un maestro.
+async function crearSkuDesdeIngreso(){
+  const n = state.bodega.nuevoSku;
+  if(!n || n.guardando) return false;
+  const codigo = (n.sku_code||'').trim().toUpperCase();
+  const descripcion = (n.descripcion||'').trim();
+  if(!codigo){ toast('Indica el código del material','err'); return false; }
+  if(!descripcion){ toast('Indica la descripción','err'); return false; }
+  state.bodega.nuevoSku = {...n, sku_code: codigo, descripcion, guardando:true}; render();
+  const fila = { sku_code: codigo, descripcion, unidad_medida: (n.unidad_medida||'UN').trim().toUpperCase() || 'UN', bodega: (n.bodega||'').trim() || null, storage_bin: (n.storage_bin||'').trim() || null, stock_sistema: 0, activo: true, empresa_id: state.perfil.empresa_id, capturado_en: new Date().toISOString() };
+  try{
+    const rows = await rest('/skus?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida', {method:'POST', body:[fila], prefer:'return=representation'});
+    const sku = (rows||[])[0];
+    if(!sku) throw new Error('El servidor no devolvió el SKU creado');
+    state.bodega.nuevoSku = null;
+    state.bodega.busqueda = {texto: sku.sku_code, resultados:[sku], buscando:false};
+    refrescarListaSkus();
+    render();
+    toast(`SKU ${sku.sku_code} creado. Indica la cantidad que ingresa.`, 'ok');
+    return true;
+  }catch(e){
+    state.bodega.nuevoSku = {...state.bodega.nuevoSku, guardando:false}; render();
+    toast(pareceFalloDeRed(e) ? 'Sin conexión: el SKU nuevo se crea cuando vuelva la señal. Puedes registrar el resto del ingreso.' : (esErrorCodigoSkuDuplicado(e) ? `El código ${codigo} ya existe: búscalo arriba.` : e.message), 'err');
+    return false;
+  }
 }
 
 function agregarLineaBodega(sku, cantidad){
@@ -9815,7 +9844,21 @@ function renderDocumentoBodega(tipo){
           <div style="flex:1;min-width:0"><div class="mono">${esc(s.sku_code)}${s.batch?` <span class="hint" style="display:inline">· ${esc(s.batch)}</span>`:''}</div><div class="hint" style="margin:0">${esc(s.descripcion||'')}${s.storage_bin?` · ${esc(s.storage_bin)}`:''} · stock ${s.stock_sistema==null?'—':s.stock_sistema}</div></div>
           <input type="number" class="bd-cantidad" data-sku-id="${esc(s.id)}" min="0" step="any" placeholder="Cant." style="width:84px;margin:0">
           <button type="button" class="btn btn-primary bd-agregar" data-sku-id="${esc(s.id)}" style="width:auto;padding:6px 10px">Agregar</button>
-        </div>`).join('')}</div>` : (q.texto.length>=2 && !q.buscando ? `<div class="hint">Sin resultados.</div>` : '')}
+        </div>`).join('')}</div>` : (q.texto.length>=2 && !q.buscando ? `<div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Sin resultados.${esIngreso && !b.nuevoSku ? ` <button type="button" class="link-btn" id="btn-nuevo-sku-bodega">Crear SKU nuevo «${esc(q.texto.trim())}»</button>` : ''}</div>` : '')}
+      ${esIngreso && b.nuevoSku ? `<form id="form-nuevo-sku-bodega" class="card" style="margin-top:10px;background:var(--bg)">
+        <div class="hint" style="margin-bottom:8px"><strong>SKU nuevo.</strong> Nace con stock 0; este ingreso le pone el saldo.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div style="grid-column:1/-1"><label for="ns-codigo">Código</label><input type="text" id="ns-codigo" required value="${esc(b.nuevoSku.sku_code||'')}" style="margin:0"></div>
+          <div style="grid-column:1/-1"><label for="ns-descripcion">Descripción</label><input type="text" id="ns-descripcion" required value="${esc(b.nuevoSku.descripcion||'')}" style="margin:0"></div>
+          <div><label for="ns-unidad">Unidad</label><input type="text" id="ns-unidad" value="${esc(b.nuevoSku.unidad_medida||'UN')}" placeholder="UN, LT, KG" style="margin:0"></div>
+          <div><label for="ns-bin">Bin</label><input type="text" id="ns-bin" value="${esc(b.nuevoSku.storage_bin||'')}" placeholder="Opcional" style="margin:0"></div>
+          <div style="grid-column:1/-1"><label for="ns-bodega">Ubicación general</label><input type="text" id="ns-bodega" value="${esc(b.nuevoSku.bodega||'')}" placeholder="Opcional" style="margin:0"></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" style="width:auto;padding:8px 14px" ${b.nuevoSku.guardando?'disabled':''}>${b.nuevoSku.guardando?'<span class="spinner"></span> Creando…':'Crear y usar'}</button>
+          <button type="button" class="btn btn-secondary" id="btn-cancelar-nuevo-sku" style="width:auto;padding:8px 14px">Cancelar</button>
+        </div>
+      </form>` : ''}
       ${d.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>SKU</th><th class="num">Cantidad</th><th></th></tr></thead>
         <tbody>${d.lineas.map(l=>`<tr>
@@ -9979,6 +10022,14 @@ function bindDocumentoBodega(){
   }
   const btnEsc = document.getElementById('btn-escanear-bodega');
   if(btnEsc) btnEsc.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); setState({escanerModal: {codigo:null, error:null, destino:'bodega'}}); });
+  const btnNuevo = document.getElementById('btn-nuevo-sku-bodega');
+  if(btnNuevo) btnNuevo.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); state.bodega.nuevoSku = {sku_code: state.bodega.busqueda.texto.trim().toUpperCase(), descripcion:'', unidad_medida:'UN', bodega:'', storage_bin:'', guardando:false}; render(); });
+  const formNuevo = document.getElementById('form-nuevo-sku-bodega');
+  if(formNuevo){
+    const leer = ()=>{ const n = state.bodega.nuevoSku; if(!n) return; n.sku_code = document.getElementById('ns-codigo').value; n.descripcion = document.getElementById('ns-descripcion').value; n.unidad_medida = document.getElementById('ns-unidad').value; n.storage_bin = document.getElementById('ns-bin').value; n.bodega = document.getElementById('ns-bodega').value; };
+    formNuevo.addEventListener('submit', e=>{ e.preventDefault(); capturarCamposDocumentoBodega(); leer(); crearSkuDesdeIngreso(); });
+    document.getElementById('btn-cancelar-nuevo-sku').addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); state.bodega.nuevoSku = null; render(); });
+  }
   document.querySelectorAll('.bd-agregar').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       capturarCamposDocumentoBodega();
