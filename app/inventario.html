@@ -5148,7 +5148,7 @@ async function registrarDocumentoBodega(tipo){
     const pendientes = (res && res.movimientos || []).filter(m=>m.estado!=='aprobado').length;
     state.bodega.doc = documentoBodegaVacio();
     state.bodega.ultimoDocumento = doc;
-    state.bodega.movimientosCargados = false; state.bodega.stockCargado = false; state.bodega.pendientesCargados = false;
+    refrescarBodega();
     invalidarCacheAgregados(['generales','sinUbicacion']);
     setState({bodega: {...state.bodega, guardando:false}});
     toast(pendientes ? `${doc.numero} guardado; ${pendientes} línea${pendientes===1?'':'s'} queda${pendientes===1?'':'n'} pendiente${pendientes===1?'':'s'} de revisión` : `${doc.numero} guardado`);
@@ -5187,8 +5187,7 @@ async function anularDocumentoBodega(documentoId, numero){
   try{
     await rest('/rpc/anular_documento_bodega', {method:'POST', body:{p_documento_id: documentoId, p_motivo: motivo.trim()}});
     toast(`${numero} anulado`);
-    state.bodega.stockCargado = false;
-    await cargarMovimientosBodega();
+    refrescarBodega();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -5198,10 +5197,19 @@ async function resolverMovimientoBodega(movimientoId, aprobar){
   try{
     await rest('/rpc/resolver_movimiento_bodega', {method:'POST', body:{p_movimiento_id: movimientoId, p_aprobar: !!aprobar, p_motivo: motivo}});
     toast(aprobar ? 'Movimiento aprobado' : 'Movimiento rechazado');
-    state.bodega.stockCargado = false; state.bodega.movimientosCargados = false;
-    await cargarPendientesBodega();
-    if(state.view==='movimientos') await cargarMovimientosBodega();
+    refrescarBodega();
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Tras registrar, aprobar o anular algo de bodega hay que volver a pedir lo que otra pestaña ya
+// tenía cargado: asegurarDatosDeVista solo carga la primera vez que se entra a una vista, así que
+// sin esto el Dashboard, Movimientos y Stock se quedaban mostrando los datos de antes del
+// movimiento (bug real: un ingreso recién guardado no aparecía en "Últimos movimientos").
+function refrescarBodega(){
+  state.bodega.movimientosCargados = false;
+  state.bodega.stockCargado = false;
+  state.bodega.pendientesCargados = false;
+  refrescarSiCargada(['bodegaMovimientos','bodegaPendientes','bodegaStock','bodegaResumen']);
 }
 
 // Ajuste de stock (fase 2): se propone la cantidad física y el servidor calcula el delta y decide
@@ -5223,11 +5231,8 @@ async function registrarAjusteBodega(){
     const r = await rest('/rpc/registrar_ajuste_bodega', {method:'POST', body:{p_sku_id:m.skuId, p_cantidad_nueva:cantidad, p_motivo:motivo, p_conteo_id:m.conteoId}});
     setState({ajusteBodegaModal:null});
     toast(r && r.estado==='aprobado' ? `Stock de ${m.skuCode} ajustado a ${cantidad}` : `Ajuste de ${m.skuCode} enviado a aprobación`, 'ok');
-    state.bodega.stockCargado = false; state.bodega.movimientosCargados = false;
-    if(state.view==='stock') cargarStockBodega();
-    if(state.view==='movimientos') cargarMovimientosBodega();
+    refrescarBodega();
     if(state.view==='reconteo') cargarReconteos();
-    cargarPendientesBodega();
   }catch(e){
     setState({ajusteBodegaModal:{...state.ajusteBodegaModal, guardando:false}});
     toast(e.message,'err');
@@ -5242,8 +5247,7 @@ async function anularMovimientoBodega(movimientoId, numero){
   try{
     await rest('/rpc/anular_movimiento_bodega', {method:'POST', body:{p_movimiento_id: movimientoId, p_motivo: motivo.trim()}});
     toast(`${numero} anulado`);
-    state.bodega.stockCargado = false;
-    await cargarMovimientosBodega();
+    refrescarBodega();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -5973,7 +5977,7 @@ async function procesarUnItemOffline(item){
         await subirFotosDocumentoBodega(doc.id, fotos.map(f=>({tipo: (f.nombre||'').startsWith('guia-') ? 'guia' : 'material', file: new File([f.blob], (f.nombre||'foto.jpg').replace(/^(guia|material)-/,''), {type: f.tipo||'image/jpeg'})})));
       }
       await borrarFotosOffline(item.id).catch(()=>{});
-      state.bodega.movimientosCargados = false; state.bodega.stockCargado = false;
+      refrescarBodega();
       return {ok:true};
     }
     if(item.tipo==='sku'){
