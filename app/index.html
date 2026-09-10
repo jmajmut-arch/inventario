@@ -5992,6 +5992,44 @@ function agruparDetalleErrores(detalleErrores){
   return resumenErroresAArray(mapa);
 }
 
+// Filas del archivo que caen en la MISMA identidad (código + bodega + batch + ubicación + bin).
+// El upsert se queda con la última: no hay forma de saber cuál es la correcta, y sumarlas
+// duplicaría un renglón repetido de verdad. Lo que faltaba era decirlo: la carga de Escondida del
+// 10 de septiembre trajo 61.722 filas y escribió 61.587 -- 135 se descartaron y la app informó
+// "0 con error". Ahora se avisa antes de confirmar, con ejemplos, para que se pueda revisar el
+// export en vez de descubrirlo por un número que no cuadra.
+//
+// Se calcula con la misma normalización que confirmarCargaMasiva (trim y vacío = null), sobre el
+// mapeo que la persona tenga elegido en ese momento; se memoriza porque el archivo puede traer
+// decenas de miles de filas y el preview se redibuja con cada cambio.
+let cacheIdentidadesRepetidas = null;
+function identidadesRepetidas(data, mapeo){
+  const firma = JSON.stringify(mapeo) + '|' + data.length;
+  if(cacheIdentidadesRepetidas && cacheIdentidadesRepetidas.firma === firma) return cacheIdentidadesRepetidas.resultado;
+  const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
+  const veces = new Map();
+  data.forEach(row=>{
+    const sku_code = valor(row,'sku_code');
+    if(!sku_code) return; // sin código no llega al upsert: ya se cuenta como error aparte
+    const clave = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null,
+                                  valor(row,'ubicacion')||null, valor(row,'storage_bin')||null]);
+    veces.set(clave, (veces.get(clave)||0) + 1);
+  });
+  let total = 0;
+  const ejemplos = [];
+  veces.forEach((n, clave)=>{
+    if(n < 2) return;
+    total += n - 1; // las que se pisan: todas menos la que queda
+    if(ejemplos.length < 5){
+      const [sku_code, bodega, batch, ubicacion, storage_bin] = JSON.parse(clave);
+      ejemplos.push({sku_code, bodega, batch, ubicacion, storage_bin, veces:n});
+    }
+  });
+  const resultado = {total, ejemplos};
+  cacheIdentidadesRepetidas = {firma, resultado};
+  return resultado;
+}
+
 async function confirmarCargaMasiva(){
   if(!perfilCargado()) return;
   const { file, data, mapeo, modo } = state.cargaPreview;
@@ -8609,6 +8647,23 @@ function renderCargaPreview(){
       </div>
     </div>
     ` : ''}
+
+    ${(()=>{
+      const rep = identidadesRepetidas(data, mapeo);
+      if(!rep.total) return '';
+      return `<div class="card" style="border-color:var(--warn);margin-top:14px">
+        <h3 style="margin:0 0 4px;font-size:15px">${rep.total.toLocaleString('es-CL')} fila(s) del archivo comparten identidad con otra</h3>
+        <div class="hint">Un material es único por código + bodega + batch + ubicación + storage bin. Cuando dos filas coinciden en los cinco, se guarda <b>la última</b> y la otra se descarta: no hay forma de saber cuál es la correcta. Si esas filas debían sumarse, revisa el export de tu ERP antes de confirmar.</div>
+        <div class="table-wrap" style="margin-top:8px"><table>
+          <thead><tr><th>Código</th><th>Dónde</th><th class="num">Filas</th></tr></thead>
+          <tbody>${rep.ejemplos.map(e=>`<tr>
+            <td class="mono">${esc(e.sku_code)}</td>
+            <td style="font-size:12px">${esc([e.bodega, e.ubicacion, e.storage_bin, e.batch?`batch ${e.batch}`:''].filter(Boolean).join(' · ') || 'sin ubicación')}</td>
+            <td class="num">${e.veces}</td>
+          </tr>`).join('')}</tbody></table></div>
+        ${rep.ejemplos.length<5?'':'<div class="hint" style="margin-top:6px">Se muestran los primeros 5.</div>'}
+      </div>`;
+    })()}
 
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-secondary" id="btn-cancelar-carga" ${state.loading?'disabled':''}>Cancelar</button>
