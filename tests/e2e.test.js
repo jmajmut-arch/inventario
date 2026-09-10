@@ -241,6 +241,45 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Bodega: el botón Transferir del maestro de Stock abre el modal de traslado =====
+  // En el sandbox de unit tests las funciones se llaman directo; acá se prueba el cableado real:
+  // que el listener esté registrado en la vista donde de verdad vive el botón.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('transferencia: '+err.message));
+    const perfilBodega = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilBodega.empresas.modulo_bodega_habilitado = true;
+    await mockearSupabaseApp(page, perfilBodega);
+    await page.route('**/rest/v1/stock_actual**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { sku_id:'s1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, bodega:'Bodega Central', ubicacion:'Pasillo 1',
+        storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, stock_minimo:null, bajo_minimo:false,
+        falta_para_minimo:null, tipo_material:'Repuesto', valor:6000 },
+    ]) }));
+    await page.route('**/rest/v1/ubicaciones?**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'u1', bodega:'Bodega Central', ubicacion:null, activo:true },
+      { id:'u2', bodega:'Bodega Norte', ubicacion:null, activo:true },
+    ]) }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:5000 });
+    await page.click('[data-tab="stock"]');
+    await page.waitForSelector('[data-transferir-sku]', { timeout:5000 });
+    await page.click('[data-transferir-sku]');
+    await page.waitForSelector('#transferencia-backdrop', { timeout:5000 });
+    assert(await page.isVisible('#tra-bodega'), 'el modal de traslado debe abrirse desde el botón Transferir de Stock');
+    const opciones = await page.$$eval('#tra-bodega option', els => els.map(e=>e.value));
+    assert(opciones.includes('Bodega Norte'), 'el modal ofrece las bodegas de destino, obtuvo: '+JSON.stringify(opciones));
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+    assert(desborde, 'el modal de traslado no debe desbordar a lo ancho en pantalla de celular');
+    await page.click('#transferencia-cancelar');
+    await page.waitForTimeout(200);
+    assert(await page.$('#transferencia-backdrop') === null, 'Cancelar cierra el modal de traslado');
+    await context.close();
+  }
+
   // ===== Landing: los puntos del carrusel cambian la lámina activa =====
   {
     const context = await browser.newContext();

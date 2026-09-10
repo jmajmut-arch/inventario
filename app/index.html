@@ -519,6 +519,7 @@ let state = {
   // sin duplicarlo (ver guardarUbicacionSku).
   ubicacionSkuModal: null,
   devolucionModal: null,
+  transferenciaModal: null,
   kardexModal: null, // {skuId, skuCode, filas, cargando} (ver vista kardex_bodega)
   skusPagina: { rows: [], page: 0, total: 0 },
   skusSeleccionados: [],
@@ -1617,7 +1618,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, transferenciaModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -5509,6 +5510,52 @@ function exportarReporteBodegaExcel(){
 }
 function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', destino:'Destino', sku:'Material', proveedor:'Proveedor', tipo:'Tipo de material'}[a] || a; }
 
+// Transferencia entre bodegas: saca N unidades de donde están y las mete en otro sitio, con dos
+// movimientos del mismo documento (traslado que sale / traslado que entra). Es distinto de "Mover
+// material": ese cambia el sitio de la ficha completa y sirve para corregir un dato mal puesto;
+// esto registra un traslado físico, por cantidad, y queda en el kardex de los dos materiales.
+async function abrirTransferenciaBodega(datos){
+  setState({transferenciaModal:{...datos, cantidad:'', bodega:'', ubicacion:'', bin:'', observacion:'', guardando:false}});
+  if(!state.ubicaciones.cargado && !state.ubicaciones.cargando) cargarUbicaciones();
+}
+
+async function guardarTransferenciaBodega(){
+  const t = state.transferenciaModal;
+  if(!t || t.guardando) return false;
+  const cantidad = Number(t.cantidad);
+  if(!(cantidad > 0)){ toast('Indica cuántas unidades se trasladan','err'); return false; }
+  if(cantidad > Number(t.stock)){ toast(`Solo hay ${t.stock} ${t.unidad||''} en este sitio`,'err'); return false; }
+  const bodega = (t.bodega||'').trim();
+  if(!bodega){ toast('Elige la bodega de destino','err'); return false; }
+  const mismo = bodega===(t.bodegaOrigen||'') && (t.ubicacion||'').trim()===(t.ubicacionOrigen||'')
+             && (t.bin||'').trim()===(t.binOrigen||'');
+  if(mismo){ toast('El destino es el mismo sitio de origen','err'); return false; }
+  setState({transferenciaModal:{...t, guardando:true}});
+  try{
+    const res = await rest('/rpc/registrar_transferencia_bodega', {method:'POST', body:{
+      p_lineas: [{sku_id: t.skuId, cantidad}],
+      p_bodega_destino: bodega,
+      p_ubicacion_destino: (t.ubicacion||'').trim() || null,
+      p_bin_destino: (t.bin||'').trim() || null,
+      p_observacion: (t.observacion||'').trim() || null,
+      p_idempotency_key: crypto.randomUUID(),
+    }});
+    const doc = res && res.documento;
+    setState({transferenciaModal:null});
+    toast(`${doc? doc.numero : 'Traslado'}: ${cantidad} ${t.unidad||''} de ${t.codigo} a ${bodega}`);
+    // El traslado puede haber creado una ficha nueva en el destino: las listas de sitios y el
+    // maestro dejan de estar al día.
+    invalidarCacheAgregados(['generales']);
+    refrescarBodega();
+    refrescarListaSkus();
+    return true;
+  }catch(e){
+    setState({transferenciaModal:{...state.transferenciaModal, guardando:false}});
+    toast(e.message,'err');
+    return false;
+  }
+}
+
 // Devolución a bodega: material que salió a un área y vuelve. Va SIEMPRE contra la salida que lo
 // entregó, con tope en lo que efectivamente salió menos lo ya devuelto (lineas_por_devolver), para
 // que no exista la puerta de "devolver" material que nunca se retiró e inflar el stock. No pide
@@ -7723,6 +7770,59 @@ function renderDevolucionModal(){
         <button type="button" class="btn btn-primary" id="devolucion-guardar" ${d.guardando||d.cargando||!d.lineas.length?'disabled':''}>${d.guardando?'<span class="spinner"></span> Guardando…':'Registrar devolución'}</button>
         <button type="button" class="btn btn-secondary" id="devolucion-cancelar" style="width:auto">Cancelar</button>
       </div>
+    </div>
+  </div>`;
+}
+
+function renderTransferenciaModal(){
+  const t = state.transferenciaModal;
+  if(!t) return '';
+  const cat = state.ubicaciones.lista || [];
+  // Mismo criterio que "Mover material": bodegas activas del catálogo, más las que tienen
+  // materiales dentro y todavía no están en el catálogo; nunca una bodega desactivada a propósito.
+  const desactivadas = new Set(cat.filter(x=>!x.ubicacion && !x.activo).map(x=>x.bodega));
+  const bodegas = opcionesConActual([
+    ...cat.filter(x=>!x.ubicacion && x.activo).map(x=>x.bodega),
+    ...Object.keys(state.ubicaciones.materialesPorBodega||{}).filter(b=>!desactivadas.has(b)),
+  ], t.bodega);
+  const especificas = opcionesConActual(
+    cat.filter(x=> x.bodega===t.bodega && x.ubicacion && x.activo).map(x=>x.ubicacion), t.ubicacion);
+  const origen = describirUbicacion({bodega:t.bodegaOrigen, ubicacion:t.ubicacionOrigen, storage_bin:t.binOrigen});
+  const cargando = state.ubicaciones.cargando && !state.ubicaciones.cargado;
+  return `<div class="foto-modal-backdrop" id="transferencia-backdrop">
+    <div class="card" style="width:min(92vw,440px);margin-bottom:0;max-height:88vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div><span class="eyebrow">Traslado entre bodegas</span><h2 style="margin:0;font-size:17px">Transferir material</h2></div>
+        <button id="transferencia-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(t.codigo)}</span>${t.descripcion?`<div style="margin-top:2px">${esc(t.descripcion)}</div>`:''}<div style="margin-top:4px">Sale de <strong>${esc(origen)}</strong>, donde hay <strong>${t.stock}</strong> ${esc(t.unidad||'')}. El traslado queda en el kardex de los dos sitios y llega de inmediato.</div></div>
+      <form id="form-transferencia">
+        <label for="tra-cantidad">Cuántas unidades se trasladan</label>
+        <input type="number" id="tra-cantidad" inputmode="decimal" min="0" max="${t.stock}" step="any" value="${esc(t.cantidad)}" placeholder="0" autocomplete="off" style="margin:0">
+        <label for="tra-bodega" style="margin-top:8px">Bodega de destino</label>
+        <select id="tra-bodega" style="margin:0">
+          <option value="">— elige la bodega —</option>
+          ${bodegas.map(b=>`<option value="${esc(b)}" ${!t.nuevaBodega && t.bodega===b?'selected':''}>${esc(b)}</option>`).join('')}
+          <option value="__nueva" ${t.nuevaBodega?'selected':''}>+ Agregar una nueva…</option>
+        </select>
+        ${t.nuevaBodega ? `<input type="text" id="tra-bodega-nueva" value="${esc(t.bodega||'')}" placeholder="Nombre de la bodega nueva" autocomplete="off" style="margin:6px 0 0">` : ''}
+        <label for="tra-ubic" style="margin-top:8px">Ubicación específica del destino</label>
+        <select id="tra-ubic" style="margin:0">
+          <option value="">— sin ubicación específica —</option>
+          ${especificas.map(u=>`<option value="${esc(u)}" ${!t.nuevaUbicacion && t.ubicacion===u?'selected':''}>${esc(u)}</option>`).join('')}
+          <option value="__nueva" ${t.nuevaUbicacion?'selected':''}>+ Agregar una nueva…</option>
+        </select>
+        ${t.nuevaUbicacion ? `<input type="text" id="tra-ubic-nueva" value="${esc(t.ubicacion||'')}" placeholder="Nombre de la ubicación nueva" autocomplete="off" style="margin:6px 0 0">` : ''}
+        <label for="tra-bin" style="margin-top:8px">Storage bin del destino</label>
+        <input type="text" id="tra-bin" value="${esc(t.bin)}" placeholder="Ej. A-12-03 (opcional)" autocomplete="off" style="margin:0">
+        <label for="tra-observacion" style="margin-top:8px">Observación</label>
+        <input type="text" id="tra-observacion" value="${esc(t.observacion)}" placeholder="Por qué se traslada (opcional)" autocomplete="off" style="margin:0">
+        ${cargando ? '<div class="hint" style="margin-top:8px">Cargando bodegas…</div>' : ''}
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" ${t.guardando?'disabled':''}>${t.guardando?'<span class="spinner"></span> Trasladando…':'Registrar traslado'}</button>
+          <button type="button" class="btn btn-secondary" id="transferencia-cancelar" style="width:auto">Cancelar</button>
+        </div>
+      </form>
     </div>
   </div>`;
 }
@@ -10694,7 +10794,7 @@ function renderDocumentoBodega(tipo){
   `;
 }
 
-function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Ingreso', salida:'Salida', ajuste:'Ajuste', devolucion:'Devolución'}[t] || t; }
+function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Ingreso', salida:'Salida', ajuste:'Ajuste', devolucion:'Devolución', transferencia_salida:'Traslado (sale)', transferencia_entrada:'Traslado (entra)'}[t] || t; }
 function badgeEstadoMovimiento(e){
   return e==='aprobado' ? '<span class="badge badge-ok">Aprobado</span>' : e==='anulado' ? '<span class="badge badge-danger">Anulado</span>' : e==='pendiente_revision' ? '<span class="badge badge-warn">En revisión</span>' : '<span class="badge badge-warn">Por aprobar</span>';
 }
@@ -10738,7 +10838,7 @@ function renderMovimientosBodega(){
     </div>` : ''}
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-        <select id="mov-filtro-tipo" style="width:auto;margin:0"><option value="">Todos</option>${['ingreso','salida','devolucion','ajuste','apertura'].map(t=>`<option value="${t}" ${b.filtroTipo===t?'selected':''}>${etiquetaTipoMovimiento(t)}</option>`).join('')}</select>
+        <select id="mov-filtro-tipo" style="width:auto;margin:0"><option value="">Todos</option>${['ingreso','salida','devolucion','transferencia_salida','transferencia_entrada','ajuste','apertura'].map(t=>`<option value="${t}" ${b.filtroTipo===t?'selected':''}>${etiquetaTipoMovimiento(t)}</option>`).join('')}</select>
         <button type="button" class="btn btn-secondary" id="btn-exportar-movimientos" style="width:auto;padding:6px 12px" ${rows.length?'':'disabled'}>Exportar Excel</button>
       </div>
       ${rows.length ? `<div class="table-wrap"><table>
@@ -10773,7 +10873,7 @@ function renderStockBodega(){
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Transferir</button>`:''}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
   `;
 }
@@ -11127,7 +11227,7 @@ function render(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderTransferenciaModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -11392,6 +11492,11 @@ function bind(){
     });
   }
   if(state.view==='stock'){
+    document.querySelectorAll('[data-transferir-sku]').forEach(btn=> btn.addEventListener('click', ()=> abrirTransferenciaBodega({
+      skuId: btn.dataset.transferirSku, codigo: btn.dataset.transferirCodigo, descripcion: btn.dataset.transferirDesc,
+      stock: btn.dataset.transferirStock, unidad: btn.dataset.transferirUnidad,
+      bodegaOrigen: btn.dataset.transferirBodega, ubicacionOrigen: btn.dataset.transferirUbicacion, binOrigen: btn.dataset.transferirBin,
+    })));
     const form = document.getElementById('form-stock-bodega');
     if(form) form.addEventListener('submit', e=>{ e.preventDefault(); state.bodega.stockTexto = document.getElementById('stock-texto').value; cargarStockBodega(); });
     const btnExcel = document.getElementById('btn-exportar-stock');
@@ -12089,6 +12194,34 @@ function bind(){
     const obs = document.getElementById('dev-observacion');
     if(obs) obs.addEventListener('input', ev=>{ state.devolucionModal = {...state.devolucionModal, observacion: ev.target.value}; });
     document.getElementById('devolucion-guardar').addEventListener('click', guardarDevolucionBodega);
+  }
+
+  if(state.transferenciaModal){
+    const cerrarTra = ()=> setState({transferenciaModal:null});
+    document.getElementById('transferencia-close').addEventListener('click', cerrarTra);
+    document.getElementById('transferencia-cancelar').addEventListener('click', cerrarTra);
+    document.getElementById('transferencia-backdrop').addEventListener('click', e=>{ if(e.target.id==='transferencia-backdrop') cerrarTra(); });
+    // Elegir "+ Agregar una nueva…" abre el campo para escribirla; cambiar de bodega invalida la
+    // ubicación específica, que era de la bodega anterior.
+    document.getElementById('tra-bodega').addEventListener('change', e=>{
+      const v = e.target.value, nueva = v==='__nueva';
+      setState({transferenciaModal:{...state.transferenciaModal,
+        bodega: nueva ? '' : v, nuevaBodega: nueva, ubicacion:'', nuevaUbicacion:false}});
+    });
+    document.getElementById('tra-ubic').addEventListener('change', e=>{
+      const v = e.target.value, nueva = v==='__nueva';
+      setState({transferenciaModal:{...state.transferenciaModal, ubicacion: nueva ? '' : v, nuevaUbicacion: nueva}});
+    });
+    // Lo tecleado vive en el estado: cualquier render de fondo reconstruye el modal entero.
+    [['tra-cantidad','cantidad'],['tra-bodega-nueva','bodega'],['tra-ubic-nueva','ubicacion'],['tra-bin','bin'],['tra-observacion','observacion']].forEach(([id, campo])=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('input', ev=>{ state.transferenciaModal = {...state.transferenciaModal, [campo]: ev.target.value}; });
+      if((id==='tra-bodega-nueva' || id==='tra-ubic-nueva') && document.activeElement!==el && el.value){
+        el.focus(); el.selectionStart = el.selectionEnd = el.value.length;
+      }
+    });
+    document.getElementById('form-transferencia').addEventListener('submit', e=>{ e.preventDefault(); guardarTransferenciaBodega(); });
   }
 
   if(state.ubicacionSkuModal){
