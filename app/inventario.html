@@ -518,6 +518,7 @@ let state = {
   // {id, skuCode, batch, bodega, ubicacion, storage_bin, guardando} -- mover un material de sitio
   // sin duplicarlo (ver guardarUbicacionSku).
   ubicacionSkuModal: null,
+  devolucionModal: null,
   kardexModal: null, // {skuId, skuCode, filas, cargando} (ver vista kardex_bodega)
   skusPagina: { rows: [], page: 0, total: 0 },
   skusSeleccionados: [],
@@ -1616,7 +1617,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -5508,6 +5509,58 @@ function exportarReporteBodegaExcel(){
 }
 function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', destino:'Destino', sku:'Material', proveedor:'Proveedor', tipo:'Tipo de material'}[a] || a; }
 
+// Devolución a bodega: material que salió a un área y vuelve. Va SIEMPRE contra la salida que lo
+// entregó, con tope en lo que efectivamente salió menos lo ya devuelto (lineas_por_devolver), para
+// que no exista la puerta de "devolver" material que nunca se retiró e inflar el stock. No pide
+// aprobación: el material físico ya está en la bodega y el control es el tope.
+async function abrirDevolucionBodega(documentoId, numero){
+  setState({devolucionModal:{documentoId, numero, lineas:[], cantidades:{}, observacion:'', cargando:true, guardando:false, error:null}});
+  try{
+    const lineas = await rest('/rpc/lineas_por_devolver', {method:'POST', body:{p_documento_id: documentoId}}) || [];
+    if(!state.devolucionModal || state.devolucionModal.documentoId!==documentoId) return;
+    setState({devolucionModal:{...state.devolucionModal, lineas: lineas.filter(l=>Number(l.pendiente)>0), cargando:false}});
+  }catch(e){
+    if(!state.devolucionModal) return;
+    // Un error del servidor se muestra como error, no como "no queda nada por devolver".
+    setState({devolucionModal:{...state.devolucionModal, cargando:false, error:e.message}});
+  }
+}
+
+async function guardarDevolucionBodega(){
+  const d = state.devolucionModal;
+  if(!d || d.guardando) return false;
+  const lineas = Object.entries(d.cantidades)
+    .map(([sku_id, v])=>({sku_id, cantidad: Number(v)}))
+    .filter(l=> l.cantidad > 0);
+  if(!lineas.length){ toast('Indica cuánto se devuelve','err'); return false; }
+  const excedida = lineas.find(l=>{
+    const orig = d.lineas.find(x=>x.sku_id===l.sku_id);
+    return orig && l.cantidad > Number(orig.pendiente);
+  });
+  if(excedida){
+    const orig = d.lineas.find(x=>x.sku_id===excedida.sku_id);
+    toast(`De ${orig.sku_code} quedan ${orig.pendiente} por devolver`, 'err');
+    return false;
+  }
+  setState({devolucionModal:{...d, guardando:true}});
+  try{
+    const res = await rest('/rpc/registrar_devolucion_bodega', {method:'POST', body:{
+      p_documento_salida_id: d.documentoId, p_lineas: lineas,
+      p_observacion: d.observacion.trim() || null, p_idempotency_key: crypto.randomUUID(),
+    }});
+    const doc = res && res.documento;
+    setState({devolucionModal:null});
+    toast(`${doc? doc.numero : 'Devolución'} registrada contra ${d.numero}`);
+    refrescarBodega();
+    refrescarListaSkus();
+    return true;
+  }catch(e){
+    setState({devolucionModal:{...state.devolucionModal, guardando:false}});
+    toast(e.message,'err');
+    return false;
+  }
+}
+
 // Comprobante PDF de un ingreso o salida: mismo contenedor de impresión que Buscar y fotos
 // reducidas (resolverFotoParaPDF). Para la salida incluye líneas de firma de quien entrega y recibe.
 async function imprimirComprobanteBodega(documentoId){
@@ -5534,6 +5587,7 @@ async function imprimirComprobanteBodega(documentoId){
 function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
   const empresa = state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '';
   const esIngreso = cab.tipo==='ingreso';
+  const esDevolucion = cab.tipo==='devolucion';
   const total = filas.reduce((s,l)=>s+Number(l.cantidad),0);
   const hayMonto = filas.some(l=> l.costo_aplicado!=null);
   const totalMonto = filas.reduce((s,l)=> s + (l.costo_aplicado!=null ? Number(l.costo_aplicado)*Number(l.cantidad) : 0), 0);
@@ -5542,10 +5596,12 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
   const th = (t,der)=>`<th style="text-align:${der?'right':'left'};border-bottom:1px solid #000;padding:4px">${t}</th>`;
   const td = (t,der)=>`<td style="padding:4px;border-bottom:1px solid #ddd${der?';text-align:right':''}">${t}</td>`;
   return `
-    <h1>${esIngreso?'Comprobante de ingreso':'Comprobante de salida'} ${esc(cab.numero)}</h1>
+    <h1>${esIngreso?'Comprobante de ingreso':esDevolucion?'Comprobante de devolución':'Comprobante de salida'} ${esc(cab.numero)}</h1>
     <div class="print-meta">${esc(empresa)} · ${fmtFecha(cab.fecha)} · Registró ${esc(cab.usuario_nombre||'')}${cab.documento_anulado_en?' · ANULADO':''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:12px">
-      ${esIngreso ? dato('Proveedor', cab.proveedor_nombre)+dato('Guía de despacho', cab.numero_guia)+dato('Orden de compra', cab.numero_oc) : dato('Retira', cab.retirado_por_nombre ? `${cab.retirado_por_nombre}${cab.retirado_por_area?' · '+cab.retirado_por_area:''}` : '')+dato('Despacha', cab.despachado_por_nombre||cab.usuario_nombre)+dato('Destino', cab.destino)}
+      ${esIngreso ? dato('Proveedor', cab.proveedor_nombre)+dato('Guía de despacho', cab.numero_guia)+dato('Orden de compra', cab.numero_oc)
+        : esDevolucion ? dato('Devuelve', cab.retirado_por_nombre ? `${cab.retirado_por_nombre}${cab.retirado_por_area?' · '+cab.retirado_por_area:''}` : '')+dato('Recibe en bodega', cab.usuario_nombre)+dato('Destino original', cab.destino)+dato('Contra la salida', (cab.motivo||'').replace('Devolución de ',''))
+        : dato('Retira', cab.retirado_por_nombre ? `${cab.retirado_por_nombre}${cab.retirado_por_area?' · '+cab.retirado_por_area:''}` : '')+dato('Despacha', cab.despachado_por_nombre||cab.usuario_nombre)+dato('Destino', cab.destino)}
       ${dato('Observación', cab.documento_observacion)}
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">
@@ -5554,7 +5610,7 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
       <tfoot><tr><td colspan="3" style="padding:4px;text-align:right">Total</td><td style="padding:4px;text-align:right"><strong>${total}</strong></td>${hayMonto?`<td></td><td style="padding:4px;text-align:right"><strong>${money(totalMonto)}</strong></td>`:''}</tr></tfoot>
     </table>
     ${fotos.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${fotos.map(f=>`<figure style="margin:0;font-size:10px;text-align:center"><img src="${esc(f.url)}" style="width:130px;height:130px;object-fit:cover;border:1px solid #ccc"><figcaption>${f.tipo==='guia'?'Guía':'Material'}</figcaption></figure>`).join('')}</div>` : ''}
-    ${esIngreso ? '' : `<div style="display:flex;gap:40px;margin-top:48px;font-size:12px"><div style="flex:1;border-top:1px solid #000;padding-top:4px">Entrega: ${esc(cab.despachado_por_nombre||cab.usuario_nombre||'')}</div><div style="flex:1;border-top:1px solid #000;padding-top:4px">Recibe: ${esc(cab.retirado_por_nombre||'')}</div></div>`}
+    ${esIngreso ? '' : esDevolucion ? `<div style="display:flex;gap:40px;margin-top:48px;font-size:12px"><div style="flex:1;border-top:1px solid #000;padding-top:4px">Devuelve: ${esc(cab.retirado_por_nombre||'')}</div><div style="flex:1;border-top:1px solid #000;padding-top:4px">Recibe en bodega: ${esc(cab.usuario_nombre||'')}</div></div>` : `<div style="display:flex;gap:40px;margin-top:48px;font-size:12px"><div style="flex:1;border-top:1px solid #000;padding-top:4px">Entrega: ${esc(cab.despachado_por_nombre||cab.usuario_nombre||'')}</div><div style="flex:1;border-top:1px solid #000;padding-top:4px">Recibe: ${esc(cab.retirado_por_nombre||'')}</div></div>`}
     <div class="print-meta" style="margin-top:16px">Generado ${new Date().toLocaleString('es-CL')} · InventIA</div>`;
 }
 
@@ -7636,6 +7692,38 @@ function renderHistorialUbicacionSku(m){
         <td style="font-size:12px">${esc(describirUbicacion({bodega:h.bodega_nueva, ubicacion:h.ubicacion_nueva, storage_bin:h.bin_nueva}))}</td>
       </tr>`).join('')}</tbody></table></div>
     ${m.historial.length>=HISTORIAL_UBICACION_LIMITE?`<div class="hint" style="margin-top:6px">Se muestran los ${HISTORIAL_UBICACION_LIMITE} movimientos más recientes.</div>`:''}
+  </div>`;
+}
+
+function renderDevolucionModal(){
+  const d = state.devolucionModal;
+  if(!d) return '';
+  const cuerpo = d.cargando ? '<div class="empty"><div class="glyph">…</div>Cargando lo que se llevaron…</div>'
+    : d.error ? `<div class="hint" style="color:var(--danger)">No se pudo leer la salida: ${esc(d.error)}</div>`
+    : !d.lineas.length ? '<div class="empty"><div class="glyph">✓</div>De esta salida ya se devolvió todo.</div>'
+    : `<div class="table-wrap"><table>
+        <thead><tr><th>Material</th><th class="num">Salió</th><th class="num">Por devolver</th><th class="num">Devuelve</th></tr></thead>
+        <tbody>${d.lineas.map(l=>`<tr>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}</div></td>
+          <td class="num">${l.cantidad_salida}</td>
+          <td class="num">${l.pendiente}</td>
+          <td class="num"><input type="number" inputmode="decimal" min="0" max="${l.pendiente}" step="any" data-devolver-sku="${esc(l.sku_id)}" value="${esc(d.cantidades[l.sku_id]||'')}" placeholder="0" style="width:76px;margin:0;text-align:right"></td>
+        </tr>`).join('')}</tbody></table></div>
+      <label for="dev-observacion" style="margin-top:10px">Observación</label>
+      <input type="text" id="dev-observacion" value="${esc(d.observacion)}" placeholder="Por qué vuelve (opcional)" autocomplete="off" style="margin:0">`;
+  return `<div class="foto-modal-backdrop" id="devolucion-backdrop">
+    <div class="card" style="width:min(94vw,620px);margin-bottom:0;max-height:88vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div><span class="eyebrow">Devolución a bodega</span><h2 style="margin:0;font-size:17px">Contra <span class="mono">${esc(d.numero)}</span></h2></div>
+        <button id="devolucion-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px">Solo se puede devolver lo que salió en este documento y todavía no ha vuelto. El stock sube al guardar.</div>
+      ${cuerpo}
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button type="button" class="btn btn-primary" id="devolucion-guardar" ${d.guardando||d.cargando||!d.lineas.length?'disabled':''}>${d.guardando?'<span class="spinner"></span> Guardando…':'Registrar devolución'}</button>
+        <button type="button" class="btn btn-secondary" id="devolucion-cancelar" style="width:auto">Cancelar</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -10606,7 +10694,7 @@ function renderDocumentoBodega(tipo){
   `;
 }
 
-function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Ingreso', salida:'Salida', ajuste:'Ajuste'}[t] || t; }
+function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Ingreso', salida:'Salida', ajuste:'Ajuste', devolucion:'Devolución'}[t] || t; }
 function badgeEstadoMovimiento(e){
   return e==='aprobado' ? '<span class="badge badge-ok">Aprobado</span>' : e==='anulado' ? '<span class="badge badge-danger">Anulado</span>' : e==='pendiente_revision' ? '<span class="badge badge-warn">En revisión</span>' : '<span class="badge badge-warn">Por aprobar</span>';
 }
@@ -10650,7 +10738,7 @@ function renderMovimientosBodega(){
     </div>` : ''}
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-        <select id="mov-filtro-tipo" style="width:auto;margin:0"><option value="">Todos</option>${['ingreso','salida','ajuste','apertura'].map(t=>`<option value="${t}" ${b.filtroTipo===t?'selected':''}>${etiquetaTipoMovimiento(t)}</option>`).join('')}</select>
+        <select id="mov-filtro-tipo" style="width:auto;margin:0"><option value="">Todos</option>${['ingreso','salida','devolucion','ajuste','apertura'].map(t=>`<option value="${t}" ${b.filtroTipo===t?'selected':''}>${etiquetaTipoMovimiento(t)}</option>`).join('')}</select>
         <button type="button" class="btn btn-secondary" id="btn-exportar-movimientos" style="width:auto;padding:6px 12px" ${rows.length?'':'disabled'}>Exportar Excel</button>
       </div>
       ${rows.length ? `<div class="table-wrap"><table>
@@ -10660,10 +10748,10 @@ function renderMovimientosBodega(){
           <td>${etiquetaTipoMovimiento(m.tipo)}</td>
           <td class="mono">${esc(m.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(m.descripcion||'')}${m.storage_bin?` · ${esc(m.storage_bin)}`:''}</div></td>
           <td class="num">${m.tipo==='ajuste' && m.cantidad>0 ? '+' : ''}${m.cantidad} ${esc(m.unidad_medida||'')}</td>
-          <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
+          <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : m.tipo==='devolucion' ? `Devuelve ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">${esc(m.motivo||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(m.fecha)}</td>
           <td>${badgeEstadoMovimiento(m.estado)}</td>
-          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${m.documento_id ? ` <button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(m.documento_id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
+          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${m.documento_id ? ` <button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(m.documento_id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button>`:''}${m.tipo==='salida' && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-devolver-doc="${esc(m.documento_id)}" data-devolver-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Devolver</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
         </tr>`; }).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.movimientosCargados ? 'Aún no hay movimientos.' : 'Cargando…'}</div>`}
     </div>
   `;
@@ -11039,7 +11127,7 @@ function render(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -11287,6 +11375,7 @@ function bind(){
     document.querySelectorAll('[data-anular-doc]').forEach(btn=> btn.addEventListener('click', ()=> anularDocumentoBodega(btn.dataset.anularDoc, btn.dataset.numero)));
     document.querySelectorAll('[data-comprobante-doc]').forEach(btn=> btn.addEventListener('click', ()=> imprimirComprobanteBodega(btn.dataset.comprobanteDoc)));
     document.querySelectorAll('[data-imprimir-ultimo]').forEach(btn=> btn.addEventListener('click', ()=> imprimirComprobanteBodega(btn.dataset.imprimirUltimo)));
+    document.querySelectorAll('[data-devolver-doc]').forEach(btn=> btn.addEventListener('click', ()=> abrirDevolucionBodega(btn.dataset.devolverDoc, btn.dataset.devolverNumero)));
     const btnApertura = document.getElementById('btn-apertura-bodega');
     if(btnApertura) btnApertura.addEventListener('click', ()=>{
       const n = Number(state.bodega.valorizacion && state.bodega.valorizacion.sin_apertura) || 0;
@@ -11984,6 +12073,23 @@ function bind(){
         cargarHistorialUbicacionSku(sku.id);
       });
     });
+
+  if(state.devolucionModal){
+    const cerrarDev = ()=> setState({devolucionModal:null});
+    document.getElementById('devolucion-close').addEventListener('click', cerrarDev);
+    document.getElementById('devolucion-cancelar').addEventListener('click', cerrarDev);
+    document.getElementById('devolucion-backdrop').addEventListener('click', e=>{ if(e.target.id==='devolucion-backdrop') cerrarDev(); });
+    // Lo tecleado vive en el estado: cualquier render de fondo reconstruye la tabla entera.
+    document.querySelectorAll('[data-devolver-sku]').forEach(inp=>{
+      inp.addEventListener('input', ev=>{
+        state.devolucionModal = {...state.devolucionModal,
+          cantidades: {...state.devolucionModal.cantidades, [inp.dataset.devolverSku]: ev.target.value}};
+      });
+    });
+    const obs = document.getElementById('dev-observacion');
+    if(obs) obs.addEventListener('input', ev=>{ state.devolucionModal = {...state.devolucionModal, observacion: ev.target.value}; });
+    document.getElementById('devolucion-guardar').addEventListener('click', guardarDevolucionBodega);
+  }
 
   if(state.ubicacionSkuModal){
     const cerrar = ()=> setState({ubicacionSkuModal:null});

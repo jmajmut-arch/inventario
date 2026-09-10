@@ -969,6 +969,24 @@ const fakeFetchImpl = async (url, opts) => {
     aperturaPendientes -= registrados;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({registrados, restantes: aperturaPendientes}) };
   }
+  // Devolución a bodega: lo que queda por devolver de una salida, y el registro.
+  if(path.startsWith('/rest/v1/rpc/lineas_por_devolver')){
+    if(JSON.parse(opts.body).p_documento_id === 'doc-devuelto'){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]' };
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', storage_bin:'R-1', batch:null, unidad_medida:'UN', costo_unitario:1000, cantidad_salida:10, ya_devuelto:4, pendiente:6},
+      {sku_id:'sku-b2', sku_code:'BOD-002', descripcion:'Guante', storage_bin:'R-2', batch:null, unidad_medida:'PAR', costo_unitario:500, cantidad_salida:3, ya_devuelto:0, pendiente:3},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/registrar_devolucion_bodega')){
+    const cuerpo = JSON.parse(opts.body);
+    const excede = (cuerpo.p_lineas||[]).find(l=>l.sku_id==='sku-b1' && l.cantidad>6);
+    if(excede){
+      return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'De BOD-001 quedan 6 por devolver y se intentó devolver '+excede.cantidad}) };
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({documento:{id:'dev-1', numero:'DEV-000001', tipo:'devolucion'}, movimientos:[], repetido:false}) };
+  }
   if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
@@ -6952,6 +6970,52 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(htmlCompSal.includes('Comprobante de salida') && htmlCompSal.includes('Juan Retira · Mantención') && htmlCompSal.includes('Recibe: Juan Retira') && htmlCompSal.includes('Entrega: Ana'), 'el comprobante de salida lleva quién retira, destino y firmas, obtuvo: '+htmlCompSal);
     ctx.__appstate.bodega.movimientos = [cabIng];
     assert(ctx.renderMovimientosBodega().includes('data-comprobante-doc="doc-1"'), 'Movimientos ofrece el PDF por documento');
+
+    // ===== Devolución a bodega: material que salió a un área y vuelve =====
+    // Va SIEMPRE contra la salida que lo entregó, con tope en lo que salió menos lo ya devuelto:
+    // si no, "devolver" sería una puerta para inflar el stock con material que nunca se retiró.
+    const cabDev = {...cabSal, tipo:'devolucion', numero:'DEV-000001', motivo:'Devolución de SAL-000003', usuario_nombre:'Ana'};
+    const htmlCompDev = ctx.comprobanteDocumentoBodegaHTML(cabDev, [cabDev], []);
+    assert(htmlCompDev.includes('Comprobante de devolución'), 'el comprobante de una devolución se titula como tal, obtuvo: '+htmlCompDev);
+    assert(htmlCompDev.includes('Devuelve: Juan Retira') && htmlCompDev.includes('Recibe en bodega: Ana'), 'las firmas de la devolución son al revés que las de la salida, obtuvo: '+htmlCompDev);
+    assert(htmlCompDev.includes('SAL-000003'), 'el comprobante dice contra qué salida se devolvió');
+
+    // El botón Devolver aparece solo en salidas aprobadas y no anuladas.
+    ctx.__appstate.bodega.movimientos = [{...cabSal, id:'m-sal', documento_id:'doc-sal', estado:'aprobado', sku_code:'BOD-001', cantidad:10, fecha:'2026-09-08'}];
+    assert(ctx.renderMovimientosBodega().includes('data-devolver-doc="doc-sal"'), 'una salida aprobada ofrece devolver, obtuvo: '+ctx.renderMovimientosBodega());
+    ctx.__appstate.bodega.movimientos = [{...cabIng, id:'m-ing', documento_id:'doc-1', estado:'aprobado'}];
+    assert(!ctx.renderMovimientosBodega().includes('data-devolver-doc'), 'un ingreso no ofrece devolver');
+    ctx.__appstate.bodega.movimientos = [{...cabSal, id:'m-anu', documento_id:'doc-sal', estado:'aprobado', documento_anulado_en:'2026-09-09'}];
+    assert(!ctx.renderMovimientosBodega().includes('data-devolver-doc'), 'una salida anulada no ofrece devolver');
+
+    // Abrir la devolución trae lo que queda por devolver, no lo que salió.
+    await ctx.abrirDevolucionBodega('doc-sal', 'SAL-000003');
+    const dev = ctx.__appstate.devolucionModal;
+    assert(dev && dev.lineas.length===2 && dev.lineas[0].pendiente===6, 'debe traer el pendiente por línea, obtuvo: '+JSON.stringify(dev && dev.lineas));
+    const htmlDev = ctx.renderDevolucionModal();
+    assert(htmlDev.includes('SAL-000003') && htmlDev.includes('BOD-001') && htmlDev.includes('data-devolver-sku="sku-b1"'), 'el modal lista las líneas con su campo de cantidad, obtuvo: '+htmlDev);
+
+    // Devolver más de lo pendiente se frena en el cliente, antes de molestar al servidor.
+    ctx.__appstate.devolucionModal = {...dev, cantidades:{'sku-b1':'9'}};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarDevolucionBodega())===false, 'no debe dejar devolver más de lo pendiente');
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_devolucion_bodega')), 'ni siquiera llama al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('quedan 6'), 'el aviso dice cuánto queda, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Devolución válida: manda solo las líneas con cantidad y cierra.
+    ctx.__appstate.devolucionModal = {...dev, cantidades:{'sku-b1':'2', 'sku-b2':''}, observacion:'Sobró de la mantención'};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarDevolucionBodega())===true, 'una devolución dentro del tope debe guardarse');
+    const rpcDev = calls.find(c=>c.url.includes('/rpc/registrar_devolucion_bodega'));
+    const bodyDev = rpcDev && JSON.parse(rpcDev.opts.body);
+    assert(bodyDev && bodyDev.p_documento_salida_id==='doc-sal' && bodyDev.p_lineas.length===1 && bodyDev.p_lineas[0].cantidad===2 && typeof bodyDev.p_idempotency_key==='string', 'se manda la salida de origen, solo las líneas con cantidad y clave de idempotencia, obtuvo: '+JSON.stringify(bodyDev));
+    assert(ctx.__appstate.devolucionModal===null, 'tras guardar, el modal se cierra');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('DEV-000001'), 'avisa el número de la devolución');
+
+    // Una salida ya devuelta por completo lo dice, en vez de mostrar una tabla vacía.
+    await ctx.abrirDevolucionBodega('doc-devuelto', 'SAL-000009');
+    assert(ctx.renderDevolucionModal().includes('ya se devolvió todo'), 'sin pendientes lo dice explícitamente');
+    ctx.__appstate.devolucionModal = null;
     // Dashboard: tarjeta de bodega con pendientes y últimos movimientos, solo con el módulo activo.
     ctx.__appstate.bodega.pendientes = [{id:'p1'},{id:'p2'}];
     ctx.__appstate.bodega.ultimosMovimientos = [{id:'u1', numero:'ING-000007', tipo:'ingreso', sku_code:'BOD-001', cantidad:5, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08'}];
