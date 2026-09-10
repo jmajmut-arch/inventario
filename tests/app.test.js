@@ -1029,6 +1029,14 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/skus?id=eq.') && opts && opts.method==='PATCH' && JSON.parse(opts.body).storage_bin==='BIN-OCUPADO'){
     return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}) };
   }
+  // Buscador de la pestaña Mover: mismo criterio que Contar, pero solo con lo que hace falta para
+  // decidir a dónde se mueve el material.
+  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch&or=(sku_code.ilike')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'id-libre-1', sku_code:'FIL-1001', descripcion:'Filtro de aceite', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:null},
+      {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:null, ubicacion:null, storage_bin:null, batch:'NEW'},
+    ]) };
+  }
   // Catálogo de ubicaciones (tabla ubicaciones): la lista de sitios de la empresa, que ahora
   // existe aparte de lo que digan los materiales.
   if(path.startsWith('/rest/v1/ubicaciones?select=')){
@@ -4600,6 +4608,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   assert(!ctx.renderTablaSkus().includes('data-mover-sku'), 'un operador no debe poder mover materiales');
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // Pestaña propia para mover: el botón dentro del maestro no se encontraba, así que la acción
+  // tiene su pantalla con buscador, en la barra de abajo junto a Stock y Movimientos.
+  ctx.__appstate.view = 'mover';
+  assert(ctx.renderShell().includes('data-tab="mover"'), 'la pestaña Mover está en la barra de abajo, obtuvo: '+ctx.renderShell().slice(0,200));
+  ctx.__appstate.mover = {texto:'', resultados:[], buscando:false, yaBuscado:false, error:null};
+  assert(ctx.renderMover().includes('Escribe al menos dos caracteres'), 'la pantalla parte pidiendo una búsqueda');
+  calls.length = 0;
+  await ctx.buscarMaterialParaMover('F');
+  assert(calls.length===0, 'con una sola letra no se consulta al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  await ctx.buscarMaterialParaMover('FIL');
+  assert(calls.some(c=>c.url.includes('/skus_lectura') && c.url.includes('or=(sku_code.ilike')), 'busca por código o descripción en el servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.mover.resultados.length>0 && ctx.__appstate.mover.yaBuscado===true, 'los resultados quedan en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.mover));
+  const htmlMover = ctx.renderMover();
+  assert(htmlMover.includes('data-mover-sku="id-libre-1"') && htmlMover.includes('Hoy en'), 'cada resultado muestra dónde está hoy y ofrece moverlo, obtuvo: '+htmlMover);
+  ctx.__appstate.view = 'skus';
 
   const abrirModalMover = (extra={}) => { ctx.__appstate.ubicacionSkuModal = {
     id:'sku-mover', skuCode:'SKU-MOVER', descripcion:'Bomba', batch:null,
