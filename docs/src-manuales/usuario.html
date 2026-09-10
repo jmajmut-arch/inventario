@@ -109,14 +109,14 @@
     <div>
       <ol class="steps">
         <li><span class="num">1</span><div>Arriba elige la ventana: <b>Día, Semana, Mes</b> o <b>Año</b>, o un <b>Período</b> completo en el selector. Navega con las flechas ‹ ›. Desde Calendario o desde un día puntual puedes volver con "Ver toda la semana".</div></li>
-        <li><span class="num">2</span><div>En <b>Agregar a la planificación</b>, elige la Fecha y la forma de agregar: <b>Por ubicación</b> (bodega, y opcionalmente Ubicación específica y uno, varios o todos los Storage bins; también "SKU sin ubicación" o "sin ubicación específica") o <b>Por código de SKU</b>.</div></li>
-        <li><span class="num">3</span><div>Asigna un <b>Responsable</b> (opcional, solo personas de tu empresa) y una <b>Nota</b> si el equipo necesita contexto, y toca <b>Agregar</b>.</div></li>
-        <li><span class="num">4</span><div>En Día y Semana ves el detalle: cada entrada con su lista de materiales, y puedes quitar un SKU puntual. En Mes, Año y Período la vista es <b>resumida</b> (totales por entrada). El <b>Exportar PDF</b> trae siempre el listado completo.</div></li>
+        <li><span class="num">2</span><div>En <b>Agregar a la planificación</b>, elige la Fecha y cómo agregar: <b>Por ubicación</b> (bodega, y si quieres Ubicación específica y uno, varios o todos los Storage bins; también "SKU sin ubicación") o <b>Por código de SKU</b>.</div></li>
+        <li><span class="num">3</span><div>Asigna un <b>Responsable</b> (opcional, solo de tu empresa) y una <b>Nota</b> si hace falta contexto, y toca <b>Agregar</b>.</div></li>
+        <li><span class="num">4</span><div>En Día y Semana ves el detalle de cada entrada y puedes quitar un SKU puntual. En Mes, Año y Período la vista es <b>resumida</b> (totales por entrada). El <b>Exportar PDF</b> trae siempre el listado completo.</div></li>
       </ol>
       <div class="box new"><div class="tag">Nuevo · Agregar por código de SKU</div>Escribe 2 o más caracteres del código o la descripción: aparecen solo materiales pendientes del período, con su ubicación; los que ya están en otra entrada se marcan "Ya en el plan". Toca cada resultado (o Enter) y al presionar Agregar se crea una entrada por cada bodega + ubicación con exactamente esos materiales, visible como "Por código · bodega · ubicación" y bajo esa ubicación en Contar.</div>
       <div class="box new"><div class="tag">Nuevo · Aviso de solapamiento</div>Antes de agregar por ubicación, InventIA revisa cuántos de esos materiales ya están en otra entrada del período y te deja decidir si igual la agregas. Cada SKU se cuenta una sola vez en los totales, aunque esté en dos entradas.</div>
       <div class="box new"><div class="tag">Nuevo · Vistas grandes sin saturar</div>Mes, Año y Período piden solo los totales, en una llamada. Para ver o quitar SKU, cambia a Día o Semana.</div>
-      <div class="box"><div class="tag">Qué pasa con lo no planificado</div>Nada obliga a ceñirse al plan: cualquier persona puede contar un material fuera de lo planificado buscándolo en Contar. Esos conteos quedan marcados como "fuera de plan" en Buscar y en el Dashboard.</div>
+      <div class="box"><div class="tag">Qué pasa con lo no planificado</div>Nadie está obligado a ceñirse al plan: se puede contar cualquier material buscándolo en Contar. Esos conteos quedan marcados como "fuera de plan" en Buscar y en el Dashboard.</div>
     </div>
     <div class="shot"><img class="tall" src="img/plan.png" alt="Plan: agregar a la planificación"><div class="cap">Plan → agregar a la planificación</div></div>
   </div>
@@ -384,11 +384,25 @@
         <li><span class="num">4</span><div><b>Movimientos y Stock.</b> En Movimientos ves todo lo registrado, apruebas o rechazas pendientes (admin), anulas con motivo e imprimes el comprobante en PDF. En Stock ves el saldo por material, su <b>Kardex</b> (cada movimiento con saldo corrido) y exportas a Excel.</div></li>
         <li><span class="num">5</span><div><b>Reportes.</b> Desde el Inicio o el Dashboard, con un rango de fechas: cuánto consumió cada persona, área o destino, cuánto ingresó cada proveedor, y la valorización del stock. Todo exportable a Excel. En Stock puedes fijar un <b>mínimo</b> por material (o cargarlo en la columna "Stock mínimo" del Excel), filtrar los que están bajo ese mínimo y clasificar cada material por <b>tipo</b>: EPP, repuesto, sustancia peligrosa, componente u otros. Los reportes se agrupan también por ese tipo.</div></li>
       </ol>
-      <div class="box new"><div class="tag">Sin señal</div>Ingresos y salidas se guardan en el celular y se envían solos al volver la conexión. Una salida registrada sin señal que ya no alcanza el stock queda "pendiente de revisión" para el administrador, sin perderse.</div>
-      <div class="box"><div class="tag">Cómo se activa</div>Lo activa InventIA por empresa. Si ya tenías materiales cargados, Movimientos te avisa cuántos tienen stock sin ningún movimiento y te ofrece <b>Registrar apertura de stock</b>: deja ese saldo como primer movimiento del kardex sin cambiar el stock. También se registra sola en la primera carga de Excel posterior a la activación. Desde ahí el saldo solo cambia con ingresos, salidas y ajustes.</div>
-      <div class="box"><div class="tag">Sobre la valorización</div>El valor sale del costo que trae cada movimiento y, si no lo tiene, del costo unitario del maestro. Un ingreso con costo llena el del maestro solo cuando estaba vacío: si el material ya tenía costo cargado desde el ERP, ese no se pisa. Los materiales con stock pero sin costo cargado se informan aparte y no se suman al total, para que la cifra no quede corta sin avisar.</div>
     </div>
     <div class="shot"><img src="img/bodega-inicio.png" alt="Inicio del módulo de bodega"><div class="cap">Inicio → Ingreso, Salida, Inventario y Dashboard</div></div>
+  </div>
+</section>
+
+<!-- 16 (continuación) -->
+<section class="page">
+  <div class="kicker">16 · Módulo de bodega</div>
+  <h2 class="title">Bodega: activación, costos y trabajo sin señal</h2>
+  <p class="intro">Tres cosas que conviene tener claras antes de empezar a usar el módulo en terreno.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols">
+    <div>
+      <div class="box"><div class="tag">Cómo se activa</div>Lo activa InventIA por empresa. Si ya tenías materiales cargados, Movimientos te avisa cuántos tienen stock sin ningún movimiento y te ofrece <b>Registrar apertura de stock</b>: deja ese saldo como primer movimiento del kardex sin cambiar el stock. También se registra sola en la primera carga de Excel posterior a la activación. Desde ahí el saldo solo cambia con ingresos, salidas y ajustes.</div>
+      <div class="box"><div class="tag">De dónde sale el costo</div><b>Manda la última compra:</b> cada ingreso que lleva costo pasa a ser el costo de ese material. En la línea del ingreso viene sugerido el costo actual, así que ves qué estás confirmando antes de guardar.<br><br>Cuando esa compra no es el costo con el que quieres valorizar —una compra de urgencia, un flete cargado por error, un precio mal escrito en la guía— corrígelo en <b>Inventario</b>, columna <b>Costo</b>. Solo los administradores pueden editarla.</div>
+      <div class="box"><div class="tag">Sobre la valorización</div>El valor sale del costo que trae cada movimiento y, si no lo tiene, del costo del maestro. Los materiales con stock pero sin costo cargado se informan aparte y no se suman al total, para que la cifra no quede corta sin avisar.</div>
+      <div class="box new"><div class="tag">Sin señal</div>Ingresos y salidas se guardan en el celular y se envían solos al volver la conexión. Una salida registrada sin señal que ya no alcanza el stock queda "pendiente de revisión" para el administrador, sin perderse.</div>
+    </div>
+    <div class="shot"><img class="tall" src="img/bodega-inicio.png" alt="Inicio del módulo de bodega"><div class="cap">El saldo solo cambia con ingresos, salidas y ajustes</div></div>
   </div>
 </section>
 

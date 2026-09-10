@@ -44,7 +44,10 @@ h2.title{font-size:20pt;line-height:1.12;letter-spacing:-.015em;margin:0 0 6px;}
 .box.warn{border-color:#ead9b0;background:var(--warn-soft);} .box.warn .tag{color:var(--warn);}
 .shot{display:flex;flex-direction:column;align-items:center;gap:6px;}
 .shot img{max-width:100%;max-height:150mm;width:auto;height:auto;border-radius:10px;border:1px solid var(--line);box-shadow:0 12px 30px -18px rgba(36,26,16,.5);background:#fff;}
-.shot img.tall{max-height:215mm;}
+/* 215mm dejaba la columna de la captura (imagen + pie) más alta que lo que queda de página bajo
+   el título, y como cada .page se recorta a 286mm el texto de abajo desaparecía del PDF sin aviso:
+   pasaba en Planificar, los dos Dashboard y Configuraciones. */
+.shot img.tall{max-height:200mm;}
 .shot .cap{font-size:8.5pt;color:var(--faint);text-align:center;}
 .shot .noshot{border:1px dashed var(--line);border-radius:10px;padding:14px;font-size:8.8pt;color:var(--faint);text-align:center;background:var(--surface);}
 .checks{list-style:none;padding:0;margin:0;font-size:9.8pt;}
