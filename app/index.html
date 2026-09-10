@@ -1781,7 +1781,7 @@ async function buscarSkusLibre(texto){
   const miPeticion = ++buscadorLibrePeticionId;
   const t = sanearTextoFiltro(texto);
   try{
-    const rows = t? await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
+    const rows = t? await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,total_bloqueado,total_transito_1,total_transito_2,total_transferencia&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
     state.buscadorLibre = { resultados: rows||[], buscando: false };
     actualizarResultadosBuscadorLibreEnPantalla();
@@ -8370,7 +8370,7 @@ function renderTablaSkus(){
           <td>${esc(s.ubicacion||'—')}</td>
           <td class="mono">${esc(s.storage_bin||'—')}</td>
           <td class="mono">${esc(s.batch||'—')}</td>
-          ${ocultarStockOperador()?'':`<td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}</td>`}
+          ${ocultarStockOperador()?'':`<td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}${infoStockPorTipo(s)}</td>`}
           <td>${claseAbcBadge(s.clase_abc)}</td>
           ${esAdmin?`<td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-mover-sku="${esc(s.id)}" style="width:auto;padding:5px 10px;font-size:12px">Mover</button></td>`:''}
         </tr>`;
@@ -8711,17 +8711,29 @@ function renderConteo(){
 // Stock por tipo (Bloqueado/Tránsito 1/Tránsito 2/Transferencia, ver CAMPOS_SKU): solo
 // informativo, para dar contexto de por qué un conteo puede diferir del stock sistema sin
 // que sea un error real (ej. parte del material está bloqueado por calidad, o en tránsito
-// entre bodegas). No participa del cálculo de diferencia. Se omite entero si el SKU no trae
-// ninguno de los 4 datos, para no ensuciar la tabla en el caso común.
+// entre bodegas). No participa del cálculo de diferencia. Se omite entero si el material no
+// trae ninguno de los 4 datos, para no ensuciar la tabla en el caso común.
+//
+// Se muestra el total del MATERIAL COMPLETO, no el de la fila. El ERP no manda el tránsito en
+// la fila del bin: lo manda en una fila aparte del mismo código, casi siempre sin ubicación ni
+// bin y con stock 0, porque el material todavía no llegó a ningún bin. Como esa fila no se
+// cuenta nunca, el que estaba parado frente al bin no veía el dato: medido en Escondida, de las
+// 60.351 filas con stock, 4.005 son de un código con alguno de estos valores en otra fila y
+// 2.686 no mostraban nada. Los total_* los calculan skus_lectura, reconteo_pendiente y
+// universo_entradas_plan_contar, con el mismo enmascarado de conteo ciego que el stock.
 function infoStockPorTipo(r){
+  // Sin los totales (una fila que venga de una consulta que no los pide) se cae de vuelta al
+  // valor de la fila: menos completo, pero nunca inventa un total que no vino.
+  const valor = (total, propio) => total!=null ? Number(total) : (propio!=null ? Number(propio) : 0);
   const partes = [
-    r.stock_bloqueado? `Bloq: ${r.stock_bloqueado}` : '',
-    r.stock_transito_1? `Trán. 1: ${r.stock_transito_1}` : '',
-    r.stock_transito_2? `Trán. 2: ${r.stock_transito_2}` : '',
-    r.stock_transferencia? `Transf: ${r.stock_transferencia}` : '',
-  ].filter(Boolean);
+    ['Bloq', valor(r.total_bloqueado, r.stock_bloqueado)],
+    ['Trán. 1', valor(r.total_transito_1, r.stock_transito_1)],
+    ['Trán. 2', valor(r.total_transito_2, r.stock_transito_2)],
+    ['Transf', valor(r.total_transferencia, r.stock_transferencia)],
+  ].filter(([, n]) => n > 0).map(([etiqueta, n]) => `${etiqueta}: ${n}`);
   if(!partes.length) return '';
-  return `<div class="hint" style="font-size:10.5px;margin-top:2px;white-space:nowrap">${esc(partes.join(' · '))}</div>`;
+  const hayTotales = r.total_bloqueado!=null || r.total_transito_1!=null || r.total_transito_2!=null || r.total_transferencia!=null;
+  return `<div class="hint" style="font-size:10.5px;margin-top:2px;white-space:nowrap">${hayTotales?'Todo el material · ':''}${esc(partes.join(' · '))}</div>`;
 }
 
 /* =======================================================================
@@ -11775,7 +11787,7 @@ function bind(){
         if(!r) return;
         setState({
           view:'conteo',
-          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc, stock_bloqueado:r.stock_bloqueado, stock_transito_1:r.stock_transito_1, stock_transito_2:r.stock_transito_2, stock_transferencia:r.stock_transferencia },
+          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc, stock_bloqueado:r.stock_bloqueado, stock_transito_1:r.stock_transito_1, stock_transito_2:r.stock_transito_2, stock_transferencia:r.stock_transferencia, total_bloqueado:r.total_bloqueado, total_transito_1:r.total_transito_1, total_transito_2:r.total_transito_2, total_transferencia:r.total_transferencia },
           // conteoOrigenPlan:true (no false): recontar una diferencia es trabajo pedido por la
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en

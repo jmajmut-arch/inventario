@@ -392,7 +392,11 @@
       "ultimo_conteo_fecha",
       "unidad_medida",
       "valor_diferencia_linea",
-      "veces_con_diferencia"
+      "veces_con_diferencia",
+      "total_bloqueado",
+      "total_transito_1",
+      "total_transito_2",
+      "total_transferencia"
     ],
     "skus": [
       "activo",
@@ -513,7 +517,11 @@
       "ultimo_conteo_id",
       "ultimo_conteo_usuario_id",
       "unidad_medida",
-      "updated_at"
+      "updated_at",
+      "total_bloqueado",
+      "total_transito_1",
+      "total_transito_2",
+      "total_transferencia"
     ],
     "skus_planificables": [
       "activo",
