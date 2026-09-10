@@ -4199,6 +4199,51 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const motivoVacioAgrup = bodyAgrup.detalle_errores.find(e=>/código de sku vacío/i.test(e.motivo));
   assert(!!motivoVacioAgrup && motivoVacioAgrup.cantidad===1, 'la fila sin código debe contarse aparte, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
 
+  // ===== Aviso de filas que comparten identidad =====
+  // El upsert se queda con la última cuando dos filas coinciden en código + bodega + batch +
+  // ubicación + bin. La carga de Escondida del 10 de septiembre trajo 61.722 filas y escribió
+  // 61.587: 135 se descartaron y la app informó "0 con error". Ahora se avisa ANTES de confirmar.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' },
+    modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', ubicacion:'Ubic', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}],
+    headers: ['Codigo','Bodega','Ubic','Bin','Stock','Costo'],
+    confirmaReemplazo: false,
+    data: [
+      // Mismo código, mismo sitio, dos veces: se pisan.
+      { Codigo:'10001445', Bodega:'B501', Ubic:'', Bin:'', Stock:'0', Costo:'1' },
+      { Codigo:'10001445', Bodega:'B501', Ubic:'', Bin:'', Stock:'0', Costo:'1' },
+      // Mismo código en dos bines distintos: NO se pisan, es lo normal.
+      { Codigo:'10001445', Bodega:'B501', Ubic:'0100', Bin:'N1E-120-F3', Stock:'14', Costo:'1' },
+      { Codigo:'10001445', Bodega:'B501', Ubic:'0100', Bin:'N1E-120-F4', Stock:'3', Costo:'1' },
+      // Otro código repetido tres veces: aporta 2 al total.
+      { Codigo:'20002', Bodega:'B521', Ubic:'0001', Bin:'A-1', Stock:'5', Costo:'1' },
+      { Codigo:'20002', Bodega:'B521', Ubic:'0001', Bin:'A-1', Stock:'6', Costo:'1' },
+      { Codigo:'20002', Bodega:'B521', Ubic:'0001', Bin:'A-1', Stock:'7', Costo:'1' },
+      // Sin código: no llega al upsert, no cuenta acá (ya se informa como error aparte).
+      { Codigo:'', Bodega:'B501', Ubic:'', Bin:'', Stock:'1', Costo:'1' },
+    ],
+  };
+  const repetidas = ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo);
+  assert(repetidas.total===3, 'deben contarse 3 filas que se pisan (1 del primer código + 2 del segundo), obtuvo: '+JSON.stringify(repetidas));
+  assert(repetidas.ejemplos.length===2, 'dos identidades distintas repetidas, obtuvo: '+JSON.stringify(repetidas.ejemplos));
+  const htmlPreviewRep = ctx.renderCargaPreview();
+  assert(htmlPreviewRep.includes('3 fila(s) del archivo comparten identidad'), 'el preview avisa antes de confirmar, obtuvo: '+htmlPreviewRep);
+  assert(htmlPreviewRep.includes('10001445') && htmlPreviewRep.includes('20002'), 'muestra ejemplos concretos para poder revisar el export');
+
+  // Un archivo sin filas repetidas no muestra el aviso.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'limpio.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock', costo_unitario:'Costo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}],
+    headers: ['Codigo','Bodega','Stock','Costo'],
+    confirmaReemplazo: false,
+    data: [ { Codigo:'A', Bodega:'B501', Stock:'1', Costo:'1' }, { Codigo:'B', Bodega:'B501', Stock:'2', Costo:'1' } ],
+  };
+  assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'sin repetidas, total 0');
+  assert(!ctx.renderCargaPreview().includes('comparten identidad'), 'sin repetidas no se muestra el aviso');
+
   // Un archivo grande (ej. 64.000 filas de un maestro SAP) se parte en bloques de 2.000 antes
   // de mandarlo — un solo POST con todo el archivo superaba el statement_timeout de la base
   // (ver comentario en confirmarCargaMasiva). Con 2.500 filas únicas deben salir 2 POST: uno
