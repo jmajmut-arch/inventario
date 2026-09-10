@@ -987,6 +987,15 @@ const fakeFetchImpl = async (url, opts) => {
     }
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({documento:{id:'dev-1', numero:'DEV-000001', tipo:'devolucion'}, movimientos:[], repetido:false}) };
   }
+  // Traslado entre bodegas: un documento con dos movimientos (sale de un sitio, entra en otro).
+  if(path.startsWith('/rest/v1/rpc/registrar_transferencia_bodega')){
+    const cuerpo = JSON.parse(opts.body);
+    const excede = (cuerpo.p_lineas||[]).find(l=>Number(l.cantidad)>6);
+    if(excede){
+      return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'Stock insuficiente: disponible 6'}) };
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({documento:{id:'tra-1', numero:'TRA-000001', tipo:'transferencia'}, movimientos:[], repetido:false}) };
+  }
   if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
@@ -1035,7 +1044,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(aperturaBodegaHecha ? [{id:'mov-ap'}] : []) };
   }
   if(path.startsWith('/rest/v1/stock_actual')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, bodega:'Bodega Central', ubicacion:'Pasillo 1', storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
   }
   // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
   // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
@@ -7016,6 +7025,67 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.abrirDevolucionBodega('doc-devuelto', 'SAL-000009');
     assert(ctx.renderDevolucionModal().includes('ya se devolvió todo'), 'sin pendientes lo dice explícitamente');
     ctx.__appstate.devolucionModal = null;
+
+    // ===== Traslado entre bodegas =====
+    // Mueve CANTIDAD de un sitio a otro y deja rastro en el kardex de los dos. Es distinto de
+    // "Mover material", que cambia el sitio de la ficha completa para corregir un dato mal puesto.
+    ctx.__appstate.view = 'stock';
+    await ctx.cargarStockBodega();
+    const htmlStockTra = ctx.renderStockBodega();
+    assert(htmlStockTra.includes('data-transferir-sku="sku-b1"') && htmlStockTra.includes('data-transferir-stock="6"') && htmlStockTra.includes('data-transferir-bodega="Bodega Central"'), 'Stock ofrece Transferir con el sitio de origen y el stock, obtuvo: '+htmlStockTra);
+    // Sin stock no hay nada que trasladar: el botón no se ofrece.
+    const stockConStock = ctx.__appstate.bodega.stock;
+    ctx.__appstate.bodega.stock = [{...stockConStock[0], stock:0, valor:0}];
+    assert(!ctx.renderStockBodega().includes('data-transferir-sku'), 'un material sin stock no ofrece Transferir');
+    ctx.__appstate.bodega.stock = stockConStock;
+
+    ctx.__appstate.ubicaciones = {cargado:true, cargando:false, lista:[
+      {id:'u-1', bodega:'Bodega Central', ubicacion:null, activo:true},
+      {id:'u-2', bodega:'Bodega Norte', ubicacion:null, activo:true},
+      {id:'u-3', bodega:'Bodega Vieja', ubicacion:null, activo:false},
+      {id:'u-4', bodega:'Bodega Norte', ubicacion:'Rack A', activo:true},
+    ], materialesPorBodega:{'Bodega Central':10, 'Bodega Vieja':3}, nuevaBodega:'', renombrando:null};
+    await ctx.abrirTransferenciaBodega({skuId:'sku-b1', codigo:'BOD-001', descripcion:'Filtro', stock:'6', unidad:'UN', bodegaOrigen:'Bodega Central', ubicacionOrigen:'Pasillo 1', binOrigen:'R-1'});
+    const htmlTra = ctx.renderTransferenciaModal();
+    assert(htmlTra.includes('BOD-001') && htmlTra.includes('Bodega Central') && htmlTra.includes('R-1') && htmlTra.includes('max="6"'), 'el modal muestra el origen y no deja pasar del stock del sitio, obtuvo: '+htmlTra);
+    assert(htmlTra.includes('>Bodega Norte<') && !htmlTra.includes('>Bodega Vieja<'), 'ofrece las bodegas activas y nunca una desactivada, obtuvo: '+htmlTra);
+
+    // Más de lo que hay en el sitio: se frena en el cliente, sin molestar al servidor.
+    const traBase = ctx.__appstate.transferenciaModal;
+    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'9', bodega:'Bodega Norte'};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarTransferenciaBodega())===false, 'no debe dejar trasladar más de lo que hay');
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_transferencia_bodega')), 'ni siquiera llama al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('Solo hay 6'), 'el aviso dice cuánto hay, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Sin bodega de destino no hay traslado que valga.
+    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'2', bodega:''};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarTransferenciaBodega())===false && JSON.stringify(elements['toast-root'].hijos).includes('bodega de destino'), 'la bodega de destino es obligatoria, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Destino idéntico al origen: no es un traslado, es ruido en el kardex.
+    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'2', bodega:'Bodega Central', ubicacion:'Pasillo 1', bin:'R-1'};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarTransferenciaBodega())===false && JSON.stringify(elements['toast-root'].hijos).includes('mismo sitio'), 'el destino no puede ser el sitio de origen, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_transferencia_bodega')), 'tampoco llega al servidor');
+
+    // Traslado válido: manda la línea, el destino y una clave de idempotencia, y cierra.
+    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'2', bodega:'Bodega Norte', ubicacion:'Rack A', bin:'N-7', observacion:'Se necesita en el norte'};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarTransferenciaBodega())===true, 'un traslado dentro del stock debe guardarse');
+    const rpcTra = calls.find(c=>c.url.includes('/rpc/registrar_transferencia_bodega'));
+    const bodyTra = rpcTra && JSON.parse(rpcTra.opts.body);
+    assert(bodyTra && bodyTra.p_lineas.length===1 && bodyTra.p_lineas[0].sku_id==='sku-b1' && bodyTra.p_lineas[0].cantidad===2 && bodyTra.p_bodega_destino==='Bodega Norte' && bodyTra.p_ubicacion_destino==='Rack A' && bodyTra.p_bin_destino==='N-7' && typeof bodyTra.p_idempotency_key==='string', 'se manda la línea, el sitio de destino y la clave de idempotencia, obtuvo: '+JSON.stringify(bodyTra));
+    assert(ctx.__appstate.transferenciaModal===null, 'tras guardar, el modal se cierra');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('TRA-000001'), 'avisa el número del traslado, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    // Un sitio de destino en blanco es "la bodega, sin más detalle": debe viajar como null, no como "".
+    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'1', bodega:'Bodega Norte', ubicacion:'', bin:''};
+    calls.length = 0;
+    await ctx.guardarTransferenciaBodega();
+    const bodySimple = JSON.parse(calls.find(c=>c.url.includes('/rpc/registrar_transferencia_bodega')).opts.body);
+    assert(bodySimple.p_ubicacion_destino===null && bodySimple.p_bin_destino===null, 'ubicación y bin vacíos viajan como null, obtuvo: '+JSON.stringify(bodySimple));
+    ctx.__appstate.transferenciaModal = null;
+    ctx.__appstate.ubicaciones = {cargado:false, cargando:false, lista:[], materialesPorBodega:{}, nuevaBodega:'', renombrando:null};
     // Dashboard: tarjeta de bodega con pendientes y últimos movimientos, solo con el módulo activo.
     ctx.__appstate.bodega.pendientes = [{id:'p1'},{id:'p2'}];
     ctx.__appstate.bodega.ultimosMovimientos = [{id:'u1', numero:'ING-000007', tipo:'ingreso', sku_code:'BOD-001', cantidad:5, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08'}];
