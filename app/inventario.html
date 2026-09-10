@@ -10455,38 +10455,31 @@ function renderReportesBodega(){
 // Tarjetas de Configuraciones (admin): proveedores y personas que retiran.
 function renderUbicacionesConfig(){
   const u = state.ubicaciones;
-  const bodegas = [];
-  (u.lista||[]).forEach(f=>{
-    if(f.ubicacion) return;
-    bodegas.push({...f, especificas: (u.lista||[]).filter(x=> x.bodega===f.bodega && x.ubicacion)});
-  });
+  const bodegas = (u.lista||[]).filter(f=>!f.ubicacion).map(f=>({
+    ...f, especificas: (u.lista||[]).filter(x=> x.bodega===f.bodega && x.ubicacion),
+    materiales: u.materialesPorBodega[f.bodega] || 0,
+  }));
   const r = u.renombrando;
   return `
-    <div class="section-head"><div><span class="eyebrow">Maestro</span><h2 style="font-size:15px">Ubicaciones ${campoConInfo('La lista de bodegas y ubicaciones específicas de tu empresa. Crear una acá te deja preparar la estructura antes de cargar materiales, y hace que el formulario de material elija de esta lista en vez de aceptar cualquier texto: así no terminas con "Bodega Central" y "bodega central" como dos sitios distintos.')}</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Maestro</span><h2 style="font-size:15px">Ubicaciones ${campoConInfo('La lista de bodegas y ubicaciones específicas de tu empresa. Crear una acá te deja preparar la estructura antes de cargar materiales, y hace que el formulario de material avise si escribes un sitio que no está en la lista: así no terminas con "Bodega Central" y "bodega central" como dos sitios distintos.')}</h2></div></div>
     <div class="card">
-      <form id="form-nueva-bodega" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div style="flex:1;min-width:180px"><label for="nueva-bodega">Bodega nueva</label><input type="text" id="nueva-bodega" placeholder="Ej. Bodega Central" style="margin:0"></div>
-        <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar</button>
+      <form id="form-nueva-bodega" style="display:flex;gap:8px;align-items:center;max-width:520px;margin-bottom:12px">
+        <input type="text" id="nueva-bodega" placeholder="Nombre de la bodega nueva" style="margin:0;flex:1">
+        <button type="submit" class="btn btn-secondary" style="width:auto;flex:none;padding:8px 14px">Agregar</button>
       </form>
-      ${u.cargando && !u.cargado ? '<div class="hint" style="margin-top:10px">Cargando…</div>' : ''}
-      ${bodegas.length ? `<div style="margin-top:12px">${bodegas.map(b=>{
-        const materiales = u.materialesPorBodega[b.bodega] || 0;
-        return `
-        <div class="plan-item" style="padding:10px 0;flex-direction:column;align-items:stretch;gap:6px">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="flex:1;font-weight:600;${b.activo?'':'opacity:.5'}">${esc(b.bodega)}</span>
-            <span class="hint" style="margin:0">${materiales.toLocaleString('es-CL')} material${materiales===1?'':'es'}</span>
-            ${b.activo?'':'<span class="badge badge-danger">Inactiva</span>'}
-            <button type="button" class="link-btn" data-renombrar-bodega="${esc(b.bodega)}">Renombrar</button>
-            <button type="button" class="link-btn" data-ubicacion-toggle="${esc(b.id)}" data-activo="${b.activo?'1':'0'}">${b.activo?'Desactivar':'Reactivar'}</button>
-          </div>
-          ${b.especificas.length ? `<div class="hint" style="margin:0">${b.especificas.map(e=>`<span style="${e.activo?'':'opacity:.5'}">${esc(e.ubicacion)}</span>`).join(' · ')}</div>` : ''}
-          <form class="form-nueva-especifica" data-bodega="${esc(b.bodega)}" style="display:flex;gap:6px;align-items:center">
-            <input type="text" name="ubicacion" placeholder="Agregar ubicación específica" style="margin:0;flex:1;font-size:12.5px;padding:6px 8px">
-            <button type="submit" class="btn btn-secondary" style="width:auto;padding:6px 10px;font-size:12px">Agregar</button>
-          </form>
-        </div>`;
-      }).join('')}</div>` : (u.cargado ? '<div class="hint" style="margin-top:10px">Todavía no hay bodegas. Crea la primera acá o cárgala junto con los materiales.</div>' : '')}
+      ${bodegas.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Bodega</th><th>Ubicaciones específicas</th><th class="num">Materiales</th><th></th></tr></thead>
+        <tbody>${bodegas.map(b=>`<tr>
+          <td style="${b.activo?'':'opacity:.5'}"><strong>${esc(b.bodega)}</strong>${b.activo?'':'<div><span class="badge badge-danger">Inactiva</span></div>'}</td>
+          <td class="mono" style="font-size:11.5px">${b.especificas.length ? b.especificas.map(e=>`<span style="${e.activo?'':'opacity:.5'}">${esc(e.ubicacion)}</span>`).join(' · ') : '—'}</td>
+          <td class="num">${b.materiales.toLocaleString('es-CL')}</td>
+          <td class="num" style="white-space:nowrap">
+            <button type="button" class="btn btn-secondary" data-agregar-especifica="${esc(b.bodega)}" style="width:auto;padding:5px 10px;font-size:12px">Agregar ubicación</button>
+            <button type="button" class="btn btn-secondary" data-renombrar-bodega="${esc(b.bodega)}" style="width:auto;padding:5px 10px;font-size:12px">Renombrar</button>
+            <button type="button" class="btn btn-secondary" data-ubicacion-toggle="${esc(b.id)}" data-activo="${b.activo?'1':'0'}" style="width:auto;padding:5px 10px;font-size:12px">${b.activo?'Desactivar':'Reactivar'}</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty"><div class="glyph">📍</div>${u.cargado ? 'Todavía no hay bodegas. Crea la primera acá o cárgala junto con los materiales.' : 'Cargando…'}</div>`}
       ${r ? `<div class="hint" style="margin-top:10px">Renombrando ${esc(r.desde)} → ${esc(r.hasta)}: ${(r.hechos||0).toLocaleString('es-CL')} material(es) movidos${r.quedan?`, quedan ${r.quedan.toLocaleString('es-CL')}`:''}…</div>` : ''}
       <div class="hint" style="margin-top:10px">Desactivar una bodega la saca de los selectores; los materiales que están en ella no se tocan. Renombrar la cambia en todas partes: materiales, conteos, planificación y grupos.</div>
     </div>`;
@@ -10494,14 +10487,25 @@ function renderUbicacionesConfig(){
 
 function renderListasBodegaConfig(){
   const b = state.bodega;
-  const lista = (titulo, tabla, filas, campos, form) => `
+  // Mismo formato que el resto de la app: tabla con encabezados y las acciones a la derecha, en
+  // vez de filas estiradas de lado a lado.
+  const lista = (titulo, tabla, filas, etiquetaSegunda, campoSegundo, form) => `
     <div class="section-head"><div><span class="eyebrow">Bodega</span><h2 style="font-size:15px">${titulo}</h2></div></div>
     <div class="card">
-      <form class="form-lista-bodega" data-tabla="${tabla}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">${form}<button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar</button></form>
-      ${filas.length ? `<div style="margin-top:10px">${filas.map(f=>`<div class="plan-item" style="padding:6px 0;align-items:center;gap:8px"><span style="flex:1;${f.activo?'':'opacity:.5'}">${esc(f.nombre)}${campos(f)}</span>${f.activo?'':'<span class="badge badge-danger">Inactivo</span>'}<button type="button" class="link-btn" data-lista-toggle="${tabla}" data-id="${esc(f.id)}" data-activo="${f.activo?'1':'0'}">${f.activo?'Desactivar':'Reactivar'}</button></div>`).join('')}</div>` : `<div class="hint" style="margin-top:8px">Aún no hay registros.</div>`}
+      <form class="form-lista-bodega" data-tabla="${tabla}" style="display:flex;gap:8px;align-items:center;max-width:520px;margin-bottom:12px">${form}<button type="submit" class="btn btn-secondary" style="width:auto;flex:none;padding:8px 14px">Agregar</button></form>
+      ${filas.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Nombre</th><th>${etiquetaSegunda}</th><th></th></tr></thead>
+        <tbody>${filas.map(f=>`<tr>
+          <td style="${f.activo?'':'opacity:.5'}">${esc(f.nombre)}${f.activo?'':'<div><span class="badge badge-danger">Inactivo</span></div>'}</td>
+          <td>${esc(campoSegundo(f) || '—')}</td>
+          <td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-lista-toggle="${tabla}" data-id="${esc(f.id)}" data-activo="${f.activo?'1':'0'}" style="width:auto;padding:5px 10px;font-size:12px">${f.activo?'Desactivar':'Reactivar'}</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="hint">Aún no hay registros.</div>`}
     </div>`;
-  return lista('Proveedores', 'proveedores', b.proveedores, f=> f.rut?` <span class="hint" style="display:inline">· ${esc(f.rut)}</span>`:'', `<div style="flex:2;min-width:160px"><label>Nombre</label><input type="text" name="nombre" required style="margin:0"></div><div style="flex:1;min-width:120px"><label>RUT</label><input type="text" name="rut" style="margin:0"></div>`)
-       + lista('Personas que retiran', 'personas_retiro', b.personas, f=> f.area?` <span class="hint" style="display:inline">· ${esc(f.area)}</span>`:'', `<div style="flex:2;min-width:160px"><label>Nombre</label><input type="text" name="nombre" required style="margin:0"></div><div style="flex:1;min-width:120px"><label>Área</label><input type="text" name="area" style="margin:0"></div>`);
+  return lista('Proveedores', 'proveedores', b.proveedores, 'RUT', f=>f.rut,
+      `<input type="text" name="nombre" required placeholder="Nombre del proveedor" style="margin:0;flex:2;min-width:0"><input type="text" name="rut" placeholder="RUT" style="margin:0;flex:1;min-width:0">`)
+    + lista('Personas que retiran', 'personas_retiro', b.personas, 'Área', f=>f.area,
+      `<input type="text" name="nombre" required placeholder="Nombre de la persona" style="margin:0;flex:2;min-width:0"><input type="text" name="area" placeholder="Área" style="margin:0;flex:1;min-width:0">`);
 }
 
 function exportarMovimientosExcel(){
@@ -11002,11 +11006,12 @@ function bind(){
       const input = document.getElementById('nueva-bodega');
       if(await crearUbicacion(input.value, null)) input.value = '';
     });
-    document.querySelectorAll('.form-nueva-especifica').forEach(form=>{
-      form.addEventListener('submit', async e=>{
-        e.preventDefault();
-        const input = form.querySelector('input[name="ubicacion"]');
-        if(await crearUbicacion(form.dataset.bodega, input.value)) input.value = '';
+    document.querySelectorAll('[data-agregar-especifica]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const bodega = btn.dataset.agregarEspecifica;
+        const nombre = prompt(`Nueva ubicación específica dentro de "${bodega}".`, '');
+        if(nombre===null || !nombre.trim()) return;
+        crearUbicacion(bodega, nombre);
       });
     });
     document.querySelectorAll('[data-ubicacion-toggle]').forEach(btn=>

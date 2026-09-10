@@ -4540,7 +4540,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const htmlUbic = ctx.renderUbicacionesConfig();
   assert(htmlUbic.includes('Nave Mina') && htmlUbic.includes('Pasillo 3') && htmlUbic.includes('data-renombrar-bodega="Nave Mina"'), 'la sección lista bodegas, sus ubicaciones específicas y ofrece renombrar, obtuvo: '+htmlUbic);
-  assert(htmlUbic.includes('Inactiva') && htmlUbic.includes('23.708 materiales'), 'muestra las inactivas y cuántos materiales tiene cada bodega, obtuvo: '+htmlUbic);
+  assert(htmlUbic.includes('Inactiva') && htmlUbic.includes('>23.708<'), 'muestra las inactivas y cuántos materiales tiene cada bodega, obtuvo: '+htmlUbic);
+  assert(htmlUbic.includes('<table>') && htmlUbic.includes('<th>Bodega</th>'), 'la sección usa el mismo formato de tabla que el resto de la app, obtuvo: '+htmlUbic);
 
   // Crear una bodega vacía: el caso que antes no existía.
   calls.length = 0;
