@@ -741,7 +741,11 @@ const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos', 'grupos', 're
 // main.ancho) -- las VISTAS_SOLO_ADMIN de arriba, más Configuraciones (equipo, panel de
 // súper-admin), a diferencia de Contar/Reconteo/Buscar que se usan sobre todo desde el celular
 // en terreno y quedan angostas a propósito.
-const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario', 'movimientos', 'stock'];
+// 'skus' entra acá porque su tabla tiene 11 columnas (código, descripción, las tres de ubicación,
+// batch, stock, clase y las acciones): en la caja angosta medía 785 px contra 654 disponibles, así
+// que la última columna quedaba cortada a la derecha sin ninguna señal de que la tabla se
+// desplaza. Joel no encontraba el botón "Mover" por eso.
+const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario', 'movimientos', 'stock', 'skus'];
 // Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md): se activa por empresa desde súper admin.
 // Con el módulo activo la app entra a una pantalla de inicio con Ingreso, Salida, Inventario y
 // Dashboard; sin él, nada cambia respecto de antes.
