@@ -531,6 +531,8 @@ let state = {
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
+  // Sobrantes de la última carga: materiales que siguen activos pero que el archivo ya no trajo.
+  cargaSobrantes: null,
   busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[] },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
@@ -1614,7 +1616,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -6085,10 +6087,12 @@ async function confirmarCargaMasiva(){
     if(lote.some(f=>f.costo_unitario!==undefined && f.costo_unitario!==null) || lote.some(f=>f.stock_sistema!==undefined && f.stock_sistema!==null)){
       try{ await rest('/rpc/refrescar_clasificacion_abc', {method:'POST'}); }catch(e){ /* el cron nocturno lo cubre */ }
     }
-    await registrarCarga(file.name, 'skus', data.length, ok, error, resumenErroresAArray(resumenErrores));
+    const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, resumenErroresAArray(resumenErrores), marcaTiempo);
     toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
     refrescarListaSkus();
     setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null});
+    // "Reemplazar completo" ya desactivó lo que no vino; solo el modo de todos los días acumula.
+    if(modo!=='reemplazar') revisarSobrantesDeCarga(cargaId);
   }catch(e){
     // Con la carga partida en bloques, un bloque que falla a mitad de camino no invalida los
     // anteriores que ya se guardaron — se informa cuántos SKU sí entraron antes del corte.
@@ -6100,15 +6104,62 @@ async function confirmarCargaMasiva(){
   }
 }
 
-async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores){
+async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores, marcaTiempo){
+  let id = null;
   try{
-    await rest('/cargas_masivas', {method:'POST', body:[{
+    // marca_tiempo es el sello con el que ESTA carga escribió updated_at/capturado_en en skus, y
+    // es la única referencia válida para saber qué filas no trajo el archivo. Se guarda acá para
+    // que la limpieza pueda pedirse por id de carga y el cliente no tenga que pasar una fecha:
+    // al construir esto pasé la hora de registro en vez de la de las filas y la selección tomó el
+    // catálogo entero en vez de los sobrantes.
+    const filas = await rest('/cargas_masivas', {method:'POST', body:[{
       nombre_archivo, tipo, usuario_id: state.perfil?state.perfil.id:null,
-      empresa_id: state.perfil.empresa_id,
+      empresa_id: state.perfil.empresa_id, marca_tiempo: marcaTiempo || null,
       filas_totales, filas_ok, filas_error, detalle_errores: detalle_errores.slice(0,50)
-    }], prefer:'return=minimal'});
+    }], prefer:'return=representation'});
+    id = filas && filas[0] ? filas[0].id : null;
   }catch(e){ /* no bloquea el flujo */ }
   cargarHistorialCargas(); // refresca el historial en pantalla con la carga recién hecha
+  return id;
+}
+
+// Tras una carga "Agregar/complementar" -- la de todos los días -- quedan activos los materiales
+// que el archivo ya no trae: bins renombrados en el ERP conviviendo con su versión anterior,
+// material consumido, filas de tránsito viejas. Ese modo por diseño no desactiva nada, así que se
+// acumulan en silencio: en Escondida fueron 1.909 en una semana, y ensuciaban el buscador, el
+// universo de conteo y los totales por material. La app los cuenta y ofrece limpiarlos; la
+// decisión es del administrador, cada vez.
+const LIMPIAR_SOBRANTES_LOTE = 2000;
+async function revisarSobrantesDeCarga(cargaId){
+  if(!cargaId) return;
+  try{
+    const r = await rest('/rpc/resumen_skus_no_traidos', {method:'POST', body:{p_carga_id: cargaId}}) || {};
+    if(!r.total) return;
+    setState({cargaSobrantes:{cargaId, ...r, limpiando:false, progreso:null}});
+  }catch(e){ /* informativo: si falla, la carga igual quedó bien */ }
+}
+
+async function limpiarSobrantesDeCarga(){
+  const s0 = state.cargaSobrantes;
+  if(!s0 || s0.limpiando) return;
+  setState({cargaSobrantes:{...s0, limpiando:true, progreso:{hechos:0, total:s0.total - (s0.contados||0)}}});
+  let hechos = 0;
+  try{
+    for(let vuelta=0; vuelta<200; vuelta++){
+      const r = await rest('/rpc/desactivar_skus_no_traidos', {method:'POST', body:{p_carga_id:s0.cargaId, p_limite:LIMPIAR_SOBRANTES_LOTE}}) || {};
+      hechos += Number(r.desactivados)||0;
+      setState({cargaSobrantes:{...state.cargaSobrantes, progreso:{hechos, total:hechos + (Number(r.restantes)||0)}}});
+      if(r.terminado) break;
+      if(!r.desactivados) break; // sin avance: no dar vueltas para siempre
+    }
+    setState({cargaSobrantes:null});
+    toast(`${hechos} material(es) quedaron inactivos. Conservan su historial.`);
+    invalidarCacheAgregados(['generales']);
+    refrescarListaSkus();
+  }catch(e){
+    setState({cargaSobrantes:{...state.cargaSobrantes, limpiando:false}});
+    toast(e.message, 'err');
+  }
 }
 
 const TIPO_CARGA_LABEL = { skus:'Maestro de SKU', stock_sistema:'Stock del sistema', otro:'Otro' };
@@ -8393,6 +8444,7 @@ function renderCargaMasiva(){
   const h = state.cargasHistorial;
   return `
     <div class="section-head"><div><span class="eyebrow">Datos masivos</span><h2>Carga masiva</h2></div></div>
+    ${renderSobrantesDeCarga()}
 
     <div class="card">
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de SKU</h3>
@@ -8440,6 +8492,27 @@ function renderCargaMasiva(){
       ` : `<div class="empty" style="padding:14px 8px">Todavía no se ha cargado nada.</div>`}
     </div>
   `;
+}
+
+// Aviso de sobrantes tras una carga "Agregar/complementar": lo que el archivo ya no trajo y sigue
+// activo. No se desactiva solo -- se muestra el número y el administrador decide.
+function renderSobrantesDeCarga(){
+  const s = state.cargaSobrantes;
+  if(!s || !s.total) return '';
+  const protegidos = Number(s.contados)||0;
+  const aDesactivar = s.total - protegidos;
+  const p = s.progreso;
+  return `<div class="card" style="border-color:var(--warn)">
+    <h3 style="margin:0 0 4px;font-size:16px">Quedaron ${s.total} materiales que este archivo no traía</h3>
+    <div class="hint">Siguen activos de cargas anteriores: bins renombrados en tu ERP que conviven con su versión vieja, material que ya se consumió, o filas de tránsito de otra fecha. Aparecen en el buscador, entran al universo de conteo y suman en los totales del material.</div>
+    <div class="hint">De esos, <b>${s.con_stock||0}</b> tienen stock${s.sin_ubicacion?` y <b>${s.sin_ubicacion}</b> no tienen ubicación ni bin`:''}.${protegidos?` <b>${protegidos}</b> ya se contaron en este ciclo y no se tocan: desactivarlos bajaría el avance y borraría trabajo hecho en terreno.`:''}</div>
+    ${p ? `<div class="hint" style="margin-top:8px">Desactivando ${p.hechos} de ${p.total}…<div class="progress-track" style="margin-top:6px"><div class="progress-fill" style="width:${p.total?Math.round(p.hechos/p.total*100):0}%"></div></div></div>` : `
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="btn-limpiar-sobrantes" style="width:auto" ${aDesactivar?'':'disabled'}>Desactivar ${aDesactivar} material(es)</button>
+        <button class="btn btn-secondary" id="btn-omitir-sobrantes" style="width:auto">Ahora no</button>
+      </div>
+      <div class="hint" style="margin-top:8px">No se borra nada: dejan de listarse y conservan su historial de conteos. Se pueden reactivar.</div>`}
+  </div>`;
 }
 
 function renderCargaPreview(){
@@ -11656,6 +11729,10 @@ function bind(){
         await prepararCargaMasiva(file);
       });
       if(!state.cargasHistorial.cargado && !state.cargasHistorial.cargando) cargarHistorialCargas();
+      const btnLimpiar = document.getElementById('btn-limpiar-sobrantes');
+      if(btnLimpiar) btnLimpiar.addEventListener('click', limpiarSobrantesDeCarga);
+      const btnOmitir = document.getElementById('btn-omitir-sobrantes');
+      if(btnOmitir) btnOmitir.addEventListener('click', ()=> setState({cargaSobrantes:null}));
     }
   }
 

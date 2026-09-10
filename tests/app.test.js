@@ -62,6 +62,7 @@ let ubicacionesFixture = [
   {id:'ub-3', bodega:'Patio 3000', ubicacion:null, activo:false},
 ];
 let renombrarLlamadas = 0;
+let sobrantesLlamadas = 0;
 // Bloque de bodega dentro de la respuesta del Dashboard: null cuando la empresa no tiene el
 // módulo activo, que es lo que devuelve la función real en ese caso.
 let dashboardBodegaFixture = null;
@@ -1036,6 +1037,21 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'id-libre-1', sku_code:'FIL-1001', descripcion:'Filtro de aceite', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:null},
       {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:null, ubicacion:null, storage_bin:null, batch:'NEW'},
     ]) };
+  }
+  // Sobrantes de una carga: lo que el archivo ya no trajo y sigue activo.
+  if(path.startsWith('/rest/v1/rpc/resumen_skus_no_traidos')){
+    const cuerpo = JSON.parse(opts.body);
+    if(cuerpo.p_carga_id === 'carga-limpia'){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:0}) };
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(
+      {total:1909, con_stock:821, sin_ubicacion:1034, contados:16, activas:61603}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/desactivar_skus_no_traidos')){
+    sobrantesLlamadas++;
+    const terminado = sobrantesLlamadas >= 2;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(
+      {desactivados: terminado?93:1800, restantes: terminado?0:93, terminado}) };
   }
   // Historial de ubicaciones de un material (lo escribe el trigger historial_ubicacion_skus).
   if(path.startsWith('/rest/v1/ubicaciones_historial')){
@@ -4750,6 +4766,39 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const historialRoto = ctx.renderUbicacionSkuModal();
   assert(historialRoto.includes('No se pudo leer el historial') && !historialRoto.includes('no se ha movido de sitio'), 'un fallo del servidor se muestra como error, no como historial vacío, obtuvo: '+historialRoto);
   ctx.__appstate.ubicacionSkuModal = null;
+
+  // ===== Sobrantes de la carga masiva: lo que el archivo ya no trae y sigue activo =====
+  // La carga "Agregar/complementar" nunca desactiva nada, así que se acumulan en silencio (en
+  // Escondida fueron 1.909 en una semana: bins renombrados en SAP conviviendo con su versión
+  // vieja). La app los cuenta y ofrece limpiarlos; no decide sola.
+  ctx.__appstate.view = 'carga';
+  ctx.__appstate.cargaSobrantes = null;
+  await ctx.revisarSobrantesDeCarga('carga-1');
+  const sob = ctx.__appstate.cargaSobrantes;
+  assert(sob && sob.total===1909 && sob.cargaId==='carga-1', 'tras la carga debe quedar el resumen de sobrantes en el estado, obtuvo: '+JSON.stringify(sob));
+  const htmlSobrantes = ctx.renderCargaMasiva();
+  assert(htmlSobrantes.includes('Quedaron 1909 materiales que este archivo no traía'), 'la vista Carga avisa cuántos quedaron, obtuvo: '+htmlSobrantes);
+  // Los ya contados no se ofrecen para desactivar: bajarían el avance de un ciclo abierto.
+  assert(htmlSobrantes.includes('Desactivar 1893 material(es)'), 'el botón descuenta los 16 ya contados, obtuvo: '+htmlSobrantes);
+  assert(htmlSobrantes.includes('821') && htmlSobrantes.includes('1034'), 'muestra cuántos tienen stock y cuántos no tienen ubicación');
+
+  // Una carga sin sobrantes no muestra nada.
+  ctx.__appstate.cargaSobrantes = null;
+  await ctx.revisarSobrantesDeCarga('carga-limpia');
+  assert(ctx.__appstate.cargaSobrantes===null, 'sin sobrantes no se muestra el aviso');
+  assert(!ctx.renderCargaMasiva().includes('que este archivo no traía'), 'sin sobrantes la vista Carga queda como siempre');
+
+  // Limpiar va por lotes hasta terminar, igual que el renombrado de bodega.
+  await ctx.revisarSobrantesDeCarga('carga-1');
+  calls.length = 0;
+  elements['toast-root'].hijos.length = 0;
+  await ctx.limpiarSobrantesDeCarga();
+  const lotesSobrantes = calls.filter(c=>c.url.includes('/rpc/desactivar_skus_no_traidos'));
+  assert(lotesSobrantes.length===2, 'debe seguir pidiendo lotes hasta que el servidor diga terminado, obtuvo: '+lotesSobrantes.length);
+  assert(JSON.parse(lotesSobrantes[0].opts.body).p_carga_id==='carga-1', 'los lotes van por id de carga, no por fecha: '+lotesSobrantes[0].opts.body);
+  assert(ctx.__appstate.cargaSobrantes===null, 'al terminar, el aviso desaparece');
+  assert(JSON.stringify(elements['toast-root'].hijos).includes('1893'), 'avisa cuántos quedaron inactivos, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+  ctx.__appstate.view = 'skus';
 
   // renderTablaSkus: en vez de pintar el fondo de toda la fila, muestra un ícono de color junto
   // al SKU según su último conteo — rojo (diferencia negativa/faltante), amarillo (diferencia

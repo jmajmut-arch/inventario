@@ -135,21 +135,22 @@
   <h3 class="sub">Carga masiva (Excel/CSV)</h3>
   <div class="two">
     <ul class="checks">
-      <li>Detección automática de columnas por nombre, corregible antes de confirmar; el puntaje ignora palabras genéricas ("stock", "in", "de")</li>
-      <li>Agregar/complementar: crea los nuevos, actualiza los que ya existen. Reemplazar completo: además desactiva lo que no venga en el archivo (conserva su historial)</li>
-      <li>4 columnas opcionales de stock por tipo (Bloqueado, SOH en tránsito 1/2, Transferencia): informativas, no alteran la diferencia; se muestran sumadas por código, no por fila</li>
-      <li>Huella "antes → ahora" del stock (<code>stock_sistema_anterior</code>, <code>stock_sistema_actualizado_en</code>) cuando una carga cambia el stock de un material ya contado</li>
+      <li>Detección automática de columnas por nombre, corregible antes de confirmar</li>
+      <li>Agregar/complementar: crea y actualiza. Reemplazar completo: además desactiva lo que no venga en el archivo (conserva su historial)</li>
+      <li>Tras una carga complementar, <code>resumen_skus_no_traidos(carga_id)</code> cuenta lo que quedó activo sin venir en el archivo y la app ofrece desactivarlo por lotes, sin tocar lo ya contado</li>
+      <li>4 columnas opcionales de stock por tipo (Bloqueado, tránsito 1/2, Transferencia): informativas, sumadas por código</li>
+      <li>Huella "antes → ahora" del stock (<code>stock_sistema_anterior</code>, <code>stock_sistema_actualizado_en</code>) cuando una carga lo cambia tras un conteo</li>
     </ul>
     <ul class="checks no">
-      <li>Actualizar sin sobrescribir: toda columna mapeada reemplaza el valor anterior, incluso a blanco si viene vacía</li>
-      <li>El mismo código + bodega + batch + ubicación + bin dos veces en el archivo: se queda con la última fila</li>
+      <li>Actualizar sin sobrescribir: toda columna mapeada reemplaza el valor anterior, incluso a blanco</li>
+      <li>El mismo código + bodega + batch + ubicación + bin repetido en el archivo: se queda con la última fila</li>
     </ul>
   </div>
   <h3 class="sub">Escáner</h3>
   <div class="two">
     <ul class="checks">
-      <li>Leer QR y códigos 1D (EAN-13/8, Code128/39/93, UPC-A/E, ITF); reconocer por el código del SKU o por un código de fábrica ya asociado</li>
-      <li>Si el código calza con más de una fila, preguntar cuál se está contando mostrando bodega, ubicación y bin</li>
+      <li>Leer QR y códigos 1D (EAN-13/8, Code128/39/93, UPC-A/E, ITF), por código de SKU o por un código de fábrica asociado</li>
+      <li>Si el código calza con más de una fila, preguntar cuál se cuenta mostrando bodega, ubicación y bin</li>
     </ul>
     <ul class="checks no">
       <li>Adivinar sola cuál es cuando hay más de una coincidencia; leer sin permiso de cámara del navegador</li>
