@@ -24,7 +24,8 @@
       "id",
       "nombre_archivo",
       "tipo",
-      "usuario_id"
+      "usuario_id",
+      "marca_tiempo"
     ],
     "ciclos_conteo": [
       "created_at",
