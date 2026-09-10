@@ -82,7 +82,8 @@
       "proveedor_id",
       "retirado_por_id",
       "tipo",
-      "usuario_id"
+      "usuario_id",
+      "documento_origen_id"
     ],
     "empresas": [
       "activo",
