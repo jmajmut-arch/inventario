@@ -943,6 +943,10 @@ const fakeFetchImpl = async (url, opts) => {
       text: async () => JSON.stringify(filas),
     };
   }
+  // Logo de la empresa: se guarda como data URI en empresas.logo.
+  if(path.startsWith('/rest/v1/empresas?id=eq.') && opts && opts.method==='PATCH'){
+    return { status:204, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
   // ===== Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md) =====
   // Reservas de material: apartar cantidad, no unidades marcadas.
   if(path.startsWith('/rest/v1/reservas_lista')){
@@ -7114,6 +7118,45 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.perfil.empresas.bodega_funciones = {reservas:false};
     assert(!ctx.renderStockBodega().includes('>Disponible<'), 'sin reservas, esa columna sobra: repetiría el stock');
     ctx.__appstate.perfil.empresas.bodega_funciones = {};
+
+    // ===== Logo de la empresa =====
+    // Sin logo, la barra superior y los documentos impresos quedan exactamente como antes.
+    ctx.__appstate.perfil.empresas.logo = null;
+    assert(ctx.logoEmpresa()===null && ctx.encabezadoLogoImpresion()==='', 'sin logo no se agrega nada');
+    assert(ctx.renderShell().includes('<div class="brand-badge">IA</div>'), 'sin logo, la insignia sigue siendo la de InventIA');
+    // Un valor que no sea un data URI de imagen se ignora: nada de meter una URL cualquiera en el <img>.
+    ctx.__appstate.perfil.empresas.logo = 'https://otro-sitio.cl/logo.png';
+    assert(ctx.logoEmpresa()===null, 'solo se acepta un data URI de imagen, obtuvo: '+ctx.logoEmpresa());
+    const LOGO_PRUEBA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    ctx.__appstate.perfil.empresas.logo = LOGO_PRUEBA;
+    assert(ctx.logoEmpresa()===LOGO_PRUEBA, 'con un data URI válido sí se usa');
+    const shellConLogo = ctx.renderShell();
+    assert(shellConLogo.includes('brand-badge con-logo') && shellConLogo.includes(LOGO_PRUEBA) && !shellConLogo.includes('<div class="brand-badge">IA</div>'), 'con logo, la insignia lo muestra en vez de "IA"');
+
+    // Va en el encabezado de todo lo que se imprime.
+    assert(ctx.encabezadoLogoImpresion().includes('class="print-logo"') && ctx.encabezadoLogoImpresion().includes(LOGO_PRUEBA), 'el encabezado impreso lleva el logo');
+    const compConLogo = ctx.comprobanteDocumentoBodegaHTML(cabIng, [cabIng], []);
+    assert(compConLogo.includes('print-logo') && compConLogo.indexOf('print-logo') < compConLogo.indexOf('<h1>'), 'el comprobante lo lleva ANTES del título, como un membrete');
+    ctx.__appstate.ordenes.lista = [{id:'oc-1', numero:'OC-000007', proveedor_nombre:'Proveedor Uno', afecta_iva:true, fecha:'2026-09-10'}];
+    assert(ctx.ordenCompraHTML(ctx.__appstate.ordenes.lista[0], [{sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', cantidad:2, costo_unitario:1000}]).includes('print-logo'), 'la orden de compra también');
+    ctx.__appstate.ordenes.lista = [];
+
+    // Configuraciones: la ficha del logo es solo para administradores.
+    const htmlConfigLogo = ctx.renderConfiguraciones();
+    assert(htmlConfigLogo.includes('id="empresa-logo-input"') && htmlConfigLogo.includes('id="btn-quitar-logo"'), 'el admin puede cambiar y quitar el logo');
+    ctx.__appstate.perfil.rol = 'operador';
+    assert(!ctx.renderConfiguraciones().includes('id="empresa-logo-input"'), 'un operador no ve la ficha del logo');
+    // Y tampoco puede guardarlo aunque llame a la función directo.
+    calls.length = 0;
+    assert((await ctx.quitarLogoEmpresa())===false && !calls.some(c=>c.url.includes('/empresas?id=eq.')), 'un operador no puede tocar el logo');
+    ctx.__appstate.perfil.rol = 'admin';
+
+    // Quitar el logo lo borra en el servidor y en la sesión, sin recargar el perfil.
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.quitarLogoEmpresa())===true, 'el admin puede quitar el logo');
+    const patchLogo = calls.find(c=>c.url.includes('/empresas?id=eq.') && c.opts.method==='PATCH');
+    assert(patchLogo && JSON.parse(patchLogo.opts.body).logo===null, 'se manda logo:null, obtuvo: '+(patchLogo && patchLogo.opts.body));
+    assert(ctx.logoEmpresa()===null && ctx.renderShell().includes('<div class="brand-badge">IA</div>'), 'y la barra vuelve a la insignia de InventIA');
 
     // ===== Interruptores por función del módulo de bodega =====
     // Sin llave en bodega_funciones la función está activa: ninguna empresa pierde algo que ya

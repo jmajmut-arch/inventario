@@ -98,6 +98,7 @@
       "flow_subscription_status",
       "flow_sync_en",
       "id",
+      "logo",
       "modulo_bodega_habilitado",
       "nombre",
       "plan_id"

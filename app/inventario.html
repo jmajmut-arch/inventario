@@ -100,6 +100,13 @@ input,select,textarea{font-family:inherit;}
 .topbar-row{display:flex;flex-wrap:wrap;row-gap:8px;align-items:center;padding-bottom:10px;}
 .brand{display:flex;align-items:center;gap:10px;}
 .brand-badge{width:34px;height:34px;border-radius:8px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:13px;letter-spacing:-0.03em;color:#1a1204;flex-shrink:0;}
+/* Con logo propio la insignia deja de ser el degradado ámbar con "IA": pasa a ser una caja
+   blanca con borde, que es lo único que hace lucir bien tanto un logo oscuro como uno claro,
+   con o sin transparencia. Sin logo, todo queda exactamente como estaba. */
+.brand-badge.con-logo{background:#fff;border:1px solid var(--line);padding:3px;}
+.brand-badge.con-logo img{width:100%;height:100%;object-fit:contain;display:block;}
+.logo-preview{width:96px;height:96px;border-radius:12px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;padding:8px;flex:none;}
+.logo-preview img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
 .brand-text h1{font-size:18px;margin:0;line-height:1.1;}
 .brand-text span{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.08em;}
 /* margin-left:auto en vez de justify-content:space-between en .topbar-row: así, cuando los
@@ -362,6 +369,9 @@ textarea{resize:vertical;min-height:60px;}
   /* La marca de agua con el nombre de quien usa la app es para la pantalla: salía impresa en
      los comprobantes, la hoja de conteo y los informes. */
   #app,#toast-root,#marca-agua{display:none;}
+  /* Membrete: el logo arriba a la derecha, sin empujar el título hacia abajo. */
+  .print-logo{float:right;margin:0 0 6px 12px;}
+  .print-logo img{max-height:15mm;max-width:45mm;object-fit:contain;display:block;}
   #print-plan{display:block;padding:0;color:#000;background:#fff;}
   #print-plan h1{font-size:17px;margin:0 0 2px;}
   #print-plan .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
@@ -522,6 +532,7 @@ let state = {
   transferenciaModal: null,
   ordenes: ordenesEstadoInicial(),
   reservas: reservasEstadoInicial(),
+  logoGuardando: false,
   proveedorModal: null, // datos de contacto del proveedor; los usa el PDF de la orden de compra
   kardexModal: null, // {skuId, skuCode, filas, cargando} (ver vista kardex_bodega)
   skusPagina: { rows: [], page: 0, total: 0 },
@@ -780,6 +791,86 @@ const FUNCIONES_BODEGA = {
   devoluciones: 'Devoluciones',
   transferencias: 'Traslados entre bodegas',
 };
+// El logo de la empresa, si lo cargó. Se guarda como data URI en empresas.logo (ver la
+// migración): así viaja con el perfil y está disponible al imprimir, sin una URL que pueda vencer
+// justo cuando alguien manda el comprobante a la impresora.
+function logoEmpresa(){
+  const l = state.perfil && state.perfil.empresas && state.perfil.empresas.logo;
+  return (typeof l === 'string' && l.startsWith('data:image/')) ? l : null;
+}
+// Preparar el logo: se re-encoda a PNG (conserva la transparencia, que es justo lo que hace que
+// un logo se vea bien sobre el blanco del papel y sobre la barra de la app) y se achica hasta que
+// el data URI quepa en el tope de la columna. Se prueban tres tamaños antes de rendirse: un logo
+// simple entra a 320 px, uno con degradados puede necesitar menos.
+const LOGO_TAMANOS_PX = [320, 240, 180];
+const LOGO_MAX_CARACTERES = 200000; // mismo tope que el check de empresas.logo
+async function prepararLogoEmpresa(file){
+  if(!file) return null;
+  const img = await decodificarImagen(file);
+  if(!img) throw new Error('No se pudo leer la imagen');
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  if(!w || !h) throw new Error('No se pudo leer la imagen');
+  const canvas = document.createElement('canvas');
+  if(!canvas || typeof canvas.getContext !== 'function') throw new Error('Este navegador no puede preparar la imagen');
+  for(const lado of LOGO_TAMANOS_PX){
+    const escala = Math.min(1, lado / Math.max(w, h));
+    const dw = Math.max(1, Math.round(w * escala)), dh = Math.max(1, Math.round(h * escala));
+    canvas.width = dw; canvas.height = dh;
+    const ctx = canvas.getContext('2d');
+    if(!ctx) throw new Error('Este navegador no puede preparar la imagen');
+    ctx.clearRect(0, 0, dw, dh);
+    ctx.drawImage(img, 0, 0, dw, dh);
+    const dataUri = canvas.toDataURL('image/png');
+    if(dataUri && dataUri.length <= LOGO_MAX_CARACTERES){
+      if(typeof img.close === 'function') img.close();
+      return dataUri;
+    }
+  }
+  if(typeof img.close === 'function') img.close();
+  throw new Error('El logo es muy pesado incluso reducido. Prueba con una imagen más simple (PNG con fondo transparente).');
+}
+
+async function guardarLogoEmpresa(file){
+  if(!perfilCargado() || !esAdminActual()) return false;
+  setState({logoGuardando:true});
+  try{
+    const dataUri = await prepararLogoEmpresa(file);
+    await rest(`/empresas?id=eq.${encodeURIComponent(state.perfil.empresa_id)}`, {method:'PATCH', body:{logo:dataUri}, prefer:'return=minimal'});
+    state.perfil.empresas = {...state.perfil.empresas, logo:dataUri};
+    setState({logoGuardando:false});
+    toast('Logo actualizado: se ve en la barra superior y en los documentos que imprimas');
+    return true;
+  }catch(e){
+    setState({logoGuardando:false});
+    toast(e.message,'err');
+    return false;
+  }
+}
+
+async function quitarLogoEmpresa(){
+  if(!perfilCargado() || !esAdminActual()) return false;
+  setState({logoGuardando:true});
+  try{
+    await rest(`/empresas?id=eq.${encodeURIComponent(state.perfil.empresa_id)}`, {method:'PATCH', body:{logo:null}, prefer:'return=minimal'});
+    state.perfil.empresas = {...state.perfil.empresas, logo:null};
+    setState({logoGuardando:false});
+    toast('Logo quitado: vuelve la insignia de InventIA');
+    return true;
+  }catch(e){
+    setState({logoGuardando:false});
+    toast(e.message,'err');
+    return false;
+  }
+}
+
+// Encabezado con el logo para los documentos que se imprimen. Va antes del título, alineado a la
+// derecha como en un papel con membrete. Sin logo devuelve cadena vacía y el documento queda
+// exactamente igual que antes.
+function encabezadoLogoImpresion(){
+  const logo = logoEmpresa();
+  if(!logo) return '';
+  return `<div class="print-logo"><img src="${esc(logo)}" alt=""></div>`;
+}
 function esAdminActual(){
   return !!(state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin));
 }
@@ -1280,7 +1371,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,modulo_bodega_habilitado,bodega_funciones,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,modulo_bodega_habilitado,bodega_funciones,logo,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -2988,6 +3079,7 @@ async function imprimirHistorialCicloGrupo(grupoId, fechaInicio, fechaTermino){
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
+      ${encabezadoLogoImpresion()}
       <h1>Cierre de ciclo · ${esc(grupo? grupo.nombre : 'Grupo')}</h1>
       <div class="print-meta">${esc(meta)}</div>
       ${filas.length ? `
@@ -5935,6 +6027,7 @@ function ordenCompraHTML(o, lineas){
   const th = (t,der)=>`<th style="text-align:${der?'right':'left'};border-bottom:1px solid #000;padding:4px">${t}</th>`;
   const td = (t,der)=>`<td style="padding:4px;border-bottom:1px solid #ddd${der?';text-align:right':''}">${t}</td>`;
   return `
+    ${encabezadoLogoImpresion()}
     <h1>Orden de compra ${esc(o.numero)}</h1>
     <div class="print-meta">${esc(empresa)} · Emitida ${fmtFecha(o.fecha)}${o.usuario_nombre?` · ${esc(o.usuario_nombre)}`:''}${o.anulada_en?' · ANULADA':''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:12px">
@@ -6140,6 +6233,7 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
   const th = (t,der)=>`<th style="text-align:${der?'right':'left'};border-bottom:1px solid #000;padding:4px">${t}</th>`;
   const td = (t,der)=>`<td style="padding:4px;border-bottom:1px solid #ddd${der?';text-align:right':''}">${t}</td>`;
   return `
+    ${encabezadoLogoImpresion()}
     <h1>${esIngreso?'Comprobante de ingreso':esDevolucion?'Comprobante de devolución':'Comprobante de salida'} ${esc(cab.numero)}</h1>
     <div class="print-meta">${esc(empresa)} · ${fmtFecha(cab.fecha)} · Registró ${esc(cab.usuario_nombre||'')}${cab.documento_anulado_en?' · ANULADO':''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:12px">
@@ -9896,6 +9990,7 @@ async function imprimirPlan(){
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
+      ${encabezadoLogoImpresion()}
       <h1>${esc(titulo)}</h1>
       <div class="print-meta">${meta}</div>
       <p class="print-vacio">No hay conteos planificados${modo==='semana'?' para esta semana':''}.</p>
@@ -9921,6 +10016,7 @@ async function imprimirPlan(){
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
+      ${encabezadoLogoImpresion()}
       <h1>${esc(titulo)}</h1>
       <div class="print-meta">${meta}</div>
       ${cuerpo}
@@ -9947,6 +10043,7 @@ async function imprimirPlanDelDia(){
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
+      ${encabezadoLogoImpresion()}
       <h1>Plan del día</h1>
       <div class="print-meta">${esc(meta)}</div>
       <p class="print-vacio">Sin nada planificado para ti este día.</p>
@@ -9967,6 +10064,7 @@ async function imprimirPlanDelDia(){
     document.getElementById('print-informe').innerHTML = '';
     document.getElementById('print-buscar').innerHTML = '';
     document.getElementById('print-plan').innerHTML = `
+      ${encabezadoLogoImpresion()}
       <h1>Plan del día</h1>
       <div class="print-meta">${esc(meta)}</div>
       ${cuerpo}
@@ -9991,6 +10089,7 @@ function imprimirInformeCiclo(){
   document.getElementById('print-plan').innerHTML = '';
   document.getElementById('print-buscar').innerHTML = '';
   document.getElementById('print-informe').innerHTML = `
+    ${encabezadoLogoImpresion()}
     <h1>Informe de ciclo de conteo</h1>
     <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
     ${renderInformeEjecutivo()}
@@ -10097,6 +10196,7 @@ function imprimirInformeGuardado(id){
   document.getElementById('print-plan').innerHTML = '';
   document.getElementById('print-buscar').innerHTML = '';
   document.getElementById('print-informe').innerHTML = `
+    ${encabezadoLogoImpresion()}
     <h1>Informe de cierre de ciclo</h1>
     <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
     ${renderCuerpoInformeGuardado(informe.datos)}
@@ -11093,6 +11193,18 @@ function renderConfiguraciones(){
       <label>Nombre de la empresa</label>
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
+      ${esAdmin? `
+      <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:14px">
+        <label>Logo ${campoConInfo('Se muestra en la barra superior de la app y en el encabezado de todo lo que imprimas: comprobantes de bodega, órdenes de compra e informes de ciclo. Lo mejor es un PNG con fondo transparente; la app lo reduce sola. Sin logo, todo se ve como hasta ahora.')}</label>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:6px">
+          <div class="logo-preview">${logoEmpresa()? `<img src="${esc(logoEmpresa())}" alt="Logo de ${esc(empresa.nombre)}">` : '<span class="hint" style="margin:0;text-align:center;font-size:11px">Sin logo</span>'}</div>
+          <div style="flex:1;min-width:180px">
+            <div class="file-input" style="margin:0"><input type="file" id="empresa-logo-input" accept="image/png,image/jpeg,image/webp,image/svg+xml" ${state.logoGuardando?'disabled':''}>${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}<div>${state.logoGuardando?'Preparando…':(logoEmpresa()?'Cambiar logo':'Subir logo')}</div></div>
+            ${logoEmpresa()? `<button type="button" class="btn btn-secondary" id="btn-quitar-logo" style="width:auto;padding:6px 12px;margin-top:8px;font-size:12px" ${state.logoGuardando?'disabled':''}>Quitar logo</button>` : ''}
+          </div>
+        </div>
+      </div>
+      ` : ''}
     </div>
     ${esAdmin? renderUbicacionesConfig() : ''}
     ${esAdmin && moduloBodegaActivo() ? renderListasBodegaConfig() : ''}
@@ -12095,7 +12207,7 @@ function renderShell(){
     <div class="topbar">
       <div class="topbar-row">
         <div class="brand">
-          <div class="brand-badge">IA</div>
+          ${logoEmpresa() ? `<div class="brand-badge con-logo"><img src="${esc(logoEmpresa())}" alt="${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '')}"></div>` : '<div class="brand-badge">IA</div>'}
           <div class="brand-text"><h1>${viewTitle(state.view)}</h1><span>${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : 'InventIA')}</span></div>
         </div>
         <div class="user-chip">
@@ -12694,6 +12806,17 @@ function bind(){
     if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
       e.preventDefault();
       actualizarNombreEmpresa(document.getElementById('empresa-nombre-input').value.trim());
+    });
+    const inputLogo = document.getElementById('empresa-logo-input');
+    if(inputLogo) inputLogo.addEventListener('change', e=>{
+      const file = e.target.files && e.target.files[0];
+      if(file) guardarLogoEmpresa(file);
+      e.target.value = ''; // permite volver a elegir el mismo archivo si algo falló
+    });
+    const btnQuitarLogo = document.getElementById('btn-quitar-logo');
+    if(btnQuitarLogo) btnQuitarLogo.addEventListener('click', ()=>{
+      if(!confirm('¿Quitar el logo? La app y los documentos impresos vuelven a la insignia de InventIA.')) return;
+      quitarLogoEmpresa();
     });
     const chkConteoCiego = document.getElementById('chk-conteo-ciego');
     if(chkConteoCiego) chkConteoCiego.addEventListener('change', e=> actualizarConteoCiego(e.target.checked));
