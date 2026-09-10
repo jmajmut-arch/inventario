@@ -944,6 +944,50 @@ const fakeFetchImpl = async (url, opts) => {
     };
   }
   // ===== Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md) =====
+  // Órdenes de compra: la app las emite y después recibe contra ellas.
+  if(path.startsWith('/rest/v1/ordenes_compra_lista')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'oc-1', numero:'OC-000007', proveedor_id:'prov-1', proveedor_nombre:'Proveedor Uno', proveedor_rut:'76.000.000-1',
+       proveedor_contacto:'Marcela Ríos', proveedor_email:'ventas@uno.cl', proveedor_telefono:'+56 2 2345 6789',
+       proveedor_direccion:'Av. Industrial 1450', usuario_nombre:'Ana Torres',
+       fecha:'2026-09-10', fecha_esperada:'2026-09-17', condiciones_pago:'30 días', lugar_entrega:'Bodega Central',
+       observacion:null, afecta_iva:true, estado:'recibida_parcial', estado_guardado:'enviada',
+       enviada_en:'2026-09-10T12:00:00Z', cerrada_en:null, anulada_en:null, anulada_motivo:null,
+       lineas:2, cantidad_pedida:24, cantidad_recibida:10, lineas_pendientes:2, neto:268000, iva:50920, total:318920},
+      {id:'oc-2', numero:'OC-000008', proveedor_id:'prov-1', proveedor_nombre:'Proveedor Uno', afecta_iva:false,
+       fecha:'2026-09-10', fecha_esperada:null, estado:'borrador', estado_guardado:'borrador',
+       lineas:1, cantidad_pedida:5, cantidad_recibida:0, lineas_pendientes:1, neto:10000, iva:0, total:10000},
+      {id:'oc-3', numero:'OC-000009', proveedor_id:'prov-1', proveedor_nombre:'Proveedor Uno', afecta_iva:true,
+       fecha:'2026-09-01', estado:'anulada', estado_guardado:'anulada', anulada_en:'2026-09-02T10:00:00Z',
+       anulada_motivo:'Se pidió por error', lineas:1, cantidad_pedida:2, cantidad_recibida:0, lineas_pendientes:1, neto:0, iva:0, total:0},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/ordenes_compra_lineas_detalle')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'l1', orden_compra_id:'oc-1', sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN',
+       cantidad:20, costo_unitario:2500, recibido:10, pendiente:10, exceso:0, total_linea:50000},
+      {id:'l2', orden_compra_id:'oc-1', sku_id:'sku-b2', sku_code:'BOD-002', descripcion:'Guante', unidad_medida:'PAR',
+       cantidad:4, costo_unitario:54500, recibido:5, pendiente:0, exceso:1, total_linea:218000},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/registrar_orden_compra') || path.startsWith('/rest/v1/rpc/actualizar_orden_compra')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({orden:{id:'oc-1', numero:'OC-000007'}, lineas:[], repetido:false}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/marcar_orden_compra_enviada')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'oc-2', numero:'OC-000008', estado:'enviada'}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/anular_orden_compra')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'oc-2', numero:'OC-000008', estado:'anulada'}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/cerrar_orden_compra')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'oc-1', numero:'OC-000007'}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/lineas_por_recibir')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', batch:null,
+       bodega:'Bodega Central', ubicacion:null, storage_bin:'R-1', cantidad:20, recibido:10, pendiente:10, costo_unitario:2500},
+    ]) };
+  }
   if(path.startsWith('/rest/v1/proveedores')){
     if(opts && (opts.method==='POST' || opts.method==='PATCH')) return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'prov-1', nombre:'Proveedor Uno', rut:'76.000.000-1', activo:true}]) };
@@ -7025,6 +7069,129 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.abrirDevolucionBodega('doc-devuelto', 'SAL-000009');
     assert(ctx.renderDevolucionModal().includes('ya se devolvió todo'), 'sin pendientes lo dice explícitamente');
     ctx.__appstate.devolucionModal = null;
+
+    // ===== Órdenes de compra emitidas por la app =====
+    // La empresa chica no tiene un módulo de compras aguas arriba: la OC nace acá, se imprime,
+    // se marca enviada y después el Ingreso se registra contra ella.
+    ctx.__appstate.view = 'ordenes';
+    await ctx.cargarOrdenesCompra();
+    assert(ctx.__appstate.ordenes.lista.length===3 && ctx.__appstate.ordenes.cargado, 'la vista carga las órdenes, obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.lista.length));
+    const htmlLista = ctx.renderOrdenesCompra();
+    assert(htmlLista.includes('OC-000007') && htmlLista.includes('Recibida en parte') && htmlLista.includes('data-oc-ver="oc-1"'), 'la lista muestra número, estado y el acceso al detalle, obtuvo: '+htmlLista.slice(0,700));
+    // El filtro por estado es del cliente: la lista ya está en memoria.
+    ctx.__appstate.ordenes.filtroEstado = 'borrador';
+    const htmlFiltrada = ctx.renderOrdenesCompra();
+    assert(htmlFiltrada.includes('OC-000008') && !htmlFiltrada.includes('OC-000007'), 'el filtro por estado deja solo las de ese estado, obtuvo: '+htmlFiltrada.slice(0,600));
+    ctx.__appstate.ordenes.filtroEstado = '';
+
+    // Solo las enviadas o recibidas en parte se pueden recibir: un borrador todavía no salió, y
+    // una anulada no espera nada.
+    const recibibles = ctx.ordenesRecibibles().map(o=>o.numero);
+    assert(recibibles.length===1 && recibibles[0]==='OC-000007', 'solo se ofrece recibir contra órdenes vivas, obtuvo: '+JSON.stringify(recibibles));
+
+    // Totales: neto, IVA 19% y total; una orden exenta no suma IVA.
+    const tot = ctx.totalesOrdenCompra([{cantidad:'10', costo_unitario:'2500'}, {cantidad:'4', costo_unitario:'18000'}], true);
+    assert(tot.neto===97000 && tot.iva===18430 && tot.total===115430, 'los totales con IVA deben cuadrar, obtuvo: '+JSON.stringify(tot));
+    const totExento = ctx.totalesOrdenCompra([{cantidad:'10', costo_unitario:'2500'}], false);
+    assert(totExento.iva===0 && totExento.total===25000, 'una orden exenta no suma IVA, obtuvo: '+JSON.stringify(totExento));
+
+    // Detalle: pendiente por línea y aviso cuando llegó de más.
+    await ctx.abrirDetalleOrdenCompra('oc-1');
+    const htmlDetalle = ctx.renderOrdenCompraDetalle();
+    assert(htmlDetalle.includes('BOD-001') && htmlDetalle.includes('+1 de más') && htmlDetalle.includes('Llegó más de lo pedido'), 'el detalle muestra el exceso recibido en vez de esconderlo, obtuvo: '+htmlDetalle.slice(0,900));
+    assert(htmlDetalle.includes('data-oc-recibir="oc-1"') && htmlDetalle.includes('data-oc-cerrar="oc-1"') && !htmlDetalle.includes('data-oc-anular'), 'una orden con recepciones se cierra, no se anula, obtuvo: '+htmlDetalle);
+    // El PDF que se le manda al proveedor lleva sus datos y el desglose de IVA.
+    const pdfOc = ctx.ordenCompraHTML(ctx.__appstate.ordenes.lista[0], ctx.__appstate.ordenes.detalle.lineas);
+    assert(pdfOc.includes('Orden de compra OC-000007') && pdfOc.includes('Marcela Ríos') && pdfOc.includes('ventas@uno.cl') && pdfOc.includes('IVA 19%') && pdfOc.includes('30 días'), 'el PDF de la orden lleva proveedor, condiciones e IVA, obtuvo: '+pdfOc.slice(0,900));
+    ctx.__appstate.ordenes.detalle = null;
+
+    // Emitir: sin proveedor y sin líneas no se manda nada al servidor.
+    ctx.abrirNuevaOrdenCompra();
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarOrdenCompra())===false && JSON.stringify(elements['toast-root'].hijos).includes('proveedor'), 'sin proveedor no se emite, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:'prov-1'};
+    elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarOrdenCompra())===false && JSON.stringify(elements['toast-root'].hijos).includes('material'), 'sin líneas no se emite, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_orden_compra')), 'nada de eso llega al servidor');
+
+    // Un material dos veces en la misma orden se rechaza en el cliente: la base tiene el mismo
+    // índice único, pero acá el aviso llega antes de escribir la cantidad.
+    ctx.agregarLineaOrdenCompra({id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', costo_unitario:2500});
+    elements['toast-root'].hijos.length = 0;
+    ctx.agregarLineaOrdenCompra({id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', costo_unitario:2500});
+    assert(ctx.__appstate.ordenes.form.lineas.length===1 && JSON.stringify(elements['toast-root'].hijos).includes('ya está en la orden'), 'el mismo material no entra dos veces, obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.form.lineas));
+    // El costo del maestro viene sugerido, para no tipearlo de nuevo.
+    assert(ctx.__appstate.ordenes.form.lineas[0].costo_unitario==='2500', 'la línea nueva sugiere el costo del maestro, obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.form.lineas[0]));
+
+    // Una línea sin cantidad frena el guardado, con el código en el mensaje.
+    elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarOrdenCompra())===false && JSON.stringify(elements['toast-root'].hijos).includes('BOD-001'), 'una línea sin cantidad avisa cuál es, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Emisión válida.
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form,
+      lineas:[{...ctx.__appstate.ordenes.form.lineas[0], cantidad:'20'}],
+      fechaEsperada:'2026-09-20', condicionesPago:'30 días', lugarEntrega:'Bodega Central', afectaIva:true};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarOrdenCompra())===true, 'con proveedor y una línea con cantidad se emite');
+    const rpcOc = calls.find(c=>c.url.includes('/rpc/registrar_orden_compra'));
+    const bodyOc = rpcOc && JSON.parse(rpcOc.opts.body);
+    assert(bodyOc && bodyOc.p_proveedor_id==='prov-1' && bodyOc.p_lineas.length===1 && bodyOc.p_lineas[0].cantidad===20 && bodyOc.p_lineas[0].costo_unitario===2500 && bodyOc.p_fecha_esperada==='2026-09-20' && bodyOc.p_afecta_iva===true && typeof bodyOc.p_idempotency_key==='string', 'se manda proveedor, líneas, condiciones y clave de idempotencia, obtuvo: '+JSON.stringify(bodyOc));
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('OC-000007'), 'avisa el número de la orden creada');
+
+    // Editar una orden en borrador va por actualizar_orden_compra, con el id.
+    await ctx.abrirEdicionOrdenCompra('oc-2');
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:'prov-1',
+      lineas:[{sku_id:'sku-b1', sku_code:'BOD-001', cantidad:'3', costo_unitario:''}]};
+    calls.length = 0;
+    assert((await ctx.guardarOrdenCompra())===true, 'una orden en borrador se puede corregir');
+    const rpcEdit = calls.find(c=>c.url.includes('/rpc/actualizar_orden_compra'));
+    const bodyEdit = rpcEdit && JSON.parse(rpcEdit.opts.body);
+    assert(bodyEdit && bodyEdit.p_orden_compra_id==='oc-2' && bodyEdit.p_lineas[0].costo_unitario===null, 'editar manda el id de la orden y el precio en blanco viaja como null, obtuvo: '+JSON.stringify(bodyEdit));
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_orden_compra')), 'editar no crea una orden nueva');
+    ctx.__appstate.ordenes.form = null; ctx.__appstate.ordenes.detalle = null;
+
+    // Anular exige motivo.
+    ctx.__appstate.ordenes.anulando = {id:'oc-2', numero:'OC-000008', motivo:'', guardando:false};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.anularOrdenCompra())===false && !calls.some(c=>c.url.includes('/rpc/anular_orden_compra')), 'sin motivo no se anula ni se llama al servidor');
+    ctx.__appstate.ordenes.anulando = {id:'oc-2', numero:'OC-000008', motivo:'Se pidió por error', guardando:false};
+    calls.length = 0;
+    assert((await ctx.anularOrdenCompra())===true, 'con motivo sí se anula');
+    const bodyAnu = JSON.parse(calls.find(c=>c.url.includes('/rpc/anular_orden_compra')).opts.body);
+    assert(bodyAnu.p_orden_compra_id==='oc-2' && bodyAnu.p_motivo==='Se pidió por error', 'se manda el motivo, obtuvo: '+JSON.stringify(bodyAnu));
+
+    // Recibir contra la orden: el Ingreso se llena con lo que falta, al precio acordado.
+    ctx.__appstate.view = 'ingreso';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    elements['toast-root'].hijos.length = 0;
+    await ctx.usarOrdenCompraEnIngreso('oc-1');
+    const docOc = ctx.__appstate.bodega.doc;
+    assert(docOc.ordenCompraId==='oc-1' && docOc.numeroOc==='OC-000007' && docOc.proveedorId==='prov-1', 'la orden queda enganchada al documento, obtuvo: '+JSON.stringify({oc:docOc.ordenCompraId, numero:docOc.numeroOc, prov:docOc.proveedorId}));
+    assert(docOc.lineas.length===1 && docOc.lineas[0].cantidad===10 && docOc.lineas[0].costo_unitario===2500, 'se prellena lo PENDIENTE (10 de 20), no lo pedido, y al precio acordado, obtuvo: '+JSON.stringify(docOc.lineas));
+    assert(ctx.renderDocumentoBodega('ingreso').includes('id="bd-orden-compra"'), 'el Ingreso ofrece el selector de orden de compra');
+
+    // Y al guardar, el documento viaja con la orden.
+    ctx.__appstate.bodega.doc = {...docOc, numeroGuia:'GD-500', fotoGuia:{file:{name:'g.jpg', type:'image/jpeg'}}};
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    const rpcDoc = calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega'));
+    const bodyDoc = rpcDoc && JSON.parse(rpcDoc.opts.body);
+    assert(bodyDoc && bodyDoc.p_orden_compra_id==='oc-1', 'el ingreso se registra contra la orden, obtuvo: '+JSON.stringify(bodyDoc && bodyDoc.p_orden_compra_id));
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    ctx.__appstate.view = 'stock';
+
+    // Configuraciones: los datos de contacto del proveedor (los usa el PDF de la orden).
+    ctx.__appstate.bodega.proveedores = [{id:'prov-1', nombre:'Proveedor Uno', rut:'76.000.000-1', activo:true, email:'ventas@uno.cl', telefono:null, contacto:'Marcela Ríos', direccion:null}];
+    assert(ctx.renderListasBodegaConfig().includes('data-editar-proveedor="prov-1"'), 'la lista de proveedores ofrece editar sus datos de contacto');
+    assert(!ctx.renderListasBodegaConfig().includes('data-editar-proveedor="per-1"'), 'las personas que retiran no tienen esa ficha');
+    ctx.__appstate.proveedorModal = {id:'prov-1', nombre:'Proveedor Uno', rut:'76.000.000-1', contacto:'Marcela Ríos', email:'ventas@uno.cl', telefono:'', direccion:'', guardando:false};
+    assert(ctx.renderProveedorModal().includes('Marcela Ríos') && ctx.renderProveedorModal().includes('ventas@uno.cl'), 'el modal trae los datos actuales');
+    calls.length = 0;
+    assert((await ctx.guardarProveedorContacto())===true, 'se guardan los datos de contacto');
+    const patchProv = calls.find(c=>c.url.includes('/proveedores?id=eq.prov-1') && c.opts.method==='PATCH');
+    const bodyProv = patchProv && JSON.parse(patchProv.opts.body);
+    assert(bodyProv && bodyProv.contacto==='Marcela Ríos' && bodyProv.telefono===null, 'los campos vacíos viajan como null, obtuvo: '+JSON.stringify(bodyProv));
+    ctx.__appstate.proveedorModal = null;
 
     // ===== Traslado entre bodegas =====
     // Mueve CANTIDAD de un sitio a otro y deja rastro en el kardex de los dos. Es distinto de

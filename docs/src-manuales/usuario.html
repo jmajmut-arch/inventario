@@ -30,7 +30,7 @@
       <div class="toc-row"><span><span class="n">15</span>Suscripción y pagos</span><span class="p">pág. 16</span></div>
       <div class="toc-row"><span><span class="n">08</span>Contar en terreno: escanear código</span><span class="p">pág. 9</span></div>
       <div class="toc-row"><span><span class="n">16</span>Módulo de bodega</span><span class="p">pág. 17</span></div>
-      <div class="toc-row"><span><span class="n">·</span>Resumen rápido</span><span class="p">pág. 18</span></div>
+      <div class="toc-row"><span><span class="n">·</span>Resumen rápido</span><span class="p">pág. 20</span></div>
     </div>
   </div>
   <div class="note">Las capturas de pantalla son de un ambiente de prueba con datos ficticios ("Minera Andes"), no de datos de un cliente real. Las etapas nuevas de esta edición (Grupos, Calendario, Períodos y Suscripción) se describen sin captura. Los pasos describen el celular como caso principal: InventIA funciona igual en computador, con las mismas pantallas. Actualizado al 8 de septiembre de 2026.</div>
@@ -405,6 +405,26 @@
       <div class="box new"><div class="tag">Sin señal</div>Ingresos y salidas se guardan en el celular y se envían solos al volver la conexión. Una salida registrada sin señal que ya no alcanza el stock queda "pendiente de revisión" para el administrador, sin perderse.</div>
     </div>
     <div class="shot"><img class="tall" src="img/bodega-inicio.png" alt="Inicio del módulo de bodega"><div class="cap">El saldo solo cambia con ingresos, salidas y ajustes</div></div>
+  </div>
+</section>
+
+<!-- 16 (continuación) -->
+<section class="page">
+  <div class="kicker">16 · Módulo de bodega</div>
+  <h2 class="title">Órdenes de compra: pedir, y saber qué falta por llegar</h2>
+  <p class="intro">La orden la emite InventIA. No hace falta tener un ERP ni un sistema de compras: se arma acá, se imprime y se le manda al proveedor como cualquier documento.</p>
+  <span class="role">Solo admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div><b>Arma la orden.</b> En el Inicio de bodega, <b>Órdenes de compra</b> → <b>Nueva orden</b>. Eliges el proveedor, buscas los materiales igual que en un ingreso y pones cantidad y precio unitario; el precio viene sugerido del maestro. Abajo se calculan neto, IVA 19% y total. Si la compra es exenta, desmarca la casilla del IVA.</div></li>
+        <li><span class="num">2</span><div><b>Queda en borrador.</b> Mientras esté así la puedes corregir cuantas veces quieras. Cuando esté lista, <b>Imprimir orden</b> te da el PDF con los datos de las dos partes, el detalle con precios y las condiciones, y <b>Marcar como enviada</b> la cierra a edición: desde ahí el papel que tiene el proveedor y el que está en la app dicen lo mismo.</div></li>
+        <li><span class="num">3</span><div><b>Recibe contra la orden.</b> Cuando llega el material, en Ingreso elige la orden en <b>Recibir contra una orden de compra</b>: las líneas se llenan solas con lo que falta por llegar, al precio acordado. Si la factura viene con otro precio, lo corriges en la línea y queda registrado el de verdad. Puedes recibir en varias veces: cada ingreso descuenta de lo pendiente.</div></li>
+        <li><span class="num">4</span><div><b>Qué falta.</b> El estado de la orden se calcula solo: <b>Enviada</b> mientras no llega nada, <b>Recibida en parte</b> cuando llegó algo, <b>Recibida</b> cuando llegó todo. En el detalle ves línea por línea lo pedido, lo recibido y lo pendiente, y las recepciones con su guía.</div></li>
+        <li><span class="num">5</span><div><b>Si algo sale mal.</b> Una orden de la que todavía no llegó nada se <b>anula</b> con motivo. Si llegó una parte y el resto ya no va a llegar, se <b>cierra</b>: deja de figurar como pendiente sin borrar lo que sí se recibió. Y si llega más de lo pedido, el ingreso se registra igual (el material está) y la orden lo muestra en rojo para que lo revises contra la factura.</div></li>
+      </ol>
+      <div class="box"><div class="tag">Datos del proveedor</div>La orden es un documento que sale de tu empresa, así que conviene completar el contacto, correo, teléfono y dirección del proveedor: se imprimen en el PDF. Se editan en <b>Configuraciones → Proveedores → Editar</b>.</div>
+    </div>
   </div>
 </section>
 
