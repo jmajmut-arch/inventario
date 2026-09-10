@@ -4612,7 +4612,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Pestaña propia para mover: el botón dentro del maestro no se encontraba, así que la acción
   // tiene su pantalla con buscador, en la barra de abajo junto a Stock y Movimientos.
   ctx.__appstate.view = 'mover';
-  assert(ctx.renderShell().includes('data-tab="mover"'), 'la pestaña Mover está en la barra de abajo, obtuvo: '+ctx.renderShell().slice(0,200));
+  // Se llega desde el Inicio de bodega, en la misma fila que Movimientos, Stock y Reportes.
+  ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
+  const htmlInicio = ctx.renderInicio();
+  assert(htmlInicio.includes('data-ir-vista="mover"'), 'el Inicio de bodega ofrece mover un material, obtuvo: '+htmlInicio);
+  ctx.__appstate.perfil.rol = 'operador';
+  assert(!ctx.renderInicio().includes('data-ir-vista="mover"'), 'un operador no ve el acceso a mover materiales');
+  ctx.__appstate.perfil.rol = 'admin';
+  assert(!ctx.renderShell().includes('data-tab="mover"'), 'mover no ocupa una pestaña de la barra de abajo');
   ctx.__appstate.mover = {texto:'', resultados:[], buscando:false, yaBuscado:false, error:null};
   assert(ctx.renderMover().includes('Escribe al menos dos caracteres'), 'la pantalla parte pidiendo una búsqueda');
   calls.length = 0;
