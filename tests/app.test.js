@@ -4653,11 +4653,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Los tres campos son desplegables de lo que ya existe, con la opción de escribir algo nuevo
   // sin salir de la ventana (pedido de Joel).
-  ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:true, lista:[
+  // La pestaña Mover tiene que pedir el catálogo de ubicaciones al mostrarse. Sin esto, el
+  // desplegable de Ubicación general solo ofrecía la bodega donde el material ya estaba y una
+  // bodega recién creada no aparecía (lo vio Joel en Minera Test con "Bodega Nueva").
+  vm.runInContext('cargasHechas.delete("ubicaciones")', ctx);
+  calls.length = 0;
+  await ctx.asegurarDatosDeVista('mover');
+  await new Promise(r=>setTimeout(r, 30));
+  assert(calls.some(c=>c.url.includes('/rest/v1/ubicaciones?select=')), 'al mostrar Mover material debe pedir el catálogo de ubicaciones, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:true, materialesPorBodega:{'B501':60164,'Sin catalogar':7,'Patio 6':2}, lista:[
     {id:'c1', bodega:'B501', ubicacion:null, activo:true},
     {id:'c2', bodega:'B501', ubicacion:'0102', activo:true},
     {id:'c3', bodega:'B521', ubicacion:null, activo:true},
     {id:'c4', bodega:'Patio 6', ubicacion:null, activo:false},
+    {id:'c5', bodega:'Bodega Nueva', ubicacion:null, activo:true},
+    {id:'c6', bodega:'Bodega Nueva', ubicacion:'Interior Mina', activo:true},
   ]};
   ctx.__appstate.ubicacionSkuModal = {
     id:'sku-mover', skuCode:'SKU-MOVER', descripcion:'Bomba', batch:null,
@@ -4668,7 +4679,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlCampos = ctx.renderUbicacionSkuModal();
   assert(htmlCampos.includes('<select id="us-bodega"') && htmlCampos.includes('<select id="us-ubic"') && htmlCampos.includes('<select id="us-bin"'), 'los tres campos son desplegables, obtuvo: '+htmlCampos);
   assert(htmlCampos.includes('>B501<') && htmlCampos.includes('>B521<'), 'la ubicación general ofrece las bodegas del catálogo, obtuvo: '+htmlCampos);
-  assert(!htmlCampos.includes('>Patio 6<'), 'una bodega desactivada no se ofrece para mover material ahí');
+  assert(!htmlCampos.includes('>Patio 6<'), 'una bodega desactivada no se ofrece para mover material ahí, ni siquiera si le quedan materiales dentro');
+  assert(htmlCampos.includes('>Bodega Nueva<'), 'una bodega recién creada, todavía sin materiales, debe poder elegirse, obtuvo: '+htmlCampos);
+  assert(htmlCampos.includes('>Sin catalogar<'), 'una bodega que tiene materiales pero no está en el catálogo también se ofrece, obtuvo: '+htmlCampos);
   assert(htmlCampos.includes('>0102<') && htmlCampos.includes('>0103<'), 'la ubicación específica junta el catálogo con lo que ya usan los materiales');
   assert(htmlCampos.includes('>N1E-P5-I09<') && htmlCampos.includes('>A-01-02<'), 'el bin ofrece los que existen en esa bodega, incluido el actual');
   assert((htmlCampos.match(/\+ Agregar una nueva…/g)||[]).length===3, 'los tres campos permiten agregar uno nuevo ahí mismo, obtuvo: '+htmlCampos);

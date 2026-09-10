@@ -1671,6 +1671,9 @@ const CARGAS_POR_VISTA = {
   movimientos: ['bodegaMovimientos', 'bodegaPendientes', 'bodegaValorizacion'],
   stock: ['bodegaStock', 'bodegaValorizacion'],
   reportes: ['bodegaReportes'],
+  // Mover material necesita el catálogo: sin él, el desplegable de Ubicación general solo podía
+  // ofrecer la bodega donde el material ya estaba, y una bodega recién creada no aparecía.
+  mover: ['ubicaciones'],
   config: ['bodegaListas', 'ubicaciones'],
 };
 const CARGADORES = {
@@ -7457,7 +7460,14 @@ function renderUbicacionSkuModal(){
   if(!m) return '';
   const origen = describirUbicacion({bodega:m.bodegaOriginal, ubicacion:m.ubicacionOriginal, storage_bin:m.binOriginal});
   const cat = state.ubicaciones.lista || [];
-  const bodegas = opcionesConActual(cat.filter(x=>!x.ubicacion && x.activo).map(x=>x.bodega), m.bodega);
+  // Las bodegas del catálogo que están activas, más las que tienen materiales y todavía no están
+  // en el catálogo (una carga masiva puede estrenar una bodega). Una bodega desactivada a
+  // propósito no se ofrece aunque le queden materiales dentro.
+  const desactivadas = new Set(cat.filter(x=>!x.ubicacion && !x.activo).map(x=>x.bodega));
+  const bodegas = opcionesConActual([
+    ...cat.filter(x=>!x.ubicacion && x.activo).map(x=>x.bodega),
+    ...Object.keys(state.ubicaciones.materialesPorBodega||{}).filter(b=>!desactivadas.has(b)),
+  ], m.bodega);
   const especificas = opcionesConActual(
     [...cat.filter(x=> x.bodega===m.bodega && x.ubicacion && x.activo).map(x=>x.ubicacion),
      ...(m.especificas||[]).map(x=>x.ubicacion)], m.ubicacion);
