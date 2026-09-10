@@ -7110,6 +7110,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlReconteoTipos = ctx.renderReconteo();
   assert(htmlReconteoTipos.includes('Bloq: 3 · Trán. 2: 5 · Transf: 2'), 'debe mostrar los tipos de stock presentes, omitiendo Tránsito 1 (0), obtuvo: '+htmlReconteoTipos);
 
+  // Con los totales del código (total_*), manda el total del material completo y no el de la fila.
+  // El ERP deja el tránsito en otra fila del mismo código, sin ubicación ni bin: sin esto, el que
+  // cuenta ve "Trán. 1: 0" en el bin y no se entera de que hay unidades en camino.
+  ctx.__appstate.reconteos = [
+    { id:'rf5', sku_code:'SKU-TOTALES', descripcion:'Con tránsito en otra fila', stock_sistema:6, ultima_cantidad_contada:5, ultima_diferencia:-1, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', fotos:[],
+      stock_bloqueado:0, stock_transito_1:0, stock_transito_2:0, stock_transferencia:0,
+      total_bloqueado:0, total_transito_1:7, total_transito_2:0, total_transferencia:0 },
+  ];
+  const htmlReconteoTotales = ctx.renderReconteo();
+  assert(htmlReconteoTotales.includes('Todo el material · Trán. 1: 7'), 'con totales del código debe mostrar el total del material, no el 0 de la fila, obtuvo: '+htmlReconteoTotales);
+  assert(!htmlReconteoTotales.includes('Bloq:') && !htmlReconteoTotales.includes('Transf:'), 'los totales en cero siguen sin mostrarse, obtuvo: '+htmlReconteoTotales);
+
   // etiquetaNumeroConteo: 1 es el conteo original, 2+ son reconteos (numerados desde 1).
   assert(ctx.etiquetaNumeroConteo(1)==='Conteo' && ctx.etiquetaNumeroConteo(2)==='Reconteo 1' && ctx.etiquetaNumeroConteo(3)==='Reconteo 2', 'etiquetaNumeroConteo debe distinguir el conteo original de cada reconteo, obtuvo: '+JSON.stringify([ctx.etiquetaNumeroConteo(1), ctx.etiquetaNumeroConteo(2), ctx.etiquetaNumeroConteo(3)]));
 
@@ -7205,6 +7217,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
   const htmlContarTiposOperadorSinCiego = ctx.renderConteo();
   assert(htmlContarTiposOperadorSinCiego.includes('Bloq: 3 · Trán. 2: 5 · Transf: 2'), 'con conteo ciego apagado, el operador sí debe ver el stock por tipo, obtuvo: '+htmlContarTiposOperadorSinCiego);
+
+  // En Contar, lo mismo: el total del material manda sobre el valor de la fila (pedido de Joel,
+  // "que diga cuántas unidades están en tránsito para todos, no solo para la ubicación").
+  ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuSeleccionado,
+    stock_bloqueado:0, stock_transito_1:0, stock_transito_2:0, stock_transferencia:0,
+    total_bloqueado:0, total_transito_1:7, total_transito_2:0, total_transferencia:4};
+  const htmlContarTotales = ctx.renderConteo();
+  assert(htmlContarTotales.includes('Todo el material · Trán. 1: 7 · Transf: 4'), 'Contar debe mostrar el total del material aunque la fila del bin traiga 0, obtuvo: '+htmlContarTotales);
+  // Y el total sigue detrás del mismo gate de conteo ciego que el stock.
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = true;
+  assert(!ctx.renderConteo().includes('Todo el material'), 'con conteo ciego activo, el operador tampoco ve los totales del material');
+  ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
+  ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuSeleccionado,
+    stock_bloqueado:3, stock_transito_1:0, stock_transito_2:5, stock_transferencia:2,
+    total_bloqueado:undefined, total_transito_1:undefined, total_transito_2:undefined, total_transferencia:undefined};
 
   // guardarConteo + conteo ciego: el chequeo de "valor atípico" ahora lo resuelve el servidor
   // (verificar_conteo_atipico) -- stock_sistema ya no le llega al operador (skus_lectura/

@@ -135,10 +135,10 @@
   <h3 class="sub">Carga masiva (Excel/CSV)</h3>
   <div class="two">
     <ul class="checks">
-      <li>Detección automática de columnas por nombre, con corrección manual antes de confirmar; el puntaje ignora palabras genéricas ("stock", "in", "de")</li>
+      <li>Detección automática de columnas por nombre, corregible antes de confirmar; el puntaje ignora palabras genéricas ("stock", "in", "de")</li>
       <li>Agregar/complementar: crea los nuevos, actualiza los que ya existen. Reemplazar completo: además desactiva lo que no venga en el archivo (conserva su historial)</li>
-      <li>4 columnas opcionales de stock por tipo (Bloqueado, SOH en tránsito 1/2, Transferencia): informativas, no alteran la diferencia</li>
-      <li>Huella "antes → ahora" del stock de sistema (<code>stock_sistema_anterior</code>, <code>stock_sistema_actualizado_en</code>) cuando una carga cambia el stock de un material ya contado</li>
+      <li>4 columnas opcionales de stock por tipo (Bloqueado, SOH en tránsito 1/2, Transferencia): informativas, no alteran la diferencia; se muestran sumadas por código, no por fila</li>
+      <li>Huella "antes → ahora" del stock (<code>stock_sistema_anterior</code>, <code>stock_sistema_actualizado_en</code>) cuando una carga cambia el stock de un material ya contado</li>
     </ul>
     <ul class="checks no">
       <li>Actualizar sin sobrescribir: toda columna mapeada reemplaza el valor anterior, incluso a blanco si viene vacía</li>
@@ -176,7 +176,7 @@
     <tr><td>Unidad de medida</td><td>No</td><td>Etiqueta informativa junto a la cantidad.</td></tr>
     <tr><td>Categoría</td><td>No</td><td>Solo filtro/etiqueta.</td></tr>
     <tr><td>Crítico</td><td>No</td><td>El material no aparece marcado como crítico ni entra al grupo automático de críticos. Cualquier marca no vacía cuenta como "sí".</td></tr>
-    <tr><td>Bloqueado / SOH en tránsito 1 y 2 / Transferencia</td><td>No</td><td>Informativas: no se muestra el contexto de stock por tipo en Contar y Reconteo.</td></tr>
+    <tr><td>Bloqueado / SOH en tránsito 1 y 2 / Transferencia</td><td>No</td><td>Informativas: no se muestra el contexto de stock por tipo en Contar, Reconteo ni el maestro.</td></tr>
   </table>
   <div class="two">
     <div class="box"><div class="tag">Cómo funciona</div>Un SKU es único por código + bodega + batch + ubicación + bin: el mismo material repartido en varios lugares va como varias filas, cada una con su propio stock. La planilla no necesita un formato fijo: la detección de columnas es automática y deja corregir el mapeo antes de confirmar.</div>
