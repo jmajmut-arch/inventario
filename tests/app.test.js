@@ -6781,6 +6781,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(bodySalida && bodySalida.p_tipo==='salida' && bodySalida.p_retirado_por_id==='per-1' && bodySalida.p_destino==='Taller' && bodySalida.p_lineas.length===1 && bodySalida.p_lineas[0].sku_id==='sku-b1' && bodySalida.p_lineas[0].cantidad===2 && typeof bodySalida.p_idempotency_key==='string', 'la salida se registra por RPC con líneas, quién retira, destino y clave de idempotencia, obtuvo: '+JSON.stringify(bodySalida));
     assert(ctx.__appstate.bodega.doc.lineas.length===0 && ctx.__appstate.bodega.ultimoDocumento && ctx.__appstate.bodega.ultimoDocumento.numero==='SAL-000003', 'tras guardar, el formulario queda limpio y se muestra el número del documento, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.ultimoDocumento));
 
+    // Imprimir el comprobante en el momento: en una salida la persona está ahí para firmar, y
+    // mandarla a Movimientos a buscar su propio documento recién creado es fricción pura.
+    const htmlGuardadaSalida = ctx.renderDocumentoBodega('salida');
+    assert(htmlGuardadaSalida.includes('data-imprimir-ultimo="doc-1"'), 'tras guardar debe ofrecer imprimir el comprobante, obtuvo: '+htmlGuardadaSalida);
+    assert(/data-imprimir-ultimo="doc-1"[^>]*/.test(htmlGuardadaSalida) && /class="btn btn-primary" data-imprimir-ultimo/.test(htmlGuardadaSalida), 'en la salida el botón de imprimir es el principal, obtuvo: '+htmlGuardadaSalida);
+    assert(htmlGuardadaSalida.includes('lo firme'), 'la salida explica para qué sirve el papel');
+
+    // El comprobante se puede armar aunque la lista de Movimientos no esté cargada: se piden las
+    // líneas al servidor en vez de decir "no encontré el documento".
+    ctx.__appstate.bodega.movimientos = [];
+    ctx.__appstate.bodega.fotosPorDocumento = {};
+    calls.length = 0;
+    elements['toast-root'].hijos.length = 0;
+    await ctx.imprimirComprobanteBodega('doc-1');
+    assert(calls.some(c=>c.url.includes('/movimientos_bodega_detalle') && c.url.includes('documento_id=eq.doc-1')), 'debe pedir las líneas del documento al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!JSON.stringify(elements['toast-root'].hijos).includes('No encontré'), 'no debe fallar por no tener la lista cargada, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
     // Ingreso: guía y foto de la guía obligatorias; sube la foto y la asocia al documento.
     ctx.__appstate.view = 'ingreso';
     ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
