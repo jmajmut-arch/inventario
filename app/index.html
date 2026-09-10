@@ -5511,9 +5511,18 @@ function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', d
 // Comprobante PDF de un ingreso o salida: mismo contenedor de impresión que Buscar y fotos
 // reducidas (resolverFotoParaPDF). Para la salida incluye líneas de firma de quien entrega y recibe.
 async function imprimirComprobanteBodega(documentoId){
-  const filas = state.bodega.movimientos.filter(m=>m.documento_id===documentoId);
-  if(!filas.length){ toast('No encontré el documento en la lista','err'); return; }
-  const fotos = state.bodega.fotosPorDocumento[documentoId] || [];
+  // Desde Movimientos las líneas ya están en memoria. Desde el aviso de "documento guardado"
+  // (Ingreso/Salida) no, porque esa vista no carga la lista: se piden al servidor. Es el momento
+  // en que más se necesita el papel -- en una salida, la persona está ahí para firmar.
+  let filas = state.bodega.movimientos.filter(m=>m.documento_id===documentoId);
+  let fotos = state.bodega.fotosPorDocumento[documentoId] || [];
+  if(!filas.length){
+    try{
+      filas = await rest(`/movimientos_bodega_detalle?select=*&documento_id=eq.${encodeURIComponent(documentoId)}&order=created_at.asc`) || [];
+      fotos = (await rest(`/movimiento_fotos?select=documento_id,tipo,foto_url&documento_id=eq.${encodeURIComponent(documentoId)}&order=created_at.asc`).catch(()=>[])) || [];
+    }catch(e){ toast(e.message,'err'); return; }
+  }
+  if(!filas.length){ toast('No encontré el documento','err'); return; }
   const fotosPdf = (await Promise.all(fotos.map(async f=>{ try{ const r = await resolverFotoParaPDF(f.foto_url); return {tipo:f.tipo, url:r.url}; }catch(e){ return null; } }))).filter(Boolean);
   document.getElementById('print-informe').innerHTML = '';
   document.getElementById('print-plan').innerHTML = '';
@@ -10514,7 +10523,13 @@ function renderDocumentoBodega(tipo){
   const lineasSinCosto = d.lineas.filter(l=> l.costo_unitario==null).length;
   return `
     <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${esIngreso?'Ingreso de material':'Salida de material'}</h2></div></div>
-    ${b.ultimoDocumento ? `<div class="card" style="margin-bottom:12px;border-color:var(--ok)"><div class="hint" style="margin:0">Último documento guardado: <strong>${esc(b.ultimoDocumento.numero)}</strong>. <button type="button" class="link-btn" data-ir-vista="movimientos">Ver movimientos</button></div></div>` : ''}
+    ${b.ultimoDocumento ? `<div class="card" style="margin-bottom:12px;border-color:var(--ok)">
+      <div class="hint" style="margin:0">Guardado: <strong>${esc(b.ultimoDocumento.numero)}</strong>.${b.ultimoDocumento.tipo==='salida'?' Imprime el comprobante para que quien retira lo firme.':''}</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn ${b.ultimoDocumento.tipo==='salida'?'btn-primary':'btn-secondary'}" data-imprimir-ultimo="${esc(b.ultimoDocumento.id)}" style="width:auto">${ICONS.download} Imprimir comprobante</button>
+        <button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto">Ver movimientos</button>
+      </div>
+    </div>` : ''}
     <div class="card">
       <label for="bd-sku">Material (código o descripción)</label>
       <div style="display:flex;gap:8px;align-items:center">
@@ -11271,6 +11286,7 @@ function bind(){
     if(btnExp) btnExp.addEventListener('click', exportarMovimientosExcel);
     document.querySelectorAll('[data-anular-doc]').forEach(btn=> btn.addEventListener('click', ()=> anularDocumentoBodega(btn.dataset.anularDoc, btn.dataset.numero)));
     document.querySelectorAll('[data-comprobante-doc]').forEach(btn=> btn.addEventListener('click', ()=> imprimirComprobanteBodega(btn.dataset.comprobanteDoc)));
+    document.querySelectorAll('[data-imprimir-ultimo]').forEach(btn=> btn.addEventListener('click', ()=> imprimirComprobanteBodega(btn.dataset.imprimirUltimo)));
     const btnApertura = document.getElementById('btn-apertura-bodega');
     if(btnApertura) btnApertura.addEventListener('click', ()=>{
       const n = Number(state.bodega.valorizacion && state.bodega.valorizacion.sin_apertura) || 0;
