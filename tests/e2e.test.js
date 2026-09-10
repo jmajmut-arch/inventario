@@ -241,6 +241,51 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Bodega: reservas y el atajo a la orden de compra, con clicks reales =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('reservas: '+err.message));
+    const perfilBodega = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilBodega.empresas.modulo_bodega_habilitado = true;
+    perfilBodega.empresas.bodega_funciones = {};
+    await mockearSupabaseApp(page, perfilBodega);
+    await page.route('**/rest/v1/reservas_lista**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'res-1', numero:'RES-000003', persona_id:'per-1', persona_nombre:'Juan Retira', persona_area:'Mantención',
+        destino:'Detención chancador', fecha_necesaria:'2026-09-17', usuario_id:'perfil-1', usuario_nombre:'Ana Torres',
+        cancelada_en:null, created_at:'2026-09-10T11:00:00Z', estado_guardado:'activa',
+        lineas:1, cantidad_reservada:15, entregado:0, pendiente:15, lineas_descubiertas:1, estado:'descubierta' },
+    ]) }));
+    await page.route('**/rest/v1/reservas_lineas_detalle**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'rl1', reserva_id:'res-1', sku_id:'s1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN',
+        cantidad:15, entregado:0, pendiente:15, stock:12, reservado_total:15, faltante:3 },
+    ]) }));
+    await page.route('**/rest/v1/proveedores**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'p-1', nombre:'Ferretería Andina', rut:'76.543.210-9', activo:true, email:null, telefono:null, contacto:null, direccion:null },
+    ]) }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:5000 });
+    await page.click('[data-ir-vista="reservas"]');
+    await page.waitForSelector('[data-reserva-ver="res-1"]', { timeout:5000 });
+    assert(await page.isVisible('text=FALTA MATERIAL') || await page.isVisible('text=Falta material'), 'la reserva descubierta se avisa arriba de la lista');
+    await page.click('[data-reserva-ver="res-1"]');
+    await page.waitForSelector('[data-reserva-comprar="res-1"]', { timeout:5000 });
+    assert(await page.isVisible('text=faltan 3'), 'el detalle muestra cuánto falta para cubrir la reserva');
+    const sinDesbordeRes = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+    assert(sinDesbordeRes, 'el detalle de la reserva no debe desbordar a lo ancho en pantalla de celular');
+    // El atajo que cierra el ciclo: el faltante se convierte en una orden de compra.
+    await page.click('[data-reserva-comprar="res-1"]');
+    await page.waitForSelector('[data-oc-cantidad]', { timeout:5000 });
+    const cantidadOc = await page.inputValue('[data-oc-cantidad]');
+    assert(cantidadOc==='3', 'la orden se arma con el faltante (3), no con lo reservado (15), obtuvo: '+cantidadOc);
+    const obs = await page.inputValue('#oc-observacion');
+    assert(obs.includes('RES-000003'), 'la orden dice qué reserva viene a cubrir, obtuvo: '+obs);
+    await context.close();
+  }
+
   // ===== Bodega: órdenes de compra, con clicks reales =====
   // Igual que el traslado: acá se prueba el cableado (que los listeners estén en la vista donde
   // vive cada botón), que el sandbox de unit tests no ve porque llama las funciones directo.

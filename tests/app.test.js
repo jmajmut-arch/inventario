@@ -944,6 +944,42 @@ const fakeFetchImpl = async (url, opts) => {
     };
   }
   // ===== Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md) =====
+  // Reservas de material: apartar cantidad, no unidades marcadas.
+  if(path.startsWith('/rest/v1/reservas_lista')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'res-1', numero:'RES-000003', persona_id:'per-1', persona_nombre:'Juan Retira', persona_area:'Mantención',
+       destino:'Detención chancador', fecha_necesaria:'2026-09-17', observacion:null, usuario_id:1,
+       usuario_nombre:'Ana Torres', cancelada_en:null, cancelada_motivo:null, created_at:'2026-09-10T11:00:00Z',
+       estado_guardado:'activa', lineas:2, cantidad_reservada:19, entregado:0, pendiente:19,
+       lineas_descubiertas:1, estado:'descubierta'},
+      {id:'res-2', numero:'RES-000004', persona_id:null, persona_nombre:null, destino:'Cambio de correa',
+       fecha_necesaria:null, usuario_id:1, created_at:'2026-09-09T11:00:00Z', estado_guardado:'activa',
+       lineas:1, cantidad_reservada:3, entregado:0, pendiente:3, lineas_descubiertas:0, estado:'activa'},
+      {id:'res-3', numero:'RES-000002', persona_id:null, destino:'Ya entregada', usuario_id:1,
+       created_at:'2026-09-08T11:00:00Z', estado_guardado:'activa', lineas:1, cantidad_reservada:2,
+       entregado:2, pendiente:0, lineas_descubiertas:0, estado:'entregada'},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/reservas_lineas_detalle')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'rl1', reserva_id:'res-1', sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN',
+       cantidad:15, entregado:0, pendiente:15, stock:12, reservado_total:15, faltante:3},
+      {id:'rl2', reserva_id:'res-1', sku_id:'sku-b2', sku_code:'BOD-002', descripcion:'Guante', unidad_medida:'PAR',
+       cantidad:4, entregado:0, pendiente:4, stock:22, reservado_total:4, faltante:0},
+    ]) };
+  }
+  if(path.startsWith('/rest/v1/rpc/registrar_reserva_bodega') || path.startsWith('/rest/v1/rpc/actualizar_reserva_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({reserva:{id:'res-1', numero:'RES-000003'}, lineas:[], repetido:false}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/cancelar_reserva_bodega')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'res-2', numero:'RES-000004', estado:'cancelada'}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/lineas_por_entregar')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', batch:null,
+       bodega:'Bodega Central', ubicacion:null, storage_bin:'R-1', cantidad:15, entregado:5, pendiente:10, stock:12},
+    ]) };
+  }
   // Órdenes de compra: la app las emite y después recibe contra ellas.
   if(path.startsWith('/rest/v1/ordenes_compra_lista')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
@@ -1088,7 +1124,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(aperturaBodegaHecha ? [{id:'mov-ap'}] : []) };
   }
   if(path.startsWith('/rest/v1/stock_actual')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, bodega:'Bodega Central', ubicacion:'Pasillo 1', storage_bin:'R-1', stock:6, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, bodega:'Bodega Central', ubicacion:'Pasillo 1', storage_bin:'R-1', stock:6, reservado:4, disponible:2, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
   }
   // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
   // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
@@ -7069,6 +7105,146 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.abrirDevolucionBodega('doc-devuelto', 'SAL-000009');
     assert(ctx.renderDevolucionModal().includes('ya se devolvió todo'), 'sin pendientes lo dice explícitamente');
     ctx.__appstate.devolucionModal = null;
+
+    // Con reservas activas, Stock muestra el disponible además del stock físico.
+    ctx.__appstate.view = 'stock';
+    await ctx.cargarStockBodega();
+    const htmlDisp = ctx.renderStockBodega();
+    assert(htmlDisp.includes('>Disponible<') && htmlDisp.includes('4 reservados'), 'Stock muestra el disponible y cuánto está reservado, obtuvo: '+htmlDisp.slice(htmlDisp.indexOf('<thead'), htmlDisp.indexOf('<thead')+900));
+    ctx.__appstate.perfil.empresas.bodega_funciones = {reservas:false};
+    assert(!ctx.renderStockBodega().includes('>Disponible<'), 'sin reservas, esa columna sobra: repetiría el stock');
+    ctx.__appstate.perfil.empresas.bodega_funciones = {};
+
+    // ===== Interruptores por función del módulo de bodega =====
+    // Sin llave en bodega_funciones la función está activa: ninguna empresa pierde algo que ya
+    // usaba cuando se agregó el interruptor.
+    ctx.__appstate.perfil.empresas.bodega_funciones = {};
+    assert(ctx.funcionBodegaActiva('ordenes_compra') && ctx.funcionBodegaActiva('reservas'), 'sin llave, la función está activa');
+    ctx.__appstate.perfil.empresas.bodega_funciones = {devoluciones:false, transferencias:false};
+    assert(!ctx.funcionBodegaActiva('devoluciones') && ctx.funcionBodegaActiva('reservas'), 'apagar una función no toca las otras');
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
+    assert(!ctx.funcionBodegaActiva('reservas'), 'sin el módulo, ninguna función está activa');
+    ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
+
+    // Y los botones desaparecen de verdad cuando la función se apaga.
+    ctx.__appstate.bodega.movimientos = [{...cabSal, id:'m-sal', documento_id:'doc-sal', estado:'aprobado', cantidad:10, fecha:'2026-09-08'}];
+    assert(!ctx.renderMovimientosBodega().includes('data-devolver-doc'), 'con devoluciones apagadas no se ofrece devolver');
+    ctx.__appstate.view = 'stock';
+    await ctx.cargarStockBodega();
+    assert(!ctx.renderStockBodega().includes('data-transferir-sku'), 'con traslados apagados no se ofrece transferir');
+    ctx.__appstate.perfil.empresas.bodega_funciones = {ordenes_compra:false};
+    assert(!ctx.renderInicio().includes('data-ir-vista="ordenes"'), 'con órdenes de compra apagadas no está el acceso en el Inicio');
+    assert(ctx.renderOrdenesCompra().includes('no están activadas'), 'con la función apagada, la vista de órdenes lo explica en vez de quedar vacía');
+    ctx.__appstate.perfil.empresas.bodega_funciones = {};
+    assert(ctx.renderInicio().includes('data-ir-vista="ordenes"') && ctx.renderMovimientosBodega().includes('data-devolver-doc'), 'al reactivarlas, los accesos vuelven');
+
+    // Súper admin: un interruptor por función, y solo para empresas con el módulo activo.
+    ctx.__appstate.perfil.es_super_admin = true;
+    ctx.__appstate.superadmin = {...ctx.__appstate.superadmin, cargado:true, planes:[{id:'plan-1', etiqueta:'Empresa'}], empresas:[
+      {id:'emp-1', nombre:'Con bodega', activo:true, plan_id:'plan-1', modulo_bodega_habilitado:true, bodega_funciones:{reservas:false}, planes:{etiqueta:'Empresa'}},
+      {id:'emp-2', nombre:'Sin bodega', activo:true, plan_id:'plan-1', modulo_bodega_habilitado:false, bodega_funciones:{}, planes:{etiqueta:'Empresa'}},
+    ]};
+    const htmlSa = ctx.renderConfiguraciones();
+    assert(htmlSa.includes('data-funcion="reservas"') && htmlSa.includes('data-funcion="ordenes_compra"'), 'súper admin muestra un interruptor por función, obtuvo: '+htmlSa.slice(htmlSa.indexOf('Funciones de bodega'), htmlSa.indexOf('Funciones de bodega')+400));
+    const trozoEmp1 = htmlSa.slice(htmlSa.indexOf('emp-1'), htmlSa.indexOf('emp-2'));
+    assert(!/data-funcion="reservas"[^>]*checked/.test(trozoEmp1), 'la función apagada aparece destildada');
+    assert(/data-funcion="devoluciones"[^>]*checked/.test(trozoEmp1), 'las demás aparecen tildadas');
+    assert((htmlSa.match(/Funciones de bodega/g)||[]).length===1, 'la empresa sin el módulo no muestra la fila de funciones');
+    ctx.__appstate.perfil.es_super_admin = false;
+
+    // ===== Reservas de material =====
+    // Reservar aparta CANTIDAD: no bloquea una salida ajena, pero si la deja sin respaldo la
+    // marca descubierta y ofrece cubrirla con una orden de compra.
+    ctx.__appstate.view = 'reservas';
+    await ctx.cargarReservas();
+    assert(ctx.__appstate.reservas.lista.length===3 && ctx.__appstate.reservas.cargado, 'la vista carga las reservas');
+    const htmlRes = ctx.renderReservas();
+    assert(htmlRes.includes('RES-000003') && htmlRes.includes('Descubierta') && htmlRes.includes('data-reserva-comprar="res-1"'), 'la reserva descubierta se avisa arriba con el atajo para comprar, obtuvo: '+htmlRes.slice(0,900));
+    assert(ctx.reservasDescubiertas().length===1 && ctx.reservasDescubiertas()[0].numero==='RES-000003', 'solo la descubierta cuenta como tal');
+    // Se puede entregar contra las que tienen algo pendiente; una entregada ya no.
+    const entregables = ctx.reservasEntregables().map(r=>r.numero);
+    assert(entregables.length===2 && !entregables.includes('RES-000002'), 'una reserva ya entregada no se ofrece, obtuvo: '+JSON.stringify(entregables));
+
+    // Detalle: el faltante del material queda a la vista.
+    await ctx.abrirDetalleReserva('res-1');
+    const htmlDetRes = ctx.renderReservaDetalle();
+    assert(htmlDetRes.includes('BOD-001') && htmlDetRes.includes('faltan 3') && htmlDetRes.includes('supera lo que hay en bodega'), 'el detalle muestra el faltante, obtuvo: '+htmlDetRes.slice(0,900));
+    assert(htmlDetRes.includes('data-reserva-entregar="res-1"') && htmlDetRes.includes('data-reserva-comprar="res-1"'), 'ofrece entregar y comprar');
+    ctx.__appstate.reservas.detalle = null;
+
+    // Crear: sin materiales y sin cantidad no se manda nada.
+    ctx.abrirNuevaReserva();
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarReserva())===false && JSON.stringify(elements['toast-root'].hijos).includes('material'), 'sin materiales no se aparta nada');
+    ctx.agregarLineaReserva({id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', stock_sistema:12});
+    elements['toast-root'].hijos.length = 0;
+    ctx.agregarLineaReserva({id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', stock_sistema:12});
+    assert(ctx.__appstate.reservas.form.lineas.length===1 && JSON.stringify(elements['toast-root'].hijos).includes('ya está en la reserva'), 'el mismo material no entra dos veces');
+    elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarReserva())===false && JSON.stringify(elements['toast-root'].hijos).includes('BOD-001'), 'una línea sin cantidad avisa cuál es');
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_reserva_bodega')), 'nada de eso llega al servidor');
+
+    // Reserva válida.
+    ctx.__appstate.reservas.form = {...ctx.__appstate.reservas.form,
+      lineas:[{...ctx.__appstate.reservas.form.lineas[0], cantidad:'15'}],
+      personaId:'per-1', destino:'Detención chancador', fechaNecesaria:'2026-09-17'};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.guardarReserva())===true, 'con material y cantidad se aparta');
+    const rpcRes = calls.find(c=>c.url.includes('/rpc/registrar_reserva_bodega'));
+    const bodyRes = rpcRes && JSON.parse(rpcRes.opts.body);
+    assert(bodyRes && bodyRes.p_lineas.length===1 && bodyRes.p_lineas[0].cantidad===15 && bodyRes.p_persona_id==='per-1' && bodyRes.p_destino==='Detención chancador' && bodyRes.p_fecha_necesaria==='2026-09-17' && typeof bodyRes.p_idempotency_key==='string', 'se manda el material, para quién, para qué y para cuándo, obtuvo: '+JSON.stringify(bodyRes));
+    ctx.__appstate.reservas.form = null; ctx.__appstate.reservas.detalle = null;
+
+    // Cancelar exige motivo, y el material vuelve a estar disponible.
+    ctx.__appstate.reservas.cancelando = {id:'res-2', numero:'RES-000004', motivo:'', guardando:false};
+    calls.length = 0;
+    assert((await ctx.cancelarReserva())===false && !calls.some(c=>c.url.includes('/rpc/cancelar_reserva_bodega')), 'sin motivo no se cancela ni se llama al servidor');
+    ctx.__appstate.reservas.cancelando = {id:'res-2', numero:'RES-000004', motivo:'Se posterga', guardando:false};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    assert((await ctx.cancelarReserva())===true, 'con motivo se cancela');
+    assert(JSON.parse(calls.find(c=>c.url.includes('/rpc/cancelar_reserva_bodega')).opts.body).p_motivo==='Se posterga', 'se manda el motivo');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('disponible'), 'el aviso dice que el material se libera');
+
+    // Entregar contra la reserva: la salida se prellena con lo pendiente, la persona y el destino.
+    ctx.__appstate.view = 'salida';
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    await ctx.usarReservaEnSalida('res-1');
+    const docRes = ctx.__appstate.bodega.doc;
+    assert(docRes.reservaId==='res-1' && docRes.retiradoPorId==='per-1' && docRes.destino==='Detención chancador', 'la reserva aporta persona y destino, obtuvo: '+JSON.stringify({r:docRes.reservaId, p:docRes.retiradoPorId, d:docRes.destino}));
+    assert(docRes.lineas.length===1 && docRes.lineas[0].cantidad===10, 'se prellena lo PENDIENTE (10 de 15 reservados), no lo reservado, obtuvo: '+JSON.stringify(docRes.lineas));
+    assert(ctx.renderDocumentoBodega('salida').includes('id="bd-reserva"'), 'la Salida ofrece el selector de reserva');
+
+    // Y al guardar, la salida viaja con la reserva.
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('salida');
+    const bodySal = JSON.parse(calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega')).opts.body);
+    assert(bodySal.p_reserva_id==='res-1', 'la salida se registra contra la reserva, obtuvo: '+JSON.stringify(bodySal.p_reserva_id));
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+
+    // El atajo que cierra el ciclo: el faltante se convierte en una orden de compra.
+    ctx.__appstate.view = 'reservas';
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    await ctx.crearOrdenDesdeReserva('res-1');
+    assert(ctx.__appstate.view==='ordenes' && ctx.__appstate.ordenes.form, 'lleva al formulario de orden de compra');
+    assert(ctx.__appstate.ordenes.form.lineas.length===1 && ctx.__appstate.ordenes.form.lineas[0].sku_code==='BOD-001' && ctx.__appstate.ordenes.form.lineas[0].cantidad==='3', 'la orden se arma con el FALTANTE (3), no con lo reservado (15), obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.form.lineas));
+    assert(ctx.__appstate.ordenes.form.observacion.includes('RES-000003'), 'la orden dice qué reserva viene a cubrir');
+    // Con las órdenes de compra apagadas, el atajo no existe.
+    ctx.__appstate.ordenes.form = null;
+    ctx.__appstate.perfil.empresas.bodega_funciones = {ordenes_compra:false};
+    ctx.__appstate.view = 'reservas';
+    elements['toast-root'].hijos.length = 0;
+    await ctx.crearOrdenDesdeReserva('res-1');
+    assert(ctx.__appstate.view==='reservas' && JSON.stringify(elements['toast-root'].hijos).includes('no están activadas'), 'sin la función de órdenes de compra el atajo avisa en vez de fallar');
+    assert(!ctx.renderReservas().includes('data-reserva-comprar'), 'y el botón tampoco se ofrece');
+    ctx.__appstate.perfil.empresas.bodega_funciones = {};
+
+    // Con las reservas apagadas, la vista lo dice en vez de quedar vacía.
+    ctx.__appstate.perfil.empresas.bodega_funciones = {reservas:false};
+    assert(ctx.renderReservas().includes('no están activadas'), 'con la función apagada la vista lo explica');
+    assert(!ctx.renderDocumentoBodega('salida').includes('id="bd-reserva"'), 'y la Salida no ofrece el selector');
+    ctx.__appstate.perfil.empresas.bodega_funciones = {};
+    ctx.__appstate.reservas = ctx.reservasEstadoInicial();
+    ctx.__appstate.view = 'stock';
 
     // ===== Órdenes de compra emitidas por la app =====
     // La empresa chica no tiene un módulo de compras aguas arriba: la OC nace acá, se imprime,
