@@ -56,6 +56,12 @@ let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (v
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
 let resumenGeneralSkusFixture = null;
+let ubicacionesFixture = [
+  {id:'ub-1', bodega:'Nave Mina', ubicacion:null, activo:true},
+  {id:'ub-2', bodega:'Nave Mina', ubicacion:'Pasillo 3', activo:true},
+  {id:'ub-3', bodega:'Patio 3000', ubicacion:null, activo:false},
+];
+let renombrarLlamadas = 0;
 // Bloque de bodega dentro de la respuesta del Dashboard: null cuando la empresa no tiene el
 // módulo activo, que es lo que devuelve la función real en ese caso.
 let dashboardBodegaFixture = null;
@@ -1022,6 +1028,31 @@ const fakeFetchImpl = async (url, opts) => {
   // otra fila del mismo código -- ver guardarUbicacionSku / mensajeUbicacionOcupada.
   if(path.startsWith('/rest/v1/skus?id=eq.') && opts && opts.method==='PATCH' && JSON.parse(opts.body).storage_bin==='BIN-OCUPADO'){
     return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}) };
+  }
+  // Catálogo de ubicaciones (tabla ubicaciones): la lista de sitios de la empresa, que ahora
+  // existe aparte de lo que digan los materiales.
+  if(path.startsWith('/rest/v1/ubicaciones?select=')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(ubicacionesFixture) };
+  }
+  if(path.startsWith('/rest/v1/ubicaciones') && opts && opts.method==='POST'){
+    const fila = JSON.parse(opts.body)[0];
+    if(fila.bodega==='REPETIDA'){
+      return { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "ubicaciones_empresa_sitio_key"'}) };
+    }
+    return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  if(path.startsWith('/rest/v1/ubicaciones') && opts && opts.method==='PATCH'){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  // Renombrar va por lotes: la primera llamada deja materiales pendientes, la segunda termina.
+  if(path.startsWith('/rest/v1/rpc/renombrar_ubicacion_general')){
+    const cuerpo = JSON.parse(opts.body);
+    if(cuerpo.p_hasta==='CHOCA'){
+      return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'No se puede juntar A con CHOCA: 82 material(es) quedarían repetidos en el mismo sitio (por ejemplo 10107173). Mueve o junta esos materiales primero.'}) };
+    }
+    renombrarLlamadas++;
+    const terminado = renombrarLlamadas >= 2;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({actualizados: terminado?500:2000, restantes: terminado?0:500, terminado}) };
   }
   // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
   // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
@@ -4496,6 +4527,58 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlTablaOperador = ctx.renderTablaSkus();
   assert(!htmlTablaOperador.includes('class="chk-sku"'), 'un operador no debe ver los checkboxes de selección de SKU, obtuvo: '+htmlTablaOperador);
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // ===== Mantenedor de ubicaciones =====
+  // Antes las ubicaciones no se creaban: existían porque un material decía que existían. Eso
+  // dejaba convivir "Bodega Central" y "bodega central" como dos sitios, impedía preparar una
+  // bodega vacía antes de cargar materiales, y no había forma de renombrar.
+  ctx.__appstate.view = 'config';
+  calls.length = 0;
+  await ctx.cargarUbicaciones();
+  assert(ctx.__appstate.ubicaciones.cargado && ctx.__appstate.ubicaciones.lista.length===3, 'cargarUbicaciones deja el catálogo en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.ubicaciones));
+  assert(ctx.__appstate.ubicaciones.materialesPorBodega['Nave Mina']===23708, 'se sabe cuántos materiales hay en cada bodega, para avisar antes de tocarla, obtuvo: '+JSON.stringify(ctx.__appstate.ubicaciones.materialesPorBodega));
+
+  const htmlUbic = ctx.renderUbicacionesConfig();
+  assert(htmlUbic.includes('Nave Mina') && htmlUbic.includes('Pasillo 3') && htmlUbic.includes('data-renombrar-bodega="Nave Mina"'), 'la sección lista bodegas, sus ubicaciones específicas y ofrece renombrar, obtuvo: '+htmlUbic);
+  assert(htmlUbic.includes('Inactiva') && htmlUbic.includes('23.708 materiales'), 'muestra las inactivas y cuántos materiales tiene cada bodega, obtuvo: '+htmlUbic);
+
+  // Crear una bodega vacía: el caso que antes no existía.
+  calls.length = 0;
+  assert((await ctx.crearUbicacion('Bodega Nueva', null))===true, 'se puede crear una bodega sin materiales');
+  const postUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/ubicaciones'));
+  assert(postUbic && JSON.parse(postUbic.opts.body)[0].bodega==='Bodega Nueva' && JSON.parse(postUbic.opts.body)[0].ubicacion===null, 'la bodega se crea sin ubicación específica, obtuvo: '+(postUbic&&postUbic.opts.body));
+
+  // Un sitio repetido se explica, no se muestra el error crudo del índice.
+  elements['toast-root'].hijos.length = 0;
+  assert((await ctx.crearUbicacion('REPETIDA', null))===false, 'un sitio repetido no se crea');
+  assert(JSON.stringify(elements['toast-root'].hijos).includes('ya existe') && !JSON.stringify(elements['toast-root'].hijos).includes('duplicate key'), 'el sitio repetido se explica en castellano, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+  // Renombrar va por lotes: renombrar la bodega grande de Escondida son 59.822 materiales y una
+  // sola sentencia se pasa del límite de tiempo del servidor.
+  renombrarLlamadas = 0;
+  calls.length = 0;
+  assert((await ctx.renombrarUbicacionGeneral('Nave Mina', 'Nave Mina Norte'))===true, 'renombrar termina bien');
+  const lotes = calls.filter(c=>c.url.includes('/rpc/renombrar_ubicacion_general'));
+  assert(lotes.length===2, 'renombrar insiste hasta que el servidor dice que terminó, obtuvo '+lotes.length+' llamada(s)');
+  assert(JSON.parse(lotes[0].opts.body).p_limite===2000, 'cada lote manda su tamaño, obtuvo: '+lotes[0].opts.body);
+  assert(ctx.__appstate.ubicaciones.renombrando===null, 'al terminar se limpia el avance');
+
+  // Fusionar dos bodegas que dejarían materiales repetidos se rechaza con un mensaje entendible.
+  renombrarLlamadas = 0;
+  elements['toast-root'].hijos.length = 0;
+  assert((await ctx.renombrarUbicacionGeneral('Nave Mina', 'CHOCA'))===false, 'una fusión con choques no se aplica');
+  assert(JSON.stringify(elements['toast-root'].hijos).includes('quedarían repetidos'), 'el choque se explica, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+  // Guardar un material en un sitio que no está en el catálogo: se pregunta antes, para que un
+  // dedazo no se convierta en una bodega nueva sin que nadie lo note.
+  assert(ctx.ubicacionConocida('Nave Mina', 'Pasillo 3')===true, 'un sitio del catálogo se reconoce');
+  assert(ctx.ubicacionConocida('Nave Mina', 'Pasillo 9')===false, 'una ubicación específica que no está se detecta');
+  assert(ctx.ubicacionConocida('nave mina', null)===false, 'la misma bodega con otra caja de letras NO es la misma');
+  assert(ctx.ubicacionConocida('', null)===true, 'un material sin bodega es válido y no pregunta nada');
+  ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:false};
+  assert(ctx.ubicacionConocida('Lo que sea', null)===true, 'si el catálogo no cargó, no se estorba al usuario');
+  ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:true};
+  ctx.__appstate.view = 'dashboard';
 
   // ===== Mover un material de ubicación =====
   // Hasta ahora la ubicación solo se fijaba al crear el material: recargarlo por Excel con otro

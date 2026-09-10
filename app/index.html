@@ -567,6 +567,10 @@ let state = {
   opcionesBatches: [], // valores de batch/lote ya usados por la empresa (idem)
   opcionesUnidades: [],   // valores de unidad de medida ya usados por la empresa (idem)
   skuFormOpciones: { ubicaciones: [], bins: [] }, // sugerencias de ubicación/bin en "Cargar SKU", en cascada según la bodega/ubicación tipeada
+  // Catálogo de sitios de la empresa (tabla ubicaciones). Antes las ubicaciones no se creaban:
+  // existían porque un material decía que existían, así que "Bodega Central" y "bodega central"
+  // convivían como dos sitios y una bodega vacía no podía existir.
+  ubicaciones: { cargado:false, cargando:false, lista:[], materialesPorBodega:{}, nuevaBodega:'', renombrando:null },
   // Verificación en dos pasos (MFA/TOTP) -- ver continuarSiHaceFaltaMfa/renderMfaDesafio y
   // renderSeccionMfa (Configuraciones). mfaDesafio gatea la pantalla completa entre la contraseña
   // y entrar a la app; mfaFactores/mfaFactoresCargado y mfaEnrolando son propios de Configuraciones.
@@ -1600,7 +1604,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1648,7 +1652,7 @@ async function cargarTodo(){
 // Calendario y Grupos ya cargan lo suyo con su propio flag `cargado`.
 const CARGAS_POR_VISTA = {
   dashboard: ['dashboard'], // una sola llamada: trae el panel, el estado del maestro y las tarjetas de bodega
-  skus: ['skusPagina', 'opcionesSku', 'generales'],
+  skus: ['skusPagina', 'opcionesSku', 'generales', 'ubicaciones'],
   reconteo: ['reconteos'],
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
   inicio: ['bodegaPendientes'],
@@ -1657,7 +1661,7 @@ const CARGAS_POR_VISTA = {
   movimientos: ['bodegaMovimientos', 'bodegaPendientes', 'bodegaValorizacion'],
   stock: ['bodegaStock', 'bodegaValorizacion'],
   reportes: ['bodegaReportes'],
-  config: ['bodegaListas'],
+  config: ['bodegaListas', 'ubicaciones'],
 };
 const CARGADORES = {
   dashboard: ()=> cargarDashboard(), // trae también el resumen del maestro, en la misma respuesta
@@ -1667,6 +1671,7 @@ const CARGADORES = {
   sinUbicacion: ()=> cargarConteoSinUbicacion(),
   responsables: ()=> cargarResponsables(),
   bodegaListas: ()=> cargarListasBodega(),
+  ubicaciones: ()=> cargarUbicaciones(),
   bodegaMovimientos: ()=> cargarMovimientosBodega(),
   bodegaPendientes: ()=> cargarPendientesBodega(),
   bodegaStock: ()=> cargarStockBodega(),
@@ -5033,6 +5038,98 @@ async function descartarReconteo(){
 /* =======================================================================
    MÓDULO DE BODEGA — datos (ver docs/DISENO-MODULO-BODEGA.md)
    ======================================================================= */
+// Catálogo de ubicaciones + cuántos materiales hay hoy en cada bodega (para avisar antes de
+// desactivar o renombrar una que está en uso).
+async function cargarUbicaciones(){
+  if(!(state.perfil && state.perfil.rol==='admin')) return;
+  setState({ubicaciones:{...state.ubicaciones, cargando:true}});
+  try{
+    const [lista, conMateriales] = await Promise.all([
+      rest('/ubicaciones?select=id,bodega,ubicacion,activo&order=bodega.asc,ubicacion.asc'),
+      rest('/ubicaciones_generales?select=bodega,cantidad_skus'),
+    ]);
+    const materialesPorBodega = {};
+    (conMateriales||[]).forEach(f=>{ if(f.bodega) materialesPorBodega[f.bodega] = Number(f.cantidad_skus)||0; });
+    setState({ubicaciones:{...state.ubicaciones, lista: lista||[], materialesPorBodega, cargado:true, cargando:false}});
+  }catch(e){
+    setState({ubicaciones:{...state.ubicaciones, cargando:false}});
+    toast(e.message,'err');
+  }
+}
+
+async function crearUbicacion(bodega, ubicacion, {silencioso=false}={}){
+  const b = (bodega||'').trim(), u = (ubicacion||'').trim() || null;
+  if(!b){ toast('Indica el nombre de la bodega','err'); return false; }
+  try{
+    await rest('/ubicaciones', {method:'POST', body:[{empresa_id: state.perfil.empresa_id, bodega:b, ubicacion:u}], prefer:'return=minimal'});
+    await cargarUbicaciones();
+    invalidarCacheAgregados(['generales']);
+    refrescarSiCargada(['generales']);
+    if(!silencioso) toast(u ? `${u} agregada a ${b}` : `Bodega ${b} creada`);
+    return true;
+  }catch(e){
+    // El índice único cubre (empresa, bodega, ubicación): repetir un sitio no es un error del
+    // servidor que haya que mostrar en crudo.
+    toast(/ubicaciones_empresa_sitio_key/i.test(e.message) ? `${u||b} ya existe` : e.message, 'err');
+    return false;
+  }
+}
+
+async function alternarActivoUbicacion(id, activo){
+  try{
+    await rest(`/ubicaciones?id=eq.${encodeURIComponent(id)}`, {method:'PATCH', body:{activo}, prefer:'return=minimal'});
+    await cargarUbicaciones();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Renombrar una bodega toca seis tablas; la grande es skus. Medido en Escondida: renombrar B501
+// son 59.822 materiales y 10,2 s en una sola sentencia, sobre el límite de 8 s del servidor. Va
+// por lotes con avance visible, igual que la apertura de bodega.
+const RENOMBRAR_UBICACION_LOTE = 2000;
+async function renombrarUbicacionGeneral(desde, hasta){
+  const d = (desde||'').trim(), h = (hasta||'').trim();
+  if(!h){ toast('Indica el nombre nuevo','err'); return false; }
+  if(d===h){ setState({ubicaciones:{...state.ubicaciones, renombrando:null}}); return true; }
+  let hechos = 0, vueltas = 0;
+  setState({ubicaciones:{...state.ubicaciones, renombrando:{desde:d, hasta:h, hechos:0, trabajando:true}}});
+  try{
+    while(vueltas++ < 500){
+      const r = await rest('/rpc/renombrar_ubicacion_general', {method:'POST', body:{p_desde:d, p_hasta:h, p_limite:RENOMBRAR_UBICACION_LOTE}, timeoutMs:60000});
+      hechos += Number(r && r.actualizados) || 0;
+      const quedan = Number(r && r.restantes) || 0;
+      setState({ubicaciones:{...state.ubicaciones, renombrando:{desde:d, hasta:h, hechos, quedan, trabajando:true}}});
+      if(r && r.terminado) break;
+    }
+    setState({ubicaciones:{...state.ubicaciones, renombrando:null}});
+    await cargarUbicaciones();
+    // La bodega aparece en el maestro, en los selectores de planificación y en el Dashboard.
+    invalidarCacheAgregados(['generales','sinUbicacion','opcionesSku']);
+    refrescarSiCargada(['generales','sinUbicacion','opcionesSku','skusPagina','dashboard']);
+    cargarSkus();
+    toast(`${d} ahora se llama ${h} (${hechos.toLocaleString('es-CL')} material${hechos===1?'':'es'})`);
+    return true;
+  }catch(e){
+    setState({ubicaciones:{...state.ubicaciones, renombrando:null}});
+    toast(e.message,'err');
+    return false;
+  }
+}
+
+// ¿Este nombre ya está en el catálogo? Se usa antes de guardar un material para no dejar entrar
+// un sitio nuevo por un dedazo sin que nadie se dé cuenta.
+function ubicacionConocida(bodega, ubicacion){
+  const b = (bodega||'').trim(), u = (ubicacion||'').trim();
+  const lista = state.ubicaciones.lista || [];
+  // Si el catálogo todavía no se cargó (o falló), no se estorba: mejor dejar guardar que inventar
+  // un aviso sobre algo que no sabemos.
+  if(!state.ubicaciones.cargado) return true;
+  if(!b) return true; // sin bodega es un caso válido y ya existente (materiales sin ubicación)
+  const bodegaOk = lista.some(x=> x.bodega===b);
+  if(!bodegaOk) return false;
+  if(!u) return true;
+  return lista.some(x=> x.bodega===b && x.ubicacion===u);
+}
+
 async function cargarListasBodega(){
   if(!moduloBodegaActivo()) return;
   try{
@@ -8100,7 +8197,7 @@ function renderSkus(){
       <datalist id="dl-categorias">${state.opcionesCategorias.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
       <datalist id="dl-batches">${state.opcionesBatches.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
       <datalist id="dl-unidades">${state.opcionesUnidades.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
-      <datalist id="dl-sku-bodegas">${(state.plan.generales||[]).map(g=>`<option value="${esc(g.bodega)}">`).join('')}</datalist>
+      <datalist id="dl-sku-bodegas">${(state.ubicaciones.cargado ? state.ubicaciones.lista.filter(x=>!x.ubicacion && x.activo).map(x=>({bodega:x.bodega})) : (state.plan.generales||[])).map(g=>`<option value="${esc(g.bodega)}">`).join('')}</datalist>
       <datalist id="dl-sku-ubicaciones">${state.skuFormOpciones.ubicaciones.map(u=>`<option value="${esc(u.ubicacion)}">`).join('')}</datalist>
       <datalist id="dl-sku-bins">${state.skuFormOpciones.bins.map(b=>`<option value="${esc(b.storage_bin)}">`).join('')}</datalist>
     </div>
@@ -10031,6 +10128,7 @@ function renderConfiguraciones(){
       <div class="plan-item-ubic" style="font-weight:600;font-size:15px">${esc(empresa.nombre)}</div>
       `}
     </div>
+    ${esAdmin? renderUbicacionesConfig() : ''}
     ${esAdmin && moduloBodegaActivo() ? renderListasBodegaConfig() : ''}
     ${esAdmin? `
     <div class="section-head"><div><span class="eyebrow">Exactitud</span><h2 style="font-size:15px">Conteo ciego ${campoConInfo('Mientras está activo, los operadores no ven el stock del sistema en Contar, Buscar, Reconteo ni el maestro de SKU -- evita que ajusten su conteo al número que ya vieron. Lo puedes prender y apagar cuando quieras; no borra ni cambia ningún dato ya guardado.')}</h2></div></div>
@@ -10355,6 +10453,45 @@ function renderReportesBodega(){
 }
 
 // Tarjetas de Configuraciones (admin): proveedores y personas que retiran.
+function renderUbicacionesConfig(){
+  const u = state.ubicaciones;
+  const bodegas = [];
+  (u.lista||[]).forEach(f=>{
+    if(f.ubicacion) return;
+    bodegas.push({...f, especificas: (u.lista||[]).filter(x=> x.bodega===f.bodega && x.ubicacion)});
+  });
+  const r = u.renombrando;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Maestro</span><h2 style="font-size:15px">Ubicaciones ${campoConInfo('La lista de bodegas y ubicaciones específicas de tu empresa. Crear una acá te deja preparar la estructura antes de cargar materiales, y hace que el formulario de material elija de esta lista en vez de aceptar cualquier texto: así no terminas con "Bodega Central" y "bodega central" como dos sitios distintos.')}</h2></div></div>
+    <div class="card">
+      <form id="form-nueva-bodega" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:180px"><label for="nueva-bodega">Bodega nueva</label><input type="text" id="nueva-bodega" placeholder="Ej. Bodega Central" style="margin:0"></div>
+        <button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Agregar</button>
+      </form>
+      ${u.cargando && !u.cargado ? '<div class="hint" style="margin-top:10px">Cargando…</div>' : ''}
+      ${bodegas.length ? `<div style="margin-top:12px">${bodegas.map(b=>{
+        const materiales = u.materialesPorBodega[b.bodega] || 0;
+        return `
+        <div class="plan-item" style="padding:10px 0;flex-direction:column;align-items:stretch;gap:6px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="flex:1;font-weight:600;${b.activo?'':'opacity:.5'}">${esc(b.bodega)}</span>
+            <span class="hint" style="margin:0">${materiales.toLocaleString('es-CL')} material${materiales===1?'':'es'}</span>
+            ${b.activo?'':'<span class="badge badge-danger">Inactiva</span>'}
+            <button type="button" class="link-btn" data-renombrar-bodega="${esc(b.bodega)}">Renombrar</button>
+            <button type="button" class="link-btn" data-ubicacion-toggle="${esc(b.id)}" data-activo="${b.activo?'1':'0'}">${b.activo?'Desactivar':'Reactivar'}</button>
+          </div>
+          ${b.especificas.length ? `<div class="hint" style="margin:0">${b.especificas.map(e=>`<span style="${e.activo?'':'opacity:.5'}">${esc(e.ubicacion)}</span>`).join(' · ')}</div>` : ''}
+          <form class="form-nueva-especifica" data-bodega="${esc(b.bodega)}" style="display:flex;gap:6px;align-items:center">
+            <input type="text" name="ubicacion" placeholder="Agregar ubicación específica" style="margin:0;flex:1;font-size:12.5px;padding:6px 8px">
+            <button type="submit" class="btn btn-secondary" style="width:auto;padding:6px 10px;font-size:12px">Agregar</button>
+          </form>
+        </div>`;
+      }).join('')}</div>` : (u.cargado ? '<div class="hint" style="margin-top:10px">Todavía no hay bodegas. Crea la primera acá o cárgala junto con los materiales.</div>' : '')}
+      ${r ? `<div class="hint" style="margin-top:10px">Renombrando ${esc(r.desde)} → ${esc(r.hasta)}: ${(r.hechos||0).toLocaleString('es-CL')} material(es) movidos${r.quedan?`, quedan ${r.quedan.toLocaleString('es-CL')}`:''}…</div>` : ''}
+      <div class="hint" style="margin-top:10px">Desactivar una bodega la saca de los selectores; los materiales que están en ella no se tocan. Renombrar la cambia en todas partes: materiales, conteos, planificación y grupos.</div>
+    </div>`;
+}
+
 function renderListasBodegaConfig(){
   const b = state.bodega;
   const lista = (titulo, tabla, filas, campos, form) => `
@@ -10859,6 +10996,30 @@ function bind(){
     if(selIng) selIng.addEventListener('change', ()=>{ state.bodega.reportes = {...state.bodega.reportes, ingresosAgrupar: selIng.value}; cargarReportesBodega(); });
   }
   if(state.view==='config'){
+    const formBodega = document.getElementById('form-nueva-bodega');
+    if(formBodega) formBodega.addEventListener('submit', async e=>{
+      e.preventDefault();
+      const input = document.getElementById('nueva-bodega');
+      if(await crearUbicacion(input.value, null)) input.value = '';
+    });
+    document.querySelectorAll('.form-nueva-especifica').forEach(form=>{
+      form.addEventListener('submit', async e=>{
+        e.preventDefault();
+        const input = form.querySelector('input[name="ubicacion"]');
+        if(await crearUbicacion(form.dataset.bodega, input.value)) input.value = '';
+      });
+    });
+    document.querySelectorAll('[data-ubicacion-toggle]').forEach(btn=>
+      btn.addEventListener('click', ()=> alternarActivoUbicacion(btn.dataset.ubicacionToggle, btn.dataset.activo!=='1')));
+    document.querySelectorAll('[data-renombrar-bodega]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const desde = btn.dataset.renombrarBodega;
+        const materiales = state.ubicaciones.materialesPorBodega[desde] || 0;
+        const hasta = prompt(`Nombre nuevo para "${desde}".\n\nSe cambiará en ${materiales.toLocaleString('es-CL')} material(es) y también en los conteos, la planificación y los grupos. Si escribes el nombre de otra bodega que ya existe, las dos se juntan en una.`, desde);
+        if(hasta===null) return;
+        renombrarUbicacionGeneral(desde, hasta);
+      });
+    });
     document.querySelectorAll('.form-lista-bodega').forEach(form=>{
       form.addEventListener('submit', e=>{
         e.preventDefault();
@@ -11222,6 +11383,11 @@ function bind(){
         critico: document.getElementById('s-critico').checked,
       };
       if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
+      if(!ubicacionConocida(payload.bodega, payload.ubicacion)){
+        const sitio = [payload.bodega, payload.ubicacion].filter(Boolean).join(' · ');
+        if(!confirm(`"${sitio}" no está en tus ubicaciones.\n\n¿Agregarla al maestro y guardar el material ahí? Si fue un error de tipeo, cancela y elige una de la lista.`)) return;
+        await crearUbicacion(payload.bodega, payload.ubicacion, {silencioso:true});
+      }
       if(payload.stock_sistema !== null && payload.stock_sistema < 0){ toast('El stock según sistema no puede ser negativo','err'); return; }
       if(payload.costo_unitario !== null && payload.costo_unitario < 0){ toast('El costo unitario no puede ser negativo','err'); return; }
       setState({loading:true});
