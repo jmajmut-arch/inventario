@@ -4581,6 +4581,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:true};
   ctx.__appstate.view = 'dashboard';
 
+  // La tabla del maestro tiene 11 columnas: en la caja angosta medía 785 px contra 654
+  // disponibles y la última columna --las acciones, entre ellas "Mover"-- quedaba cortada a la
+  // derecha sin ninguna señal de que la tabla se desplazaba. Joel no encontraba el botón por eso.
+  ctx.__appstate.view = 'skus';
+  assert(ctx.renderShell().includes('<main class="ancho">'), 'el maestro de materiales usa el layout ancho, si no su última columna queda fuera de la tarjeta');
+  ctx.__appstate.view = 'reconteo';
+  assert(!ctx.renderShell().includes('<main class="ancho">'), 'Reconteo sigue angosto: se usa desde el celular');
+  ctx.__appstate.view = 'skus';
+
   // ===== Mover un material de ubicación =====
   // Hasta ahora la ubicación solo se fijaba al crear el material: recargarlo por Excel con otro
   // bin no lo movía, creaba una segunda fila (la identidad incluye ubicación general, específica
