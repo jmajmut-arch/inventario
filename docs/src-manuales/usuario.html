@@ -30,7 +30,7 @@
       <div class="toc-row"><span><span class="n">15</span>Suscripción y pagos</span><span class="p">pág. 16</span></div>
       <div class="toc-row"><span><span class="n">08</span>Contar en terreno: escanear código</span><span class="p">pág. 9</span></div>
       <div class="toc-row"><span><span class="n">16</span>Módulo de bodega</span><span class="p">pág. 17</span></div>
-      <div class="toc-row"><span><span class="n">·</span>Resumen rápido</span><span class="p">pág. 20</span></div>
+      <div class="toc-row"><span><span class="n">·</span>Resumen rápido</span><span class="p">pág. 21</span></div>
     </div>
   </div>
   <div class="note">Las capturas de pantalla son de un ambiente de prueba con datos ficticios ("Minera Andes"), no de datos de un cliente real. Las etapas nuevas de esta edición (Grupos, Calendario, Períodos y Suscripción) se describen sin captura. Los pasos describen el celular como caso principal: InventIA funciona igual en computador, con las mismas pantallas. Actualizado al 8 de septiembre de 2026.</div>
@@ -424,6 +424,26 @@
         <li><span class="num">5</span><div><b>Si algo sale mal.</b> Una orden de la que todavía no llegó nada se <b>anula</b> con motivo. Si llegó una parte y el resto ya no va a llegar, se <b>cierra</b>: deja de figurar como pendiente sin borrar lo que sí se recibió. Y si llega más de lo pedido, el ingreso se registra igual (el material está) y la orden lo muestra en rojo para que lo revises contra la factura.</div></li>
       </ol>
       <div class="box"><div class="tag">Datos del proveedor</div>La orden es un documento que sale de tu empresa, así que conviene completar el contacto, correo, teléfono y dirección del proveedor: se imprimen en el PDF. Se editan en <b>Configuraciones → Proveedores → Editar</b>.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 16 (continuación) -->
+<section class="page">
+  <div class="kicker">16 · Módulo de bodega</div>
+  <h2 class="title">Reservas: apartar material sin trabar a nadie</h2>
+  <p class="intro">Reservar es apartar una <b>cantidad</b>, no unidades marcadas: las 20 unidades de un material son intercambiables, así que ninguna lleva el nombre de nadie.</p>
+  <span class="role">Operador y admin</span>
+  <div class="cols">
+    <div>
+      <ol class="steps">
+        <li><span class="num">1</span><div><b>Apartar.</b> En el Inicio de bodega, <b>Reservas</b> → <b>Nueva reserva</b>. Dices para quién es, para qué trabajo y para cuándo, y agregas los materiales con la cantidad que hay que guardar. El stock físico no se mueve: lo que baja es el <b>disponible</b>, para que nadie más cuente con ese material.</div></li>
+        <li><span class="num">2</span><div><b>No bloquea a nadie.</b> Si llega alguien con apuro y se lleva material apartado, la salida se registra igual. Frenarla llevaría a lo peor: material que sale físicamente y que nadie anota.</div></li>
+        <li><span class="num">3</span><div><b>Pero avisa.</b> Cuando lo comprometido supera lo que queda en bodega, la reserva se marca <b>descubierta</b> y aparece arriba de la lista con un botón: <b>Crear orden de compra</b>. La orden se arma sola con lo que falta —no con lo reservado— y solo tienes que elegir proveedor y precio. Al guardar la salida que la dejó descubierta, la app te lo dice en el momento.</div></li>
+        <li><span class="num">4</span><div><b>Entregar.</b> Cuando el material por fin se va, en Salida elige la reserva en <b>Entregar contra una reserva</b>: las líneas se llenan con lo que falta por entregar, y la persona y el trabajo vienen puestos. La reserva se descuenta al guardar; puedes entregar en varias veces.</div></li>
+        <li><span class="num">5</span><div><b>Soltar.</b> Una reserva que ya no va se <b>cancela</b> con motivo y el material vuelve a estar disponible. La cancela el administrador, o quien la pidió. Las que pasaron su fecha aparecen como <b>vencidas</b>: no se sueltan solas, porque nadie quiere descubrir que el material que tenía apartado desapareció sin que nadie lo decidiera.</div></li>
+      </ol>
+      <div class="box"><div class="tag">Dónde se ve el disponible</div>En Inventario, cada material muestra ahora lo <b>reservado</b> y lo <b>disponible</b> además del stock. Disponible es lo que puedes comprometer sin pisar lo de otro.</div>
     </div>
   </div>
 </section>

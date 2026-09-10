@@ -521,6 +521,7 @@ let state = {
   devolucionModal: null,
   transferenciaModal: null,
   ordenes: ordenesEstadoInicial(),
+  reservas: reservasEstadoInicial(),
   proveedorModal: null, // datos de contacto del proveedor; los usa el PDF de la orden de compra
   kardexModal: null, // {skuId, skuCode, filas, cargando} (ver vista kardex_bodega)
   skusPagina: { rows: [], page: 0, total: 0 },
@@ -767,9 +768,25 @@ const TIPOS_MATERIAL = ['EPP', 'Repuesto', 'Sustancia peligrosa', 'Componente', 
 // 'mover' no entra acá a propósito: es maestro de materiales, no del módulo de bodega. Aparece
 // en las dos barras de abajo, y una empresa sin bodega no debe cambiar de barra al abrirla.
 // 'ordenes' tampoco tiene pestaña propia: se entra desde el Inicio de bodega.
-const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock', 'reportes', 'ordenes'];
+const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock', 'reportes', 'ordenes', 'reservas'];
 function moduloBodegaActivo(){
   return !!(state.perfil && state.perfil.empresas && state.perfil.empresas.modulo_bodega_habilitado);
+}
+// Las funciones del módulo se prenden y apagan por empresa desde súper admin. Sin llave = activa,
+// igual que en la base (ver funcion_bodega_activa): así ninguna empresa pierde algo que ya usaba.
+const FUNCIONES_BODEGA = {
+  ordenes_compra: 'Órdenes de compra',
+  reservas: 'Reservas de material',
+  devoluciones: 'Devoluciones',
+  transferencias: 'Traslados entre bodegas',
+};
+function esAdminActual(){
+  return !!(state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin));
+}
+function funcionBodegaActiva(nombre){
+  if(!moduloBodegaActivo()) return false;
+  const f = state.perfil.empresas.bodega_funciones;
+  return !(f && f[nombre] === false);
 }
 // Rango por defecto de los reportes: desde el día 1 del mes en curso hasta hoy.
 function reportesBodegaVacios(){
@@ -812,7 +829,7 @@ function ordenesEstadoInicial(){
   };
 }
 function documentoBodegaVacio(){
-  return { lineas: [], proveedorId:'', numeroOc:'', numeroGuia:'', retiradoPorId:'', despachadoPorId:'', destino:'', observacion:'', fotoGuia:null, fotosMaterial:[], ordenCompraId:'' };
+  return { lineas: [], proveedorId:'', numeroOc:'', numeroGuia:'', retiradoPorId:'', despachadoPorId:'', destino:'', observacion:'', fotoGuia:null, fotosMaterial:[], ordenCompraId:'', reservaId:'' };
 }
 function vistaBloqueadaParaRol(view){
   if(!VISTAS_SOLO_ADMIN.includes(view)) return false;
@@ -1263,7 +1280,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,modulo_bodega_habilitado,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,modulo_bodega_habilitado,bodega_funciones,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -1631,7 +1648,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, transferenciaModal:null, ordenes: ordenesEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, transferenciaModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -1684,11 +1701,12 @@ const CARGAS_POR_VISTA = {
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
-  salida: ['bodegaListas', 'responsables'],
+  salida: ['bodegaListas', 'responsables', 'reservas'],
   movimientos: ['bodegaMovimientos', 'bodegaPendientes', 'bodegaValorizacion'],
   stock: ['bodegaStock', 'bodegaValorizacion'],
   reportes: ['bodegaReportes'],
   ordenes: ['bodegaListas', 'ordenes'],
+  reservas: ['bodegaListas', 'reservas'],
   // Mover material necesita el catálogo: sin él, el desplegable de Ubicación general solo podía
   // ofrecer la bodega donde el material ya estaba, y una bodega recién creada no aparecía.
   mover: ['ubicaciones'],
@@ -1708,7 +1726,8 @@ const CARGADORES = {
   bodegaStock: ()=> cargarStockBodega(),
   bodegaValorizacion: ()=> moduloBodegaActivo() ? cargarValorizacionBodega() : Promise.resolve(),
   bodegaReportes: ()=> cargarReportesBodega(),
-  ordenes: ()=> cargarOrdenesCompra(),
+  ordenes: ()=> funcionBodegaActiva('ordenes_compra') ? cargarOrdenesCompra() : Promise.resolve(),
+  reservas: ()=> funcionBodegaActiva('reservas') ? cargarReservas() : Promise.resolve(),
   reconteos: ()=> cargarReconteos(),
   plan: ()=> refrescarPlanSiCorresponde(),
 };
@@ -3437,7 +3456,7 @@ function ocultarStockOperador(){
 // cargarEquipo/cargarAuditoria/cargarPlanDeHoy).
 async function cargarEmpresasSuperAdmin(){
   try{
-    const filas = await rest('/empresas?select=id,nombre,activo,plan_id,modulo_bodega_habilitado,planes(nombre,etiqueta)&order=nombre.asc');
+    const filas = await rest('/empresas?select=id,nombre,activo,plan_id,modulo_bodega_habilitado,bodega_funciones,planes(nombre,etiqueta)&order=nombre.asc');
     state.superadmin.empresas = filas || [];
     render();
     return true;
@@ -3521,7 +3540,7 @@ async function invitarPersona({email, nombre, empresaId, rol}){
 async function actualizarEmpresaSuperAdmin(id, cambios){
   try{
     await rest(`/empresas?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
-    toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : cambios.plan_id ? 'Plan actualizado' : 'Nombre actualizado');
+    toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : cambios.plan_id ? 'Plan actualizado' : cambios.bodega_funciones ? 'Funciones de bodega actualizadas' : cambios.modulo_bodega_habilitado!==undefined ? 'Módulo de bodega actualizado' : 'Nombre actualizado');
     cargarEmpresasSuperAdmin();
     cargarResumenSuperAdmin();
   }catch(e){ toast(e.message,'err'); }
@@ -5312,6 +5331,7 @@ async function registrarDocumentoBodega(tipo){
     p_retirado_por_id: d.retiradoPorId||null, p_despachado_por_id: d.despachadoPorId||null, p_destino: d.destino.trim()||null,
     p_observacion: d.observacion.trim()||null, p_idempotency_key: idempotencyKey,
     p_orden_compra_id: d.ordenCompraId||null,
+    p_reserva_id: d.reservaId||null,
   };
   const fotos = [d.fotoGuia ? {tipo:'guia', file:d.fotoGuia.file} : null, ...d.fotosMaterial.map(f=>({tipo:'material', file:f.file}))].filter(Boolean);
   setState({bodega: {...state.bodega, guardando:true}});
@@ -5324,6 +5344,7 @@ async function registrarDocumentoBodega(tipo){
     state.bodega.ultimoDocumento = doc;
     refrescarBodega();
     if(payload.p_orden_compra_id) cargarOrdenesCompra();
+    if(funcionBodegaActiva('reservas')) avisarReservasDescubiertas(tipo);
     invalidarCacheAgregados(['generales','sinUbicacion']);
     setState({bodega: {...state.bodega, guardando:false}});
     toast(pendientes ? `${doc.numero} guardado; ${pendientes} línea${pendientes===1?'':'s'} queda${pendientes===1?'':'n'} pendiente${pendientes===1?'':'s'} de revisión` : `${doc.numero} guardado`);
@@ -5526,6 +5547,213 @@ function exportarReporteBodegaExcel(){
   XLSX.writeFile(wb, `reportes-bodega-${r.desde}_a_${r.hasta}.xlsx`);
 }
 function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', destino:'Destino', sku:'Material', proveedor:'Proveedor', tipo:'Tipo de material'}[a] || a; }
+
+/* =======================================================================
+   RESERVAS DE MATERIAL
+   Reservar es apartar CANTIDAD, no unidades marcadas: las 20 unidades de un material son
+   intercambiables. Por eso una reserva NO bloquea una salida ajena; lo que hace es bajar el
+   disponible y, si una salida la deja sin respaldo, avisar para cubrirla con una orden de compra.
+   ======================================================================= */
+const ESTADOS_RESERVA = {activa:'Activa', descubierta:'Descubierta', vencida:'Vencida', entregada:'Entregada', cancelada:'Cancelada'};
+const CLASE_ESTADO_RESERVA = {activa:'badge badge-warn', descubierta:'badge badge-danger', vencida:'badge badge-danger', entregada:'badge badge-ok', cancelada:'badge'};
+
+function reservasEstadoInicial(){
+  return {cargado:false, cargando:false, lista:[], filtroEstado:'', form:null, detalle:null, cancelando:null};
+}
+
+async function cargarReservas(){
+  if(!funcionBodegaActiva('reservas')) return;
+  setState({reservas:{...state.reservas, cargando:true}});
+  try{
+    const filas = await rest('/reservas_lista?select=*&order=created_at.desc&limit=200') || [];
+    setState({reservas:{...state.reservas, lista:filas, cargado:true, cargando:false}});
+  }catch(e){
+    setState({reservas:{...state.reservas, cargando:false}});
+    toast(e.message,'err');
+  }
+}
+
+function reservaFormVacio(){
+  return {id:null, numero:null, personaId:'', destino:'', fechaNecesaria:'', observacion:'', lineas:[], guardando:false};
+}
+
+function abrirNuevaReserva(){
+  state.bodega.busqueda = {texto:'', resultados:[], buscando:false, error:null};
+  setState({reservas:{...state.reservas, form: reservaFormVacio(), detalle:null}});
+}
+
+async function abrirEdicionReserva(id){
+  const cab = (state.reservas.lista||[]).find(r=>r.id===id);
+  if(!cab){ toast('No encontré esa reserva','err'); return; }
+  state.bodega.busqueda = {texto:'', resultados:[], buscando:false, error:null};
+  setState({reservas:{...state.reservas, form:{...reservaFormVacio(), id, numero:cab.numero, personaId:cab.persona_id||'',
+    destino:cab.destino||'', fechaNecesaria:cab.fecha_necesaria||'', observacion:cab.observacion||'', cargandoLineas:true}, detalle:null}});
+  try{
+    const filas = await rest(`/reservas_lineas_detalle?select=*&reserva_id=eq.${encodeURIComponent(id)}&order=sku_code.asc`) || [];
+    if(!state.reservas.form || state.reservas.form.id!==id) return;
+    setState({reservas:{...state.reservas, form:{...state.reservas.form, cargandoLineas:false,
+      lineas: filas.map(f=>({sku_id:f.sku_id, sku_code:f.sku_code, descripcion:f.descripcion,
+        unidad_medida:f.unidad_medida, stock:f.stock, cantidad:String(f.cantidad)}))}}});
+  }catch(e){
+    if(!state.reservas.form || state.reservas.form.id!==id) return;
+    setState({reservas:{...state.reservas, form:{...state.reservas.form, cargandoLineas:false}}});
+    toast(e.message,'err');
+  }
+}
+
+function agregarLineaReserva(sku){
+  const f = state.reservas.form; if(!f) return;
+  if(f.lineas.some(l=>l.sku_id===sku.id)){ toast('Ese material ya está en la reserva','err'); return; }
+  state.bodega.busqueda = {texto:'', resultados:[], buscando:false, error:null};
+  setState({reservas:{...state.reservas, form:{...f, lineas:[...f.lineas, {
+    sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion,
+    unidad_medida: sku.unidad_medida, stock: sku.stock_sistema, cantidad:'',
+  }]}}});
+}
+
+function quitarLineaReserva(skuId){
+  const f = state.reservas.form; if(!f) return;
+  setState({reservas:{...state.reservas, form:{...f, lineas: f.lineas.filter(l=>l.sku_id!==skuId)}}});
+}
+
+async function guardarReserva(){
+  const f = state.reservas.form;
+  if(!f || f.guardando) return false;
+  if(!f.lineas.length){ toast('Agrega al menos un material','err'); return false; }
+  const lineas = [];
+  for(const l of f.lineas){
+    const cantidad = Number(l.cantidad);
+    if(!(cantidad > 0)){ toast(`Indica cuánto apartar de ${l.sku_code}`,'err'); return false; }
+    lineas.push({sku_id: l.sku_id, cantidad});
+  }
+  setState({reservas:{...state.reservas, form:{...f, guardando:true}}});
+  try{
+    const cuerpo = {
+      p_lineas: lineas,
+      p_persona_id: f.personaId || null,
+      p_destino: (f.destino||'').trim() || null,
+      p_fecha_necesaria: f.fechaNecesaria || null,
+      p_observacion: (f.observacion||'').trim() || null,
+    };
+    let res;
+    if(f.id){
+      res = await rest('/rpc/actualizar_reserva_bodega', {method:'POST', body:{p_reserva_id: f.id, ...cuerpo}});
+    }else{
+      res = await rest('/rpc/registrar_reserva_bodega', {method:'POST', body:{...cuerpo, p_idempotency_key: crypto.randomUUID()}});
+    }
+    const reserva = res && res.reserva;
+    setState({reservas:{...state.reservas, form:null}});
+    toast(f.id ? `${reserva?reserva.numero:'Reserva'} actualizada` : `${reserva?reserva.numero:'Reserva'} creada: el material queda apartado`);
+    invalidarCacheAgregados(['generales']);
+    await cargarReservas();
+    if(reserva) abrirDetalleReserva(reserva.id);
+    return true;
+  }catch(e){
+    setState({reservas:{...state.reservas, form:{...state.reservas.form, guardando:false}}});
+    toast(e.message,'err');
+    return false;
+  }
+}
+
+async function abrirDetalleReserva(id){
+  setState({reservas:{...state.reservas, form:null, detalle:{id, reserva:(state.reservas.lista||[]).find(r=>r.id===id)||null, lineas:[], entregas:[], cargando:true, error:null}}});
+  try{
+    const lineas = await rest(`/reservas_lineas_detalle?select=*&reserva_id=eq.${encodeURIComponent(id)}&order=sku_code.asc`) || [];
+    const entregas = await rest(`/documentos_bodega?select=id,numero,fecha,anulado_en&reserva_id=eq.${encodeURIComponent(id)}&order=numero.asc`) || [];
+    if(!state.reservas.detalle || state.reservas.detalle.id!==id) return;
+    setState({reservas:{...state.reservas, detalle:{...state.reservas.detalle, lineas, entregas, cargando:false}}});
+  }catch(e){
+    if(!state.reservas.detalle || state.reservas.detalle.id!==id) return;
+    setState({reservas:{...state.reservas, detalle:{...state.reservas.detalle, cargando:false, error:e.message}}});
+  }
+}
+
+async function cancelarReserva(){
+  const c = state.reservas.cancelando;
+  if(!c || c.guardando) return false;
+  if(!(c.motivo||'').trim()){ toast('Indica por qué se cancela la reserva','err'); return false; }
+  setState({reservas:{...state.reservas, cancelando:{...c, guardando:true}}});
+  try{
+    const r = await rest('/rpc/cancelar_reserva_bodega', {method:'POST', body:{p_reserva_id:c.id, p_motivo:c.motivo.trim()}});
+    setState({reservas:{...state.reservas, cancelando:null}});
+    toast(`${r&&r.numero?r.numero:'Reserva'} cancelada: el material vuelve a estar disponible`);
+    invalidarCacheAgregados(['generales']);
+    await cargarReservas();
+    if(state.reservas.detalle) await abrirDetalleReserva(state.reservas.detalle.id);
+    return true;
+  }catch(e){
+    setState({reservas:{...state.reservas, cancelando:{...state.reservas.cancelando, guardando:false}}});
+    toast(e.message,'err');
+    return false;
+  }
+}
+
+// Reservas con algo pendiente por entregar: son las que se pueden elegir desde una salida.
+function reservasEntregables(){
+  // 'entregada' es justo el estado que la vista deriva cuando no queda nada pendiente, así que
+  // filtrar por estado ya cubre la cantidad.
+  return (state.reservas.lista||[]).filter(r=> r.estado!=='cancelada' && r.estado!=='entregada');
+}
+// Reservas que la bodega ya no alcanza a cubrir. Son el aviso que pidió el diseño: no se bloquea
+// nada, pero queda a la vista qué hay que comprar.
+function reservasDescubiertas(){
+  return (state.reservas.lista||[]).filter(r=> r.estado==='descubierta');
+}
+
+// Aviso después de guardar una salida: si dejó alguna reserva sin respaldo, hay que enterarse
+// ahí mismo, no cuando alguien llegue a buscar el material. No bloquea nada, solo avisa.
+async function avisarReservasDescubiertas(tipo){
+  if(tipo!=='salida') return;
+  const antes = new Set(reservasDescubiertas().map(r=>r.id));
+  await cargarReservas();
+  const nuevas = reservasDescubiertas().filter(r=>!antes.has(r.id));
+  if(!nuevas.length) return;
+  const cuales = nuevas.map(r=>r.numero).join(', ');
+  toast(`La salida dejó sin respaldo ${nuevas.length===1?'la reserva':'las reservas'} ${cuales}: falta material para cubrir${nuevas.length===1?'la':'las'}`, 'warn');
+}
+
+// Entregar contra una reserva: la salida se prellena con lo que falta.
+async function usarReservaEnSalida(id){
+  if(!id){
+    setState({bodega:{...state.bodega, doc:{...state.bodega.doc, reservaId:''}}});
+    return;
+  }
+  const r = (state.reservas.lista||[]).find(x=>x.id===id);
+  try{
+    const filas = await rest('/rpc/lineas_por_entregar', {method:'POST', body:{p_reserva_id:id}}) || [];
+    if(!filas.length){ toast('Esa reserva ya no tiene nada pendiente por entregar','err'); return; }
+    const lineas = filas.map(f=>({sku_id:f.sku_id, sku_code:f.sku_code, descripcion:f.descripcion,
+      unidad_medida:f.unidad_medida, batch:f.batch, storage_bin:f.storage_bin,
+      stock_sistema: f.stock!=null ? Number(f.stock) : null,
+      cantidad:Number(f.pendiente), costo_unitario:null}));
+    setState({bodega:{...state.bodega, doc:{...state.bodega.doc, reservaId:id,
+      retiradoPorId: r && r.persona_id ? r.persona_id : state.bodega.doc.retiradoPorId,
+      destino: r && r.destino ? r.destino : state.bodega.doc.destino,
+      lineas}}});
+    toast(`${r?r.numero:'Reserva'}: ${lineas.length} material${lineas.length===1?'':'es'} por entregar`);
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// El atajo que cierra el ciclo: lo que le falta a la bodega para cubrir la reserva se convierte en
+// una orden de compra, con las cantidades ya puestas.
+async function crearOrdenDesdeReserva(id){
+  if(!funcionBodegaActiva('ordenes_compra')){ toast('Las órdenes de compra no están activadas para esta empresa','err'); return; }
+  let lineas = (state.reservas.detalle && state.reservas.detalle.id===id) ? state.reservas.detalle.lineas : null;
+  if(!lineas){
+    try{ lineas = await rest(`/reservas_lineas_detalle?select=*&reserva_id=eq.${encodeURIComponent(id)}&order=sku_code.asc`) || []; }
+    catch(e){ toast(e.message,'err'); return; }
+  }
+  const faltantes = lineas.filter(l=> Number(l.faltante) > 0);
+  if(!faltantes.length){ toast('A esta reserva no le falta material: la bodega alcanza a cubrirla','err'); return; }
+  const r = (state.reservas.lista||[]).find(x=>x.id===id);
+  if(!state.bodega.listasCargadas) await cargarListasBodega();
+  setState({view:'ordenes', reservas:{...state.reservas, form:null, detalle:null},
+    ordenes:{...state.ordenes, detalle:null, form:{...ordenCompraFormVacio(),
+      observacion: r ? `Para cubrir ${r.numero}${r.destino?` · ${r.destino}`:''}` : '',
+      lineas: faltantes.map(l=>({sku_id:l.sku_id, sku_code:l.sku_code, descripcion:l.descripcion,
+        unidad_medida:l.unidad_medida, cantidad:String(l.faltante), costo_unitario:''}))}}});
+  toast(`${faltantes.length} material${faltantes.length===1?'':'es'} por comprar: elige el proveedor y el precio`);
+}
 
 /* =======================================================================
    ÓRDENES DE COMPRA
@@ -10253,6 +10481,10 @@ function renderSuperAdmin(){
             <button type="button" class="icon-btn" data-toggle-empresa-sa="${esc(e.id)}" data-activo="${e.activo?'1':'0'}" aria-label="${e.activo?'Desactivar':'Reactivar'}" style="color:${e.activo?'var(--danger)':'var(--ok)'}">${e.activo?ICONS.papelera:ICONS.conteo}</button>
           </div>
         </div>
+        ${e.modulo_bodega_habilitado ? `<div style="display:flex;gap:12px;flex-wrap:wrap;padding:0 0 8px 2px;border-bottom:1px solid var(--line)">
+          <span class="hint" style="margin:0;flex:none">Funciones de bodega:</span>
+          ${Object.entries(FUNCIONES_BODEGA).map(([clave, etiqueta])=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim);margin:0"><input type="checkbox" class="sa-funcion-bodega" data-empresa-id="${esc(e.id)}" data-funcion="${clave}" ${(e.bodega_funciones && e.bodega_funciones[clave]===false)?'':'checked'} style="margin:0">${esc(etiqueta)}</label>`).join('')}
+        </div>` : ''}
       `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Aún no hay empresas creadas.</div>`}
     </div>
     <div class="section-head"><div><span class="eyebrow">Nueva cuenta</span><h2 style="font-size:15px">Invitar persona</h2></div></div>
@@ -10962,12 +11194,190 @@ function renderInicio(){
       ${tile('salida','Salida','Entregar material: quién retira y para qué','salida')}
       ${tile('conteo','Inventario','Planificar, contar y recontar','conteo')}
       ${esAdmin ? tile('dashboard','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
-      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button><button type="button" class="btn btn-secondary" data-ir-vista="ordenes" style="width:auto;padding:8px 14px">Órdenes de compra</button><button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Mover material</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button></div>`}
+      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('ordenes_compra') ? `<button type="button" class="btn btn-secondary" data-ir-vista="ordenes" style="width:auto;padding:8px 14px">Órdenes de compra</button>` : ''}${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Mover material</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
     </div>
   `;
 }
 
+function renderReservas(){
+  if(!funcionBodegaActiva('reservas')) return '<div class="card"><div class="empty"><div class="glyph">🔒</div>Las reservas de material no están activadas para esta empresa.</div></div>';
+  const r = state.reservas;
+  if(r.form) return renderReservaForm();
+  if(r.detalle) return renderReservaDetalle();
+  const filas = r.filtroEstado ? r.lista.filter(f=>f.estado===r.filtroEstado) : r.lista;
+  const descubiertas = reservasDescubiertas();
+  return `
+    <div class="section-head">
+      <div><span class="eyebrow">Bodega</span><h2>Reservas de material</h2></div>
+      <button type="button" class="btn btn-primary" id="btn-nueva-reserva" style="width:auto;padding:8px 16px">Nueva reserva</button>
+    </div>
+    ${descubiertas.length ? `<div class="card" style="border-color:var(--danger)">
+      <span class="eyebrow" style="color:var(--danger)">Falta material</span>
+      <div class="hint" style="margin:4px 0 10px">${descubiertas.length===1?'Una reserva quedó':'Estas '+descubiertas.length+' reservas quedaron'} sin respaldo en bodega: lo apartado ya no alcanza. Nadie está bloqueado, pero alguien se va a quedar sin material si no se compra.</div>
+      ${descubiertas.map(d=>`<div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:150px"><span class="mono">${esc(d.numero)}</span>${d.destino?`<div class="hint" style="margin:2px 0 0">${esc(d.destino)}</div>`:''}</div>
+        <button type="button" class="btn btn-secondary" data-reserva-ver="${esc(d.id)}" style="width:auto;flex:none;padding:6px 12px;font-size:12px">Ver</button>
+        ${funcionBodegaActiva('ordenes_compra') && esAdminActual() ? `<button type="button" class="btn btn-primary" data-reserva-comprar="${esc(d.id)}" style="width:auto;flex:none;padding:6px 12px;font-size:12px">Crear orden de compra</button>` : ''}
+      </div>`).join('')}
+    </div>` : ''}
+    <div class="card">
+      <p class="hint" style="margin-top:0">Apartar material para un trabajo baja el <b>disponible</b> sin tocar el stock físico. No bloquea a nadie: si alguien se lleva igual lo apartado, la reserva queda marcada como descubierta y se ofrece cubrirla con una orden de compra.</p>
+      <label for="res-filtro-estado">Estado</label>
+      <select id="res-filtro-estado" style="margin:0;max-width:260px">
+        <option value="">Todas</option>
+        ${Object.entries(ESTADOS_RESERVA).map(([k,v])=>`<option value="${k}" ${r.filtroEstado===k?'selected':''}>${esc(v)}</option>`).join('')}
+      </select>
+      ${filas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
+        <thead><tr><th>Reserva</th><th>Para</th><th>Estado</th><th class="num">Apartado</th><th class="num">Pendiente</th><th></th></tr></thead>
+        <tbody>${filas.map(f=>`<tr>
+          <td class="mono" style="white-space:nowrap">${esc(f.numero)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${fmtFecha(f.created_at)}${f.fecha_necesaria?` · para ${fmtFecha(f.fecha_necesaria)}`:''}</div></td>
+          <td style="font-size:12px">${esc(f.persona_nombre||'—')}${f.destino?`<div class="hint" style="margin:0">${esc(f.destino)}</div>`:''}</td>
+          <td><span class="${CLASE_ESTADO_RESERVA[f.estado]||'badge'}">${esc(ESTADOS_RESERVA[f.estado]||f.estado)}</span></td>
+          <td class="num">${f.cantidad_reservada}</td>
+          <td class="num">${f.pendiente}</td>
+          <td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-reserva-ver="${esc(f.id)}" style="width:auto;padding:5px 10px;font-size:12px">Ver</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty" style="margin-top:12px"><div class="glyph">📌</div>${r.cargado ? (r.filtroEstado ? 'Ninguna reserva en ese estado.' : 'Todavía no hay reservas. Aparta material con "Nueva reserva".') : 'Cargando…'}</div>`}
+    </div>`;
+}
+
+function renderReservaForm(){
+  const f = state.reservas.form;
+  const b = state.bodega;
+  const personas = b.personas.filter(p=>p.activo);
+  const q = b.busqueda;
+  const total = f.lineas.reduce((s,l)=> s + (Number(l.cantidad)||0), 0);
+  return `
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${f.id?`Editar ${esc(f.numero||'reserva')}`:'Nueva reserva'}</h2></div></div>
+    <div class="card">
+      <label for="res-persona">Para quién</label>
+      <select id="res-persona" style="margin:0">
+        <option value="">Sin asignar</option>
+        ${personas.map(p=>`<option value="${esc(p.id)}" ${f.personaId===p.id?'selected':''}>${esc(p.nombre)}${p.area?` (${esc(p.area)})`:''}</option>`).join('')}
+      </select>
+      ${!personas.length ? '<div class="hint">El administrador agrega las personas que retiran en Configuraciones.</div>' : ''}
+      <div class="row2 row2-fechas" style="margin-top:8px">
+        <div><label for="res-destino">Para qué trabajo</label><input type="text" id="res-destino" value="${esc(f.destino)}" placeholder="Ej. Detención chancador" autocomplete="off" style="margin:0"></div>
+        <div><label for="res-fecha">Para cuándo</label><input type="date" id="res-fecha" value="${esc(f.fechaNecesaria)}" style="margin:0"></div>
+      </div>
+      <label for="res-observacion" style="margin-top:8px">Observación</label>
+      <input type="text" id="res-observacion" value="${esc(f.observacion)}" placeholder="Opcional" autocomplete="off" style="margin:0">
+    </div>
+
+    <div class="card">
+      <span class="eyebrow">Materiales por apartar</span>
+      <input type="text" id="res-buscar-sku" placeholder="Busca por código o descripción" value="${esc(q.texto)}" autocomplete="off" style="margin:8px 0 0">
+      ${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
+      ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
+      ${q.resultados.length ? `<div style="margin-top:8px">${q.resultados.map(x=>`
+        <div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px"><div class="mono" style="font-size:12px">${esc(x.sku_code)}</div><div class="hint" style="margin:2px 0 0">${esc(x.descripcion||'')} · stock ${x.stock_sistema==null?'—':x.stock_sistema}</div></div>
+          <button type="button" class="btn btn-secondary" data-res-agregar='${esc(JSON.stringify({id:x.id, sku_code:x.sku_code, descripcion:x.descripcion, unidad_medida:x.unidad_medida, stock_sistema:x.stock_sistema}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Apartar</button>
+        </div>`).join('')}</div>` : ''}
+      ${f.cargandoLineas ? '<div class="hint" style="margin-top:10px">Cargando los materiales de la reserva…</div>' : ''}
+      ${f.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
+        <thead><tr><th>Material</th><th class="num">En bodega</th><th class="num">Apartar</th><th></th></tr></thead>
+        <tbody>${f.lineas.map(l=>`<tr>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}</div></td>
+          <td class="num">${l.stock==null?'—':l.stock}</td>
+          <td class="num"><input type="number" inputmode="decimal" min="0" step="any" data-res-cantidad="${esc(l.sku_id)}" value="${esc(l.cantidad)}" placeholder="0" style="width:80px;margin:0;text-align:right"></td>
+          <td class="num"><button type="button" class="btn btn-secondary" data-res-quitar="${esc(l.sku_id)}" style="width:auto;padding:5px 10px;font-size:12px">Quitar</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <div style="margin-top:10px;text-align:right;font-size:13px">Total apartado: <strong>${total}</strong></div>` : '<div class="empty" style="margin-top:12px"><div class="glyph">📦</div>Busca los materiales que quieres apartar.</div>'}
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button type="button" class="btn btn-primary" id="res-guardar" ${f.guardando?'disabled':''}>${f.guardando?'<span class="spinner"></span> Guardando…':(f.id?'Guardar cambios':'Apartar material')}</button>
+        <button type="button" class="btn btn-secondary" id="res-cancelar" style="width:auto">Cancelar</button>
+      </div>
+      <div class="hint" style="margin-top:8px">Apartar no mueve stock: baja el disponible para que nadie más cuente con ese material. El stock físico solo cambia cuando se entrega.</div>
+    </div>`;
+}
+
+function renderReservaDetalle(){
+  const d = state.reservas.detalle;
+  const r = d.reserva;
+  if(!r) return '<div class="card"><div class="empty"><div class="glyph">…</div>Cargando la reserva…</div></div>';
+  const esAdmin = esAdminActual();
+  const puedeCancelar = esAdmin || (state.perfil && r.usuario_id === state.perfil.id);
+  const dato = (k,v)=> v ? `<div class="hint" style="margin:0"><span style="color:var(--text-faint)">${k}:</span> ${esc(String(v))}</div>` : '';
+  const hayFaltante = d.lineas.some(l=>Number(l.faltante)>0);
+  return `
+    <div class="section-head">
+      <div><span class="eyebrow">Bodega · <button type="button" id="res-volver" style="background:none;border:none;padding:0;color:var(--amber);cursor:pointer;font:inherit">Todas las reservas</button></span><h2><span class="mono">${esc(r.numero)}</span> <span class="${CLASE_ESTADO_RESERVA[r.estado]||'badge'}">${esc(ESTADOS_RESERVA[r.estado]||r.estado)}</span></h2></div>
+    </div>
+    <div class="card">
+      <div class="row2 row2-fechas">
+        <div>
+          <span class="eyebrow">Para</span>
+          <div style="font-weight:700">${esc(r.persona_nombre||'Sin asignar')}${r.persona_area?` · ${esc(r.persona_area)}`:''}</div>
+          ${dato('Trabajo', r.destino)}${dato('Para cuándo', r.fecha_necesaria ? fmtFecha(r.fecha_necesaria) : '')}
+        </div>
+        <div>
+          <span class="eyebrow">Registro</span>
+          ${dato('Pedida', fmtFecha(r.created_at))}${dato('La pidió', r.usuario_nombre)}${dato('Observación', r.observacion)}
+        </div>
+      </div>
+      ${r.cancelada_en ? `<div class="hint" style="margin-top:10px;color:var(--danger)">Cancelada el ${fmtFecha(r.cancelada_en)}: ${esc(r.cancelada_motivo||'')}</div>` : ''}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        ${r.estado!=='cancelada' && Number(r.pendiente)>0 ? `<button type="button" class="btn btn-primary" data-reserva-entregar="${esc(r.id)}" style="width:auto;padding:8px 14px">Entregar en Salida</button>` : ''}
+        ${r.estado!=='cancelada' && Number(r.entregado)===0 ? `<button type="button" class="btn btn-secondary" data-reserva-editar="${esc(r.id)}" style="width:auto;padding:8px 14px">Editar</button>` : ''}
+        ${r.estado!=='cancelada' && puedeCancelar ? `<button type="button" class="btn btn-secondary" data-reserva-cancelar="${esc(r.id)}" data-numero="${esc(r.numero)}" style="width:auto;padding:8px 14px">Cancelar reserva</button>` : ''}
+        ${hayFaltante && funcionBodegaActiva('ordenes_compra') && esAdmin ? `<button type="button" class="btn btn-primary" data-reserva-comprar="${esc(r.id)}" style="width:auto;padding:8px 14px">Crear orden de compra</button>` : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="eyebrow">Detalle</span>
+      ${d.error ? `<div class="hint" style="color:var(--danger)">No se pudieron leer las líneas: ${esc(d.error)}</div>`
+      : d.cargando ? '<div class="empty"><div class="glyph">…</div>Cargando…</div>'
+      : `<div class="table-wrap" style="margin-top:8px"><table>
+        <thead><tr><th>Material</th><th class="num">Apartado</th><th class="num">Entregado</th><th class="num">Pendiente</th><th class="num">En bodega</th></tr></thead>
+        <tbody>${d.lineas.map(l=>`<tr>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}</div></td>
+          <td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>
+          <td class="num">${l.entregado}</td>
+          <td class="num">${Number(l.pendiente)>0?`<strong>${l.pendiente}</strong>`:'—'}</td>
+          <td class="num">${l.stock}${Number(l.faltante)>0?`<div style="font-size:11px;color:var(--danger)">faltan ${l.faltante}</div>`:''}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      ${hayFaltante ? '<div class="hint" style="margin-top:8px;color:var(--danger)">Lo comprometido supera lo que hay en bodega. Nadie está bloqueado, pero alguien se va a quedar sin material: cúbrelo con una orden de compra.</div>' : ''}`}
+    </div>
+
+    ${(d.entregas||[]).length ? `<div class="card">
+      <span class="eyebrow">Entregas</span>
+      <div class="table-wrap" style="margin-top:8px"><table>
+        <thead><tr><th>Salida</th><th>Fecha</th><th></th></tr></thead>
+        <tbody>${d.entregas.map(x=>`<tr>
+          <td class="mono" style="font-size:12px">${esc(x.numero)}${x.anulado_en?' <span class="badge badge-danger">Anulada</span>':''}</td>
+          <td>${fmtFecha(x.fecha)}</td>
+          <td class="num"><button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(x.id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>` : ''}`;
+}
+
+function renderCancelarReservaModal(){
+  const c = state.reservas.cancelando;
+  if(!c) return '';
+  return `<div class="foto-modal-backdrop" id="cancelar-res-backdrop">
+    <div class="card" style="width:min(92vw,420px);margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h2 style="margin:0;font-size:17px">Cancelar <span class="mono">${esc(c.numero)}</span></h2>
+        <button id="cancelar-res-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px">El material apartado vuelve a estar disponible. Lo que ya se entregó no se toca.</div>
+      <label for="cancelar-res-motivo">Motivo</label>
+      <input type="text" id="cancelar-res-motivo" value="${esc(c.motivo)}" placeholder="Por qué se cancela" autocomplete="off" style="margin:0">
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button type="button" class="btn btn-primary" id="cancelar-res-guardar" ${c.guardando?'disabled':''}>${c.guardando?'<span class="spinner"></span> Cancelando…':'Cancelar reserva'}</button>
+        <button type="button" class="btn btn-secondary" id="cancelar-res-volver" style="width:auto">Volver</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderOrdenesCompra(){
+  if(!funcionBodegaActiva('ordenes_compra')) return '<div class="card"><div class="empty"><div class="glyph">🔒</div>Las órdenes de compra no están activadas para esta empresa.</div></div>';
   const o = state.ordenes;
   if(o.form) return renderOrdenCompraForm();
   if(o.detalle) return renderOrdenCompraDetalle();
@@ -11277,7 +11687,7 @@ function renderDocumentoBodega(tipo){
         <label for="bd-proveedor">Proveedor</label>
         <select id="bd-proveedor"><option value="">Sin proveedor</option>${proveedores.map(p=>`<option value="${esc(p.id)}" ${d.proveedorId===p.id?'selected':''}>${esc(p.nombre)}</option>`).join('')}</select>
         ${!proveedores.length ? `<div class="hint">El administrador agrega proveedores en Configuraciones.</div>` : ''}
-        ${ordenesRecibibles().length ? `
+        ${funcionBodegaActiva('ordenes_compra') && ordenesRecibibles().length ? `
         <label for="bd-orden-compra">Recibir contra una orden de compra ${campoConInfo('Si el material viene de una orden que emitiste acá, elígela: las líneas se llenan solas con lo que falta por llegar, al precio acordado. Si la factura viene con otro precio, lo corriges en la línea y queda registrado el de verdad.')}</label>
         <select id="bd-orden-compra" style="margin:0">
           <option value="">Sin orden de compra</option>
@@ -11291,6 +11701,12 @@ function renderDocumentoBodega(tipo){
         <div class="file-input"><input type="file" id="bd-foto-guia" accept="image/*" capture="environment">${ICONS.camera.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}<div>${d.fotoGuia ? (d.fotoGuia.preparando ? 'Preparando…' : 'Guía lista, toca para reemplazar') : 'Tomar foto de la guía'}</div></div>
         ${d.fotoGuia && d.fotoGuia.preview ? `<div class="foto-preview-grid"><div class="foto-preview-item"><img src="${d.fotoGuia.preview}"></div></div>` : ''}
         ` : `
+        ${funcionBodegaActiva('reservas') && reservasEntregables().length ? `
+        <label for="bd-reserva">Entregar contra una reserva ${campoConInfo('Si el material estaba apartado para un trabajo, elige la reserva: las líneas se llenan solas con lo que falta por entregar y la reserva se descuenta al guardar. Si no, la salida es normal y el material apartado sigue comprometido.')}</label>
+        <select id="bd-reserva" style="margin:0 0 8px">
+          <option value="">Sin reserva</option>
+          ${reservasEntregables().map(r=>`<option value="${esc(r.id)}" ${d.reservaId===r.id?'selected':''}>${esc(r.numero)}${r.persona_nombre?` · ${esc(r.persona_nombre)}`:''}${r.destino?` · ${esc(r.destino)}`:''} · faltan ${r.pendiente}</option>`).join('')}
+        </select>` : ''}
         <label for="bd-retira">Quién retira *</label>
         <select id="bd-retira" required><option value="">Elige una persona</option>${personas.map(p=>`<option value="${esc(p.id)}" ${d.retiradoPorId===p.id?'selected':''}>${esc(p.nombre)}${p.area?` (${esc(p.area)})`:''}</option>`).join('')}</select>
         ${!personas.length ? `<div class="hint">El administrador agrega las personas que retiran en Configuraciones.</div>` : ''}
@@ -11370,7 +11786,7 @@ function renderMovimientosBodega(){
           <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : m.tipo==='devolucion' ? `Devuelve ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">${esc(m.motivo||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(m.fecha)}</td>
           <td>${badgeEstadoMovimiento(m.estado)}</td>
-          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${m.documento_id ? ` <button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(m.documento_id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button>`:''}${m.tipo==='salida' && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-devolver-doc="${esc(m.documento_id)}" data-devolver-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Devolver</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
+          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${m.documento_id ? ` <button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(m.documento_id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button>`:''}${funcionBodegaActiva('devoluciones') && m.tipo==='salida' && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-devolver-doc="${esc(m.documento_id)}" data-devolver-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Devolver</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
         </tr>`; }).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.movimientosCargados ? 'Aún no hay movimientos.' : 'Cargando…'}</div>`}
     </div>
   `;
@@ -11391,8 +11807,8 @@ function renderStockBodega(){
       </form>
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Transferir</button>`:''}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th>${funcionBodegaActiva('reservas')?'<th class="num">Disponible</th>':''}<th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:11px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Transferir</button>`:''}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
   `;
 }
@@ -11596,6 +12012,9 @@ function bindDocumentoBodega(){
   // Recibir contra una OC emitida acá: trae las líneas pendientes con su precio acordado.
   const selOc = document.getElementById('bd-orden-compra');
   if(selOc) selOc.addEventListener('change', ()=>{ capturarCamposDocumentoBodega(); usarOrdenCompraEnIngreso(selOc.value); });
+  // Entregar contra una reserva: trae lo pendiente y, si la reserva tiene persona y destino, los usa.
+  const selRes = document.getElementById('bd-reserva');
+  if(selRes) selRes.addEventListener('change', ()=>{ capturarCamposDocumentoBodega(); usarReservaEnSalida(selRes.value); });
   const inputSku = document.getElementById('bd-sku');
   if(inputSku){
     let timer = null;
@@ -11643,7 +12062,7 @@ function bindDocumentoBodega(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock', mover:'Mover material', ordenes:'Órdenes de compra'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock', mover:'Mover material', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
 }
 
 function renderShell(){
@@ -11666,6 +12085,7 @@ function renderShell(){
     stock: renderStockBodega,
     reportes: renderReportesBodega,
     ordenes: renderOrdenesCompra,
+    reservas: renderReservas,
     mover: renderMover,
   }[state.view]();
 
@@ -11750,7 +12170,7 @@ function render(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderTransferenciaModal() + renderAnularOrdenModal() + renderProveedorModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderTransferenciaModal() + renderAnularOrdenModal() + renderProveedorModal() + renderCancelarReservaModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -11987,6 +12407,7 @@ function bind(){
       // Entrar a Órdenes desde otra pantalla siempre muestra la lista: si no, se vuelve al
       // detalle o al formulario a medio llenar de la última vez, sin haberlo pedido.
       if(vista==='ordenes') patch.ordenes = {...state.ordenes, form:null, detalle:null};
+      if(vista==='reservas') patch.reservas = {...state.reservas, form:null, detalle:null};
       setState(patch);
     });
   });
@@ -12017,6 +12438,60 @@ function bind(){
       });
     });
   }
+  if(state.view==='reservas'){
+    const r = state.reservas;
+    if(r.form){
+      const campo = (id, clave) => { const el = document.getElementById(id); if(el) el.addEventListener('input', ev=>{ state.reservas.form = {...state.reservas.form, [clave]: ev.target.value}; }); };
+      const sel = document.getElementById('res-persona');
+      if(sel) sel.addEventListener('change', ev=>{ state.reservas.form = {...state.reservas.form, personaId: ev.target.value}; });
+      campo('res-destino','destino'); campo('res-fecha','fechaNecesaria'); campo('res-observacion','observacion');
+      const buscar = document.getElementById('res-buscar-sku');
+      if(buscar){
+        let timerRes = null;
+        buscar.addEventListener('input', e=>{ clearTimeout(timerRes); const v = e.target.value; timerRes = setTimeout(()=> buscarSkuBodega(v), 250); });
+        buscar.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); buscarSkuBodega(e.target.value); } });
+      }
+      document.querySelectorAll('[data-res-agregar]').forEach(btn=> btn.addEventListener('click', ()=> agregarLineaReserva(JSON.parse(btn.dataset.resAgregar))));
+      document.querySelectorAll('[data-res-quitar]').forEach(btn=> btn.addEventListener('click', ()=> quitarLineaReserva(btn.dataset.resQuitar)));
+      document.querySelectorAll('[data-res-cantidad]').forEach(inp=>{
+        const skuId = inp.dataset.resCantidad;
+        const anotar = valor => { state.reservas.form = {...state.reservas.form,
+          lineas: state.reservas.form.lineas.map(l=> l.sku_id===skuId ? {...l, cantidad: valor} : l)}; };
+        inp.addEventListener('input', ev=> anotar(ev.target.value));
+        inp.addEventListener('change', ev=>{ anotar(ev.target.value); setState({reservas:{...state.reservas}}); });
+      });
+      document.getElementById('res-guardar').addEventListener('click', guardarReserva);
+      document.getElementById('res-cancelar').addEventListener('click', ()=> setState({reservas:{...state.reservas, form:null}}));
+    }else if(r.detalle){
+      const volver = document.getElementById('res-volver');
+      if(volver) volver.addEventListener('click', ()=> setState({reservas:{...state.reservas, detalle:null}}));
+      document.querySelectorAll('[data-reserva-editar]').forEach(b=> b.addEventListener('click', ()=> abrirEdicionReserva(b.dataset.reservaEditar)));
+      document.querySelectorAll('[data-reserva-entregar]').forEach(b=> b.addEventListener('click', async ()=>{
+        setState({view:'salida'});
+        await usarReservaEnSalida(b.dataset.reservaEntregar);
+      }));
+      document.querySelectorAll('[data-comprobante-doc]').forEach(b=> b.addEventListener('click', ()=> imprimirComprobanteBodega(b.dataset.comprobanteDoc)));
+    }else{
+      const btnNueva = document.getElementById('btn-nueva-reserva');
+      if(btnNueva) btnNueva.addEventListener('click', abrirNuevaReserva);
+      const filtro = document.getElementById('res-filtro-estado');
+      if(filtro) filtro.addEventListener('change', ()=> setState({reservas:{...state.reservas, filtroEstado: filtro.value}}));
+    }
+    document.querySelectorAll('[data-reserva-ver]').forEach(b=> b.addEventListener('click', ()=> abrirDetalleReserva(b.dataset.reservaVer)));
+    document.querySelectorAll('[data-reserva-comprar]').forEach(b=> b.addEventListener('click', ()=> crearOrdenDesdeReserva(b.dataset.reservaComprar)));
+    document.querySelectorAll('[data-reserva-cancelar]').forEach(b=> b.addEventListener('click', ()=> setState({reservas:{...state.reservas, cancelando:{id:b.dataset.reservaCancelar, numero:b.dataset.numero, motivo:'', guardando:false}}})));
+  }
+
+  if(state.reservas.cancelando){
+    const cerrarRes = ()=> setState({reservas:{...state.reservas, cancelando:null}});
+    document.getElementById('cancelar-res-close').addEventListener('click', cerrarRes);
+    document.getElementById('cancelar-res-volver').addEventListener('click', cerrarRes);
+    document.getElementById('cancelar-res-backdrop').addEventListener('click', e=>{ if(e.target.id==='cancelar-res-backdrop') cerrarRes(); });
+    const motivo = document.getElementById('cancelar-res-motivo');
+    if(motivo) motivo.addEventListener('input', ev=>{ state.reservas.cancelando = {...state.reservas.cancelando, motivo: ev.target.value}; });
+    document.getElementById('cancelar-res-guardar').addEventListener('click', cancelarReserva);
+  }
+
   if(state.view==='ordenes'){
     const o = state.ordenes;
     if(o.form){
@@ -12305,6 +12780,17 @@ function bind(){
       });
       document.querySelectorAll('.sa-empresa-bodega').forEach(chk=>{
         chk.addEventListener('change', ()=> actualizarEmpresaSuperAdmin(chk.dataset.empresaId, {modulo_bodega_habilitado: chk.checked}));
+    });
+    // Cada función del módulo por separado. Se guarda el jsonb completo para no pisar las otras
+    // llaves con un PATCH parcial.
+    document.querySelectorAll('.sa-funcion-bodega').forEach(chk=>{
+      chk.addEventListener('change', ()=>{
+        const empresa = (state.superadmin.empresas||[]).find(x=>x.id===chk.dataset.empresaId);
+        const actuales = (empresa && empresa.bodega_funciones) || {};
+        const nuevas = {...actuales};
+        if(chk.checked) delete nuevas[chk.dataset.funcion]; else nuevas[chk.dataset.funcion] = false;
+        actualizarEmpresaSuperAdmin(chk.dataset.empresaId, {bodega_funciones: nuevas});
+      });
       });
       const selectPersonasEmpresa = document.getElementById('sa-personas-empresa');
       if(selectPersonasEmpresa) selectPersonasEmpresa.addEventListener('change', ()=> cargarPersonasSuperAdmin(selectPersonasEmpresa.value));
