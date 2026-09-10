@@ -7133,6 +7133,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const shellConLogo = ctx.renderShell();
     assert(shellConLogo.includes('brand-badge con-logo') && shellConLogo.includes(LOGO_PRUEBA) && !shellConLogo.includes('<div class="brand-badge">IA</div>'), 'con logo, la insignia lo muestra en vez de "IA"');
 
+    // La insignia se adapta a la forma del logo: la mayoría de los logos de empresa son
+    // horizontales, y encerrado en el cuadrado de 34x34 un wordmark quedaba como una franja de
+    // 5 px de alto. El alto manda, el ancho crece con tope.
+    const cssApp = html;
+    assert(/\.brand-badge\.con-logo\{width:auto;min-width:34px;max-width:112px;\}/.test(cssApp), 'la insignia con logo crece a lo ancho en vez de encerrarlo en un cuadrado');
+    assert(/\.brand-badge\.con-logo img\{width:auto;max-width:100%;height:100%/.test(cssApp), 'el logo se ajusta por el alto, que es lo que mantiene la proporción');
+
     // Va en el encabezado de todo lo que se imprime.
     assert(ctx.encabezadoLogoImpresion().includes('class="print-logo"') && ctx.encabezadoLogoImpresion().includes(LOGO_PRUEBA), 'el encabezado impreso lleva el logo');
     const compConLogo = ctx.comprobanteDocumentoBodegaHTML(cabIng, [cabIng], []);
