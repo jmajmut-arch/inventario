@@ -1779,13 +1779,29 @@ function bindBuscadorLibreResultados(){
   });
 }
 
+// El ERP manda el material dos veces: la fila del bin, y otra sin ubicación con lo que viene en
+// camino (stock 0, tránsito > 0), porque todavía no llegó a ningún estante. En Contar esa segunda
+// fila salía como un resultado más, idéntica en pantalla a la que sí se cuenta -- Joel la vio
+// duplicada buscando el 10001022. No se puede contar: no tiene bin ni stock.
+//
+// Se esconde SOLO si el mismo código trae otra fila en el resultado. Si es la única que hay, se
+// muestra igual: esconderla dejaría un material imposible de encontrar en Contar, que es peor que
+// el duplicado. Su tránsito no se pierde -- sigue sumando en el total del material (ver
+// infoStockPorTipo), que se muestra en la fila que sí se cuenta.
+function sinFilasNoContables(rows){
+  const codigosConFilaContable = new Set(
+    rows.filter(r => r.storage_bin || r.ubicacion || Number(r.stock_sistema||0) > 0).map(r => r.sku_code));
+  return rows.filter(r =>
+    r.storage_bin || r.ubicacion || Number(r.stock_sistema||0) > 0 || !codigosConFilaContable.has(r.sku_code));
+}
+
 async function buscarSkusLibre(texto){
   const miPeticion = ++buscadorLibrePeticionId;
   const t = sanearTextoFiltro(texto);
   try{
     const rows = t? await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,total_bloqueado,total_transito_1,total_transito_2,total_transferencia&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
-    state.buscadorLibre = { resultados: rows||[], buscando: false };
+    state.buscadorLibre = { resultados: sinFilasNoContables(rows||[]), buscando: false };
     actualizarResultadosBuscadorLibreEnPantalla();
   }catch(e){
     if(miPeticion !== buscadorLibrePeticionId) return;
