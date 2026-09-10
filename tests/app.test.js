@@ -1094,6 +1094,13 @@ const fakeFetchImpl = async (url, opts) => {
   // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
   // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
   if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
+    // Mismo código dos veces, como lo manda el ERP: la fila del bin y la del tránsito sin ubicación.
+    if(path.includes('10001022')){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+        {id:'dup-bin', sku_code:'10001022', descripcion:'Valvula', bodega:'B501', ubicacion:'0100', storage_bin:'N1E-242-H1', stock_sistema:46, unidad_medida:'EA', total_transito_1:10},
+        {id:'dup-fantasma', sku_code:'10001022', descripcion:'Valvula', bodega:'B501', ubicacion:null, storage_bin:null, stock_sistema:0, unidad_medida:'EA', total_transito_1:10},
+      ]) };
+    }
     const filas = [
       {id:'id-libre-1', sku_code:'FIL-1001', descripcion:'Filtro de aceite', bodega:'Bodega Central', ubicacion:'Pasillo 2', storage_bin:'B-04', stock_sistema:12, unidad_medida:'UN'},
       {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:'Bodega Central', ubicacion:null, storage_bin:null, stock_sistema:3, unidad_medida:'UN'},
@@ -4766,6 +4773,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const historialRoto = ctx.renderUbicacionSkuModal();
   assert(historialRoto.includes('No se pudo leer el historial') && !historialRoto.includes('no se ha movido de sitio'), 'un fallo del servidor se muestra como error, no como historial vacío, obtuvo: '+historialRoto);
   ctx.__appstate.ubicacionSkuModal = null;
+
+  // ===== Buscador de Contar: esconder la fila que no se puede contar =====
+  // De punta a punta: el servidor manda las dos filas y el buscador deja una sola.
+  await ctx.buscarSkusLibre('10001022');
+  await new Promise(r=>setTimeout(r, 20));
+  const resDup = ctx.__appstate.buscadorLibre.resultados;
+  assert(resDup.length===1 && resDup[0].id==='dup-bin', 'el buscador de Contar debe mostrar una sola vez el código, con la fila que sí se puede contar, obtuvo: '+JSON.stringify(resDup));
+
+  // El ERP manda el material dos veces: la fila del bin, y otra sin ubicación con lo que viene en
+  // camino. La segunda salía como un resultado más, idéntica en pantalla (Joel la vio duplicada
+  // buscando el 10001022) y no se puede contar: sin bin y sin stock.
+  const filaBin = {sku_code:'10001022', storage_bin:'N1E-242-H1', ubicacion:'0100', stock_sistema:46};
+  const filaFantasma = {sku_code:'10001022', storage_bin:null, ubicacion:null, stock_sistema:0, total_transito_1:10};
+  const filtradas = ctx.sinFilasNoContables([filaBin, filaFantasma]);
+  assert(filtradas.length===1 && filtradas[0].storage_bin==='N1E-242-H1', 'con dos filas del mismo código, la que no se puede contar se esconde, obtuvo: '+JSON.stringify(filtradas));
+
+  // Si es la ÚNICA fila del código se muestra igual: esconderla dejaría un material imposible de
+  // encontrar en Contar, que es peor que el duplicado.
+  const soloFantasma = ctx.sinFilasNoContables([filaFantasma]);
+  assert(soloFantasma.length===1, 'si es la única fila del código, no se esconde, obtuvo: '+JSON.stringify(soloFantasma));
+
+  // Con conteo ciego el stock llega en null: la fila con bin igual se reconoce como contable.
+  const ciego = ctx.sinFilasNoContables([
+    {sku_code:'X', storage_bin:'A-1', ubicacion:null, stock_sistema:null},
+    {sku_code:'X', storage_bin:null, ubicacion:null, stock_sistema:null}]);
+  assert(ciego.length===1 && ciego[0].storage_bin==='A-1', 'con conteo ciego (stock null) el filtro sigue funcionando, obtuvo: '+JSON.stringify(ciego));
+
+  // Un material sin bin pero con stock sí se puede contar: no se esconde.
+  const sinBinConStock = ctx.sinFilasNoContables([
+    {sku_code:'Y', storage_bin:'B-2', ubicacion:null, stock_sistema:3},
+    {sku_code:'Y', storage_bin:null, ubicacion:null, stock_sistema:7}]);
+  assert(sinBinConStock.length===2, 'una fila sin bin pero con stock se puede contar y se mantiene, obtuvo: '+JSON.stringify(sinBinConStock));
 
   // ===== Sobrantes de la carga masiva: lo que el archivo ya no trae y sigue activo =====
   // La carga "Agregar/complementar" nunca desactiva nada, así que se acumulan en silencio (en
