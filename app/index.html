@@ -5809,6 +5809,33 @@ function mensajeCodigoSkuDuplicado(skuCode, bodega, batch, ubicacion, storageBin
 // skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key). Como es la MISMA fila la que cambia,
 // el material conserva su historial de conteos, su kardex y su stock; la planificación ya sabía
 // avisar "cambió de bin" cuando esto pasa (ver diferenciasDeUbicacionEnPlan).
+// Opciones de la ventana de mover: las ubicaciones específicas y los bins que ya existen en la
+// bodega elegida. Se reusan los mismos cargadores que alimentan el formulario de alta de SKU.
+async function cargarOpcionesUbicacionModal(bodega, ubicacion){
+  const m = state.ubicacionSkuModal;
+  if(!m) return;
+  setState({ubicacionSkuModal:{...state.ubicacionSkuModal, cargandoOpciones:true}});
+  const [especificas, bins] = await Promise.all([
+    opcionesEspecificas(bodega),
+    opcionesBins(bodega, ubicacion),
+  ]);
+  if(!state.ubicacionSkuModal) return; // se cerró mientras cargaba
+  setState({ubicacionSkuModal:{...state.ubicacionSkuModal, especificas, bins, cargandoOpciones:false}});
+}
+
+// Lista de valores para un <select>: lo que ya existe, más lo que tenga el material hoy (para no
+// perderlo de vista si su sitio no está en ninguna lista), sin repetidos y ordenado.
+function opcionesConActual(valores, actual){
+  const vistos = new Set();
+  const salida = [];
+  [...valores, actual].forEach(v=>{
+    const t = (v||'').trim();
+    if(!t || vistos.has(t)) return;
+    vistos.add(t); salida.push(t);
+  });
+  return salida.sort((a,b)=> a.localeCompare(b));
+}
+
 function mensajeUbicacionOcupada(m){
   return `Ya existe ${m.skuCode} en ese sitio${m.batch? ` con batch ${m.batch}` : ''}. Dos materiales no pueden compartir la misma ubicación: junta primero sus saldos o mueve el otro.`;
 }
@@ -5827,6 +5854,11 @@ async function guardarUbicacionSku(){
   }
   setState({ubicacionSkuModal:{...m, guardando:true}});
   try{
+    // Una bodega o una ubicación escrita a mano se suma al catálogo, para que la próxima vez esté
+    // en la lista en vez de tener que escribirla otra vez. El bin no tiene catálogo: son decenas
+    // de miles y vienen del ERP.
+    if(destino.bodega && !ubicacionConocida(destino.bodega, null)) await crearUbicacion(destino.bodega, null, {silencioso:true});
+    if(destino.bodega && destino.ubicacion && !ubicacionConocida(destino.bodega, destino.ubicacion)) await crearUbicacion(destino.bodega, destino.ubicacion, {silencioso:true});
     await rest(`/skus?id=eq.${encodeURIComponent(m.id)}`, {method:'PATCH', body:destino, prefer:'return=minimal'});
     setState({ubicacionSkuModal:null});
     toast(`${m.skuCode} movido a ${describirUbicacion(destino)}`);
@@ -7404,20 +7436,36 @@ function renderUbicacionSkuModal(){
   const m = state.ubicacionSkuModal;
   if(!m) return '';
   const origen = describirUbicacion({bodega:m.bodegaOriginal, ubicacion:m.ubicacionOriginal, storage_bin:m.binOriginal});
+  const cat = state.ubicaciones.lista || [];
+  const bodegas = opcionesConActual(cat.filter(x=>!x.ubicacion && x.activo).map(x=>x.bodega), m.bodega);
+  const especificas = opcionesConActual(
+    [...cat.filter(x=> x.bodega===m.bodega && x.ubicacion && x.activo).map(x=>x.ubicacion),
+     ...(m.especificas||[]).map(x=>x.ubicacion)], m.ubicacion);
+  const bins = opcionesConActual((m.bins||[]).map(x=>x.storage_bin), m.storage_bin);
+
+  // Cada campo es un desplegable de lo que ya existe, con una opción para escribir algo nuevo sin
+  // salir de acá. Se muestra el input solo cuando se elige esa opción (m.nuevaBodega y compañía).
+  const campo = (id, etiqueta, valor, opciones, escribiendo, marcaNueva, ayuda) => `
+    <label for="${id}" style="margin-top:8px">${etiqueta}</label>
+    <select id="${id}" style="margin:0">
+      <option value="">— sin ${etiqueta.toLowerCase()} —</option>
+      ${opciones.map(o=>`<option value="${esc(o)}" ${!escribiendo && valor===o?'selected':''}>${esc(o)}</option>`).join('')}
+      <option value="${marcaNueva}" ${escribiendo?'selected':''}>+ Agregar una nueva…</option>
+    </select>
+    ${escribiendo ? `<input type="text" id="${id}-nueva" value="${esc(valor||'')}" placeholder="${ayuda}" autocomplete="off" style="margin:6px 0 0">` : ''}`;
+
   return `<div class="foto-modal-backdrop" id="ubicacion-sku-backdrop">
-    <div class="card" style="width:min(92vw,440px);margin-bottom:0">
+    <div class="card" style="width:min(92vw,440px);margin-bottom:0;max-height:88vh;overflow-y:auto">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 style="margin:0;font-size:17px">Mover material</h2>
         <button id="ubicacion-sku-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
       <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(m.skuCode)}</span>${m.batch?` · batch ${esc(m.batch)}`:''}${m.descripcion?`<div style="margin-top:2px">${esc(m.descripcion)}</div>`:''}<div style="margin-top:4px">Hoy está en <strong>${esc(origen)}</strong>. Conserva su historial de conteos y su stock.</div></div>
       <form id="form-ubicacion-sku">
-        <label for="us-bodega">Ubicación general</label>
-        <input type="text" id="us-bodega" list="dl-sku-bodegas" autocomplete="off" value="${esc(m.bodega||'')}" placeholder="Sin bodega">
-        <label for="us-ubic" style="margin-top:8px">Ubicación específica</label>
-        <input type="text" id="us-ubic" autocomplete="off" value="${esc(m.ubicacion||'')}" placeholder="Sin ubicación específica">
-        <label for="us-bin" style="margin-top:8px">Storage bin</label>
-        <input type="text" id="us-bin" autocomplete="off" value="${esc(m.storage_bin||'')}" placeholder="Sin bin">
+        ${campo('us-bodega','Ubicación general', m.bodega, bodegas, m.nuevaBodega, '__nueva', 'Nombre de la bodega nueva')}
+        ${campo('us-ubic','Ubicación específica', m.ubicacion, especificas, m.nuevaUbicacion, '__nueva', 'Nombre de la ubicación nueva')}
+        ${campo('us-bin','Storage bin', m.storage_bin, bins, m.nuevoBin, '__nuevo', 'Ej. A-12-03')}
+        ${m.cargandoOpciones ? '<div class="hint" style="margin-top:8px">Cargando opciones…</div>' : ''}
         <div style="margin-top:12px;display:flex;gap:8px">
           <button type="submit" class="btn btn-primary" ${m.guardando?'disabled':''}>${m.guardando?'<span class="spinner"></span> Moviendo…':'Mover'}</button>
           <button type="button" class="btn btn-secondary" id="ubicacion-sku-cancelar" style="width:auto">Cancelar</button>
@@ -11702,24 +11750,52 @@ function bind(){
           id: sku.id, skuCode: sku.sku_code, descripcion: sku.descripcion, batch: sku.batch,
           bodega: sku.bodega||'', ubicacion: sku.ubicacion||'', storage_bin: sku.storage_bin||'',
           bodegaOriginal: sku.bodega||null, ubicacionOriginal: sku.ubicacion||null, binOriginal: sku.storage_bin||null,
-          guardando:false,
+          guardando:false, especificas:[], bins:[], cargandoOpciones:false,
+          nuevaBodega:false, nuevaUbicacion:false, nuevoBin:false,
         }});
+        if(sku.bodega) cargarOpcionesUbicacionModal(sku.bodega, sku.ubicacion||'');
       });
     });
 
   if(state.ubicacionSkuModal){
-    // Los tres campos se guardan en el estado a medida que se escriben: cualquier render de
-    // fondo (la cola offline, una recarga de datos) reconstruye la pantalla entera, y sin esto
-    // lo tipeado se perdería a medio llenar.
     const cerrar = ()=> setState({ubicacionSkuModal:null});
     document.getElementById('ubicacion-sku-close').addEventListener('click', cerrar);
     document.getElementById('ubicacion-sku-cancelar').addEventListener('click', cerrar);
     document.getElementById('ubicacion-sku-backdrop').addEventListener('click', e=>{ if(e.target.id==='ubicacion-sku-backdrop') cerrar(); });
-    [['us-bodega','bodega'],['us-ubic','ubicacion'],['us-bin','storage_bin']].forEach(([id, campo])=>{
-      document.getElementById(id).addEventListener('input', e=>{
-        state.ubicacionSkuModal = {...state.ubicacionSkuModal, [campo]: e.target.value};
-      });
+
+    // Elegir "+ Agregar una nueva…" no cambia el valor todavía: abre el campo para escribirlo.
+    document.getElementById('us-bodega').addEventListener('change', e=>{
+      const v = e.target.value;
+      const nueva = v==='__nueva';
+      setState({ubicacionSkuModal:{...state.ubicacionSkuModal,
+        bodega: nueva ? '' : v, nuevaBodega: nueva,
+        // Cambiar de bodega invalida la ubicación específica y el bin: son de la bodega anterior.
+        ubicacion:'', nuevaUbicacion:false, storage_bin:'', nuevoBin:false,
+        especificas:[], bins:[]}});
+      if(!nueva && v) cargarOpcionesUbicacionModal(v, '');
     });
+    document.getElementById('us-ubic').addEventListener('change', e=>{
+      const v = e.target.value;
+      const nueva = v==='__nueva';
+      setState({ubicacionSkuModal:{...state.ubicacionSkuModal,
+        ubicacion: nueva ? '' : v, nuevaUbicacion: nueva, storage_bin:'', nuevoBin:false, bins:[]}});
+      if(!nueva) cargarOpcionesUbicacionModal(state.ubicacionSkuModal.bodega, v);
+    });
+    document.getElementById('us-bin').addEventListener('change', e=>{
+      const v = e.target.value;
+      const nuevo = v==='__nuevo';
+      setState({ubicacionSkuModal:{...state.ubicacionSkuModal, storage_bin: nuevo ? '' : v, nuevoBin: nuevo}});
+    });
+
+    // Lo que se escribe en los campos nuevos se guarda en el estado a medida que se teclea: un
+    // render de fondo reconstruye la pantalla y si no, se perdería a medio llenar.
+    [['us-bodega-nueva','bodega'],['us-ubic-nueva','ubicacion'],['us-bin-nueva','storage_bin']].forEach(([id, campo])=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('input', ev=>{ state.ubicacionSkuModal = {...state.ubicacionSkuModal, [campo]: ev.target.value}; });
+      if(document.activeElement!==el && el.value){ el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
+    });
+
     document.getElementById('form-ubicacion-sku').addEventListener('submit', e=>{ e.preventDefault(); guardarUbicacionSku(); });
   }
 
