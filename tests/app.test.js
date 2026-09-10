@@ -4638,6 +4638,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     bodegaOriginal:'B501', ubicacionOriginal:'0102', binOriginal:'N1E-P5-I09',
     guardando:false, ...extra }; };
 
+  // Los tres campos son desplegables de lo que ya existe, con la opción de escribir algo nuevo
+  // sin salir de la ventana (pedido de Joel).
+  ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:true, lista:[
+    {id:'c1', bodega:'B501', ubicacion:null, activo:true},
+    {id:'c2', bodega:'B501', ubicacion:'0102', activo:true},
+    {id:'c3', bodega:'B521', ubicacion:null, activo:true},
+    {id:'c4', bodega:'Patio 6', ubicacion:null, activo:false},
+  ]};
+  ctx.__appstate.ubicacionSkuModal = {
+    id:'sku-mover', skuCode:'SKU-MOVER', descripcion:'Bomba', batch:null,
+    bodega:'B501', ubicacion:'0102', storage_bin:'N1E-P5-I09',
+    bodegaOriginal:'B501', ubicacionOriginal:'0102', binOriginal:'N1E-P5-I09',
+    especificas:[{ubicacion:'0103'}], bins:[{storage_bin:'A-01-02'}],
+    guardando:false, nuevaBodega:false, nuevaUbicacion:false, nuevoBin:false };
+  const htmlCampos = ctx.renderUbicacionSkuModal();
+  assert(htmlCampos.includes('<select id="us-bodega"') && htmlCampos.includes('<select id="us-ubic"') && htmlCampos.includes('<select id="us-bin"'), 'los tres campos son desplegables, obtuvo: '+htmlCampos);
+  assert(htmlCampos.includes('>B501<') && htmlCampos.includes('>B521<'), 'la ubicación general ofrece las bodegas del catálogo, obtuvo: '+htmlCampos);
+  assert(!htmlCampos.includes('>Patio 6<'), 'una bodega desactivada no se ofrece para mover material ahí');
+  assert(htmlCampos.includes('>0102<') && htmlCampos.includes('>0103<'), 'la ubicación específica junta el catálogo con lo que ya usan los materiales');
+  assert(htmlCampos.includes('>N1E-P5-I09<') && htmlCampos.includes('>A-01-02<'), 'el bin ofrece los que existen en esa bodega, incluido el actual');
+  assert((htmlCampos.match(/\+ Agregar una nueva…/g)||[]).length===3, 'los tres campos permiten agregar uno nuevo ahí mismo, obtuvo: '+htmlCampos);
+  // Al elegir "agregar una nueva" aparece el campo de texto en vez del valor elegido.
+  ctx.__appstate.ubicacionSkuModal = {...ctx.__appstate.ubicacionSkuModal, nuevaBodega:true, bodega:''};
+  assert(ctx.renderUbicacionSkuModal().includes('id="us-bodega-nueva"'), 'al agregar una bodega nueva aparece el campo para escribirla');
+  ctx.__appstate.ubicacionSkuModal = null;
+
   // El modal dice de dónde sale y aclara que el material no pierde su historial.
   abrirModalMover();
   const htmlModalMover = ctx.renderUbicacionSkuModal();
