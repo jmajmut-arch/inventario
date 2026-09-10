@@ -571,6 +571,10 @@ let state = {
   // existían porque un material decía que existían, así que "Bodega Central" y "bodega central"
   // convivían como dos sitios y una bodega vacía no podía existir.
   ubicaciones: { cargado:false, cargando:false, lista:[], materialesPorBodega:{}, nuevaBodega:'', renombrando:null },
+  // Pantalla "Mover": buscar un material y cambiarle la ubicación. Existe como pestaña propia
+  // porque el botón dentro del maestro no se encontraba: quedaba en la última columna de una
+  // tabla de once, fuera del borde de la tarjeta.
+  mover: { texto:'', resultados:[], buscando:false, yaBuscado:false, error:null },
   // Verificación en dos pasos (MFA/TOTP) -- ver continuarSiHaceFaltaMfa/renderMfaDesafio y
   // renderSeccionMfa (Configuraciones). mfaDesafio gatea la pantalla completa entre la contraseña
   // y entrar a la app; mfaFactores/mfaFactoresCargado y mfaEnrolando son propios de Configuraciones.
@@ -736,7 +740,7 @@ const BODEGA_VACIA = '__bodega_vacia__';
 // Pestañas de la barra inferior a las que un operador (rol !== admin, sin ser super-admin) no
 // tiene acceso — a pedido: se muestran igual (con un candado) en vez de ocultarlas o dejarlas
 // entrar, para que quede claro que la función existe pero es solo para administradores.
-const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos', 'grupos', 'reportes'];
+const VISTAS_SOLO_ADMIN = ['dashboard', 'plan', 'carga', 'ciclos', 'grupos', 'reportes', 'mover'];
 // Vistas con tablas/gráficos densos pensadas para admin/súper-admin en pantalla grande (ver
 // main.ancho) -- las VISTAS_SOLO_ADMIN de arriba, más Configuraciones (equipo, panel de
 // súper-admin), a diferencia de Contar/Reconteo/Buscar que se usan sobre todo desde el celular
@@ -754,6 +758,8 @@ const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario', 'movimiento
 // Clasificación de manejo del material (pedido de Joel). En la base es texto libre: una empresa
 // puede traer los suyos desde el Excel; esta lista es la que ofrece la app.
 const TIPOS_MATERIAL = ['EPP', 'Repuesto', 'Sustancia peligrosa', 'Componente', 'Otros'];
+// 'mover' no entra acá a propósito: es maestro de materiales, no del módulo de bodega. Aparece
+// en las dos barras de abajo, y una empresa sin bodega no debe cambiar de barra al abrirla.
 const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock', 'reportes'];
 function moduloBodegaActivo(){
   return !!(state.perfil && state.perfil.empresas && state.perfil.empresas.modulo_bodega_habilitado);
@@ -1608,7 +1614,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 function handleLogout(){
@@ -5827,6 +5833,8 @@ async function guardarUbicacionSku(){
     // La ubicación alimenta el universo de planificación y los selectores de bodega/bin: esas
     // listas tienen que volver a pedirse, no servirse del caché.
     refrescarListaSkus();
+    // En la pestaña Mover, el resultado en pantalla todavía muestra el sitio viejo.
+    if(state.view==='mover' && state.mover.texto) buscarMaterialParaMover(state.mover.texto);
     return true;
   }catch(e){
     setState({ubicacionSkuModal:{...state.ubicacionSkuModal, guardando:false}});
@@ -6808,6 +6816,8 @@ const ICONS = {
   alerta:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
   ciclos:'<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h13l-3 4 3 4H5"/></svg>',
   info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>',
+  // Flecha entre dos pines: mover un material de un sitio a otro.
+  mover: '<svg viewBox="0 0 24 24"><path d="M6 21c-2 0-3-1-3-2.5S4 16 6 16h12c2 0 3 1 3 2.5S20 21 18 21z"/><path d="M9 12h6"/><path d="M13 9l3 3-3 3"/><path d="M8 3v6"/><path d="M16 3v6"/></svg>',
   grupos:'<svg viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>',
 };
 
@@ -10457,6 +10467,55 @@ function renderReportesBodega(){
 }
 
 // Tarjetas de Configuraciones (admin): proveedores y personas que retiran.
+// Pantalla "Mover": se busca el material y se le cambia la ubicación. Nació porque el botón
+// dentro del maestro no se encontraba -- iba en la última columna de una tabla de once, fuera del
+// borde de la tarjeta. Acá el material se busca por código o descripción, como en Contar.
+let moverBusquedaSecuencia = 0;
+let debounceMover = null;
+async function buscarMaterialParaMover(texto){
+  const t = sanearTextoFiltro(texto);
+  const seq = ++moverBusquedaSecuencia;
+  if(t.length < 2){
+    setState({mover:{...state.mover, texto, resultados:[], buscando:false, yaBuscado:false, error:null}});
+    return;
+  }
+  setState({mover:{...state.mover, texto, buscando:true, error:null}});
+  try{
+    const filas = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=20`) || [];
+    if(seq!==moverBusquedaSecuencia) return; // llegó tarde: la persona ya siguió escribiendo
+    setState({mover:{...state.mover, resultados:filas, buscando:false, yaBuscado:true, error:null}});
+  }catch(e){
+    if(seq!==moverBusquedaSecuencia) return;
+    // Un error del servidor se muestra como error, nunca como "sin resultados": si no, el material
+    // existe y la pantalla dice que no.
+    setState({mover:{...state.mover, resultados:[], buscando:false, yaBuscado:true,
+      error: pareceFalloDeRed(e) ? 'Sin conexión: no se pudo buscar.' : e.message}});
+  }
+}
+
+function renderMover(){
+  const m = state.mover;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Maestro</span><h2>Mover un material de ubicación</h2></div></div>
+    <div class="card">
+      <p class="hint" style="margin-top:0">Busca el material por código o descripción y cámbiale la ubicación. Se mueve la misma ficha, así que conserva su historial de conteos, su kardex y su stock.</p>
+      <input type="text" id="mover-buscar" placeholder="Código o descripción" value="${esc(m.texto)}" autocomplete="off" style="margin:0">
+      ${m.buscando ? '<div class="hint" style="margin-top:12px">Buscando…</div>' : ''}
+      ${m.error ? `<div class="hint" style="margin-top:12px;color:var(--danger)">${esc(m.error)}</div>` : ''}
+      ${!m.buscando && !m.error && m.resultados.length ? `<div style="margin-top:12px">${m.resultados.map(r=>`
+        <div class="plan-item" style="padding:10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:180px">
+            <div class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}</div>
+            <div class="hint" style="margin:2px 0 0">${esc(r.descripcion||'Sin descripción')}</div>
+            <div class="hint" style="margin:2px 0 0">Hoy en <strong>${esc(describirUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin}))}</strong></div>
+          </div>
+          <button type="button" class="btn btn-primary" data-mover-sku="${esc(r.id)}" style="width:auto;flex:none;padding:8px 16px">Mover</button>
+        </div>`).join('')}</div>` : ''}
+      ${!m.buscando && !m.error && m.yaBuscado && !m.resultados.length ? '<div class="empty" style="margin-top:12px"><div class="glyph">🔍</div>Sin resultados para esa búsqueda.</div>' : ''}
+      ${!m.yaBuscado && !m.buscando && !m.error ? '<div class="hint" style="margin-top:12px">Escribe al menos dos caracteres.</div>' : ''}
+    </div>`;
+}
+
 function renderUbicacionesConfig(){
   const u = state.ubicaciones;
   const bodegas = (u.lista||[]).filter(f=>!f.ubicacion).map(f=>({
@@ -10605,7 +10664,7 @@ function bindDocumentoBodega(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock', mover:'Mover material'}[v];
 }
 
 function renderShell(){
@@ -10627,6 +10686,7 @@ function renderShell(){
     movimientos: renderMovimientosBodega,
     stock: renderStockBodega,
     reportes: renderReportesBodega,
+    mover: renderMover,
   }[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
@@ -10666,12 +10726,13 @@ function renderShell(){
     </div>
     ` : ''}
     <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
-    ${VISTAS_BODEGA.includes(state.view) ? `<nav class="tabbar">
+    ${(VISTAS_BODEGA.includes(state.view) || (state.view==='mover' && moduloBodegaActivo())) ? `<nav class="tabbar">
       ${tabBtn('inicio','Inicio')}
       ${tabBtn('ingreso','Ingreso')}
       ${tabBtn('salida','Salida')}
       ${tabBtn('movimientos','Movimientos')}
       ${tabBtn('stock','Stock')}
+      ${tabBtn('mover','Mover')}
     </nav>` : `<nav class="tabbar">
       ${tabBtn('dashboard','Dashboard')}
       ${tabBtn('carga','Carga')}
@@ -10680,6 +10741,7 @@ function renderShell(){
       ${tabBtn('plan','Plan')}
       ${tabBtn('conteo','Contar')}
       ${tabBtn('reconteo','Reconteo')}
+      ${tabBtn('mover','Mover')}
     </nav>`}
   `;
 }
@@ -11003,6 +11065,20 @@ function bind(){
     const selIng = document.getElementById('rep-ingresos-agrupar');
     if(selIng) selIng.addEventListener('change', ()=>{ state.bodega.reportes = {...state.bodega.reportes, ingresosAgrupar: selIng.value}; cargarReportesBodega(); });
   }
+  if(state.view==='mover'){
+    const inp = document.getElementById('mover-buscar');
+    if(inp){
+      inp.addEventListener('input', ()=>{
+        clearTimeout(debounceMover);
+        const v = inp.value;
+        state.mover = {...state.mover, texto:v};
+        debounceMover = setTimeout(()=> buscarMaterialParaMover(v), 300);
+      });
+      // Cada render reconstruye la pantalla; sin esto el cursor se pierde a mitad de palabra.
+      if(state.mover.texto && document.activeElement!==inp){ inp.focus(); inp.selectionStart = inp.selectionEnd = inp.value.length; }
+    }
+  }
+
   if(state.view==='config'){
     const formBodega = document.getElementById('form-nueva-bodega');
     if(formBodega) formBodega.addEventListener('submit', async e=>{
@@ -11408,18 +11484,6 @@ function bind(){
     const btnNext = document.getElementById('skus-pag-next');
     if(btnPrev) btnPrev.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page-1));
     if(btnNext) btnNext.addEventListener('click', ()=> cargarSkusPagina(state.skusPagina.page+1));
-    document.querySelectorAll('[data-mover-sku]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const sku = state.skusPagina.rows.find(r=>r.id===btn.dataset.moverSku);
-        if(!sku) return;
-        setState({ubicacionSkuModal:{
-          id: sku.id, skuCode: sku.sku_code, descripcion: sku.descripcion, batch: sku.batch,
-          bodega: sku.bodega||'', ubicacion: sku.ubicacion||'', storage_bin: sku.storage_bin||'',
-          bodegaOriginal: sku.bodega||null, ubicacionOriginal: sku.ubicacion||null, binOriginal: sku.storage_bin||null,
-          guardando:false,
-        }});
-      });
-    });
     document.querySelectorAll('.chk-sku').forEach(chk=>{
       chk.addEventListener('change', e=>{
         const id = chk.dataset.skuId;
@@ -11630,6 +11694,20 @@ function bind(){
       });
     });
   }
+
+    document.querySelectorAll('[data-mover-sku]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const sku = (state.skusPagina.rows||[]).find(r=>r.id===btn.dataset.moverSku)
+          || (state.mover.resultados||[]).find(r=>r.id===btn.dataset.moverSku);
+        if(!sku) return;
+        setState({ubicacionSkuModal:{
+          id: sku.id, skuCode: sku.sku_code, descripcion: sku.descripcion, batch: sku.batch,
+          bodega: sku.bodega||'', ubicacion: sku.ubicacion||'', storage_bin: sku.storage_bin||'',
+          bodegaOriginal: sku.bodega||null, ubicacionOriginal: sku.ubicacion||null, binOriginal: sku.storage_bin||null,
+          guardando:false,
+        }});
+      });
+    });
 
   if(state.ubicacionSkuModal){
     // Los tres campos se guardan en el estado a medida que se escriben: cualquier render de
