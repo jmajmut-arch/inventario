@@ -5135,6 +5135,8 @@ function agregarLineaBodega(sku, cantidad){
   }
   const lineas = state.bodega.doc.lineas.filter(l=>l.sku_id!==sku.id);
   // El costo del maestro viene como sugerencia editable; si el material no tiene, queda vacío.
+  // Lo que quede en esa casilla al registrar el ingreso pasa a ser el costo del material (manda la
+  // última compra), así que se muestra el actual para que la persona vea qué está confirmando.
   lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema, costo_unitario: sku.costo_unitario!=null ? Number(sku.costo_unitario) : null});
   state.bodega.doc.lineas = lineas;
   state.bodega.busqueda = {texto:'', resultados:[], buscando:false};
@@ -5333,6 +5335,23 @@ async function guardarStockMinimo(skuId, valor){
     setState({bodega:{...state.bodega, stock}});
     cargarValorizacionBodega();
     toast(minimo===null ? 'Mínimo quitado' : `Mínimo guardado en ${minimo}`);
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Costo unitario del material (solo admin). Cada ingreso con costo pisa este valor -- manda la
+// última compra, decisión de Joel --, pero hay casos en que la última compra no es el costo que
+// se quiere valorizar: una compra de urgencia cara, un flete cargado por error, un precio de
+// lista que llegó mal en la guía. Por eso se puede corregir a mano acá.
+async function guardarCostoUnitario(skuId, valor){
+  const txt = String(valor==null?'':valor).trim();
+  const costo = txt==='' ? null : Number(txt);
+  if(costo!==null && (isNaN(costo) || costo < 0)){ toast('El costo debe ser 0 o más','err'); return; }
+  try{
+    await rest(`/skus?id=eq.${encodeURIComponent(skuId)}`, {method:'PATCH', body:{costo_unitario: costo}, prefer:'return=minimal'});
+    const stock = state.bodega.stock.map(r=> r.sku_id===skuId ? {...r, costo_unitario: costo, valor: costo==null?null:Number(r.stock)*costo} : r);
+    setState({bodega:{...state.bodega, stock}});
+    cargarValorizacionBodega(); // el total valorizado y "materiales sin costo" cambian con esto
+    toast(costo===null ? 'Costo quitado' : `Costo guardado en $${Math.round(costo).toLocaleString('es-CL')}`);
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -10284,8 +10303,8 @@ function renderStockBodega(){
       </form>
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
-        <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th><th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
   `;
 }
@@ -10818,6 +10837,10 @@ function bind(){
     document.querySelectorAll('.stock-tipo').forEach(sel=> sel.addEventListener('change', ()=> guardarTipoMaterial(sel.dataset.tipoSku, sel.value)));
     document.querySelectorAll('.stock-minimo').forEach(inp=>{
       inp.addEventListener('change', ()=> guardarStockMinimo(inp.dataset.minSku, inp.value));
+      inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
+    });
+    document.querySelectorAll('.stock-costo').forEach(inp=>{
+      inp.addEventListener('change', ()=> guardarCostoUnitario(inp.dataset.costoSku, inp.value));
       inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
     });
   }

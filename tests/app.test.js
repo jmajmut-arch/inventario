@@ -6759,6 +6759,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.guardarStockMinimo('sku-b1', '-5');
     assert(!calls.some(c=>c.opts && c.opts.method==='PATCH'), 'un mínimo negativo no se guarda');
+    // Costo unitario editable: manda la última compra (cada ingreso con costo pisa el del maestro,
+    // ver registrar_documento_bodega), pero hay casos en que esa compra no es el costo con el que
+    // se quiere valorizar -- una compra de urgencia, un flete cargado por error -- y hay que poder
+    // corregirlo a mano.
+    await ctx.cargarStockBodega();
+    const htmlStockCosto = ctx.renderStockBodega();
+    assert(htmlStockCosto.includes('data-costo-sku="sku-b1"'), 'un admin puede editar el costo desde Inventario, obtuvo: '+htmlStockCosto);
+    ctx.__appstate.perfil.rol = 'operador';
+    assert(!ctx.renderStockBodega().includes('data-costo-sku'), 'un operador ve el costo pero no lo edita');
+    ctx.__appstate.perfil.rol = 'admin';
+    calls.length = 0;
+    await ctx.guardarCostoUnitario('sku-b1', '2500');
+    const patchCosto = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/skus?id=eq.sku-b1'));
+    assert(patchCosto && JSON.parse(patchCosto.opts.body).costo_unitario===2500, 'guardar el costo hace PATCH al SKU, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const filaCosto = ctx.__appstate.bodega.stock.find(r=>r.sku_id==='sku-b1');
+    assert(filaCosto.costo_unitario===2500 && filaCosto.valor===Number(filaCosto.stock)*2500, 'al cambiar el costo se recalcula el valor de la fila, obtuvo: '+JSON.stringify(filaCosto));
+    calls.length = 0;
+    await ctx.guardarCostoUnitario('sku-b1', '');
+    assert(JSON.parse(calls.find(c=>c.opts && c.opts.method==='PATCH').opts.body).costo_unitario===null, 'dejar el costo vacío lo quita');
+    calls.length = 0;
+    await ctx.guardarCostoUnitario('sku-b1', '-1');
+    assert(!calls.some(c=>c.opts && c.opts.method==='PATCH'), 'un costo negativo no se guarda');
+
     ctx.__appstate.bodega.stockSoloBajoMinimo = true;
     calls.length = 0;
     await ctx.cargarStockBodega();
