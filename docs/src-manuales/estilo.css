@@ -47,7 +47,7 @@ h2.title{font-size:20pt;line-height:1.12;letter-spacing:-.015em;margin:0 0 6px;}
 /* 215mm dejaba la columna de la captura (imagen + pie) más alta que lo que queda de página bajo
    el título, y como cada .page se recorta a 286mm el texto de abajo desaparecía del PDF sin aviso:
    pasaba en Planificar, los dos Dashboard y Configuraciones. */
-.shot img.tall{max-height:200mm;}
+.shot img.tall{max-height:196mm;}
 .shot .cap{font-size:8.5pt;color:var(--faint);text-align:center;}
 .shot .noshot{border:1px dashed var(--line);border-radius:10px;padding:14px;font-size:8.8pt;color:var(--faint);text-align:center;background:var(--surface);}
 .checks{list-style:none;padding:0;margin:0;font-size:9.8pt;}

@@ -5096,6 +5096,7 @@ async function alternarActivoUbicacion(id, activo){
 // son 59.822 materiales y 10,2 s en una sola sentencia, sobre el límite de 8 s del servidor. Va
 // por lotes con avance visible, igual que la apertura de bodega.
 const RENOMBRAR_UBICACION_LOTE = 2000;
+const HISTORIAL_UBICACION_LIMITE = 20;
 async function renombrarUbicacionGeneral(desde, hasta){
   const d = (desde||'').trim(), h = (hasta||'').trim();
   if(!h){ toast('Indica el nombre nuevo','err'); return false; }
@@ -5821,6 +5822,25 @@ async function cargarOpcionesUbicacionModal(bodega, ubicacion){
   ]);
   if(!state.ubicacionSkuModal) return; // se cerró mientras cargaba
   setState({ubicacionSkuModal:{...state.ubicacionSkuModal, especificas, bins, cargandoOpciones:false}});
+}
+
+// Ubicaciones anteriores del material. Las escribe un trigger a nivel de sentencia sobre skus
+// (historial_ubicacion_skus), así que quedan registradas venga el cambio de donde venga: de esta
+// misma ventana, de un renombrado de bodega en lotes de 2.000 o de una carga masiva por Excel. La
+// auditoría general no servía para esto: guarda el antes y el después solo cuando la sentencia
+// toca 50 filas o menos, y sobre eso deja únicamente {filas_afectadas: N}.
+async function cargarHistorialUbicacionSku(skuId){
+  setState({ubicacionSkuModal:{...state.ubicacionSkuModal, historialCargando:true, historialError:null}});
+  try{
+    const filas = await rest(`/ubicaciones_historial?sku_id=eq.${encodeURIComponent(skuId)}&select=bodega_anterior,ubicacion_anterior,bin_anterior,bodega_nueva,ubicacion_nueva,bin_nueva,usuario_nombre,creado_en&order=creado_en.desc&limit=${HISTORIAL_UBICACION_LIMITE}`);
+    if(!state.ubicacionSkuModal || state.ubicacionSkuModal.id!==skuId) return; // se cerró o se cambió de material
+    setState({ubicacionSkuModal:{...state.ubicacionSkuModal, historial:filas||[], historialCargando:false}});
+  }catch(e){
+    if(!state.ubicacionSkuModal || state.ubicacionSkuModal.id!==skuId) return;
+    // Un error del servidor se muestra como error: si se dibujara "sin movimientos", el usuario
+    // creería que el material nunca se movió.
+    setState({ubicacionSkuModal:{...state.ubicacionSkuModal, historialCargando:false, historialError:e.message}});
+  }
 }
 
 // Lista de valores para un <select>: lo que ya existe, más lo que tenga el material hoy (para no
@@ -7471,7 +7491,27 @@ function renderUbicacionSkuModal(){
           <button type="button" class="btn btn-secondary" id="ubicacion-sku-cancelar" style="width:auto">Cancelar</button>
         </div>
       </form>
+      ${renderHistorialUbicacionSku(m)}
     </div>
+  </div>`;
+}
+
+// Dónde estuvo antes este material. Se muestra siempre que exista: un material que aparece en un
+// sitio que nadie recuerda haber cambiado es una de las preguntas caras en bodega.
+function renderHistorialUbicacionSku(m){
+  if(m.historialCargando) return '<div class="hint" style="margin-top:14px">Cargando ubicaciones anteriores…</div>';
+  if(m.historialError) return `<div class="hint" style="margin-top:14px;color:var(--danger)">No se pudo leer el historial de ubicaciones: ${esc(m.historialError)}</div>`;
+  if(!(m.historial||[]).length) return '<div class="hint" style="margin-top:14px">Este material no se ha movido de sitio desde que se registra el historial.</div>';
+  return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
+    <span class="eyebrow">Ubicaciones anteriores</span>
+    <div class="table-wrap" style="margin-top:6px"><table>
+      <thead><tr><th>Cuándo</th><th>De</th><th>A</th></tr></thead>
+      <tbody>${m.historial.map(h=>`<tr>
+        <td style="white-space:nowrap;font-size:11.5px">${fmtFechaHora(h.creado_en)}${h.usuario_nombre?`<div style="color:var(--text-faint)">${esc(h.usuario_nombre)}</div>`:''}</td>
+        <td style="font-size:12px">${esc(describirUbicacion({bodega:h.bodega_anterior, ubicacion:h.ubicacion_anterior, storage_bin:h.bin_anterior}))}</td>
+        <td style="font-size:12px">${esc(describirUbicacion({bodega:h.bodega_nueva, ubicacion:h.ubicacion_nueva, storage_bin:h.bin_nueva}))}</td>
+      </tr>`).join('')}</tbody></table></div>
+    ${m.historial.length>=HISTORIAL_UBICACION_LIMITE?`<div class="hint" style="margin-top:6px">Se muestran los ${HISTORIAL_UBICACION_LIMITE} movimientos más recientes.</div>`:''}
   </div>`;
 }
 
@@ -11752,8 +11792,10 @@ function bind(){
           bodegaOriginal: sku.bodega||null, ubicacionOriginal: sku.ubicacion||null, binOriginal: sku.storage_bin||null,
           guardando:false, especificas:[], bins:[], cargandoOpciones:false,
           nuevaBodega:false, nuevaUbicacion:false, nuevoBin:false,
+          historial:[], historialCargando:true, historialError:null,
         }});
         if(sku.bodega) cargarOpcionesUbicacionModal(sku.bodega, sku.ubicacion||'');
+        cargarHistorialUbicacionSku(sku.id);
       });
     });
 

@@ -1037,6 +1037,19 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:null, ubicacion:null, storage_bin:null, batch:'NEW'},
     ]) };
   }
+  // Historial de ubicaciones de un material (lo escribe el trigger historial_ubicacion_skus).
+  if(path.startsWith('/rest/v1/ubicaciones_historial')){
+    if(path.includes('sku_id=eq.sku-roto')){
+      return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
+    }
+    if(path.includes('sku_id=eq.sku-quieto')){
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]' };
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {bodega_anterior:'B501', ubicacion_anterior:'0102', bin_anterior:'N1E-P5-I09', bodega_nueva:'B521', ubicacion_nueva:'0300', bin_nueva:'A-01-02', usuario_nombre:'Joel Majmut', creado_en:'2026-09-09T14:20:00Z'},
+      {bodega_anterior:null, ubicacion_anterior:null, bin_anterior:null, bodega_nueva:'B501', ubicacion_nueva:'0102', bin_nueva:'N1E-P5-I09', usuario_nombre:null, creado_en:'2026-08-01T09:00:00Z'},
+    ]) };
+  }
   // Catálogo de ubicaciones (tabla ubicaciones): la lista de sitios de la empresa, que ahora
   // existe aparte de lo que digan los materiales.
   if(path.startsWith('/rest/v1/ubicaciones?select=')){
@@ -4700,6 +4713,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const avisoOcupado = JSON.stringify(elements['toast-root'].hijos);
   assert(avisoOcupado.includes('Ya existe SKU-MOVER en ese sitio') && !avisoOcupado.includes('duplicate key'), 'el choque se explica en castellano, no con el error de Postgres, obtuvo: '+avisoOcupado);
   assert(ctx.__appstate.ubicacionSkuModal && ctx.__appstate.ubicacionSkuModal.guardando===false, 'tras el choque el modal sigue abierto y se puede reintentar');
+  ctx.__appstate.ubicacionSkuModal = null;
+
+  // Las ubicaciones históricas quedan registradas y se ven en la misma ventana: un material que
+  // aparece en un sitio que nadie recuerda haber cambiado es una pregunta cara en bodega.
+  abrirModalMover();
+  await ctx.cargarHistorialUbicacionSku('sku-mover');
+  const conHistorial = ctx.renderUbicacionSkuModal();
+  assert(conHistorial.includes('Ubicaciones anteriores'), 'el modal muestra las ubicaciones anteriores, obtuvo: '+conHistorial);
+  assert(conHistorial.includes('B501 · 0102 · N1E-P5-I09') && conHistorial.includes('B521 · 0300 · A-01-02'), 'cada renglón dice de dónde salió y a dónde fue, obtuvo: '+conHistorial);
+  assert(conHistorial.includes('sin ubicación'), 'un material que antes no tenía sitio se muestra como "sin ubicación", obtuvo: '+conHistorial);
+  assert(conHistorial.includes('Joel Majmut'), 'se ve quién lo movió, obtuvo: '+conHistorial);
+
+  // Sin movimientos se dice así, no se deja el espacio en blanco.
+  ctx.__appstate.ubicacionSkuModal = {...ctx.__appstate.ubicacionSkuModal, id:'sku-quieto'};
+  await ctx.cargarHistorialUbicacionSku('sku-quieto');
+  assert(ctx.renderUbicacionSkuModal().includes('no se ha movido de sitio'), 'sin movimientos se dice explícitamente');
+
+  // Un error del servidor se muestra como error. Si se dibujara "no se ha movido", un fallo de la
+  // base sería indistinguible de un material que nunca cambió de sitio.
+  ctx.__appstate.ubicacionSkuModal = {...ctx.__appstate.ubicacionSkuModal, id:'sku-roto'};
+  await ctx.cargarHistorialUbicacionSku('sku-roto');
+  const historialRoto = ctx.renderUbicacionSkuModal();
+  assert(historialRoto.includes('No se pudo leer el historial') && !historialRoto.includes('no se ha movido de sitio'), 'un fallo del servidor se muestra como error, no como historial vacío, obtuvo: '+historialRoto);
   ctx.__appstate.ubicacionSkuModal = null;
 
   // renderTablaSkus: en vez de pintar el fondo de toda la fila, muestra un ícono de color junto
