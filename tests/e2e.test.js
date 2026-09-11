@@ -385,6 +385,17 @@ async function loguear(page, perfil){
     await page.waitForSelector('.bd-costo', { timeout:ESPERA });
     const lineas = await page.$$eval('.bd-costo', els => els.length);
     assert(lineas===1, 'la línea pendiente se carga sola en el Ingreso, obtuvo: '+lineas);
+    // El tile "Orden de compra" del Inicio entra derecho al formulario, sin pasar por la lista.
+    // Se prueba acá porque el riesgo real es el cableado: un listener registrado en el bloque de
+    // bind equivocado no se nota en los unit tests (ya pasó con el botón Transferir de Stock).
+    await page.click('[data-tab="inicio"]');
+    await page.waitForSelector('[data-nueva-orden]', { timeout:ESPERA });
+    const tiles = await page.$$eval('.inicio-tile', els => els.map(e => (e.querySelector('span span')||{}).textContent));
+    assert(tiles[0] === 'Orden de compra', `el tile de orden de compra debe ir primero, obtuvo: ${JSON.stringify(tiles)}`);
+    await page.click('[data-nueva-orden]');
+    await page.waitForSelector('#oc-proveedor', { timeout:ESPERA });
+    assert(await page.isVisible('#oc-buscar-sku'), 'el tile del Inicio debe abrir el formulario de orden nueva, no la lista');
+
     // Y el formulario de una orden nueva responde a los clicks reales.
     await page.click('[data-tab="inicio"]');
     await page.click('[data-ir-vista="ordenes"]');

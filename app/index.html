@@ -7775,6 +7775,7 @@ const ICONS = {
   candado:'<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
   alerta:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
   ciclos:'<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h13l-3 4 3 4H5"/></svg>',
+  ordenCompra:'<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>',
   info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>',
   // Flecha entre dos pines: mover un material de un sitio a otro.
   mover: '<svg viewBox="0 0 24 24"><path d="M6 21c-2 0-3-1-3-2.5S4 16 6 16h12c2 0 3 1 3 2.5S20 21 18 21z"/><path d="M9 12h6"/><path d="M13 9l3 3-3 3"/><path d="M8 3v6"/><path d="M16 3v6"/></svg>',
@@ -11403,8 +11404,11 @@ function renderConfiguraciones(){
 function renderInicio(){
   const esAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
   const pendientes = (state.bodega.pendientes||[]).length;
-  const tile = (vista, titulo, texto, icono, extra='') => `
-    <button type="button" class="card inicio-tile" data-ir-vista="${vista}" style="text-align:left;cursor:pointer;display:flex;gap:14px;align-items:center;width:100%;border:1px solid var(--line);padding:18px">
+  // Recibe los atributos completos y no solo la vista: el tile de orden de compra no puede usar
+  // data-ir-vista, porque ese handler entra a Órdenes reseteando el formulario a null -- que es lo
+  // correcto al entrar desde el menú, pero justo lo contrario de lo que este tile quiere.
+  const tile = (attrs, titulo, texto, icono, extra='') => `
+    <button type="button" class="card inicio-tile" ${attrs} style="text-align:left;cursor:pointer;display:flex;gap:14px;align-items:center;width:100%;border:1px solid var(--line);padding:18px">
       <span style="flex:none;width:44px;height:44px;border-radius:12px;background:var(--amber-soft, rgba(224,178,60,.15));display:flex;align-items:center;justify-content:center">${(ICONS[icono]||'').replace('<svg','<svg style="width:24px;height:24px;stroke:var(--amber);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</span>
       <span style="flex:1"><span style="display:block;font-size:17px;font-weight:700">${titulo}</span><span class="hint" style="margin:2px 0 0">${texto}</span></span>
       ${extra}
@@ -11412,10 +11416,11 @@ function renderInicio(){
   return `
     <div class="section-head"><div><span class="eyebrow">${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '')}</span><h2>¿Qué vas a hacer?</h2></div></div>
     <div style="display:grid;gap:12px">
-      ${tile('ingreso','Ingreso','Recibir material con guía, OC y fotos','ingreso')}
-      ${tile('salida','Salida','Entregar material: quién retira y para qué','salida')}
-      ${tile('conteo','Inventario','Planificar, contar y recontar','conteo')}
-      ${esAdmin ? tile('dashboard','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
+      ${esAdmin && funcionBodegaActiva('ordenes_compra') ? tile('data-nueva-orden="1"','Orden de compra','Pedir material a un proveedor','ordenCompra') : ''}
+      ${tile('data-ir-vista="ingreso"','Ingreso','Recibir material con guía, OC y fotos','ingreso')}
+      ${tile('data-ir-vista="salida"','Salida','Entregar material: quién retira y para qué','salida')}
+      ${tile('data-ir-vista="conteo"','Inventario','Planificar, contar y recontar','conteo')}
+      ${esAdmin ? tile('data-ir-vista="dashboard"','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
       ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('ordenes_compra') ? `<button type="button" class="btn btn-secondary" data-ir-vista="ordenes" style="width:auto;padding:8px 14px">Órdenes de compra</button>` : ''}${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Mover material</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
     </div>
   `;
@@ -12664,6 +12669,19 @@ function bind(){
       if(vista==='ordenes') patch.ordenes = {...state.ordenes, form:null, detalle:null};
       if(vista==='reservas') patch.reservas = {...state.reservas, form:null, detalle:null};
       setState(patch);
+    });
+  });
+  // Tile "Orden de compra" del Inicio de bodega: entra a Órdenes con el formulario nuevo ya
+  // abierto, en vez de dejar a la persona en la lista teniendo que buscar el botón. Tiene su
+  // propio atributo y no data-ir-vista justamente porque aquel resetea el formulario al entrar.
+  document.querySelectorAll('[data-nueva-orden]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!esAdminActual()){ toast('Solo un administrador puede emitir órdenes de compra','err'); return; }
+      if(!funcionBodegaActiva('ordenes_compra')){ toast('Las órdenes de compra no están activadas para esta empresa','err'); return; }
+      detenerEscaner();
+      // La vista se fija antes: abrirNuevaOrdenCompra() hace el setState que dispara el render.
+      state.view = 'ordenes';
+      abrirNuevaOrdenCompra();
     });
   });
   const btnIrInicio = document.getElementById('btn-ir-inicio');

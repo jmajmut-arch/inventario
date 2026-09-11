@@ -6964,6 +6964,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const htmlInicio = ctx.renderInicio();
     ['ingreso','salida','conteo','dashboard'].forEach(v=> assert(htmlInicio.includes(`data-ir-vista="${v}"`), 'el Inicio debe ofrecer '+v+', obtuvo: '+htmlInicio));
     assert(htmlInicio.includes('1 pendiente'), 'el admin ve los pendientes de aprobación en el Inicio, obtuvo: '+htmlInicio);
+    // Tile "Orden de compra" (pedido de Joel): va PRIMERO, antes de Ingreso, con el mismo formato
+    // de tarjeta que los demás, y entra al formulario de orden nueva ya abierto.
+    const posOc = htmlInicio.indexOf('data-nueva-orden');
+    const posIngreso = htmlInicio.indexOf('data-ir-vista="ingreso"');
+    assert(posOc !== -1, 'el Inicio de bodega debe ofrecer crear una orden de compra, obtuvo: '+htmlInicio);
+    assert(posOc < posIngreso, 'el tile de orden de compra va antes que Ingreso');
+    assert(/data-nueva-orden="1"[^>]*class=|class="card inicio-tile" data-nueva-orden="1"/.test(htmlInicio), 'debe usar el mismo formato de tarjeta que los otros tiles, obtuvo: '+htmlInicio.slice(posOc-120, posOc+120));
+    // A propósito NO usa data-ir-vista: ese handler entra a Órdenes reseteando el formulario a
+    // null, que es lo correcto desde el menú pero deja este tile sin efecto.
+    const tileOc = htmlInicio.slice(htmlInicio.lastIndexOf('<button', posOc), htmlInicio.indexOf('</button>', posOc));
+    assert(!tileOc.includes('data-ir-vista'), 'el tile de orden de compra no debe navegar por data-ir-vista, o el formulario se resetea al entrar');
+
+    // Se apaga con el interruptor de la función y no lo ve un operador.
+    ctx.__appstate.perfil.empresas.bodega_funciones = {ordenes_compra:false};
+    assert(!ctx.renderInicio().includes('data-nueva-orden'), 'con órdenes de compra apagadas no debe estar el tile');
+    ctx.__appstate.perfil.empresas.bodega_funciones = null;
+    ctx.__appstate.perfil.rol = 'operador';
+    assert(!ctx.renderInicio().includes('data-nueva-orden'), 'un operador no puede emitir órdenes, no debe ver el tile');
+    ctx.__appstate.perfil.rol = 'admin';
+
     ctx.__appstate.perfil.rol = 'operador';
     assert(!ctx.renderInicio().includes('data-ir-vista="dashboard"'), 'un operador no ve Dashboard en el Inicio');
     ctx.__appstate.perfil.rol = 'admin';
