@@ -361,8 +361,13 @@ async function loguear(page, perfil){
     await page.fill('#f-pass', '123456');
     await page.click('#auth-form button[type="submit"]');
     await page.waitForSelector('.tabbar', { timeout:ESPERA });
-    // Se entra desde el Inicio de bodega, no desde la barra de pestañas (ya lleva cinco).
-    await page.click('[data-ir-vista="ordenes"]');
+    // Se entra desde el Inicio de bodega, no desde la barra de pestañas (ya lleva cinco). El tile
+    // abre el formulario en blanco, así que a la lista se llega por "Ver órdenes emitidas" -- que
+    // existe justamente porque se quitó el botón chico de abajo y, sin él, habría que cancelar un
+    // formulario que uno no quería abrir.
+    await page.click('[data-nueva-orden]');
+    await page.waitForSelector('#oc-ver-lista', { timeout:ESPERA });
+    await page.click('#oc-ver-lista');
     await page.waitForSelector('[data-oc-ver="oc-1"]', { timeout:ESPERA });
     await page.click('[data-oc-ver="oc-1"]');
     await page.waitForSelector('[data-oc-imprimir="oc-1"]', { timeout:ESPERA });
@@ -396,9 +401,8 @@ async function loguear(page, perfil){
     await page.waitForSelector('#oc-proveedor', { timeout:ESPERA });
     assert(await page.isVisible('#oc-buscar-sku'), 'el tile del Inicio debe abrir el formulario de orden nueva, no la lista');
 
-    // Y el formulario de una orden nueva responde a los clicks reales.
-    await page.click('[data-tab="inicio"]');
-    await page.click('[data-ir-vista="ordenes"]');
+    // Y el botón "Nueva orden" de la propia lista también responde a los clicks reales.
+    await page.click('#oc-ver-lista');
     await page.waitForSelector('#btn-nueva-orden', { timeout:ESPERA });
     await page.click('#btn-nueva-orden');
     await page.waitForSelector('#oc-proveedor', { timeout:ESPERA });
@@ -463,6 +467,36 @@ async function loguear(page, perfil){
     }));
     assert(trasBuscar.activo === 'bd-obs', `el resultado de la búsqueda no debe robarle el foco al campo que se está escribiendo, quedó en: ${trasBuscar.activo}`);
     assert(trasBuscar.obs === 'Carga de prueba', `lo escrito en Observación no se puede perder al llegar el resultado, obtuvo: "${trasBuscar.obs}"`);
+
+    // El caso que se escapó del primer arreglo: NO es el buscador el que bota el foco, es render().
+    // Cualquier setState que caiga encima sirve. Joel lo pilló escribiendo el SKU en una orden de
+    // compra, donde el culpable era cargarOrdenesCompra() terminando. Se simula con la lista
+    // llegando tarde, que es lo que pasa con una conexión de terreno.
+    await page.route('**/rest/v1/ordenes_compra_lista**', async route => {
+      await new Promise(r => setTimeout(r, 1500));
+      return route.fulfill({ status:200, contentType:'application/json', body:'[]' });
+    });
+    await page.click('[data-tab="inicio"]');
+    await page.waitForSelector('[data-nueva-orden]', { timeout:ESPERA });
+    await page.click('[data-nueva-orden]');
+    await page.waitForSelector('#oc-buscar-sku', { timeout:ESPERA });
+    await page.click('#oc-buscar-sku');
+    let perdioConCargaLenta = 0;
+    for(const ch of '10371892'){
+      await page.keyboard.type(ch);
+      await page.waitForTimeout(220);
+      const activo = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      if(activo !== 'oc-buscar-sku') perdioConCargaLenta++;
+    }
+    assert(perdioConCargaLenta === 0, `una carga de datos que termina mientras se escribe no puede botar el foco, lo botó ${perdioConCargaLenta} de 8 veces`);
+    // Se lee tras asentar: leer justo después de la tecla puede pillar el DOM a medio repintar.
+    await page.waitForTimeout(1200);
+    const codigoOc = await page.inputValue('#oc-buscar-sku');
+    assert(codigoOc === '10371892', `tampoco puede perder lo tecleado, obtuvo: "${codigoOc}"`);
+    await page.unroute('**/rest/v1/ordenes_compra_lista**');
+    await page.click('[data-tab="inicio"]');
+    await page.click('[data-ir-vista="ingreso"]');
+    await page.waitForSelector('#bd-sku', { timeout:ESPERA });
 
     // Y el cursor vuelve donde estaba, no al final: si no, escribir en medio de un código es un suplicio.
     await page.evaluate(() => { const el = document.getElementById('bd-sku'); el.value = 'FILTRO'; el.dispatchEvent(new Event('input', {bubbles:true})); });

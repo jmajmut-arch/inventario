@@ -5431,7 +5431,7 @@ async function buscarSkuBodega(texto){
   // ahí, y sus formularios ya escriben a estado en cada tecla).
   capturarCamposDocumentoBodega();
   state.bodega.busqueda = {texto, resultados: t.length>=2 ? state.bodega.busqueda.resultados : [], buscando: t.length>=2, error:null};
-  renderConservandoFoco();
+  render();
   if(t.length<2) return;
   try{
     const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
@@ -5440,14 +5440,14 @@ async function buscarSkuBodega(texto){
     // persona pudo seguir escribiendo, y reponer el valor viejo le borraría esas teclas.
     capturarCamposDocumentoBodega();
     state.bodega.busqueda = {texto: state.bodega.busqueda.texto, resultados: rows, buscando:false, error:null};
-    renderConservandoFoco();
+    render();
   }catch(e){
     // Antes se tragaba el error y la pantalla decía "Sin resultados": un fallo del servidor
     // (por ejemplo una columna que la vista no expone) parecía que el material no existía.
     if(seq!==bodegaBusquedaSecuencia) return;
     capturarCamposDocumentoBodega();
     state.bodega.busqueda = {texto: state.bodega.busqueda.texto, resultados: [], buscando:false, error: pareceFalloDeRed(e) ? 'Sin conexión: no se pudo buscar.' : e.message};
-    renderConservandoFoco();
+    render();
   }
 }
 
@@ -11421,7 +11421,7 @@ function renderInicio(){
       ${tile('data-ir-vista="salida"','Salida','Entregar material: quién retira y para qué','salida')}
       ${tile('data-ir-vista="conteo"','Inventario','Planificar, contar y recontar','conteo')}
       ${esAdmin ? tile('data-ir-vista="dashboard"','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
-      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('ordenes_compra') ? `<button type="button" class="btn btn-secondary" data-ir-vista="ordenes" style="width:auto;padding:8px 14px">Órdenes de compra</button>` : ''}${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Mover material</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
+      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Mover material</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
     </div>
   `;
 }
@@ -11695,6 +11695,7 @@ function renderOrdenCompraForm(){
       <div style="margin-top:12px;display:flex;gap:8px">
         <button type="button" class="btn btn-primary" id="oc-guardar" ${f.guardando?'disabled':''}>${f.guardando?'<span class="spinner"></span> Guardando…':(f.id?'Guardar cambios':'Crear orden')}</button>
         <button type="button" class="btn btn-secondary" id="oc-cancelar" style="width:auto">Cancelar</button>
+        ${f.id ? '' : `<button type="button" class="btn btn-secondary" id="oc-ver-lista" style="width:auto">Ver órdenes emitidas</button>`}
       </div>
       <div class="hint" style="margin-top:8px">La orden queda en borrador: se puede seguir editando hasta que la marques como enviada al proveedor.</div>
     </div>`;
@@ -12396,28 +12397,35 @@ function tabBtn(view,label){
 /* =======================================================================
    RENDER PRINCIPAL + BINDINGS
    ======================================================================= */
-// render() reconstruye todo el DOM, así que cualquier re-render mientras alguien escribe le quita
-// el foco y el cursor. En bodega pasaba de verdad: el buscador de material renderiza al empezar a
-// buscar y otra vez al llegar los resultados, y eso botaba el foco del campo que se estuviera
-// escribiendo -- el propio buscador, pero también Observación, Nº de guía o el costo de una línea,
-// si el resultado llegaba en ese momento. Medido en navegador: al teclear "BOD-001" en Ingreso,
-// Reservas u Órdenes quedaba escrito solo "B".
-// Esto recuerda qué campo estaba enfocado y en qué posición, y lo restituye después de render().
-// Solo devuelve el foco al MISMO elemento que ya lo tenía: nunca se lo roba a otro campo.
-function renderConservandoFoco(){
+// render() reconstruye todo el DOM, así que CUALQUIER re-render mientras alguien escribe le quita
+// el foco y el cursor. Pasó de verdad en bodega: al teclear "BOD-001" quedaba escrito solo "B".
+//
+// El primer arreglo solo protegió buscarSkuBodega, y quedó corto: lo que bota el foco no es esa
+// función sino render(), así que servía cualquier otro setState que cayera encima. Joel lo pilló
+// escribiendo el SKU en una orden de compra -- ahí el culpable era cargarOrdenesCompra()
+// terminando. Reproducido con la lista llegando a los 1,5 s: a la séptima tecla el foco se iba y
+// la octava se perdía. Por eso ahora vive acá, en un solo lugar, y no en cada caso.
+//
+// Dos cuidados:
+//  * solo se le repone el foco al MISMO elemento que ya lo tenía, nunca se le roba a otro;
+//  * si durante el render algo tomó el foco a propósito (un modal, un buscador que se autoenfoca
+//    en bind()), se respeta: solo se repone cuando el foco quedó en la nada.
+function render(){
   const antes = document.activeElement;
-  const id = antes && antes.id ? antes.id : null;
-  let pos = null;
-  if(id){ try{ pos = antes.selectionStart; }catch(e){ /* el campo no admite selección (select, etc.) */ } }
-  render();
-  if(!id) return;
-  const el = document.getElementById(id);
-  if(!el || document.activeElement === el) return;
+  const idEnfocado = antes && antes.id ? antes.id : null;
+  let posCursor = null;
+  if(idEnfocado){ try{ posCursor = antes.selectionStart; }catch(e){ /* el campo no admite selección */ } }
+  renderDom();
+  if(!idEnfocado) return;
+  const activoAhora = document.activeElement;
+  if(activoAhora && activoAhora !== document.body) return; // alguien lo tomó a propósito
+  const el = document.getElementById(idEnfocado);
+  if(!el) return;                                          // el campo ya no existe: nada que reponer
   el.focus();
-  if(pos !== null && el.setSelectionRange){ try{ el.setSelectionRange(pos, pos); }catch(e){ /* idem */ } }
+  if(posCursor !== null && el.setSelectionRange){ try{ el.setSelectionRange(posCursor, posCursor); }catch(e){ /* idem */ } }
 }
 
-function render(){
+function renderDom(){
   document.documentElement.setAttribute('data-tema', state.tema);
   if(state.session && state.perfil && state.view !== vistaAseguradaAnterior){
     vistaAseguradaAnterior = state.view;
@@ -12796,6 +12804,10 @@ function bind(){
       enLinea('cantidad','cantidad'); enLinea('costo','costo_unitario');
       document.getElementById('oc-guardar').addEventListener('click', guardarOrdenCompra);
       document.getElementById('oc-cancelar').addEventListener('click', ()=> setState({ordenes:{...state.ordenes, form:null}}));
+      // El tile del Inicio entra derecho al formulario, así que sin esto la única forma de llegar a
+      // la lista de órdenes emitidas sería cancelar un formulario que no se quería abrir.
+      const verLista = document.getElementById('oc-ver-lista');
+      if(verLista) verLista.addEventListener('click', ()=> setState({ordenes:{...state.ordenes, form:null}}));
     }else if(o.detalle){
       const volver = document.getElementById('oc-volver');
       if(volver) volver.addEventListener('click', ()=> setState({ordenes:{...state.ordenes, detalle:null}}));

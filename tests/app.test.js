@@ -7421,10 +7421,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.cargarStockBodega();
     assert(!ctx.renderStockBodega().includes('data-transferir-sku'), 'con traslados apagados no se ofrece transferir');
     ctx.__appstate.perfil.empresas.bodega_funciones = {ordenes_compra:false};
-    assert(!ctx.renderInicio().includes('data-ir-vista="ordenes"'), 'con órdenes de compra apagadas no está el acceso en el Inicio');
+    // El acceso a órdenes es ahora el tile "Orden de compra" (data-nueva-orden): el botón chico de
+    // abajo se quitó por redundante cuando el tile pasó al Inicio.
+    assert(!ctx.renderInicio().includes('data-nueva-orden'), 'con órdenes de compra apagadas no está el acceso en el Inicio');
     assert(ctx.renderOrdenesCompra().includes('no están activadas'), 'con la función apagada, la vista de órdenes lo explica en vez de quedar vacía');
     ctx.__appstate.perfil.empresas.bodega_funciones = {};
-    assert(ctx.renderInicio().includes('data-ir-vista="ordenes"') && ctx.renderMovimientosBodega().includes('data-devolver-doc'), 'al reactivarlas, los accesos vuelven');
+    assert(ctx.renderInicio().includes('data-nueva-orden') && ctx.renderMovimientosBodega().includes('data-devolver-doc'), 'al reactivarlas, los accesos vuelven');
 
     // Súper admin: un interruptor por función, y solo para empresas con el módulo activo.
     ctx.__appstate.perfil.es_super_admin = true;
