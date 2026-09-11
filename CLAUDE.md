@@ -32,6 +32,13 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   `tipo_material` a `skus_lectura`, que no lo exponía, y un material existente aparecía como
   inexistente. Por eso existe `tests/esquema.test.js`; **tras cada migración que agregue o quite
   columnas hay que actualizar `tests/esquema-supabase.json`**.
+- **El rol que manda es `authenticator`, no `authenticated`.** PostgREST se conecta como
+  `authenticator` (confirmado en `pg_stat_activity`: `application_name = 'PostgREST 14.5'`) y recién
+  ahí hace `SET ROLE authenticated` por request. Postgres carga el `rolconfig` **al conectarse**, y
+  un `SET ROLE` posterior **no** recarga el del rol destino: comprobado, después de
+  `set role authenticated` el `work_mem` sigue siendo el de la sesión (5MB) y no los 16MB puestos en
+  ese rol. Todo lo que se configure en `authenticated` o en `anon` es decorativo. Ya pasó: subir el
+  `statement_timeout` de `authenticated` no arregló nada y hubo que rehacerlo sobre `authenticator`.
 - **Un `set` de parámetro dentro del cuerpo de una función no se valida al crearla.** Postgres sí
   rechaza el valor malo en `alter role`, en `alter database` y en la cláusula `SET` de una función,
   pero dentro del cuerpo es texto que recién interpreta al ejecutarlo: la función se crea sin
@@ -49,7 +56,7 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   junten varias en una función, verificar que el JSON nuevo sea idéntico al que armaban las
   consultas originales, con datos reales, antes de tocar la app.
 - **Medir con datos reales, no con la demo.** Escondida tiene más de 63.000 materiales; lo que
-  funciona con 9 filas puede superar el `statement_timeout` de 8 s del rol `authenticated`. Toda
+  funciona con 9 filas puede superar el `statement_timeout` de 20 s del rol `authenticator`. Toda
   operación masiva va por lotes, con avance visible. Medir con `EXPLAIN (ANALYZE)` o cronometrando
   dentro de una transacción que se revierte.
 - **RLS siempre**: cada empresa ve solo lo suyo. Las vistas nuevas llevan `security_invoker=true`;
