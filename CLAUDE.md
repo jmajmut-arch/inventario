@@ -71,6 +71,18 @@ Un error del servidor debe verse como un error, con su mensaje. Nunca disfrazarl
 ni tragárselo en un `catch` silencioso: eso convierte un problema visible en uno que el usuario
 interpreta mal y sobre el que actúa equivocado.
 
+## Escribir en un campo mientras la pantalla se repinta
+
+`render()` rehace el DOM entero. Conservar el foco no basta: si el `<input>` se **reemplaza**, iOS
+enfoca un elemento nuevo y **reinicia el teclado a la disposición de letras**. Tecleando un código
+como 10371892 eso obliga a apretar "123" en cada dígito. Pasó de verdad en Crear orden de compra:
+medido, al teclear 8 caracteres el input se reemplazaba las 8 veces.
+
+Por eso un buscador que se dispara mientras se escribe **no llama a `render()`**: repinta solo su
+contenedor de resultados y vuelve a atar sus botones
+(`actualizarResultadosBuscadorLibreEnPantalla` en Inventario, `actualizarResultadosSkuBodega` en
+Bodega). Lo que la persona haya tecleado en otros campos se guarda al estado antes de repintar.
+
 ## Datos y ambientes
 
 - **Escondida** (63.000 materiales) es uso real: es donde trabaja Joel y la usan todos los días,

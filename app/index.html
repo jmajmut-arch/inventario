@@ -5421,6 +5421,80 @@ async function cargarStockBodega(){
 // Buscador de SKU para una línea de ingreso o salida: mismo criterio parcial que Contar, en el
 // servidor. Trae el stock actual para validar la salida antes de mandarla.
 let bodegaBusquedaSecuencia = 0;
+// Resultados del buscador de material de bodega. Viven en su propio contenedor y se repintan
+// SOLOS, sin pasar por render(), por una razón concreta de terreno: render() rehace todo el DOM y
+// reemplaza el <input>, y en iPad cada reemplazo hace que iOS reinicie el teclado a la disposición
+// de letras. Tecleando un código como 10371892 eso significa volver a apretar "123" en cada tecla.
+// Medido: al teclear 8 caracteres el input se reemplazaba las 8 veces. Es el mismo patrón que ya
+// usa el buscador de Inventario (actualizarResultadosBuscadorLibreEnPantalla).
+// Las tres vistas comparten state.bodega.busqueda y solo una está en pantalla a la vez, así que
+// comparten también el id del contenedor y esta función elige qué dibujar.
+// `esIngresoExplicito` lo pasa renderDocumentoBodega: ahí el tipo lo manda el argumento de esa
+// función, no la vista. El repintado dirigido no lo tiene y lo deduce del estado.
+function resultadosSkuBodegaHTML(esIngresoExplicito){
+  const b = state.bodega; const q = b.busqueda;
+  const esDocumento = esIngresoExplicito !== undefined;
+  if(!esDocumento && state.ordenes.form) return `${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
+      ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
+      ${q.resultados.length ? `<div style="margin-top:8px">${q.resultados.map(r=>`
+        <div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px"><div class="mono" style="font-size:12px">${esc(r.sku_code)}</div><div class="hint" style="margin:2px 0 0">${esc(r.descripcion||'')}</div></div>
+          <button type="button" class="btn btn-secondary" data-oc-agregar='${esc(JSON.stringify({id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, unidad_medida:r.unidad_medida, costo_unitario:r.costo_unitario}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Agregar</button>
+        </div>`).join('')}</div>` : ''}`;
+  if(!esDocumento && state.reservas.form) return `${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
+      ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
+      ${q.resultados.length ? `<div style="margin-top:8px">${q.resultados.map(x=>`
+        <div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px"><div class="mono" style="font-size:12px">${esc(x.sku_code)}</div><div class="hint" style="margin:2px 0 0">${esc(x.descripcion||'')} · stock ${x.stock_sistema==null?'—':x.stock_sistema}</div></div>
+          <button type="button" class="btn btn-secondary" data-res-agregar='${esc(JSON.stringify({id:x.id, sku_code:x.sku_code, descripcion:x.descripcion, unidad_medida:x.unidad_medida, stock_sistema:x.stock_sistema}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Apartar</button>
+        </div>`).join('')}</div>` : ''}`;
+  const esIngreso = esDocumento ? esIngresoExplicito : state.view === 'ingreso';
+  return `${q.buscando ? `<div class="hint">Buscando…</div>` : ''}
+      ${q.error ? `<div class="hint" style="color:var(--danger)">No se pudo buscar: ${esc(q.error)}</div>` : ''}
+      ${q.resultados.length ? `<div class="sku-picks" style="margin-top:6px">${q.resultados.map(s=>`
+        <div class="sku-pick" style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
+          <div style="flex:1;min-width:0"><div class="mono">${esc(s.sku_code)}${s.batch?` <span class="hint" style="display:inline">· ${esc(s.batch)}</span>`:''}</div><div class="hint" style="margin:0">${esc(s.descripcion||'')}${s.storage_bin?` · ${esc(s.storage_bin)}`:''} · stock ${s.stock_sistema==null?'—':s.stock_sistema}</div></div>
+          <input type="number" class="bd-cantidad" data-sku-id="${esc(s.id)}" min="0" step="any" placeholder="Cant." style="width:84px;margin:0">
+          <button type="button" class="btn btn-primary bd-agregar" data-sku-id="${esc(s.id)}" style="width:auto;padding:6px 10px">Agregar</button>
+        </div>`).join('')}</div>` : (q.texto.length>=2 && !q.buscando && !q.error ? `<div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Sin resultados.${esIngreso && !b.nuevoSku ? ` <button type="button" class="link-btn" id="btn-nuevo-sku-bodega">Crear SKU nuevo «${esc(q.texto.trim())}»</button>` : ''}</div>` : '')}`;
+}
+
+function actualizarResultadosSkuBodega(){
+  const cont = document.getElementById('sku-bodega-resultados');
+  if(!cont){ render(); return; } // no estamos en una vista con buscador: render normal
+  // Mismo criterio que el router: 'ingreso' y 'salida' dibujan un documento; el resto se deduce
+  // del formulario abierto.
+  const esDocumento = state.view === 'ingreso' || state.view === 'salida';
+  cont.innerHTML = esDocumento ? resultadosSkuBodegaHTML(state.view === 'ingreso') : resultadosSkuBodegaHTML();
+  bindResultadosSkuBodega();
+}
+
+// Los botones del contenedor se vuelven a atar después de repintarlo. Cada vista tiene los suyos y
+// solo existen los de la que está en pantalla.
+function bindResultadosSkuBodega(){
+  document.querySelectorAll('#sku-bodega-resultados [data-oc-agregar]').forEach(btn=>
+    btn.addEventListener('click', ()=> agregarLineaOrdenCompra(JSON.parse(btn.dataset.ocAgregar))));
+  document.querySelectorAll('#sku-bodega-resultados [data-res-agregar]').forEach(btn=>
+    btn.addEventListener('click', ()=> agregarLineaReserva(JSON.parse(btn.dataset.resAgregar))));
+  document.querySelectorAll('#sku-bodega-resultados .bd-agregar').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      capturarCamposDocumentoBodega();
+      const sku = state.bodega.busqueda.resultados.find(x=>x.id===btn.dataset.skuId);
+      const input = document.querySelector(`.bd-cantidad[data-sku-id="${btn.dataset.skuId}"]`);
+      agregarLineaBodega(sku, input ? input.value : '');
+    });
+  });
+  document.querySelectorAll('#sku-bodega-resultados .bd-cantidad').forEach(inp=>{
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); const btn = document.querySelector(`.bd-agregar[data-sku-id="${inp.dataset.skuId}"]`); if(btn) btn.click(); } });
+  });
+  const btnNuevo = document.getElementById('btn-nuevo-sku-bodega');
+  if(btnNuevo) btnNuevo.addEventListener('click', ()=>{
+    capturarCamposDocumentoBodega();
+    state.bodega.nuevoSku = {sku_code: state.bodega.busqueda.texto.trim().toUpperCase(), descripcion:'', unidad_medida:'UN', bodega:'', storage_bin:'', tipo_material:'', guardando:false};
+    render();
+  });
+}
+
 async function buscarSkuBodega(texto){
   const t = sanearTextoFiltro(texto);
   const seq = ++bodegaBusquedaSecuencia;
@@ -5431,7 +5505,7 @@ async function buscarSkuBodega(texto){
   // ahí, y sus formularios ya escriben a estado en cada tecla).
   capturarCamposDocumentoBodega();
   state.bodega.busqueda = {texto, resultados: t.length>=2 ? state.bodega.busqueda.resultados : [], buscando: t.length>=2, error:null};
-  render();
+  actualizarResultadosSkuBodega();
   if(t.length<2) return;
   try{
     const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
@@ -5440,14 +5514,14 @@ async function buscarSkuBodega(texto){
     // persona pudo seguir escribiendo, y reponer el valor viejo le borraría esas teclas.
     capturarCamposDocumentoBodega();
     state.bodega.busqueda = {texto: state.bodega.busqueda.texto, resultados: rows, buscando:false, error:null};
-    render();
+    actualizarResultadosSkuBodega();
   }catch(e){
     // Antes se tragaba el error y la pantalla decía "Sin resultados": un fallo del servidor
     // (por ejemplo una columna que la vista no expone) parecía que el material no existía.
     if(seq!==bodegaBusquedaSecuencia) return;
     capturarCamposDocumentoBodega();
     state.bodega.busqueda = {texto: state.bodega.busqueda.texto, resultados: [], buscando:false, error: pareceFalloDeRed(e) ? 'Sin conexión: no se pudo buscar.' : e.message};
-    render();
+    actualizarResultadosSkuBodega();
   }
 }
 
@@ -11494,13 +11568,7 @@ function renderReservaForm(){
     <div class="card">
       <span class="eyebrow">Materiales por apartar</span>
       <input type="text" id="res-buscar-sku" placeholder="Busca por código o descripción" value="${esc(q.texto)}" autocomplete="off" style="margin:8px 0 0">
-      ${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
-      ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
-      ${q.resultados.length ? `<div style="margin-top:8px">${q.resultados.map(x=>`
-        <div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div style="flex:1;min-width:160px"><div class="mono" style="font-size:12px">${esc(x.sku_code)}</div><div class="hint" style="margin:2px 0 0">${esc(x.descripcion||'')} · stock ${x.stock_sistema==null?'—':x.stock_sistema}</div></div>
-          <button type="button" class="btn btn-secondary" data-res-agregar='${esc(JSON.stringify({id:x.id, sku_code:x.sku_code, descripcion:x.descripcion, unidad_medida:x.unidad_medida, stock_sistema:x.stock_sistema}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Apartar</button>
-        </div>`).join('')}</div>` : ''}
+      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML()}</div>
       ${f.cargandoLineas ? '<div class="hint" style="margin-top:10px">Cargando los materiales de la reserva…</div>' : ''}
       ${f.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Material</th><th class="num">En bodega</th><th class="num">Apartar</th><th></th></tr></thead>
@@ -11669,13 +11737,7 @@ function renderOrdenCompraForm(){
     <div class="card">
       <span class="eyebrow">Materiales</span>
       <input type="text" id="oc-buscar-sku" placeholder="Busca por código o descripción" value="${esc(q.texto)}" autocomplete="off" style="margin:8px 0 0">
-      ${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
-      ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
-      ${q.resultados.length ? `<div style="margin-top:8px">${q.resultados.map(r=>`
-        <div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div style="flex:1;min-width:160px"><div class="mono" style="font-size:12px">${esc(r.sku_code)}</div><div class="hint" style="margin:2px 0 0">${esc(r.descripcion||'')}</div></div>
-          <button type="button" class="btn btn-secondary" data-oc-agregar='${esc(JSON.stringify({id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, unidad_medida:r.unidad_medida, costo_unitario:r.costo_unitario}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Agregar</button>
-        </div>`).join('')}</div>` : ''}
+      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML()}</div>
       ${f.cargandoLineas ? '<div class="hint" style="margin-top:10px">Cargando las líneas de la orden…</div>' : ''}
       ${f.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Material</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Total</th><th></th></tr></thead>
@@ -11875,14 +11937,7 @@ function renderDocumentoBodega(tipo){
         <input type="text" id="bd-sku" style="flex:1" placeholder="Ej. 4400-1123 o filtro" value="${esc(q.texto)}" autocomplete="off">
         <button type="button" id="btn-escanear-bodega" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
       </div>
-      ${q.buscando ? `<div class="hint">Buscando…</div>` : ''}
-      ${q.error ? `<div class="hint" style="color:var(--danger)">No se pudo buscar: ${esc(q.error)}</div>` : ''}
-      ${q.resultados.length ? `<div class="sku-picks" style="margin-top:6px">${q.resultados.map(s=>`
-        <div class="sku-pick" style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
-          <div style="flex:1;min-width:0"><div class="mono">${esc(s.sku_code)}${s.batch?` <span class="hint" style="display:inline">· ${esc(s.batch)}</span>`:''}</div><div class="hint" style="margin:0">${esc(s.descripcion||'')}${s.storage_bin?` · ${esc(s.storage_bin)}`:''} · stock ${s.stock_sistema==null?'—':s.stock_sistema}</div></div>
-          <input type="number" class="bd-cantidad" data-sku-id="${esc(s.id)}" min="0" step="any" placeholder="Cant." style="width:84px;margin:0">
-          <button type="button" class="btn btn-primary bd-agregar" data-sku-id="${esc(s.id)}" style="width:auto;padding:6px 10px">Agregar</button>
-        </div>`).join('')}</div>` : (q.texto.length>=2 && !q.buscando && !q.error ? `<div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Sin resultados.${esIngreso && !b.nuevoSku ? ` <button type="button" class="link-btn" id="btn-nuevo-sku-bodega">Crear SKU nuevo «${esc(q.texto.trim())}»</button>` : ''}</div>` : '')}
+      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML(esIngreso)}</div>
       ${esIngreso && b.nuevoSku ? `<form id="form-nuevo-sku-bodega" class="card" style="margin-top:10px;background:var(--bg)">
         <div class="hint" style="margin-bottom:8px"><strong>SKU nuevo.</strong> Nace con stock 0; este ingreso le pone el saldo.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">

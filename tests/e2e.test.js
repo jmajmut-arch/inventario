@@ -507,6 +507,39 @@ async function loguear(page, perfil){
     const enMedio = await page.evaluate(() => { const el = document.getElementById('bd-sku'); return { valor: el.value, cursor: el.selectionStart }; });
     assert(enMedio.valor === 'FILXTRO', `escribir en medio debe insertar donde está el cursor, obtuvo: "${enMedio.valor}"`);
     assert(enMedio.cursor === 4, `el cursor debe quedar donde estaba, no saltar al final, obtuvo: ${enMedio.cursor}`);
+
+    // iPad: conservar el foco no basta. Si render() REEMPLAZA el <input>, iOS enfoca un elemento
+    // nuevo y reinicia el teclado a la disposición de letras; tecleando un código como 10371892
+    // hay que apretar "123" en cada dígito. Joel lo reportó en Crear orden de compra.
+    // Medido antes del arreglo: el input se reemplazaba las 8 veces. Por eso el buscador de bodega
+    // repinta solo #sku-bodega-resultados (actualizarResultadosSkuBodega) en vez de llamar render().
+    // Se marca el nodo: si lo reemplazan, la marca se va con él.
+    for(const [vista, input] of [['ingreso','bd-sku'], ['ordenes','oc-buscar-sku']]){
+      await page.click('[data-tab="inicio"]');
+      if(vista === 'ordenes'){
+        await page.waitForSelector('[data-nueva-orden]', { timeout:ESPERA });
+        await page.click('[data-nueva-orden]');
+      }else{
+        await page.click('[data-ir-vista="ingreso"]');
+      }
+      await page.waitForSelector('#'+input, { timeout:ESPERA });
+      await page.waitForTimeout(1200); // que terminen las cargas de la vista, que sí hacen render()
+      await page.evaluate(id => { document.getElementById(id).dataset.marca = 'original'; }, input);
+      await page.click('#'+input);
+      let reemplazos = 0;
+      for(const ch of '10371892'){
+        await page.keyboard.type(ch);
+        await page.waitForTimeout(300);
+        const sobrevivio = await page.evaluate(id => {
+          const el = document.getElementById(id);
+          const era = !!el && el.dataset.marca === 'original';
+          if(el) el.dataset.marca = 'original';
+          return era;
+        }, input);
+        if(!sobrevivio) reemplazos++;
+      }
+      assert(reemplazos === 0, `#${input}: escribir no puede reemplazar el <input> (en iPad eso reinicia el teclado), lo reemplazó ${reemplazos} de 8 veces`);
+    }
     await context.close();
   }
 
