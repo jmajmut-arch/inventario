@@ -50,6 +50,21 @@ const PERFIL_ADMIN_PRO = {
   } },
 };
 
+// Varias aserciones leen datos que llegan por fetch DESPUÉS de que el contenedor ya existe, así
+// que esperar solo al contenedor deja una carrera. Acá los mocks responden al instante y casi
+// siempre pasaba; en CI falló tres veces seguidas por tres motivos distintos (el valor de la orden
+// en el Ingreso, las opciones de bodega del traslado, y el tabbar del primer login). Estos dos
+// ayudantes esperan al DATO y devuelven false si no llegó a tiempo, para que la aserción de al lado
+// siga dando su mensaje con lo que sí había, en vez de una excepción cruda de Playwright.
+async function esperarCondicion(page, fn, arg){
+  try{ await page.waitForFunction(fn, arg === undefined ? null : arg, { timeout:ESPERA }); return true; }
+  catch(e){ return false; }
+}
+async function esperarVisible(page, selector){
+  try{ await page.waitForSelector(selector, { state:'visible', timeout:ESPERA }); return true; }
+  catch(e){ return false; }
+}
+
 // Segunda barrera contra el problema que arregla el guard de sentryOnLoad: aunque la app ya no
 // inicializa Sentry fuera de producción, acá se corta el Loader y el ingest de raíz. Si alguien
 // rompe el guard, estas pruebas no vuelven a ensuciar el Sentry de producción con errores de
@@ -293,15 +308,19 @@ async function loguear(page, perfil){
     await page.waitForSelector('.tabbar', { timeout:ESPERA });
     await page.click('[data-ir-vista="reservas"]');
     await page.waitForSelector('[data-reserva-ver="res-1"]', { timeout:ESPERA });
-    assert(await page.isVisible('text=FALTA MATERIAL') || await page.isVisible('text=Falta material'), 'la reserva descubierta se avisa arriba de la lista');
+    assert(await esperarVisible(page, 'text=FALTA MATERIAL') || await page.isVisible('text=Falta material'), 'la reserva descubierta se avisa arriba de la lista');
     await page.click('[data-reserva-ver="res-1"]');
     await page.waitForSelector('[data-reserva-comprar="res-1"]', { timeout:ESPERA });
-    assert(await page.isVisible('text=faltan 3'), 'el detalle muestra cuánto falta para cubrir la reserva');
+    assert(await esperarVisible(page, 'text=faltan 3'), 'el detalle muestra cuánto falta para cubrir la reserva');
     const sinDesbordeRes = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     assert(sinDesbordeRes, 'el detalle de la reserva no debe desbordar a lo ancho en pantalla de celular');
     // El atajo que cierra el ciclo: el faltante se convierte en una orden de compra.
     await page.click('[data-reserva-comprar="res-1"]');
     await page.waitForSelector('[data-oc-cantidad]', { timeout:ESPERA });
+    await esperarCondicion(page, () => {
+      const el = document.querySelector('[data-oc-cantidad]');
+      return !!el && el.value !== '';
+    });
     const cantidadOc = await page.inputValue('[data-oc-cantidad]');
     assert(cantidadOc==='3', 'la orden se arma con el faltante (3), no con lo reservado (15), obtuvo: '+cantidadOc);
     const obs = await page.inputValue('#oc-observacion');
@@ -347,7 +366,7 @@ async function loguear(page, perfil){
     await page.waitForSelector('[data-oc-ver="oc-1"]', { timeout:ESPERA });
     await page.click('[data-oc-ver="oc-1"]');
     await page.waitForSelector('[data-oc-imprimir="oc-1"]', { timeout:ESPERA });
-    assert(await page.isVisible('text=Marcela Ríos'), 'el detalle muestra el contacto del proveedor');
+    assert(await esperarVisible(page, 'text=Marcela Ríos'), 'el detalle muestra el contacto del proveedor');
     const sinDesborde = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     assert(sinDesborde, 'el detalle de la orden no debe desbordar a lo ancho en pantalla de celular');
     // "Recibir en Ingreso" lleva a la otra vista con las líneas pendientes ya cargadas.
@@ -405,6 +424,10 @@ async function loguear(page, perfil){
     await page.click('[data-transferir-sku]');
     await page.waitForSelector('#transferencia-backdrop', { timeout:ESPERA });
     assert(await page.isVisible('#tra-bodega'), 'el modal de traslado debe abrirse desde el botón Transferir de Stock');
+    await esperarCondicion(page, () => {
+      const sel = document.getElementById('tra-bodega');
+      return !!sel && Array.from(sel.options).some(o => o.value === 'Bodega Norte');
+    });
     const opciones = await page.$$eval('#tra-bodega option', els => els.map(e=>e.value));
     assert(opciones.includes('Bodega Norte'), 'el modal ofrece las bodegas de destino, obtuvo: '+JSON.stringify(opciones));
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
