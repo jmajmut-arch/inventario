@@ -6902,8 +6902,9 @@ async function confirmarCargaMasiva(){
   const bodegaActiva = moduloBodegaActivo();
   const aperturaYaHecha = bodegaActiva ? await hayAperturaBodega() : false;
   if(aperturaYaHecha) lote.forEach(f=>{ delete f.stock_sistema; });
-  // Un solo POST con todo el archivo (ej. 64.000 filas) supera el statement_timeout de 8s del
-  // rol authenticated: cada fila dispara triggers propios (auditoría + chequeo de límite de
+  // Un solo POST con todo el archivo (ej. 64.000 filas) supera el statement_timeout de 20s del
+  // rol authenticator (el que usa PostgREST al conectarse; lo puesto en authenticated es inerte,
+  // ver CLAUDE.md): cada fila dispara triggers propios (auditoría + chequeo de límite de
   // bodega), y ese costo por-fila multiplicado por decenas de miles de filas hace que Postgres
   // corte la consulta a mitad de camino — con un archivo grande, la carga entera fallaba (aunque
   // los datos fueran válidos) solo por el tamaño del lote. Partirlo en bloques evita el timeout
