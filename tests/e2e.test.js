@@ -43,7 +43,18 @@ const PERFIL_ADMIN_PRO = {
   } },
 };
 
+// Segunda barrera contra el problema que arregla el guard de sentryOnLoad: aunque la app ya no
+// inicializa Sentry fuera de producción, acá se corta el Loader y el ingest de raíz. Si alguien
+// rompe el guard, estas pruebas no vuelven a ensuciar el Sentry de producción con errores de
+// localhost (pasó: el issue JAVASCRIPT-4 salió de esta misma suite).
+async function bloquearSentry(page){
+  await page.route('**/js.sentry-cdn.com/**', route => route.abort());
+  await page.route('**/*.sentry.io/**', route => route.abort());
+  await page.route('**/*.ingest.*/**', route => route.abort());
+}
+
 async function mockearSupabaseApp(page, perfil){
+  await bloquearSentry(page);
   // Playwright prioriza el handler registrado AL FINAL cuando varios matchean la misma
   // URL ("el último gana"). El catch-all va primero para que los mocks específicos
   // (registrados después) sean los que realmente respondan.
@@ -144,6 +155,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-honeypot: '+err.message));
+    await bloquearSentry(page);
     let llamoRed = false;
     await page.route('**/rest/v1/leads_demo', route => { llamoRed = true; route.abort(); });
     await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
@@ -164,6 +176,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-demo: '+err.message));
+    await bloquearSentry(page);
     let cuerpoEnviado = null;
     await page.route('**/rest/v1/leads_demo', route => {
       cuerpoEnviado = route.request().postDataJSON();
@@ -187,6 +200,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-contacto-honeypot: '+err.message));
+    await bloquearSentry(page);
     let llamoRed = false;
     await page.route('**/rest/v1/leads_demo', route => { llamoRed = true; route.abort(); });
     await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
@@ -207,6 +221,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-contacto: '+err.message));
+    await bloquearSentry(page);
     let cuerpoEnviado = null;
     await page.route('**/rest/v1/leads_demo', route => {
       cuerpoEnviado = route.request().postDataJSON();
@@ -230,6 +245,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-faq: '+err.message));
+    await bloquearSentry(page);
     await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     const primeraPregunta = await page.$('.faq-item summary');
     assert(primeraPregunta !== null, 'debe existir al menos una pregunta frecuente');
@@ -389,6 +405,7 @@ async function loguear(page, perfil){
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-carousel: '+err.message));
+    await bloquearSentry(page);
     await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
     await page.addStyleTag({ content:'html{scroll-behavior:auto !important}' });
     await page.click('#vista-dots .carousel-dot:nth-child(2)');

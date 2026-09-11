@@ -21,6 +21,18 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 </script>
   
 <meta charset="UTF-8">
+<script data-sentry-config>
+  // Misma regla que la app (ver app/index.html): Sentry solo reporta producción. La landing
+  // cargaba el Loader con el mismo DSN pero sin ninguna configuración, así que las pruebas e2e
+  // que la abren en un servidor local mandaban sus errores al proyecto de producción.
+  // Se apaga solo en local y en file://; cualquier otro host sigue reportando.
+  window.sentryOnLoad = function(){
+    var host = location.hostname;
+    var esLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+      || host === '' || location.protocol === 'file:';
+    Sentry.init({ enabled: !esLocal, environment: esLocal ? 'local' : 'production' });
+  };
+</script>
 <script
   src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js"
   crossorigin="anonymous"
