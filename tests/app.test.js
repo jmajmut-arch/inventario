@@ -3591,6 +3591,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConfigAdminCiegoActivo.includes('id="chk-conteo-ciego" checked'), 'con el flag activo en la empresa, el toggle debe verse marcado, obtuvo: '+htmlConfigAdminCiegoActivo);
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
 
+  // Stock 0 en el plan: mismo lugar, y parte MARCADO (comportamiento de hoy) cuando la empresa no
+  // trae la llave -- así ninguna empresa pierde materiales del plan solo por publicar el cambio.
+  assert(htmlConfigAdmin.includes('id="chk-stock-cero-plan" checked'), 'sin la llave, el interruptor de stock 0 debe verse marcado (el plan los incluye, como hoy), obtuvo: '+htmlConfigAdmin);
+  ctx.__appstate.perfil.empresas.plan_incluye_stock_cero = false;
+  const htmlConfigStockCeroOff = ctx.renderConfiguraciones();
+  assert(htmlConfigStockCeroOff.includes('id="chk-stock-cero-plan"') && !htmlConfigStockCeroOff.includes('id="chk-stock-cero-plan" checked'), 'con la llave apagada el interruptor debe verse desmarcado, obtuvo: '+htmlConfigStockCeroOff);
+  // El aviso tiene que decir lo que el propio Joel eligió asumir: apagarlo también saca los
+  // materiales con stock 0 que SÍ tienen bin, que son los que sirven para pillar material no registrado.
+  assert(/stock 0 pero s\u00ed tienen storage bin/.test(htmlConfigStockCeroOff), 'el texto de ayuda debe advertir que también quedan fuera los de stock 0 con bin, obtuvo: '+htmlConfigStockCeroOff);
+  ctx.__appstate.perfil.empresas.plan_incluye_stock_cero = true;
+
   // Pedido de Joel: diferenciar el menú de Configuraciones con títulos más claros y organizados
   // (antes "Plan y facturación", "Invitar equipo" y "Mi equipo" venían todos amontonados bajo un
   // único encabezado "Empresa", sin secciones propias).
@@ -4176,6 +4187,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const patchConteoCiegoOff = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/empresas?id=eq.emp-1'));
   assert(!!patchConteoCiegoOff && JSON.parse(patchConteoCiegoOff.opts.body).conteo_ciego_habilitado===false, 'el admin debe poder apagarlo de nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.perfil.empresas.conteo_ciego_habilitado===false, 'debe reflejarlo en el estado local, obtuvo: '+ctx.__appstate.perfil.empresas.conteo_ciego_habilitado);
+
+  // ===== Interruptor: incluir en el plan los materiales con stock 0 =====
+  // El ERP manda el mismo material dos veces, una con su bin y su stock real y otra sin ubicación
+  // y con stock 0. En el plan del 14-09 de Escondida eran 490 de 595 y la hoja parecía rota.
+  // Parte ENCENDIDO en todas las empresas: publicar esto no puede cambiar ningún plan ya creado.
+  assert(ctx.planIncluyeStockCero()===true, 'sin la llave en la empresa, el plan debe seguir incluyendo el stock 0 (comportamiento de hoy)');
+  ctx.__appstate.perfil.empresas.plan_incluye_stock_cero = false;
+  assert(ctx.planIncluyeStockCero()===false, 'con la llave en false, el plan no debe incluir el stock 0');
+  ctx.__appstate.perfil.empresas.plan_incluye_stock_cero = true;
+  assert(ctx.planIncluyeStockCero()===true, 'con la llave en true, vuelve a incluirlo');
+
+  calls.length = 0;
+  await ctx.actualizarStockCeroEnPlan(false);
+  const patchStockCeroOff = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/empresas?id=eq.emp-1'));
+  assert(!!patchStockCeroOff && JSON.parse(patchStockCeroOff.opts.body).plan_incluye_stock_cero===false, 'debe hacer PATCH apagando plan_incluye_stock_cero, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.perfil.empresas.plan_incluye_stock_cero===false, 'debe reflejarlo en el estado local');
+  // El universo del plan cambió: los conteos ya dibujados quedarían mintiendo si no se descartan.
+  assert(Object.keys(ctx.__appstate.plan.universos).length===0 && Object.keys(ctx.__appstate.plan.propios).length===0, 'al cambiar el interruptor hay que descartar los universos ya calculados, obtuvo: '+JSON.stringify(ctx.__appstate.plan.universos));
+  assert(ctx.__appstate.contarPlan.cargado===false, 'el plan del día debe volver a pedirse, si no el operador sigue viendo el universo anterior');
+
+  calls.length = 0;
+  await ctx.actualizarStockCeroEnPlan(true);
+  const patchStockCeroOn = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/empresas?id=eq.emp-1'));
+  assert(!!patchStockCeroOn && JSON.parse(patchStockCeroOn.opts.body).plan_incluye_stock_cero===true, 'el admin debe poder volver a encenderlo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // La app tiene que pedir la columna en el perfil: si no viene, planIncluyeStockCero() siempre
+  // devolvería true y el interruptor se vería encendido aunque la empresa lo tenga apagado.
+  assert(/empresas\([^)]*plan_incluye_stock_cero/.test(html), 'el select del perfil debe traer plan_incluye_stock_cero');
 
   // Las acciones de escritura deben viajar con el empresa_id del perfil actual (aislamiento entre empresas).
   // crearSkuManual debe hacer un INSERT simple a /skus, SIN upsert: si el código ya existe
@@ -4834,11 +4873,37 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // bin no lo movía, creaba una segunda fila (la identidad incluye ubicación general, específica
   // y bin). Mover la MISMA fila conserva su historial de conteos, su kardex y su stock.
   ctx.__appstate.skusPagina = { rows:[{id:'sku-mover', sku_code:'SKU-MOVER', descripcion:'Bomba', batch:null, bodega:'B501', ubicacion:'0102', storage_bin:'N1E-P5-I09', stock_sistema:4}], page:0, total:1 };
+  // Mover material es del módulo de bodega (decisión de Joel): un admin SIN el módulo no lo ve.
+  // Antes el botón de la fila estaba abierto a cualquier admin, así que Escondida --que tiene la
+  // bodega apagada-- podía mover materiales igual.
+  ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
+  const htmlMoverSinBodega = ctx.renderTablaSkus();
+  assert(!htmlMoverSinBodega.includes('data-mover-sku'), 'sin módulo de bodega, un admin no debe ver el botón Mover, obtuvo: '+htmlMoverSinBodega);
+  // Y si se esconde la celda, hay que esconder también su encabezado o se corren las columnas.
+  const thsSinBodega = (htmlMoverSinBodega.match(/<th[ >]/g)||[]).length;
+  const tdsSinBodega = ((htmlMoverSinBodega.split('<tbody>')[1]||'').split('</tr>')[0].match(/<td[ >]/g)||[]).length;
+  assert(thsSinBodega===tdsSinBodega, `sin módulo de bodega la tabla debe tener las mismas columnas en cabecera (${thsSinBodega}) que en las filas (${tdsSinBodega}), o se corren los datos`);
+
+  ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
   const htmlMoverAdmin = ctx.renderTablaSkus();
-  assert(htmlMoverAdmin.includes('data-mover-sku="sku-mover"'), 'un admin debe ver el botón para mover el material, obtuvo: '+htmlMoverAdmin);
-  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
-  assert(!ctx.renderTablaSkus().includes('data-mover-sku'), 'un operador no debe poder mover materiales');
+  assert(htmlMoverAdmin.includes('data-mover-sku="sku-mover"'), 'un admin con módulo de bodega debe ver el botón para mover el material, obtuvo: '+htmlMoverAdmin);
+  const thsConBodega = (htmlMoverAdmin.match(/<th[ >]/g)||[]).length;
+  const tdsConBodega = ((htmlMoverAdmin.split('<tbody>')[1]||'').split('</tr>')[0].match(/<td[ >]/g)||[]).length;
+  assert(thsConBodega===tdsConBodega, `con módulo de bodega la tabla debe tener las mismas columnas en cabecera (${thsConBodega}) que en las filas (${tdsConBodega})`);
+
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes', modulo_bodega_habilitado:true} };
+  assert(!ctx.renderTablaSkus().includes('data-mover-sku'), 'un operador no debe poder mover materiales ni con el módulo activo');
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+  // La vista completa también se protege: se puede quedar parado en ella justo cuando súper admin
+  // apaga el módulo, y ahí el formulario seguiría funcionando.
+  ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
+  const htmlVistaMoverSinBodega = ctx.renderMover();
+  assert(!htmlVistaMoverSinBodega.includes('mover-buscar'), 'sin módulo de bodega la vista Mover no debe ofrecer el buscador, obtuvo: '+htmlVistaMoverSinBodega);
+  assert(htmlVistaMoverSinBodega.includes('parte del módulo de bodega'), 'sin módulo de bodega la vista Mover debe explicar por qué, obtuvo: '+htmlVistaMoverSinBodega);
+  ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
+  assert(ctx.renderMover().includes('mover-buscar'), 'con módulo de bodega la vista Mover sí ofrece el buscador');
+  ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
 
   // Pestaña propia para mover: el botón dentro del maestro no se encontraba, así que la acción
   // tiene su pantalla con buscador, en la barra de abajo junto a Stock y Movimientos.
