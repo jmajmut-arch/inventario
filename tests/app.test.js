@@ -7133,6 +7133,35 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const shellConLogo = ctx.renderShell();
     assert(shellConLogo.includes('brand-badge con-logo') && shellConLogo.includes(LOGO_PRUEBA) && !shellConLogo.includes('<div class="brand-badge">IA</div>'), 'con logo, la insignia lo muestra en vez de "IA"');
 
+    // Todo lo que se imprime lleva el logo. En vez de enumerar los documentos a mano (y olvidar el
+    // siguiente que se agregue), se revisa el código: cada cosa que se escribe en un contenedor de
+    // impresión tiene que traer el encabezado, sea en su plantilla o dentro de la función que la arma.
+    {
+      const asignaciones = [...html.matchAll(/(?:getElementById\('print-(?:informe|plan|buscar)'\)|contenedor)\.innerHTML\s*=\s*([^;]{0,80})/g)];
+      const sinLogo = [];
+      let conContenido = 0;
+      for(const m of asignaciones){
+        const rhs = m[1].trim();
+        if(rhs.startsWith("''") || rhs.startsWith('""')) continue; // solo limpia el contenedor
+        conContenido++;
+        if(rhs.startsWith('`')){
+          const trozo = html.slice(m.index, m.index + 700);
+          if(!trozo.includes('encabezadoLogoImpresion(')) sinLogo.push(rhs.slice(0, 60).replace(/\s+/g,' '));
+          continue;
+        }
+        const fn = /^([A-Za-z_$][\w$]*)\s*\(/.exec(rhs);
+        if(fn){
+          const def = html.indexOf('function ' + fn[1] + '(');
+          const cuerpo = def>=0 ? html.slice(def, def + 4000) : '';
+          if(!cuerpo.includes('encabezadoLogoImpresion(')) sinLogo.push(fn[1]+'()');
+          continue;
+        }
+        sinLogo.push(rhs.slice(0, 60));
+      }
+      assert(conContenido >= 10, 'la revisión debe encontrar los diez documentos imprimibles, encontró: '+conContenido);
+      assert(sinLogo.length===0, 'estos documentos se imprimen sin el logo de la empresa: '+JSON.stringify(sinLogo));
+    }
+
     // La insignia se adapta a la forma del logo: la mayoría de los logos de empresa son
     // horizontales, y encerrado en el cuadrado de 34x34 un wordmark quedaba como una franja de
     // 5 px de alto. El alto manda, el ancho crece con tope.
