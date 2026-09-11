@@ -7133,6 +7133,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const shellConLogo = ctx.renderShell();
     assert(shellConLogo.includes('brand-badge con-logo') && shellConLogo.includes(LOGO_PRUEBA) && !shellConLogo.includes('<div class="brand-badge">IA</div>'), 'con logo, la insignia lo muestra en vez de "IA"');
 
+    // Los tres contenedores de impresión tienen que estar ocultos en pantalla. A #print-informe
+    // le faltaba la regla: como casi siempre está vacío no se notaba, pero al generar un informe
+    // de ciclo el documento quedaba dibujado debajo de la app (lo vio Joel en producción).
+    {
+      const antesDelMedia = html.slice(0, html.indexOf('@media print{'));
+      ['print-plan','print-informe','print-buscar'].forEach(id=>{
+        assert(new RegExp('#'+id+'\\{display:none;\\}').test(antesDelMedia), `#${id} debe estar oculto en pantalla, fuera de @media print`);
+      });
+    }
+    // Y al cerrar sesión hay que vaciarlos: viven fuera de #app, así que render() no los toca y en
+    // un navegador compartido el informe de una empresa quedaba a la vista de la sesión siguiente.
+    {
+      ctx.limpiarContenedoresImpresion(); // crea los elementos falsos si no existían
+      ['print-plan','print-informe','print-buscar'].forEach(id=>{ elements[id].innerHTML = '<h1>informe viejo</h1>'; });
+      ctx.limpiarContenedoresImpresion();
+      const quedaron = ['print-plan','print-informe','print-buscar'].filter(id=> elements[id].innerHTML !== '');
+      assert(quedaron.length===0, 'la limpieza debe vaciar los tres contenedores, quedaron: '+JSON.stringify(quedaron));
+      // Y las dos salidas de sesión tienen que llamarla (no se ejecuta handleLogout acá porque
+      // reemplaza el estado entero y las pruebas que siguen se quedarían sin perfil).
+      ['function handleLogout(){', 'function manejarSesionInvalida(){'].forEach(firma=>{
+        const i = html.indexOf(firma);
+        assert(i>=0 && html.slice(i, i+320).includes('limpiarContenedoresImpresion()'), `${firma} debe vaciar los contenedores de impresión`);
+      });
+    }
+
     // Todo lo que se imprime lleva el logo. En vez de enumerar los documentos a mano (y olvidar el
     // siguiente que se agregue), se revisa el código: cada cosa que se escribe en un contenedor de
     // impresión tiene que traer el encabezado, sea en su plantilla o dentro de la función que la arma.

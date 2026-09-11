@@ -364,7 +364,11 @@ textarea{resize:vertical;min-height:60px;}
 .plan-sku-lista li{font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .plan-sku-lista .icon-btn{padding:2px;flex:none;}
 
+/* Los tres contenedores de impresión son invisibles en pantalla y solo aparecen dentro de
+   @media print. A #print-informe le faltaba esta línea: como casi siempre está vacío no se
+   notaba, pero al generar un informe de ciclo el documento quedaba dibujado debajo de la app.  */
 #print-plan{display:none;}
+#print-informe{display:none;}
 #print-buscar{display:none;}
 @media print{
   /* Sin esto, el tamaño de página imprimible depende de los márgenes que cada impresora/diálogo
@@ -1754,8 +1758,19 @@ function estadoTrasCerrarSesion(){
   return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, transferenciaModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
+// El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
+// que vaciarlo a mano al cerrar sesión. Si no, en un navegador compartido el informe de una
+// empresa queda en el DOM de la sesión siguiente.
+function limpiarContenedoresImpresion(){
+  ['print-plan','print-informe','print-buscar'].forEach(id=>{
+    const el = typeof document!=='undefined' && document.getElementById(id);
+    if(el) el.innerHTML = '';
+  });
+}
+
 function handleLogout(){
   borrarSesionGuardada();
+  limpiarContenedoresImpresion();
   state = estadoTrasCerrarSesion();
   configurarContextoSentry();
   render();
@@ -1770,6 +1785,7 @@ function handleLogout(){
 const MENSAJE_SESION_TERMINADA = 'Tu sesión terminó — probablemente iniciaste sesión en otro dispositivo. Inicia sesión de nuevo.';
 function manejarSesionInvalida(){
   borrarSesionGuardada();
+  limpiarContenedoresImpresion();
   state = estadoTrasCerrarSesion();
   configurarContextoSentry();
   render();
