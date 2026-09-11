@@ -3,13 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <script data-sentry-config>
-  // Sentry solo debe avisar de errores de verdad. Estos dos mensajes los muestra la propia app
-  // a propósito (sesión cerrada por "una sesión por usuario" y pérdida de señal en terreno) y
-  // algún flujo los deja escapar como promesa rechazada; sin este filtro llegaban a Sentry y
-  // abrían un issue en GitHub cada vez que alguien perdía señal o cambiaba de dispositivo.
+  // Sentry solo debe avisar de errores de verdad, y solo de producción.
+  //
+  // 1. Estos dos mensajes los muestra la propia app a propósito (sesión cerrada por "una sesión
+  //    por usuario" y pérdida de señal en terreno) y algún flujo los deja escapar como promesa
+  //    rechazada; sin este filtro llegaban a Sentry y abrían un issue en GitHub cada vez que
+  //    alguien perdía señal o cambiaba de dispositivo.
+  // 2. Las pruebas e2e levantan esta misma app en un servidor local, así que sus errores llegaban
+  //    al proyecto de producción marcados environment:production. Pasó de verdad: el issue
+  //    JAVASCRIPT-4 ("Maximum call stack size exceeded") venía de HeadlessChrome contra
+  //    localhost:8942, con los fixtures del test (perfil-1 / Minera Andes), no de nadie en
+  //    terreno. Gasta cuota y, peor, hace dudar de si una alarma es real.
+  //    Se apaga solo en local y en file://: cualquier otro host sigue reportando, para no dejar
+  //    ciega una URL de producción nueva por olvidarla en una lista blanca.
   // El Loader Script llama a sentryOnLoad antes de inicializar y respeta estas opciones.
   window.sentryOnLoad = function(){
+    var host = location.hostname;
+    var esLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+      || host === '' || location.protocol === 'file:';
     Sentry.init({
+      enabled: !esLocal,
+      environment: esLocal ? 'local' : 'production',
       ignoreErrors: [
         'Tu sesión terminó',
         'No se pudo conectar. Revisa tu conexión'

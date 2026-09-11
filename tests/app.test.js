@@ -7237,6 +7237,66 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const shellConLogo = ctx.renderShell();
     assert(shellConLogo.includes('brand-badge con-logo') && shellConLogo.includes(LOGO_PRUEBA) && !shellConLogo.includes('<div class="brand-badge">IA</div>'), 'con logo, la insignia lo muestra en vez de "IA"');
 
+    // ===== Sentry: solo errores de verdad, y solo de producción =====
+    // El bloque <script data-sentry-config> vive fuera del script principal, así que el harness
+    // no lo evalúa. Acá se extrae y se CORRE con un Sentry y un location falsos, para probar el
+    // comportamiento y no la forma del texto.
+    // Historia: el issue JAVASCRIPT-4 de producción ("Maximum call stack size exceeded") venía de
+    // esta misma suite e2e -- HeadlessChrome contra localhost:8942, con los fixtures perfil-1 /
+    // Minera Andes -- pero llegó etiquetado environment:production.
+    {
+      const vmSentry = require('vm');
+      const leerConfigSentry = (archivo) => {
+        const fuente = fs.readFileSync(path.join(__dirname, '..', archivo), 'utf8');
+        const bloque = fuente.match(/<script data-sentry-config>([\s\S]*?)<\/script>/);
+        assert(!!bloque, `${archivo} debe traer el bloque <script data-sentry-config>; sin él el Loader arranca con la configuración por defecto y reporta desde cualquier host`);
+        return bloque ? bloque[1] : '';
+      };
+      const iniciarSentryEn = (fuente, href) => {
+        const url = new URL(href);
+        let opciones = null;
+        const sandbox = {
+          location: { hostname: url.hostname, protocol: url.protocol, href },
+          Sentry: { init: o => { opciones = o; } },
+        };
+        sandbox.window = sandbox;
+        vmSentry.createContext(sandbox);
+        vmSentry.runInContext(fuente, sandbox, {filename:'sentry-config.js'});
+        assert(typeof sandbox.sentryOnLoad === 'function', 'el bloque debe definir window.sentryOnLoad');
+        if(typeof sandbox.sentryOnLoad !== 'function') return {}; // que falle la aserción, no el proceso
+        sandbox.sentryOnLoad();
+        return opciones || {};
+      };
+
+      ['app/index.html', 'app/inventario.html', 'index.html'].forEach(archivo => {
+        const fuente = leerConfigSentry(archivo);
+
+        // Producción: reporta, y etiquetado como producción.
+        const prod = iniciarSentryEn(fuente, 'https://inventiapp.cl/app/index.html');
+        assert(prod.enabled === true, `${archivo}: en inventiapp.cl Sentry debe seguir reportando, obtuvo enabled=${prod.enabled}`);
+        assert(prod.environment === 'production', `${archivo}: en producción el environment debe ser production, obtuvo ${prod.environment}`);
+
+        // El servidor de las pruebas e2e: NO reporta.
+        const e2e = iniciarSentryEn(fuente, 'http://localhost:8942/app/index.html');
+        assert(e2e.enabled === false, `${archivo}: en localhost (el servidor de las e2e) Sentry NO debe reportar, obtuvo enabled=${e2e.enabled}`);
+        assert(e2e.environment !== 'production', `${archivo}: lo de localhost no puede etiquetarse como producción, obtuvo ${e2e.environment}`);
+
+        // Las otras formas de "local" que usa el equipo.
+        assert(iniciarSentryEn(fuente, 'http://127.0.0.1:8080/app/index.html').enabled === false, `${archivo}: 127.0.0.1 tampoco debe reportar`);
+        assert(iniciarSentryEn(fuente, 'file:///home/alguien/app/index.html').enabled === false, `${archivo}: abrir el archivo con file:// tampoco debe reportar`);
+
+        // Un host de producción nuevo no puede quedar ciego por no estar en una lista blanca.
+        assert(iniciarSentryEn(fuente, 'https://app.inventiapp.cl/').enabled === true, `${archivo}: un host de producción nuevo debe seguir reportando`);
+      });
+
+      // Y los mensajes que la app muestra a propósito siguen filtrados (solo la app los emite).
+      ['app/index.html', 'app/inventario.html'].forEach(archivo => {
+        const opciones = iniciarSentryEn(leerConfigSentry(archivo), 'https://inventiapp.cl/app/index.html');
+        assert(Array.isArray(opciones.ignoreErrors) && opciones.ignoreErrors.some(t=>/Tu sesión terminó/.test(t)) && opciones.ignoreErrors.some(t=>/No se pudo conectar/.test(t)),
+          `${archivo}: deben seguir ignorándose los avisos propios de sesión y de señal, obtuvo: `+JSON.stringify(opciones.ignoreErrors));
+      });
+    }
+
     // Los tres contenedores de impresión tienen que estar ocultos en pantalla. A #print-informe
     // le faltaba la regla: como casi siempre está vacío no se notaba, pero al generar un informe
     // de ciclo el documento quedaba dibujado debajo de la app (lo vio Joel en producción).
