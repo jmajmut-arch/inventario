@@ -21,6 +21,8 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
 3. **Revisión visual** a 420 px de ancho: la mitad del uso es en celular, en terreno.
 4. **Advisor de seguridad de Supabase** después de cada migración (`get_advisors`), comparando
    contra los hallazgos ya conocidos e intencionales.
+5. **`select * from gucs_invalidos_en_funciones();`** después de cada migración que toque
+   funciones. Debe devolver cero filas.
 
 ## Base de datos
 
@@ -30,6 +32,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   `tipo_material` a `skus_lectura`, que no lo exponía, y un material existente aparecía como
   inexistente. Por eso existe `tests/esquema.test.js`; **tras cada migración que agregue o quite
   columnas hay que actualizar `tests/esquema-supabase.json`**.
+- **Un `set` de parámetro dentro del cuerpo de una función no se valida al crearla.** Postgres sí
+  rechaza el valor malo en `alter role`, en `alter database` y en la cláusula `SET` de una función,
+  pero dentro del cuerpo es texto que recién interpreta al ejecutarlo: la función se crea sin
+  chistar y falla en **cada** llamada. Pasó de verdad: `set local work_mem = '16mb'` (las unidades
+  distinguen mayúsculas, va `16MB`) devolvió 400 a un usuario en terreno durante 4 minutos, y no lo
+  detectó ninguna migración ni advisor — se supo por Sentry (JAVASCRIPT-7). Por eso existe
+  `gucs_invalidos_en_funciones()`, que prueba cada valor de verdad y devuelve los que Postgres
+  rechazaría.
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
