@@ -352,10 +352,18 @@ async function loguear(page, perfil){
     assert(sinDesborde, 'el detalle de la orden no debe desbordar a lo ancho en pantalla de celular');
     // "Recibir en Ingreso" lleva a la otra vista con las líneas pendientes ya cargadas.
     await page.click('[data-oc-recibir="oc-1"]');
-    await page.waitForSelector('#bd-orden-compra', { timeout:ESPERA });
+    // Esperar al DATO, no al elemento. El handler de data-oc-recibir hace setState({view:'ingreso'})
+    // y recién después await usarOrdenCompraEnIngreso(), que es quien pide las líneas al servidor:
+    // #bd-orden-compra existe con valor vacío desde el primer render. Con el mock respondiendo al
+    // instante casi siempre alcanzaba, pero en CI fallaba de a ratos -- el run 812 y el primer
+    // intento del PR #422 -- con un "obtuvo: " vacío que parecía un bug de la app y no lo era.
+    await page.waitForFunction(
+      () => { const el = document.getElementById('bd-orden-compra'); return !!el && el.value === 'oc-1'; },
+      null, { timeout:ESPERA });
     const ocElegida = await page.inputValue('#bd-orden-compra');
     assert(ocElegida==='oc-1', 'el Ingreso queda enganchado a la orden, obtuvo: '+ocElegida);
     assert(await page.inputValue('#bd-oc')==='OC-000007', 'el número de la orden se copia al documento');
+    await page.waitForSelector('.bd-costo', { timeout:ESPERA });
     const lineas = await page.$$eval('.bd-costo', els => els.length);
     assert(lineas===1, 'la línea pendiente se carga sola en el Ingreso, obtuvo: '+lineas);
     // Y el formulario de una orden nueva responde a los clicks reales.
