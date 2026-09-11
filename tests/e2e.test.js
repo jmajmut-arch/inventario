@@ -16,6 +16,13 @@ function assert(cond, msg){
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 8942;
+// Cuánto esperar a que aparezca un elemento. Acá la app lo dibuja en menos de un segundo, pero en
+// CI el runner arranca en frío --recién descargado Chromium-- y con 5 s la suite daba rojos falsos
+// sin que hubiera nada roto: pasó en el PR #421, donde el primer login expiró esperando .tabbar y
+// la re-ejecución del mismo commit pasó sin tocar una línea. Un rojo falso cada tantos merges
+// enseña a ignorar la suite, que es peor que no tenerla. 15 s sigue siendo 15 veces lo que tarda
+// de verdad, así que una falla real se sigue notando rápido.
+const ESPERA = Number(process.env.E2E_TIMEOUT_MS) || 15000;
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.png':'image/png', '.jpg':'image/jpeg', '.svg':'image/svg+xml' };
 
 function iniciarServidor(){
@@ -79,7 +86,7 @@ async function loguear(page, perfil){
   await page.fill('#f-email', 'ana@minera-andes.cl');
   await page.fill('#f-pass', '123456');
   await page.click('#auth-form button[type="submit"]');
-  await page.waitForSelector('.tabbar', { timeout:5000 });
+  await page.waitForSelector('.tabbar', { timeout:ESPERA });
 }
 
 (async () => {
@@ -283,18 +290,18 @@ async function loguear(page, perfil){
     await page.fill('#f-email', 'ana@minera-andes.cl');
     await page.fill('#f-pass', '123456');
     await page.click('#auth-form button[type="submit"]');
-    await page.waitForSelector('.tabbar', { timeout:5000 });
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
     await page.click('[data-ir-vista="reservas"]');
-    await page.waitForSelector('[data-reserva-ver="res-1"]', { timeout:5000 });
+    await page.waitForSelector('[data-reserva-ver="res-1"]', { timeout:ESPERA });
     assert(await page.isVisible('text=FALTA MATERIAL') || await page.isVisible('text=Falta material'), 'la reserva descubierta se avisa arriba de la lista');
     await page.click('[data-reserva-ver="res-1"]');
-    await page.waitForSelector('[data-reserva-comprar="res-1"]', { timeout:5000 });
+    await page.waitForSelector('[data-reserva-comprar="res-1"]', { timeout:ESPERA });
     assert(await page.isVisible('text=faltan 3'), 'el detalle muestra cuánto falta para cubrir la reserva');
     const sinDesbordeRes = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     assert(sinDesbordeRes, 'el detalle de la reserva no debe desbordar a lo ancho en pantalla de celular');
     // El atajo que cierra el ciclo: el faltante se convierte en una orden de compra.
     await page.click('[data-reserva-comprar="res-1"]');
-    await page.waitForSelector('[data-oc-cantidad]', { timeout:5000 });
+    await page.waitForSelector('[data-oc-cantidad]', { timeout:ESPERA });
     const cantidadOc = await page.inputValue('[data-oc-cantidad]');
     assert(cantidadOc==='3', 'la orden se arma con el faltante (3), no con lo reservado (15), obtuvo: '+cantidadOc);
     const obs = await page.inputValue('#oc-observacion');
@@ -334,18 +341,18 @@ async function loguear(page, perfil){
     await page.fill('#f-email', 'ana@minera-andes.cl');
     await page.fill('#f-pass', '123456');
     await page.click('#auth-form button[type="submit"]');
-    await page.waitForSelector('.tabbar', { timeout:5000 });
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
     // Se entra desde el Inicio de bodega, no desde la barra de pestañas (ya lleva cinco).
     await page.click('[data-ir-vista="ordenes"]');
-    await page.waitForSelector('[data-oc-ver="oc-1"]', { timeout:5000 });
+    await page.waitForSelector('[data-oc-ver="oc-1"]', { timeout:ESPERA });
     await page.click('[data-oc-ver="oc-1"]');
-    await page.waitForSelector('[data-oc-imprimir="oc-1"]', { timeout:5000 });
+    await page.waitForSelector('[data-oc-imprimir="oc-1"]', { timeout:ESPERA });
     assert(await page.isVisible('text=Marcela Ríos'), 'el detalle muestra el contacto del proveedor');
     const sinDesborde = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     assert(sinDesborde, 'el detalle de la orden no debe desbordar a lo ancho en pantalla de celular');
     // "Recibir en Ingreso" lleva a la otra vista con las líneas pendientes ya cargadas.
     await page.click('[data-oc-recibir="oc-1"]');
-    await page.waitForSelector('#bd-orden-compra', { timeout:5000 });
+    await page.waitForSelector('#bd-orden-compra', { timeout:ESPERA });
     const ocElegida = await page.inputValue('#bd-orden-compra');
     assert(ocElegida==='oc-1', 'el Ingreso queda enganchado a la orden, obtuvo: '+ocElegida);
     assert(await page.inputValue('#bd-oc')==='OC-000007', 'el número de la orden se copia al documento');
@@ -354,9 +361,9 @@ async function loguear(page, perfil){
     // Y el formulario de una orden nueva responde a los clicks reales.
     await page.click('[data-tab="inicio"]');
     await page.click('[data-ir-vista="ordenes"]');
-    await page.waitForSelector('#btn-nueva-orden', { timeout:5000 });
+    await page.waitForSelector('#btn-nueva-orden', { timeout:ESPERA });
     await page.click('#btn-nueva-orden');
-    await page.waitForSelector('#oc-proveedor', { timeout:5000 });
+    await page.waitForSelector('#oc-proveedor', { timeout:ESPERA });
     assert(await page.isVisible('#oc-buscar-sku'), 'el formulario de orden nueva trae el buscador de materiales');
     await context.close();
   }
@@ -384,11 +391,11 @@ async function loguear(page, perfil){
     await page.fill('#f-email', 'ana@minera-andes.cl');
     await page.fill('#f-pass', '123456');
     await page.click('#auth-form button[type="submit"]');
-    await page.waitForSelector('.tabbar', { timeout:5000 });
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
     await page.click('[data-tab="stock"]');
-    await page.waitForSelector('[data-transferir-sku]', { timeout:5000 });
+    await page.waitForSelector('[data-transferir-sku]', { timeout:ESPERA });
     await page.click('[data-transferir-sku]');
-    await page.waitForSelector('#transferencia-backdrop', { timeout:5000 });
+    await page.waitForSelector('#transferencia-backdrop', { timeout:ESPERA });
     assert(await page.isVisible('#tra-bodega'), 'el modal de traslado debe abrirse desde el botón Transferir de Stock');
     const opciones = await page.$$eval('#tra-bodega option', els => els.map(e=>e.value));
     assert(opciones.includes('Bodega Norte'), 'el modal ofrece las bodegas de destino, obtuvo: '+JSON.stringify(opciones));
