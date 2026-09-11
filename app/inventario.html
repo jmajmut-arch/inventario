@@ -4294,10 +4294,22 @@ async function agregarPlanPorSku({fecha, responsableId, nota}){
   if(fallidas) toast(`${fallidas} entrada${fallidas===1?'':'s'} no se pudo${fallidas===1?'':'ieron'} crear: ${ultimoError}`,'err');
 }
 
+// Zona que cubre una entrada del plan. Un solo lugar de verdad para la pantalla
+// (etiquetaUbicacionEntradaPlan) y para la hoja de conteo impresa (encabezadoEntradaPlan).
+// ubicacion_nula ("esta bodega, pero sin ubicación específica dentro de ella") tenía que verse:
+// sin él la entrada se leía como "B501" a secas, indistinguible de "toda la bodega B501", que es
+// una selección muchísimo más grande. Pasó de verdad en el plan del 14-09 de Escondida, donde esa
+// entrada traía 509 de los 595 materiales de la semana.
+function zonaEntradaPlan(e){
+  if(e.solo_sin_ubicacion) return 'SKU sin ubicación';
+  return [e.bodega, e.ubicacion_nula ? 'sin ubicación específica' : e.ubicacion, e.storage_bin]
+    .filter(Boolean).join(' · ') || 'Sin ubicación específica';
+}
+
 // Título de una entrada en Planificación: la zona que cubre, con el prefijo "Por código" cuando
 // la lista de SKU es explícita (por_sku) y la zona solo indica dónde están.
 function etiquetaUbicacionEntradaPlan(e){
-  const zona = e.solo_sin_ubicacion ? 'SKU sin ubicación' : ([e.bodega,e.ubicacion,e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica');
+  const zona = zonaEntradaPlan(e);
   return e.por_sku ? `Por código · ${zona}` : zona;
 }
 
@@ -9952,8 +9964,12 @@ function renderBuscar(){
   `;
 }
 
+// La hoja impresa usa exactamente el mismo título que la pantalla (etiquetaUbicacionEntradaPlan):
+// antes armaba la zona por su cuenta y se le perdían dos cosas que sí se ven en Planificación, el
+// "sin ubicación específica" de ubicacion_nula y el prefijo "Por código" de las entradas por_sku,
+// así que una lista curada de materiales se leía en terreno como un barrido de ubicación.
 function encabezadoEntradaPlan(e){
-  const ubic = e.solo_sin_ubicacion ? 'SKU sin ubicación' : ([e.bodega, e.ubicacion, e.storage_bin].filter(Boolean).join(' · ') || 'Sin ubicación específica');
+  const ubic = etiquetaUbicacionEntradaPlan(e);
   const partes = [`Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}`];
   if(e.nota) partes.push(`Nota: ${esc(e.nota)}`);
   return `<h3>${esc(ubic)}</h3><div class="print-entrada-meta">${partes.join(' · ')}</div>`;

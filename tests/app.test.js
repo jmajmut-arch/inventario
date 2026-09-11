@@ -2432,6 +2432,45 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(llamadasHoja.length===1 && JSON.parse(llamadasHoja[0].opts.body).p_plan_ids.includes('e1') && JSON.parse(llamadasHoja[0].opts.body).p_plan_ids.includes('e2'), 'imprimirPlan debe pedir la hoja de todas las entradas en UNA sola llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(!calls.some(c=>c.url.includes('/rpc/skus_universo_entrada_plan') && !c.url.includes('_lote') && c.opts && c.opts.body && c.opts.body.includes('p_plan_id"')), 'imprimirPlan ya no debe pedir el universo entrada por entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+  // ===== Título de la entrada: la pantalla y la hoja impresa dicen lo mismo =====
+  // Regresión de dos fallas reales encontradas revisando el plan del 14-09 de Escondida:
+  //  1. ubicacion_nula ("esta bodega, sin ubicación específica") se perdía y la entrada se leía
+  //     como "B501" a secas, indistinguible de "toda la bodega B501" — que es una selección
+  //     muchísimo más grande (509 materiales de los 595 de esa semana salían de esa sola entrada).
+  //  2. El PDF armaba la zona por su cuenta y se le caía el prefijo "Por código" de las entradas
+  //     por_sku, así que una lista curada de materiales se leía en terreno como un barrido de
+  //     ubicación completa. Ahora encabezadoEntradaPlan reusa etiquetaUbicacionEntradaPlan.
+  const entradaUbicNula = {id:'zn1', bodega:'B501', ubicacion:null, storage_bin:null, ubicacion_nula:true, solo_sin_ubicacion:false, por_sku:false, responsable_nombre:'Ana Torres'};
+  assert(ctx.etiquetaUbicacionEntradaPlan(entradaUbicNula)==='B501 · sin ubicación específica', 'una entrada ubicacion_nula debe decir "sin ubicación específica" y no solo la bodega, obtuvo: '+ctx.etiquetaUbicacionEntradaPlan(entradaUbicNula));
+  assert(ctx.encabezadoEntradaPlan(entradaUbicNula).includes('B501 · sin ubicación específica'), 'la hoja impresa de una entrada ubicacion_nula debe decir "sin ubicación específica", obtuvo: '+ctx.encabezadoEntradaPlan(entradaUbicNula));
+
+  // Con bin puntual dentro de esa misma bodega sin ubicación, el bin igual se muestra.
+  const entradaUbicNulaConBin = {...entradaUbicNula, storage_bin:'LD-P2-F3'};
+  assert(ctx.encabezadoEntradaPlan(entradaUbicNulaConBin).includes('B501 · sin ubicación específica · LD-P2-F3'), 'ubicacion_nula con bin debe mostrar los tres datos, obtuvo: '+ctx.encabezadoEntradaPlan(entradaUbicNulaConBin));
+
+  // Entrada por código: el PDF debe traer el mismo prefijo "Por código" que la pantalla.
+  const entradaPorCodigo = {id:'zn2', bodega:'B521', ubicacion:'0105', storage_bin:null, ubicacion_nula:false, solo_sin_ubicacion:false, por_sku:true, responsable_nombre:'Ana Torres'};
+  assert(ctx.etiquetaUbicacionEntradaPlan(entradaPorCodigo)==='Por código · B521 · 0105', 'la pantalla debe prefijar "Por código" en las entradas por_sku, obtuvo: '+ctx.etiquetaUbicacionEntradaPlan(entradaPorCodigo));
+  assert(ctx.encabezadoEntradaPlan(entradaPorCodigo).includes('Por código · B521 · 0105'), 'la hoja impresa también debe prefijar "Por código": si no, una lista curada se lee como un barrido de toda la ubicación, obtuvo: '+ctx.encabezadoEntradaPlan(entradaPorCodigo));
+
+  // Los casos que ya funcionaban no deben cambiar.
+  const entradaNormal = {id:'zn3', bodega:'B521', ubicacion:'0105', storage_bin:'SERCABOL', ubicacion_nula:false, solo_sin_ubicacion:false, por_sku:false, responsable_nombre:'Ana Torres'};
+  assert(ctx.etiquetaUbicacionEntradaPlan(entradaNormal)==='B521 · 0105 · SERCABOL', 'una entrada con bodega/ubicación/bin no debe cambiar, obtuvo: '+ctx.etiquetaUbicacionEntradaPlan(entradaNormal));
+  const entradaSuelta = {id:'zn4', bodega:null, ubicacion:null, storage_bin:null, ubicacion_nula:false, solo_sin_ubicacion:true, por_sku:false, responsable_nombre:'Ana Torres'};
+  assert(ctx.etiquetaUbicacionEntradaPlan(entradaSuelta)==='SKU sin ubicación', 'solo_sin_ubicacion debe seguir diciendo "SKU sin ubicación", obtuvo: '+ctx.etiquetaUbicacionEntradaPlan(entradaSuelta));
+  const entradaVacia = {id:'zn5', bodega:'', ubicacion:'', storage_bin:'', ubicacion_nula:false, solo_sin_ubicacion:false, por_sku:false, responsable_nombre:'Ana Torres'};
+  assert(ctx.etiquetaUbicacionEntradaPlan(entradaVacia)==='Sin ubicación específica', 'sin ningún dato de zona debe seguir el texto de respaldo, obtuvo: '+ctx.etiquetaUbicacionEntradaPlan(entradaVacia));
+
+  // La columna Storage bin de la hoja de conteo: existe y muestra el bin de cada material, con
+  // "—" solo cuando el maestro no lo trae (revisado con datos reales de Escondida).
+  const hojaBins = ctx.tablaSkusEntradaPlan([
+    {sku_code:'10417033', descripcion:'SWITCH,PROX', storage_bin:'N1E-608-B3', unidad_medida:'EA', clase_abc:'A', critico:true},
+    {sku_code:'10006150', descripcion:'NUT,HEX', storage_bin:null, unidad_medida:'EA', clase_abc:'C', critico:false},
+  ]);
+  assert(hojaBins.includes('<th>Storage bin</th>'), 'la hoja de conteo debe traer la columna Storage bin, obtuvo: '+hojaBins);
+  assert(hojaBins.includes('<td>N1E-608-B3</td>'), 'la hoja de conteo debe imprimir el storage bin del material, obtuvo: '+hojaBins);
+  assert((hojaBins.match(/<td>—<\/td>/g)||[]).length>=1, 'un material sin storage bin en el maestro debe salir como "—", no en blanco, obtuvo: '+hojaBins);
+
   // actualizarPlanEntrada debe hacer PATCH con fecha, responsable_id y nota, y limpiar el estado de edición.
   ctx.__appstate.plan.editando = 'e1';
   ctx.__appstate.calendario = {...ctx.__appstate.calendario, cargado:true};
