@@ -395,6 +395,76 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Bodega: escribir sin perder el cursor ni lo tecleado =====
+  // Bug reportado por Joel ("en varios lados del módulo de bodega se pierde el cursor cuando estoy
+  // escribiendo"). buscarSkuBodega renderiza al empezar a buscar y otra vez al llegar los
+  // resultados, y render() rehace todo el DOM: se iba el foco Y el texto. Medido antes del
+  // arreglo: al teclear "BOD-001" quedaba escrito solo "B", en Ingreso, Reservas y Órdenes.
+  // Esto solo se ve con un navegador de verdad, por eso la prueba vive acá y no en app.test.js.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('foco-bodega: '+err.message));
+    const perfilBodega = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilBodega.empresas.modulo_bodega_habilitado = true;
+    await mockearSupabaseApp(page, perfilBodega);
+    // Con latencia, como un servidor real: es en esa ventana donde se perdía lo tecleado.
+    await page.route('**/rest/v1/skus_lectura**', async route => {
+      await new Promise(r => setTimeout(r, 120));
+      return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+        { id:'s1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Bodega Central', ubicacion:null,
+          storage_bin:'R-1', batch:null, stock_sistema:5, unidad_medida:'UN', costo_unitario:1000,
+          tipo_material:'Repuesto' },
+      ]) });
+    });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+
+    await page.click('[data-ir-vista="ingreso"]');
+    await page.waitForSelector('#bd-sku', { timeout:ESPERA });
+    await page.click('#bd-sku');
+    // Tecla por tecla con pausas MAYORES al debounce de 250 ms: así la búsqueda dispara mientras
+    // se sigue escribiendo, que es justo lo que hace alguien tecleando un código en terreno.
+    let perdioElFoco = 0;
+    for(const ch of 'BOD-001'){
+      await page.keyboard.type(ch);
+      await page.waitForTimeout(300);
+      const activo = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      if(activo !== 'bd-sku') perdioElFoco++;
+    }
+    assert(perdioElFoco === 0, `el buscador de material no debe perder el foco al escribir, lo perdió ${perdioElFoco} de 7 veces`);
+    const tecleado = await page.inputValue('#bd-sku');
+    assert(tecleado === 'BOD-001', `debe quedar todo lo tecleado en el buscador, obtuvo: "${tecleado}"`);
+
+    // Lo de al lado: si se escribe en otro campo mientras llega el resultado, ese texto tampoco se
+    // puede perder, y el foco NO se lo puede robar el buscador de vuelta.
+    await page.click('#bd-sku');
+    await page.keyboard.type('FIL');
+    await page.click('#bd-obs');
+    await page.keyboard.type('Carga de prueba');
+    await page.waitForTimeout(900);
+    const trasBuscar = await page.evaluate(() => ({
+      activo: document.activeElement && document.activeElement.id,
+      obs: (document.getElementById('bd-obs') || {}).value,
+    }));
+    assert(trasBuscar.activo === 'bd-obs', `el resultado de la búsqueda no debe robarle el foco al campo que se está escribiendo, quedó en: ${trasBuscar.activo}`);
+    assert(trasBuscar.obs === 'Carga de prueba', `lo escrito en Observación no se puede perder al llegar el resultado, obtuvo: "${trasBuscar.obs}"`);
+
+    // Y el cursor vuelve donde estaba, no al final: si no, escribir en medio de un código es un suplicio.
+    await page.evaluate(() => { const el = document.getElementById('bd-sku'); el.value = 'FILTRO'; el.dispatchEvent(new Event('input', {bubbles:true})); });
+    await page.waitForTimeout(900);
+    await page.evaluate(() => { const el = document.getElementById('bd-sku'); el.focus(); el.setSelectionRange(3, 3); });
+    await page.keyboard.type('X');
+    await page.waitForTimeout(900);
+    const enMedio = await page.evaluate(() => { const el = document.getElementById('bd-sku'); return { valor: el.value, cursor: el.selectionStart }; });
+    assert(enMedio.valor === 'FILXTRO', `escribir en medio debe insertar donde está el cursor, obtuvo: "${enMedio.valor}"`);
+    assert(enMedio.cursor === 4, `el cursor debe quedar donde estaba, no saltar al final, obtuvo: ${enMedio.cursor}`);
+    await context.close();
+  }
+
   // ===== Bodega: el botón Transferir del maestro de Stock abre el modal de traslado =====
   // En el sandbox de unit tests las funciones se llaman directo; acá se prueba el cableado real:
   // que el listener esté registrado en la vista donde de verdad vive el botón.
