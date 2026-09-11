@@ -1010,6 +1010,20 @@ const fakeFetchImpl = async (url, opts) => {
        cantidad:4, costo_unitario:54500, recibido:5, pendiente:0, exceso:1, total_linea:218000},
     ]) };
   }
+  // El buscador de material de la orden de compra: devuelve lo mismo que skus_lectura más el
+  // historial del proveedor, y con los suyos primero. BOD-001 ya se le compró; BOD-002 no.
+  if(path.startsWith('/rest/v1/rpc/buscar_skus_para_orden')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Bodega Central', ubicacion:null,
+       storage_bin:'R-1', batch:null, stock_sistema:12, unidad_medida:'UN', costo_unitario:1000,
+       tipo_material:'Repuesto', del_proveedor:true, ultimo_costo_proveedor:2500,
+       ultima_compra_fecha:'2026-09-10', veces_comprado:3},
+      {id:'sku-b2', sku_code:'BOD-002', descripcion:'Guante', bodega:'Bodega Central', ubicacion:null,
+       storage_bin:'R-2', batch:null, stock_sistema:22, unidad_medida:'PAR', costo_unitario:54500,
+       tipo_material:'Consumible', del_proveedor:false, ultimo_costo_proveedor:null,
+       ultima_compra_fecha:null, veces_comprado:null},
+    ]) };
+  }
   if(path.startsWith('/rest/v1/rpc/registrar_orden_compra') || path.startsWith('/rest/v1/rpc/actualizar_orden_compra')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({orden:{id:'oc-1', numero:'OC-000007'}, lineas:[], repetido:false}) };
   }
@@ -7588,6 +7602,62 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.ordenes.form.lineas.length===1 && JSON.stringify(elements['toast-root'].hijos).includes('ya está en la orden'), 'el mismo material no entra dos veces, obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.form.lineas));
     // El costo del maestro viene sugerido, para no tipearlo de nuevo.
     assert(ctx.__appstate.ordenes.form.lineas[0].costo_unitario==='2500', 'la línea nueva sugiere el costo del maestro, obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.form.lineas[0]));
+
+    // ===== Con el proveedor elegido, primero lo que ya se le compró =====
+    // Idea de Joel: al generar la orden, que los materiales sean los de ese proveedor. Se PRIORIZA,
+    // no se filtra: un material que nunca se le compró no aparecería nunca y por lo tanto no se le
+    // podría comprar jamás, y cotizar el mismo material a dos proveedores sería imposible.
+    ctx.__appstate.view = 'ordenes';
+    ctx.abrirNuevaOrdenCompra();
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:'prov-1'};
+    calls.length = 0;
+    await ctx.buscarSkuBodega('BOD');
+    const llamadaProv = calls.find(c=>c.url.includes('/rpc/buscar_skus_para_orden'));
+    assert(llamadaProv, 'con el proveedor elegido la búsqueda va por la función que conoce su historial, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/skus_lectura')), 'y NO hace además la consulta de siempre: sería una ida y vuelta extra por cada tecla');
+    const cuerpoBusqueda = JSON.parse(llamadaProv.opts.body);
+    assert(cuerpoBusqueda.p_texto==='BOD' && cuerpoBusqueda.p_proveedor_id==='prov-1', 'se le manda el texto y el proveedor, obtuvo: '+JSON.stringify(cuerpoBusqueda));
+
+    const htmlProv = ctx.resultadosSkuBodegaHTML('ordenes');
+    const posGrupo = htmlProv.indexOf('Ya comprados a este proveedor');
+    const posSuyo = htmlProv.indexOf('BOD-001');
+    const posOtros = htmlProv.indexOf('Otros materiales');
+    const posAjeno = htmlProv.indexOf('BOD-002');
+    assert(posGrupo >= 0 && posGrupo < posSuyo && posSuyo < posOtros && posOtros < posAjeno,
+      'los del proveedor van primero bajo su título y los demás quedan abajo, obtuvo: '+JSON.stringify({posGrupo, posSuyo, posOtros, posAjeno}));
+    assert(posAjeno >= 0, 'el material que NUNCA se le compró tiene que seguir apareciendo: si no, no habría forma de comprárselo la primera vez');
+    assert(htmlProv.includes('$2.500') && htmlProv.includes('3 veces'), 'la insignia dice a cuánto y cuántas veces se le compró, obtuvo: '+htmlProv.slice(posGrupo, posGrupo+700));
+
+    // El precio que se propone es el de la última compra a ESE proveedor, no el del maestro: el
+    // mismo material vale distinto según a quién se le compre.
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, lineas:[]};
+    ctx.agregarLineaOrdenCompra({id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', costo_unitario:1000, ultimo_costo_proveedor:2500});
+    assert(ctx.__appstate.ordenes.form.lineas[0].costo_unitario==='2500', 'la línea toma el precio de la última compra a ese proveedor (2500), no el del maestro (1000), obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.form.lineas[0]));
+    ctx.agregarLineaOrdenCompra({id:'sku-b2', sku_code:'BOD-002', descripcion:'Guante', unidad_medida:'PAR', costo_unitario:54500, ultimo_costo_proveedor:null});
+    assert(ctx.__appstate.ordenes.form.lineas[1].costo_unitario==='54500', 'y si nunca se le compró, se cae al costo del maestro, obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.form.lineas[1]));
+
+    // Sin proveedor elegido, todo sigue exactamente como antes.
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:''};
+    calls.length = 0;
+    await ctx.buscarSkuBodega('BOD');
+    assert(calls.some(c=>c.url.includes('/skus_lectura')) && !calls.some(c=>c.url.includes('/rpc/buscar_skus_para_orden')), 'sin proveedor elegido se usa la consulta de siempre, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const htmlSinProv = ctx.resultadosSkuBodegaHTML('ordenes');
+    assert(!htmlSinProv.includes('Ya comprados a este proveedor') && !htmlSinProv.includes('Otros materiales'), 'y sin proveedor no se arman grupos');
+
+    // Y un formulario de orden que quedó abierto en el estado no puede cambiarle la búsqueda a
+    // Ingreso: al salir de Órdenes el formulario no se limpia.
+    ctx.__appstate.view = 'ingreso';
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:'prov-1'};
+    calls.length = 0;
+    await ctx.buscarSkuBodega('BOD');
+    assert(!calls.some(c=>c.url.includes('/rpc/buscar_skus_para_orden')) && calls.some(c=>c.url.includes('/skus_lectura')), 'en Ingreso manda la vista, no el formulario que quedó abierto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!ctx.resultadosSkuBodegaHTML('ingreso').includes('Ya comprados a este proveedor'), 'ni la pantalla de Ingreso dibuja los grupos de la orden de compra');
+
+    // Se deja el formulario como estaba para lo que sigue.
+    ctx.__appstate.view = 'ordenes';
+    ctx.abrirNuevaOrdenCompra();
+    ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:'prov-1'};
+    ctx.agregarLineaOrdenCompra({id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', costo_unitario:2500});
 
     // Una línea sin cantidad frena el guardado, con el código en el mensaje.
     elements['toast-root'].hijos.length = 0;

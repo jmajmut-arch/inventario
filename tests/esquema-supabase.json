@@ -137,6 +137,14 @@
       "grupo_nombre",
       "total_miembros"
     ],
+    "historial_compras_proveedor": [
+      "empresa_id",
+      "proveedor_id",
+      "sku_id",
+      "ultima_fecha",
+      "veces",
+      "ultimo_costo"
+    ],
     "informes_ciclo": [
       "ciclo_id",
       "ciclo_nombre",

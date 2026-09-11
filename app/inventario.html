@@ -5429,26 +5429,43 @@ let bodegaBusquedaSecuencia = 0;
 // usa el buscador de Inventario (actualizarResultadosBuscadorLibreEnPantalla).
 // Las tres vistas comparten state.bodega.busqueda y solo una está en pantalla a la vez, así que
 // comparten también el id del contenedor y esta función elige qué dibujar.
-// `esIngresoExplicito` lo pasa renderDocumentoBodega: ahí el tipo lo manda el argumento de esa
-// función, no la vista. El repintado dirigido no lo tiene y lo deduce del estado.
-function resultadosSkuBodegaHTML(esIngresoExplicito){
+// `modo` dice qué pantalla está dibujando: 'ingreso', 'salida', 'ordenes' o 'reservas'. Lo pasa
+// quien llama porque el estado no alcanza para deducirlo: el formulario de una orden de compra
+// puede quedar abierto en state mientras la persona está en Ingreso, y ahí mandaría el formulario
+// equivocado. Si no viene, se deduce de la vista.
+function resultadosSkuBodegaHTML(modo){
   const b = state.bodega; const q = b.busqueda;
-  const esDocumento = esIngresoExplicito !== undefined;
-  if(!esDocumento && state.ordenes.form) return `${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
-      ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
-      ${q.resultados.length ? `<div style="margin-top:8px">${q.resultados.map(r=>`
+  const pantalla = modo || state.view;
+  // Órdenes de compra: con el proveedor elegido, primero los materiales que ya se le compraron,
+  // con la fecha y el precio de esa última compra. Los demás siguen apareciendo abajo: filtrarlos
+  // dejaría sin comprar lo que nunca se le ha comprado, y haría imposible cotizar el mismo
+  // material a dos proveedores. Sin proveedor elegido no hay grupos y se ve como siempre.
+  if(pantalla === 'ordenes' && state.ordenes.form){
+    const plata = n => '$'+Math.round(Number(n)||0).toLocaleString('es-CL');
+    const fila = r => `
         <div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div style="flex:1;min-width:160px"><div class="mono" style="font-size:12px">${esc(r.sku_code)}</div><div class="hint" style="margin:2px 0 0">${esc(r.descripcion||'')}</div></div>
-          <button type="button" class="btn btn-secondary" data-oc-agregar='${esc(JSON.stringify({id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, unidad_medida:r.unidad_medida, costo_unitario:r.costo_unitario}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Agregar</button>
-        </div>`).join('')}</div>` : ''}`;
-  if(!esDocumento && state.reservas.form) return `${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
+          <div style="flex:1;min-width:160px">
+            <div class="mono" style="font-size:12px">${esc(r.sku_code)}</div>
+            <div class="hint" style="margin:2px 0 0">${esc(r.descripcion||'')}</div>
+            ${r.del_proveedor ? `<div class="hint" style="margin:2px 0 0;color:var(--ok)">${r.ultimo_costo_proveedor!=null ? `Última compra ${plata(r.ultimo_costo_proveedor)}` : 'Ya se le compró'}${r.ultima_compra_fecha ? ` · ${fmtFecha(r.ultima_compra_fecha)}` : ''}${Number(r.veces_comprado)>1 ? ` · ${r.veces_comprado} veces` : ''}</div>` : ''}
+          </div>
+          <button type="button" class="btn btn-secondary" data-oc-agregar='${esc(JSON.stringify({id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, unidad_medida:r.unidad_medida, costo_unitario:r.costo_unitario, ultimo_costo_proveedor:r.ultimo_costo_proveedor}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Agregar</button>
+        </div>`;
+    const suyos = q.resultados.filter(r=>r.del_proveedor);
+    const otros = q.resultados.filter(r=>!r.del_proveedor);
+    return `${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
+      ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
+      ${suyos.length ? `<div class="eyebrow" style="margin:10px 0 0">Ya comprados a este proveedor</div><div>${suyos.map(fila).join('')}</div>` : ''}
+      ${otros.length ? `${suyos.length ? '<div class="eyebrow" style="margin:12px 0 0">Otros materiales</div>' : ''}<div style="margin-top:8px">${otros.map(fila).join('')}</div>` : ''}`;
+  }
+  if(pantalla === 'reservas' && state.reservas.form) return `${q.buscando ? '<div class="hint">Buscando…</div>' : ''}
       ${q.error ? `<div class="hint" style="color:var(--danger)">${esc(q.error)}</div>` : ''}
       ${q.resultados.length ? `<div style="margin-top:8px">${q.resultados.map(x=>`
         <div class="plan-item" style="padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="flex:1;min-width:160px"><div class="mono" style="font-size:12px">${esc(x.sku_code)}</div><div class="hint" style="margin:2px 0 0">${esc(x.descripcion||'')} · stock ${x.stock_sistema==null?'—':x.stock_sistema}</div></div>
           <button type="button" class="btn btn-secondary" data-res-agregar='${esc(JSON.stringify({id:x.id, sku_code:x.sku_code, descripcion:x.descripcion, unidad_medida:x.unidad_medida, stock_sistema:x.stock_sistema}))}' style="width:auto;flex:none;padding:6px 12px;font-size:12px">Apartar</button>
         </div>`).join('')}</div>` : ''}`;
-  const esIngreso = esDocumento ? esIngresoExplicito : state.view === 'ingreso';
+  const esIngreso = pantalla === 'ingreso';
   return `${q.buscando ? `<div class="hint">Buscando…</div>` : ''}
       ${q.error ? `<div class="hint" style="color:var(--danger)">No se pudo buscar: ${esc(q.error)}</div>` : ''}
       ${q.resultados.length ? `<div class="sku-picks" style="margin-top:6px">${q.resultados.map(s=>`
@@ -5462,10 +5479,7 @@ function resultadosSkuBodegaHTML(esIngresoExplicito){
 function actualizarResultadosSkuBodega(){
   const cont = document.getElementById('sku-bodega-resultados');
   if(!cont){ render(); return; } // no estamos en una vista con buscador: render normal
-  // Mismo criterio que el router: 'ingreso' y 'salida' dibujan un documento; el resto se deduce
-  // del formulario abierto.
-  const esDocumento = state.view === 'ingreso' || state.view === 'salida';
-  cont.innerHTML = esDocumento ? resultadosSkuBodegaHTML(state.view === 'ingreso') : resultadosSkuBodegaHTML();
+  cont.innerHTML = resultadosSkuBodegaHTML(state.view);
   bindResultadosSkuBodega();
 }
 
@@ -5507,8 +5521,17 @@ async function buscarSkuBodega(texto){
   state.bodega.busqueda = {texto, resultados: t.length>=2 ? state.bodega.busqueda.resultados : [], buscando: t.length>=2, error:null};
   actualizarResultadosSkuBodega();
   if(t.length<2) return;
+  // Con el proveedor elegido la búsqueda va por buscar_skus_para_orden: trae lo mismo más el
+  // historial de ese proveedor y ya ordenado. Es UNA sola llamada, igual que antes: pedir el
+  // historial aparte sumaría una ida y vuelta por cada tecla. Sin proveedor, la consulta de
+  // siempre, sin cambios.
+  // Se pregunta también por la vista: el formulario de la orden puede quedar abierto en el estado
+  // después de irse a Ingreso, y ahí el orden por proveedor no corresponde.
+  const proveedorDeLaOrden = (state.view === 'ordenes' && state.ordenes.form) ? (state.ordenes.form.proveedorId || '') : '';
   try{
-    const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
+    const rows = (proveedorDeLaOrden
+      ? await rest('/rpc/buscar_skus_para_orden', {method:'POST', body:{p_texto: t, p_proveedor_id: proveedorDeLaOrden, p_limite: 6}})
+      : await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`)) || [];
     if(seq!==bodegaBusquedaSecuencia) return;
     // El texto se toma del estado, no del parámetro: entre que salió la consulta y volvió, la
     // persona pudo seguir escribiendo, y reponer el valor viejo le borraría esas teclas.
@@ -6076,7 +6099,11 @@ function agregarLineaOrdenCompra(sku){
   state.bodega.busqueda = {texto:'', resultados:[], buscando:false, error:null};
   setState({ordenes:{...state.ordenes, form:{...f, lineas:[...f.lineas, {
     sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, unidad_medida: sku.unidad_medida,
-    cantidad:'', costo_unitario: sku.costo_unitario!=null ? String(sku.costo_unitario) : '',
+    // El precio que se propone es el de la última compra a este proveedor, no el costo del
+    // maestro: el mismo material vale distinto según a quién se le compre. Si nunca se le ha
+    // comprado, se cae al costo de siempre.
+    cantidad:'', costo_unitario: sku.ultimo_costo_proveedor!=null ? String(sku.ultimo_costo_proveedor)
+      : (sku.costo_unitario!=null ? String(sku.costo_unitario) : ''),
   }]}}});
 }
 
@@ -11568,7 +11595,7 @@ function renderReservaForm(){
     <div class="card">
       <span class="eyebrow">Materiales por apartar</span>
       <input type="text" id="res-buscar-sku" placeholder="Busca por código o descripción" value="${esc(q.texto)}" autocomplete="off" style="margin:8px 0 0">
-      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML()}</div>
+      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML('reservas')}</div>
       ${f.cargandoLineas ? '<div class="hint" style="margin-top:10px">Cargando los materiales de la reserva…</div>' : ''}
       ${f.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Material</th><th class="num">En bodega</th><th class="num">Apartar</th><th></th></tr></thead>
@@ -11737,7 +11764,7 @@ function renderOrdenCompraForm(){
     <div class="card">
       <span class="eyebrow">Materiales</span>
       <input type="text" id="oc-buscar-sku" placeholder="Busca por código o descripción" value="${esc(q.texto)}" autocomplete="off" style="margin:8px 0 0">
-      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML()}</div>
+      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML('ordenes')}</div>
       ${f.cargandoLineas ? '<div class="hint" style="margin-top:10px">Cargando las líneas de la orden…</div>' : ''}
       ${f.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Material</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Total</th><th></th></tr></thead>
@@ -11937,7 +11964,7 @@ function renderDocumentoBodega(tipo){
         <input type="text" id="bd-sku" style="flex:1" placeholder="Ej. 4400-1123 o filtro" value="${esc(q.texto)}" autocomplete="off">
         <button type="button" id="btn-escanear-bodega" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
       </div>
-      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML(esIngreso)}</div>
+      <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML(tipo)}</div>
       ${esIngreso && b.nuevoSku ? `<form id="form-nuevo-sku-bodega" class="card" style="margin-top:10px;background:var(--bg)">
         <div class="hint" style="margin-bottom:8px"><strong>SKU nuevo.</strong> Nace con stock 0; este ingreso le pone el saldo.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -12833,7 +12860,18 @@ function bind(){
     if(o.form){
       const campo = (id, clave) => { const el = document.getElementById(id); if(el) el.addEventListener('input', ev=>{ state.ordenes.form = {...state.ordenes.form, [clave]: ev.target.value}; }); };
       const sel = document.getElementById('oc-proveedor');
-      if(sel) sel.addEventListener('change', ev=>{ state.ordenes.form = {...state.ordenes.form, proveedorId: ev.target.value}; });
+      if(sel) sel.addEventListener('change', ev=>{
+        const habiaLineas = (state.ordenes.form.lineas||[]).length;
+        const cambioDeProveedor = !!state.ordenes.form.proveedorId && state.ordenes.form.proveedorId !== ev.target.value;
+        state.ordenes.form = {...state.ordenes.form, proveedorId: ev.target.value};
+        // Las líneas no se borran: son decisión de quien compra. Pero los precios los propuso el
+        // proveedor anterior, así que hay que decirlo en vez de dejarlo pasar en silencio.
+        if(habiaLineas && cambioDeProveedor) toast('Cambiaste de proveedor: revisa los precios de las líneas ya agregadas','warn');
+        // Los resultados en pantalla son del proveedor anterior: se rehace la búsqueda para que el
+        // orden, las insignias y los precios correspondan al que se acaba de elegir.
+        const q = state.bodega.busqueda;
+        if(q && sanearTextoFiltro(q.texto).length>=2) buscarSkuBodega(q.texto);
+      });
       campo('oc-fecha-esperada','fechaEsperada'); campo('oc-condiciones','condicionesPago');
       campo('oc-lugar','lugarEntrega'); campo('oc-observacion','observacion');
       const iva = document.getElementById('oc-afecta-iva');
