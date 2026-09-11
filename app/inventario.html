@@ -5424,20 +5424,30 @@ let bodegaBusquedaSecuencia = 0;
 async function buscarSkuBodega(texto){
   const t = sanearTextoFiltro(texto);
   const seq = ++bodegaBusquedaSecuencia;
+  // Guardar lo que la persona haya escrito en el documento ANTES de repintar: si no, el re-render
+  // repone Observación, Nº de guía o el costo de una línea desde un estado viejo y borra lo
+  // tecleado. Conservar el foco sin conservar el texto sería peor: el cursor se queda donde
+  // estaba y las letras desaparecen. En Reservas y Órdenes no hace nada (esos campos no existen
+  // ahí, y sus formularios ya escriben a estado en cada tecla).
+  capturarCamposDocumentoBodega();
   state.bodega.busqueda = {texto, resultados: t.length>=2 ? state.bodega.busqueda.resultados : [], buscando: t.length>=2, error:null};
-  render();
+  renderConservandoFoco();
   if(t.length<2) return;
   try{
     const rows = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) || [];
     if(seq!==bodegaBusquedaSecuencia) return;
-    state.bodega.busqueda = {texto, resultados: rows, buscando:false, error:null};
-    render();
+    // El texto se toma del estado, no del parámetro: entre que salió la consulta y volvió, la
+    // persona pudo seguir escribiendo, y reponer el valor viejo le borraría esas teclas.
+    capturarCamposDocumentoBodega();
+    state.bodega.busqueda = {texto: state.bodega.busqueda.texto, resultados: rows, buscando:false, error:null};
+    renderConservandoFoco();
   }catch(e){
     // Antes se tragaba el error y la pantalla decía "Sin resultados": un fallo del servidor
     // (por ejemplo una columna que la vista no expone) parecía que el material no existía.
     if(seq!==bodegaBusquedaSecuencia) return;
-    state.bodega.busqueda = {texto, resultados: [], buscando:false, error: pareceFalloDeRed(e) ? 'Sin conexión: no se pudo buscar.' : e.message};
-    render();
+    capturarCamposDocumentoBodega();
+    state.bodega.busqueda = {texto: state.bodega.busqueda.texto, resultados: [], buscando:false, error: pareceFalloDeRed(e) ? 'Sin conexión: no se pudo buscar.' : e.message};
+    renderConservandoFoco();
   }
 }
 
@@ -12239,7 +12249,9 @@ function bindDocumentoBodega(){
   const inputSku = document.getElementById('bd-sku');
   if(inputSku){
     let timer = null;
-    inputSku.addEventListener('input', e=>{ capturarCamposDocumentoBodega(); clearTimeout(timer); const v = e.target.value; timer = setTimeout(()=> buscarSkuBodega(v), 250); });
+    // El texto va al estado en CADA tecla, sin render: si no, el re-render que dispara la búsqueda
+    // repinta el campo con el valor de hace 250 ms y se pierde lo tecleado desde entonces.
+    inputSku.addEventListener('input', e=>{ capturarCamposDocumentoBodega(); const v = e.target.value; state.bodega.busqueda = {...state.bodega.busqueda, texto: v}; clearTimeout(timer); timer = setTimeout(()=> buscarSkuBodega(v), 250); });
     inputSku.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); capturarCamposDocumentoBodega(); buscarSkuBodega(e.target.value); } });
   }
   const btnEsc = document.getElementById('btn-escanear-bodega');
@@ -12379,6 +12391,27 @@ function tabBtn(view,label){
 /* =======================================================================
    RENDER PRINCIPAL + BINDINGS
    ======================================================================= */
+// render() reconstruye todo el DOM, así que cualquier re-render mientras alguien escribe le quita
+// el foco y el cursor. En bodega pasaba de verdad: el buscador de material renderiza al empezar a
+// buscar y otra vez al llegar los resultados, y eso botaba el foco del campo que se estuviera
+// escribiendo -- el propio buscador, pero también Observación, Nº de guía o el costo de una línea,
+// si el resultado llegaba en ese momento. Medido en navegador: al teclear "BOD-001" en Ingreso,
+// Reservas u Órdenes quedaba escrito solo "B".
+// Esto recuerda qué campo estaba enfocado y en qué posición, y lo restituye después de render().
+// Solo devuelve el foco al MISMO elemento que ya lo tenía: nunca se lo roba a otro campo.
+function renderConservandoFoco(){
+  const antes = document.activeElement;
+  const id = antes && antes.id ? antes.id : null;
+  let pos = null;
+  if(id){ try{ pos = antes.selectionStart; }catch(e){ /* el campo no admite selección (select, etc.) */ } }
+  render();
+  if(!id) return;
+  const el = document.getElementById(id);
+  if(!el || document.activeElement === el) return;
+  el.focus();
+  if(pos !== null && el.setSelectionRange){ try{ el.setSelectionRange(pos, pos); }catch(e){ /* idem */ } }
+}
+
 function render(){
   document.documentElement.setAttribute('data-tema', state.tema);
   if(state.session && state.perfil && state.view !== vistaAseguradaAnterior){
@@ -12670,7 +12703,7 @@ function bind(){
       const buscar = document.getElementById('res-buscar-sku');
       if(buscar){
         let timerRes = null;
-        buscar.addEventListener('input', e=>{ clearTimeout(timerRes); const v = e.target.value; timerRes = setTimeout(()=> buscarSkuBodega(v), 250); });
+        buscar.addEventListener('input', e=>{ const v = e.target.value; state.bodega.busqueda = {...state.bodega.busqueda, texto: v}; clearTimeout(timerRes); timerRes = setTimeout(()=> buscarSkuBodega(v), 250); });
         buscar.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); buscarSkuBodega(e.target.value); } });
       }
       document.querySelectorAll('[data-res-agregar]').forEach(btn=> btn.addEventListener('click', ()=> agregarLineaReserva(JSON.parse(btn.dataset.resAgregar))));
@@ -12727,7 +12760,7 @@ function bind(){
       const buscar = document.getElementById('oc-buscar-sku');
       if(buscar){
         let timerOc = null;
-        buscar.addEventListener('input', e=>{ clearTimeout(timerOc); const v = e.target.value; timerOc = setTimeout(()=> buscarSkuBodega(v), 250); });
+        buscar.addEventListener('input', e=>{ const v = e.target.value; state.bodega.busqueda = {...state.bodega.busqueda, texto: v}; clearTimeout(timerOc); timerOc = setTimeout(()=> buscarSkuBodega(v), 250); });
         buscar.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); buscarSkuBodega(e.target.value); } });
       }
       document.querySelectorAll('[data-oc-agregar]').forEach(btn=> btn.addEventListener('click', ()=> agregarLineaOrdenCompra(JSON.parse(btn.dataset.ocAgregar))));
