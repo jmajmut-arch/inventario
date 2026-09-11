@@ -789,8 +789,10 @@ const VISTAS_ANCHAS = [...VISTAS_SOLO_ADMIN, 'config', 'calendario', 'movimiento
 // Clasificación de manejo del material (pedido de Joel). En la base es texto libre: una empresa
 // puede traer los suyos desde el Excel; esta lista es la que ofrece la app.
 const TIPOS_MATERIAL = ['EPP', 'Repuesto', 'Sustancia peligrosa', 'Componente', 'Otros'];
-// 'mover' no entra acá a propósito: es maestro de materiales, no del módulo de bodega. Aparece
-// en las dos barras de abajo, y una empresa sin bodega no debe cambiar de barra al abrirla.
+// 'mover' no entra acá para que la barra de abajo no cambie al abrirlo, pero SÍ es del módulo de
+// bodega: mover material entre bins solo tiene sentido con bodega andando (decisión de Joel). El
+// botón de la fila en SKUs quedaba abierto a cualquier admin -- ver moduloBodegaActivo() en
+// renderSkus y en el enrutador.
 // 'ordenes' tampoco tiene pestaña propia: se entra desde el Inicio de bodega.
 const VISTAS_BODEGA = ['inicio', 'ingreso', 'salida', 'movimientos', 'stock', 'reportes', 'ordenes', 'reservas'];
 function moduloBodegaActivo(){
@@ -1387,7 +1389,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,modulo_bodega_habilitado,bodega_funciones,logo,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -3558,6 +3560,35 @@ async function actualizarConteoCiego(activo){
 }
 function ocultarStockOperador(){
   return !!(state.perfil && state.perfil.rol==='operador' && state.perfil.empresas && state.perfil.empresas.conteo_ciego_habilitado);
+}
+
+// Materiales con stock 0 en el plan de conteo. El ERP manda filas con existencia cero (el mismo
+// material aparece con su bin y su stock real, y otra vez vacío): en el plan del 14-09 de
+// Escondida eran 490 de 595, y la hoja parecía rota. Apagarlo los deja fuera del universo del
+// plan. En la base lo aplica skus_planificables vía plan_incluye_stock_cero(), así que el contador
+// de pendientes que se ve al planificar dice lo mismo que después trae la entrada.
+// Parte encendido en todas las empresas: publicar esto no cambia ningún plan ya creado.
+function planIncluyeStockCero(){
+  const e = state.perfil && state.perfil.empresas;
+  return !(e && e.plan_incluye_stock_cero === false);
+}
+async function actualizarStockCeroEnPlan(activo){
+  if(!state.perfil || !state.perfil.empresa_id) return;
+  try{
+    await rest(`/empresas?id=eq.${state.perfil.empresa_id}`, {method:'PATCH', body:{plan_incluye_stock_cero:activo}, prefer:'return=minimal'});
+    state.perfil.empresas.plan_incluye_stock_cero = activo;
+    toast(activo? 'El plan vuelve a incluir los materiales con stock 0' : 'El plan ya no incluye los materiales con stock 0');
+    // El universo del plan cambió: lo que esté dibujado con los números viejos queda mintiendo.
+    // 'contarPlan' no es una clave de CARGADORES: se marca no cargado para que se vuelva a pedir
+    // al entrar a Contar, en vez de quedarse con el universo anterior.
+    setState({
+      plan:{...state.plan, universos:{}, propios:{}, detalle:{}},
+      contarPlan:{...state.contarPlan, cargado:false, skusPendientes:null},
+    });
+    invalidarCalendario();
+    refrescarSiCargada(['plan']);
+    render();
+  }catch(e){ toast(e.message,'err'); }
 }
 
 // El chequeo de "valor atípico" en conteo ciego (umbral: 5 unidades o 50% del stock, lo que sea
@@ -9293,7 +9324,7 @@ function renderTablaSkus(){
       </div>
       <div class="hint" style="margin-bottom:10px">🟢 Último conteo cuadrado · 🟡 Diferencia positiva (sobrante) · 🔴 Diferencia negativa (faltante)</div>` : ''}
       ${sp.rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th>${ocultarStockOperador()?'':'<th class="num">Stock</th>'}<th>Clase</th>${esAdmin?'<th></th>':''}</tr></thead>
+        <thead><tr>${esAdmin?'<th></th>':''}<th></th><th>Código</th><th>Descripción</th><th>Ubic. general</th><th>Ubic. específica</th><th>Bin</th><th>Batch</th>${ocultarStockOperador()?'':'<th class="num">Stock</th>'}<th>Clase</th>${esAdmin && moduloBodegaActivo()?'<th></th>':''}</tr></thead>
         <tbody>${sp.rows.map(s=>{
           return `<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
@@ -9306,7 +9337,7 @@ function renderTablaSkus(){
           <td class="mono">${esc(s.batch||'—')}</td>
           ${ocultarStockOperador()?'':`<td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}${infoStockPorTipo(s)}</td>`}
           <td>${claseAbcBadge(s.clase_abc)}</td>
-          ${esAdmin?`<td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-mover-sku="${esc(s.id)}" style="width:auto;padding:5px 10px;font-size:12px">Mover</button></td>`:''}
+          ${esAdmin && moduloBodegaActivo()?`<td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-mover-sku="${esc(s.id)}" style="width:auto;padding:5px 10px;font-size:12px">Mover</button></td>`:''}
         </tr>`;
         }).join('')}</tbody>
       </table></div>
@@ -11263,6 +11294,15 @@ function renderConfiguraciones(){
     </div>
     ` : ''}
     ${esAdmin? `
+    <div class="section-head"><div><span class="eyebrow">Plan de conteo</span><h2 style="font-size:15px">Materiales con stock 0 ${campoConInfo('El ERP suele mandar el mismo material dos veces: una con su ubicación y su stock real, y otra sin ubicación y con stock 0. Si desmarcas esta opción, el plan deja fuera todos los materiales con stock 0 y la hoja de conteo queda solo con lo que hay que ir a contar de verdad. No borra ni cambia ningún material: solo deja de planificarlos. Ojo: también deja fuera los que tienen stock 0 pero sí tienen storage bin, que son los que sirven para pillar material que el sistema no tiene registrado.')}</h2></div></div>
+    <div class="card">
+      <label style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
+        <input type="checkbox" id="chk-stock-cero-plan" ${planIncluyeStockCero()?'checked':''}>
+        <span>Incluir en el plan los materiales con stock 0</span>
+      </label>
+    </div>
+    ` : ''}
+    ${esAdmin? `
     <div class="section-head"><div><span class="eyebrow">Almacenamiento</span><h2 style="font-size:15px">Fotos de conteo ${campoConInfo('Desde ahora cada foto se reduce en el celular antes de subirse (máximo 1600 px por lado, unos 200 a 400 KB) sin diferencia visible. Las fotos subidas antes de esta mejora siguen a tamaño completo (3 a 5 MB cada una): este botón las revisa una por una y reemplaza cada archivo por su versión reducida, en la misma ruta. No cambia ningún conteo ni dato.')}</h2></div></div>
     <div class="card">
       <div class="hint" style="margin-bottom:10px">Comprime una sola vez las fotos que ya estaban subidas a tamaño completo. Puede tardar varios minutos según cuántas sean; deja esta pestaña abierta mientras corre.</div>
@@ -12044,6 +12084,15 @@ async function buscarMaterialParaMover(texto){
 
 function renderMover(){
   const m = state.mover;
+  // Mover material es del módulo de bodega (decisión de Joel). Los botones que llevan acá ya están
+  // condicionados, pero la vista se protege igual: una empresa puede quedar parada en esta pantalla
+  // justo cuando súper admin le apaga el módulo, y ahí el formulario seguiría funcionando.
+  if(!moduloBodegaActivo()){
+    return `
+      <div class="section-head"><div><span class="eyebrow">Maestro</span><h2>Mover un material de ubicación</h2></div></div>
+      <div class="card"><div class="empty"><div class="glyph">📦</div>Mover material es parte del módulo de bodega, que esta empresa no tiene activo.</div></div>
+    `;
+  }
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro</span><h2>Mover un material de ubicación</h2></div></div>
     <div class="card">
@@ -12558,6 +12607,7 @@ function bind(){
     btn.addEventListener('click', ()=>{
       const vista = btn.dataset.irVista;
       if(vistaBloqueadaParaRol(vista)){ toast('Esta sección es solo para administradores', 'err'); return; }
+      if(vista==='mover' && !moduloBodegaActivo()){ toast('Mover material es parte del módulo de bodega', 'err'); return; }
       detenerEscaner();
       const patch = {view: vista};
       if(vista==='conteo') patch.contarPlan = contarPlanAlEntrar(state.contarPlan);
@@ -12865,6 +12915,8 @@ function bind(){
     });
     const chkConteoCiego = document.getElementById('chk-conteo-ciego');
     if(chkConteoCiego) chkConteoCiego.addEventListener('change', e=> actualizarConteoCiego(e.target.checked));
+    const chkStockCeroPlan = document.getElementById('chk-stock-cero-plan');
+    if(chkStockCeroPlan) chkStockCeroPlan.addEventListener('change', e=> actualizarStockCeroEnPlan(e.target.checked));
     document.querySelectorAll('[data-suscribir-flow]').forEach(btn=>{
       btn.addEventListener('click', ()=> iniciarSuscripcionFlow(btn.dataset.suscribirFlow));
     });

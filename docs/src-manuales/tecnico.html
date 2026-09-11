@@ -239,7 +239,7 @@
 <section class="page">
   <div class="kicker">06 · Planificación</div>
   <h2 class="title">Plan por ventanas: día, semana, mes, año y período</h2>
-  <p class="intro">Una entrada del plan es una fila de <code>plan_semanal</code>: fecha, bodega, ubicación, un storage bin (una fila por bin), responsable, nota, período y banderas para "SKU sin ubicación" y "sin ubicación específica". Su universo de SKU se resuelve siempre en el servidor.</p>
+  <p class="intro">Una entrada del plan es una fila de <code>plan_semanal</code>: fecha, bodega, ubicación, un storage bin (una fila por bin), responsable, nota, período y banderas para "SKU sin ubicación" y "sin ubicación específica". Su universo de SKU se resuelve siempre en el servidor, donde <code>empresas.plan_incluye_stock_cero</code> puede dejar fuera los materiales en cero.</p>
   <div class="two">
     <ul class="checks">
       <li>Cinco ventanas: Día, Semana, Mes, Año y Período (selector). Día y Semana traen el detalle de SKU por entrada; Mes, Año y Período son vistas resumidas</li>
