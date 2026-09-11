@@ -1,7 +1,8 @@
 # InventIA — reglas del proyecto
 
-App web multiempresa (SaaS) de conteo cíclico de inventario y bodega, en producción en
-[inventiapp.cl](https://inventiapp.cl). La usan empresas reales con datos reales.
+App web multiempresa (SaaS) de conteo cíclico de inventario y bodega, desplegada en
+[inventiapp.cl](https://inventiapp.cl) y en uso real, con datos reales, aunque todavía sin
+clientes pagando. Se va a empezar a vender a empresas distintas, de rubros y datos distintos.
 
 ## Regla que manda sobre todas
 
@@ -72,8 +73,17 @@ interpreta mal y sobre el que actúa equivocado.
 
 ## Datos y ambientes
 
-- Empresas en producción: **Escondida** (63.000 materiales), **Minera Test** y **Demo InventIA**
-  (pública, se restablece cada noche con `resetear_demo_inventia`).
+- **Escondida** (63.000 materiales) es uso real: es donde trabaja Joel y la usan todos los días,
+  pero no es un cliente. **Minera Test** y **Demo InventIA** son demos; la segunda es pública y se
+  restablece cada noche con `resetear_demo_inventia`.
+- Que no haya clientes pagando **no** relaja la regla de no romper nada: los datos de Escondida son
+  reales y el trabajo de terreno depende de ellos.
+- **Lo que se construye es el sistema, no la empresa.** Nada puede depender del nombre de una
+  empresa ni de la forma de sus datos. Lo que varíe entre empresas va en la base (columna de
+  `empresas`, interruptor, catálogo), con un default que preserve el comportamiento de hoy. Las
+  listas que ofrece la app (tipos de material, unidades) son sugerencias: si una empresa trae las
+  suyas en su Excel, hay que conservarlas y mostrarlas. Pendientes abiertos de esta clase: #428
+  (IVA fijo en 19%) y #429 (tipos de material propios).
 - **No crear cuentas de administrador ni empresas nuevas** sin pedirlo.
 - El módulo de bodega se activa por empresa desde súper admin. Diseño en
   `docs/DISENO-MODULO-BODEGA.md`.
