@@ -380,6 +380,7 @@ textarea{resize:vertical;min-height:60px;}
   /* Membrete: el logo arriba a la derecha, sin empujar el título hacia abajo. */
   .print-logo{float:right;margin:0 0 6px 12px;}
   .print-logo img{max-height:15mm;max-width:45mm;object-fit:contain;display:block;}
+  .print-logo.compacto img{max-height:11mm;max-width:38mm;}
   #print-plan{display:block;padding:0;color:#000;background:#fff;}
   #print-plan h1{font-size:17px;margin:0 0 2px;}
   #print-plan .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
@@ -874,10 +875,13 @@ async function quitarLogoEmpresa(){
 // Encabezado con el logo para los documentos que se imprimen. Va antes del título, alineado a la
 // derecha como en un papel con membrete. Sin logo devuelve cadena vacía y el documento queda
 // exactamente igual que antes.
-function encabezadoLogoImpresion(){
+// La variante 'compacto' limita el logo al alto que ya ocupan el título y su bajada, para no
+// empujar nada hacia abajo. La usa el detalle de materiales, donde entran 3 fichas por hoja y un
+// encabezado más alto desfasaría ese calce.
+function encabezadoLogoImpresion(variante){
   const logo = logoEmpresa();
   if(!logo) return '';
-  return `<div class="print-logo"><img src="${esc(logo)}" alt=""></div>`;
+  return `<div class="print-logo${variante==='compacto'?' compacto':''}"><img src="${esc(logo)}" alt=""></div>`;
 }
 function esAdminActual(){
   return !!(state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin));
@@ -5021,6 +5025,7 @@ async function exportarSeleccionadosBusquedaPDF(){
       return esInicioDeHoja ? `<div class="pdf-salto-pagina"></div>${f}` : f;
     }).join('');
     contenedor.innerHTML = `
+      ${encabezadoLogoImpresion('compacto')}
       <h1>Detalle de materiales</h1>
       <div class="print-meta">${fichas.length} material${fichas.length===1?'':'es'} · Generado ${new Date().toLocaleString('es-CL')}</div>
       ${fichasConSaltos}
