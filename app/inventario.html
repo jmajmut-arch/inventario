@@ -931,6 +931,8 @@ function bodegaEstadoInicial(){
   return {
     proveedores: [], personas: [], listasCargadas: false,
     doc: documentoBodegaVacio(),
+    docTipo: null,      // de qué pantalla es el documento que está en `doc`: 'ingreso' o 'salida'
+    docsPorTipo: {},    // el de la otra pantalla, esperando a que se vuelva a ella
     busqueda: { texto:'', resultados:[], buscando:false, error:null },
     nuevoSku: null, // {sku_code, descripcion, unidad_medida, bodega, storage_bin, guardando} (SKU nuevo desde Recepción)
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
@@ -970,7 +972,36 @@ function vistaInicialParaPerfil(){
   return vistaBloqueadaParaRol('dashboard') ? 'conteo' : 'dashboard';
 }
 
-function setState(patch){ Object.assign(state, patch); render(); }
+// La Recepción y el Despacho son dos documentos distintos, no uno que se rellena de dos formas.
+// Compartían el mismo y cambiar de pestaña se lo llevaba entero -- líneas, guía, orden de compra,
+// reserva. Pasó en producción: se cargó una orden en Recepción, se pasó a Despacho y el servidor
+// rechazó el guardado ("Solo un ingreso puede ir contra una orden de compra"). Lo grave no era el
+// error: si hubiera pasado, se habría despachado el material que se estaba recibiendo.
+// Cada uno se guarda aparte y vuelve tal como se dejó, así cambiar de pantalla no cuesta trabajo.
+// El tipo se lleva en docTipo y no se deduce de state.view, porque se puede salir a otra pantalla
+// (una orden de compra, por ejemplo) y volver desde ahí.
+function cambiarDocumentoDeBodega(vistaNueva){
+  if(vistaNueva!=='ingreso' && vistaNueva!=='salida') return;
+  const b = state.bodega;
+  // Si todavía no hay dueño anotado pero se está parado en una de las dos pantallas, el documento
+  // es de esa: sin esto, el primer cambio de pantalla lo tiraría a la basura.
+  const tipoActual = b.docTipo || ((state.view==='ingreso' || state.view==='salida') ? state.view : null);
+  if(tipoActual === vistaNueva){ b.docTipo = vistaNueva; return; }
+  const guardados = {...(b.docsPorTipo||{})};
+  if(tipoActual) guardados[tipoActual] = b.doc;
+  b.docsPorTipo = guardados;
+  b.doc = guardados[vistaNueva] || documentoBodegaVacio();
+  b.docTipo = vistaNueva;
+  // El buscador y el SKU a medio crear son de la pantalla que se deja atrás.
+  b.busqueda = {texto:'', resultados:[], buscando:false, error:null};
+  b.nuevoSku = null;
+}
+
+function setState(patch){
+  if(patch && patch.view !== undefined && patch.view !== state.view) cambiarDocumentoDeBodega(patch.view);
+  Object.assign(state, patch);
+  render();
+}
 
 // Instancia del lector de códigos (html5-qrcode). Vive fuera de `state` porque no es
 // serializable ni debe disparar un re-render por sí sola; se referencia solo desde las
@@ -5628,8 +5659,11 @@ async function registrarDocumentoBodega(tipo){
     p_proveedor_id: d.proveedorId||null, p_numero_oc: d.numeroOc.trim()||null, p_numero_guia: d.numeroGuia.trim()||null,
     p_retirado_por_id: d.retiradoPorId||null, p_despachado_por_id: d.despachadoPorId||null, p_destino: d.destino.trim()||null,
     p_observacion: d.observacion.trim()||null, p_idempotency_key: idempotencyKey,
-    p_orden_compra_id: d.ordenCompraId||null,
-    p_reserva_id: d.reservaId||null,
+    // Cada enganche solo viaja con el tipo que lo admite. El servidor rechaza los dos cruces
+    // ("Solo un ingreso puede ir contra una orden de compra" / "Solo una salida puede ir contra
+    // una reserva"), y ese mensaje no significa nada para quien está descargando un camión.
+    p_orden_compra_id: tipo==='ingreso' ? (d.ordenCompraId||null) : null,
+    p_reserva_id: tipo==='salida' ? (d.reservaId||null) : null,
   };
   const fotos = [d.fotoGuia ? {tipo:'guia', file:d.fotoGuia.file} : null, ...d.fotosMaterial.map(f=>({tipo:'material', file:f.file}))].filter(Boolean);
   setState({bodega: {...state.bodega, guardando:true}});
@@ -12000,7 +12034,7 @@ function renderAnularOrdenModal(){
 function tablaLineasDocumentoBodega(d, esIngreso, totalLineas, totalMonto, lineasSinCosto){
   if(!d.lineas.length) return `<div class="hint" style="margin-top:10px">${esIngreso ? 'Carga una orden de compra arriba, o busca cada material y agrégalo con su cantidad.' : 'Busca o escanea cada material y agrégalo con su cantidad.'}</div>`;
   const nada = d.lineas.filter(l=>!(Number(l.cantidad)>0)).length;
-  const parciales = d.lineas.filter(l=> l.desdeOc && Number(l.cantidad)>0 && Number(l.cantidad) < Number(l.pendiente)).length;
+  const parciales = esIngreso ? d.lineas.filter(l=> l.desdeOc && Number(l.cantidad)>0 && Number(l.cantidad) < Number(l.pendiente)).length : 0;
   // Lo pedido y lo pendiente van bajo el código y no en columnas propias: en un celular de 420 px
   // (la mitad del uso) dos columnas más empujan el costo fuera de la pantalla, y lo que la persona
   // necesita tener a mano mientras descarga el camión es la casilla de lo que llegó.
@@ -12009,12 +12043,16 @@ function tablaLineasDocumentoBodega(d, esIngreso, totalLineas, totalMonto, linea
     <tbody>${d.lineas.map(l=>{
       const cant = Number(l.cantidad);
       const noLlega = esIngreso && !(cant>0);
-      const queda = l.desdeOc ? Number(l.pendiente) - (cant>0?cant:0) : null;
+      // El detalle de la orden de compra es solo de la Recepción: en un Despacho no significa nada.
+      // Con un documento por pantalla ya no debería llegar acá una línea así, pero si llegara, no
+      // tiene que dibujarse.
+      const deOc = esIngreso && l.desdeOc;
+      const queda = deOc ? Number(l.pendiente) - (cant>0?cant:0) : null;
       return `<tr${noLlega?' style="opacity:.55"':''}>
       <td class="mono">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}${l.batch?` · ${esc(l.batch)}`:''}</div>
-        ${l.desdeOc ? `<div style="font-size:11px;color:var(--text-dim);font-family:'Inter'">Pedido ${l.pedido} · pendiente ${l.pendiente}</div>` : ''}
-        ${l.desdeOc && queda!==null && queda>0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Quedan ${queda} por llegar</div>` : ''}
-        ${l.desdeOc && queda!==null && queda<0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Llegan ${-queda} de más</div>` : ''}</td>
+        ${deOc ? `<div style="font-size:11px;color:var(--text-dim);font-family:'Inter'">Pedido ${l.pedido} · pendiente ${l.pendiente}</div>` : ''}
+        ${deOc && queda!==null && queda>0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Quedan ${queda} por llegar</div>` : ''}
+        ${deOc && queda!==null && queda<0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Llegan ${-queda} de más</div>` : ''}</td>
       ${esIngreso
         ? `<td class="num"><input type="number" class="bd-cantidad-linea" data-cantidad-sku="${esc(l.sku_id)}" min="0" step="any" value="${l.cantidad}" style="width:84px;margin:0;text-align:right"> <span class="hint" style="display:inline;margin:0">${esc(l.unidad_medida||'')}</span></td>`
         : `<td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>`}

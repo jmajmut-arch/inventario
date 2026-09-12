@@ -7830,6 +7830,50 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const htmlSalida = ctx.renderDocumentoBodega('salida');
     assert(!htmlSalida.includes('id="bd-oc"') && !htmlSalida.includes('btn-cargar-oc') && !htmlSalida.includes('bd-cantidad-linea'), 'la Salida sigue igual que antes');
 
+    // ===== La Recepción a medio armar no puede irse al Despacho =====
+    // Joel lo encontró en producción: cargó una orden de compra en Recepción, se pasó a Despacho y
+    // al guardar el servidor lo rechazó con "Solo un ingreso puede ir contra una orden de compra".
+    // El documento era UNO SOLO compartido entre las dos pantallas, así que se iba entero -- las
+    // líneas, el número de orden y el enganche a la orden.
+    // Lo grave no era el error: era que si el documento hubiera pasado, se habría registrado un
+    // despacho del material que estaba recibiendo. Stock saliendo en vez de entrando, sin aviso.
+    ctx.setState({view:'ingreso'});
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    await ctx.usarOrdenCompraEnIngreso('oc-1');
+    assert(ctx.__appstate.bodega.doc.ordenCompraId==='oc-1' && ctx.__appstate.bodega.doc.lineas.length===1,
+      'la recepción queda armada con la orden, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc.ordenCompraId));
+
+    ctx.setState({view:'salida'});
+    const docDespacho = ctx.__appstate.bodega.doc;
+    assert(!docDespacho.ordenCompraId && !docDespacho.numeroOc && !docDespacho.lineas.length,
+      'el Despacho arranca con su propio documento, no con la recepción a medio armar, obtuvo: '+JSON.stringify(docDespacho));
+
+    // Y lo que se estaba armando no se pierde: volver a Recepción lo devuelve tal cual.
+    ctx.setState({view:'ingreso'});
+    assert(ctx.__appstate.bodega.doc.ordenCompraId==='oc-1' && ctx.__appstate.bodega.doc.lineas.length===1,
+      'volver a Recepción devuelve la recepción a medio armar, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc));
+
+    // Segunda barrera: aunque algo se colara en el estado, un despacho nunca puede viajar con una
+    // orden de compra ni una recepción con una reserva. Son los dos cruces que el servidor rechaza.
+    ctx.setState({view:'salida'});
+    ctx.__appstate.bodega.doc = {...ctx.documentoBodegaVacio(), ordenCompraId:'oc-1', numeroOc:'OC-000007',
+      retiradoPorId:'per-1', lineas:[{sku_id:'sku-b1', sku_code:'BOD-001', cantidad:2, costo_unitario:null, stock_sistema:10}]};
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('salida');
+    const cuerpoDespacho = JSON.parse(calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega')).opts.body);
+    assert(cuerpoDespacho.p_orden_compra_id===null,
+      'un despacho nunca puede viajar con una orden de compra, obtuvo: '+JSON.stringify(cuerpoDespacho.p_orden_compra_id));
+    ctx.setState({view:'ingreso'});
+    ctx.__appstate.bodega.doc = {...ctx.documentoBodegaVacio(), reservaId:'res-1', numeroGuia:'GD-9',
+      fotoGuia:{file:{name:'g.jpg', type:'image/jpeg'}}, lineas:[{sku_id:'sku-b1', sku_code:'BOD-001', cantidad:2, costo_unitario:null, stock_sistema:10}]};
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    const cuerpoRecepcion = JSON.parse(calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega')).opts.body);
+    assert(cuerpoRecepcion.p_reserva_id===null,
+      'una recepción nunca puede viajar con una reserva, obtuvo: '+JSON.stringify(cuerpoRecepcion.p_reserva_id));
+
+    ctx.setState({view:'ingreso'});
+    ctx.__appstate.bodega.doc = docOc;
     // Se deja la línea como estaba (10 pendientes) para lo que sigue.
     docOc.lineas[0].cantidad = 10;
     ctx.__appstate.bodega.doc = docOc;
