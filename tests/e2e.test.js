@@ -369,6 +369,15 @@ async function loguear(page, perfil){
     await page.waitForSelector('#oc-ver-lista', { timeout:ESPERA });
     await page.click('#oc-ver-lista');
     await page.waitForSelector('[data-oc-ver="oc-1"]', { timeout:ESPERA });
+    // Camino exacto que dejó encerrado a Joel: tile Orden de compra -> Ver órdenes emitidas, y
+    // desde la lista no había vuelta (esta pantalla no está en la barra de abajo). Se prueba el
+    // click de verdad, no solo que el botón esté dibujado.
+    await page.click('.miga-volver');
+    assert(await esperarVisible(page, '[data-nueva-orden]'), 'desde las órdenes emitidas se tiene que poder volver al Inicio de bodega');
+    await page.click('[data-nueva-orden]');
+    await page.waitForSelector('#oc-ver-lista', { timeout:ESPERA });
+    await page.click('#oc-ver-lista');
+    await page.waitForSelector('[data-oc-ver="oc-1"]', { timeout:ESPERA });
     await page.click('[data-oc-ver="oc-1"]');
     await page.waitForSelector('[data-oc-imprimir="oc-1"]', { timeout:ESPERA });
     assert(await esperarVisible(page, 'text=Marcela Ríos'), 'el detalle muestra el contacto del proveedor');

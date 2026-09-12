@@ -245,6 +245,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);}
    todavía no se puede tocar, así que se sentía que la selección "no respondía". */
 input:disabled,select:disabled,textarea:disabled{opacity:0.5;cursor:not-allowed;}
 textarea{resize:vertical;min-height:60px;}
+/* La miga de vuelta hereda el estilo del eyebrow (11px en mayúsculas), que como zona de toque es
+   chica para un dedo con guante. El padding agranda el área sin mover el texto de su sitio. */
+.miga-volver{background:none;border:none;font:inherit;color:var(--amber);cursor:pointer;letter-spacing:inherit;text-transform:inherit;padding:4px 6px;margin:-4px -6px;}
+.miga-volver:hover{text-decoration:underline;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 /* Bug real reportado por Joel (captura de "Exportar conteos" en el celular): un par de
    input[type=date] uno junto al otro en .row2 se salía de la tarjeta -- min-width:0 en el
@@ -11588,7 +11592,7 @@ function renderReservas(){
   const descubiertas = reservasDescubiertas();
   return `
     <div class="section-head">
-      <div><span class="eyebrow">Bodega</span><h2>Reservas de material</h2></div>
+      <div>${volverAlInicioBodega()}<h2>Reservas de material</h2></div>
       <button type="button" class="btn btn-primary" id="btn-nueva-reserva" style="width:auto;padding:8px 16px">Nueva reserva</button>
     </div>
     ${descubiertas.length ? `<div class="card" style="border-color:var(--danger)">
@@ -11750,6 +11754,14 @@ function renderCancelarReservaModal(){
   </div>`;
 }
 
+// Las pantallas de bodega que NO están en la barra de abajo (Órdenes de compra, Reservas,
+// Reportes, Mover material) quedaban sin salida: se entra a ellas desde el Inicio y desde adentro
+// no había ningún camino de vuelta. Joel lo pilló entrando a las órdenes emitidas. Es la misma
+// miga que ya usaba el detalle de una orden para volver a su lista.
+function volverAlInicioBodega(){
+  return `<span class="eyebrow"><button type="button" class="miga-volver" data-ir-vista="inicio">‹ Bodega</button></span>`;
+}
+
 function renderOrdenesCompra(){
   if(!funcionBodegaActiva('ordenes_compra')) return '<div class="card"><div class="empty"><div class="glyph">🔒</div>Las órdenes de compra no están activadas para esta empresa.</div></div>';
   const o = state.ordenes;
@@ -11759,7 +11771,7 @@ function renderOrdenesCompra(){
   const money = n => '$'+Math.round(Number(n)||0).toLocaleString('es-CL');
   return `
     <div class="section-head">
-      <div><span class="eyebrow">Bodega</span><h2>Órdenes de compra</h2></div>
+      <div>${volverAlInicioBodega()}<h2>Órdenes de compra</h2></div>
       <button type="button" class="btn btn-primary" id="btn-nueva-orden" style="width:auto;padding:8px 16px">Nueva orden</button>
     </div>
     <div class="card">
@@ -12217,7 +12229,7 @@ function renderReportesBodega(){
     </table></div>` : `<div class="empty"><div class="glyph">${cargando?'…':'✓'}</div>${cargando?'Cargando…':'Sin movimientos en este rango.'}</div>`;
   const opciones = (sel, ops) => ops.map(([v2,t])=>`<option value="${v2}" ${sel===v2?'selected':''}>${t}</option>`).join('');
   return `
-    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>Reportes</h2></div></div>
+    <div class="section-head"><div>${volverAlInicioBodega()}<h2>Reportes</h2></div></div>
     <div class="card" style="margin-bottom:14px">
       <form id="form-reportes-bodega" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
         <div><label for="rep-desde">Desde</label><input type="date" id="rep-desde" value="${esc(r.desde)}" style="margin:0"></div>
@@ -12291,7 +12303,7 @@ function renderMover(){
     `;
   }
   return `
-    <div class="section-head"><div><span class="eyebrow">Maestro</span><h2>Mover un material de ubicación</h2></div></div>
+    <div class="section-head"><div>${volverAlInicioBodega()}<h2>Mover un material de ubicación</h2></div></div>
     <div class="card">
       <p class="hint" style="margin-top:0">Busca el material por código o descripción y cámbiale la ubicación. Se mueve la misma ficha, así que conserva su historial de conteos, su kardex y su stock.</p>
       <input type="text" id="mover-buscar" placeholder="Código o descripción" value="${esc(m.texto)}" autocomplete="off" style="margin:0">

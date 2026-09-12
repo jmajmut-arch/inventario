@@ -7587,6 +7587,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.cargarOrdenesCompra();
     assert(ctx.__appstate.ordenes.lista.length===3 && ctx.__appstate.ordenes.cargado, 'la vista carga las órdenes, obtuvo: '+JSON.stringify(ctx.__appstate.ordenes.lista.length));
     const htmlLista = ctx.renderOrdenesCompra();
+
+    // ===== Salida de las pantallas que no están en la barra de abajo =====
+    // Joel entró a las órdenes emitidas y quedó encerrado: la barra de abajo no tiene esta
+    // pestaña, así que desde adentro no había ningún camino de vuelta. Lo mismo pasaba en
+    // Reservas, Reportes y Mover material. Se prueban las cuatro porque el error es el mismo y
+    // es fácil arreglar una y olvidar las otras.
+    const conVuelta = [
+      ['Órdenes de compra', ctx.renderOrdenesCompra()],
+      ['Reservas', ctx.renderReservas()],
+      ['Reportes', ctx.renderReportesBodega()],
+      ['Mover material', ctx.renderMover()],
+    ];
+    conVuelta.forEach(([nombre, html])=>{
+      assert(html.includes('miga-volver') && html.includes('data-ir-vista="inicio"'),
+        `${nombre} tiene que ofrecer cómo volver al Inicio de bodega, obtuvo: `+html.slice(0,420));
+    });
+    // Las que SÍ están en la barra de abajo no la necesitan: ahí la vuelta es la pestaña.
+    assert(!ctx.renderDocumentoBodega('ingreso').includes('miga-volver') && !ctx.renderStockBodega().includes('miga-volver'),
+      'las pantallas que están en la barra de abajo no repiten la miga');
+
     assert(htmlLista.includes('OC-000007') && htmlLista.includes('Recibida en parte') && htmlLista.includes('data-oc-ver="oc-1"'), 'la lista muestra número, estado y el acceso al detalle, obtuvo: '+htmlLista.slice(0,700));
     // El filtro por estado es del cliente: la lista ya está en memoria.
     ctx.__appstate.ordenes.filtroEstado = 'borrador';
