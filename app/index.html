@@ -717,6 +717,10 @@ const TEMAS = [
 ];
 
 const SKUS_POR_PAGINA = 50;
+// Stock va de a 30 y no de a 300 como antes: con 300 materiales la tabla generaba 7.022 nodos y en
+// un celular de 420 px cada fila ocupaba unos 100 px, con la descripción partida en seis líneas.
+// Medido en la auditoría del 12 de septiembre.
+const STOCK_POR_PAGINA = 30;
 // Ventana de días usada tanto para el gráfico "Conteos por día" como para calcular el ritmo
 // promedio de conteo (proyección de término) y el ranking por responsable — misma ventana en
 // los tres casos para que "últimos 14 días" signifique siempre lo mismo en el dashboard.
@@ -942,7 +946,7 @@ function bodegaEstadoInicial(){
     aperturaProgreso: null, // {hechos, total} mientras corre la apertura por lotes
     stockSoloBajoMinimo: false,
     reportes: reportesBodegaVacios(),
-    stock: [], stockTexto: '', stockCargado: false,
+    stock: [], stockTexto: '', stockCargado: false, stockPagina: 0, stockTotal: 0, stockTotalConocido: false,
     guardando: false, ultimoDocumento: null,
     buscandoOc: false, // mientras se resuelve el número de orden que se escribió en la Recepción
   };
@@ -5443,14 +5447,36 @@ async function cargarPendientesBodega(){
   }catch(e){ /* silencioso */ }
 }
 
-async function cargarStockBodega(){
+// Stock por páginas, con el mismo mecanismo que el maestro de SKU: el rango va en cabecera y el
+// total viene en Content-Range, así se puede decir "31–60 de 61.636" sin pedir todo.
+async function cargarStockBodega(pagina){
+  const p = Math.max(0, Number.isFinite(pagina) ? pagina : (state.bodega.stockPagina||0));
   try{
     const t = sanearTextoFiltro(state.bodega.stockTexto);
     const filtro = t ? `&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*,storage_bin.ilike.*${encodeURIComponent(t)}*)` : '';
     const soloBajo = state.bodega.stockSoloBajoMinimo ? '&bajo_minimo=is.true' : '';
-    const rows = await rest(`/stock_actual?select=*&order=sku_code.asc&limit=300${filtro}${soloBajo}`) || [];
-    setState({bodega: {...state.bodega, stock: rows, stockCargado:true}});
-  }catch(e){ toast(e.message,'err'); }
+    const desde = p*STOCK_POR_PAGINA;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/stock_actual?select=*&order=sku_code.asc${filtro}${soloBajo}`, {
+      headers:{
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+        'Range-Unit': 'items',
+        'Range': `${desde}-${desde + STOCK_POR_PAGINA - 1}`,
+        'Prefer': 'count=exact',
+      }
+    });
+    const texto = await res.text();
+    const rows = texto ? JSON.parse(texto) : [];
+    if(!res.ok) throw new Error((rows && rows.message) || res.statusText || 'Error de base de datos');
+    // El total viene en Content-Range ("0-29/61636"), que el navegador solo deja leer si el
+    // servidor la expone (Supabase lo hace). Si por lo que sea no llega, no se puede saber cuántos
+    // hay -- pero una página llena sigue significando que puede haber más, y eso alcanza para
+    // ofrecer Siguiente. Sin ese resguardo la barra desaparecía y no había forma de avanzar.
+    const rango = res.headers.get('content-range'); // ej. "0-29/61636"
+    const total = rango && rango.includes('/') ? Number(rango.split('/')[1]) : NaN;
+    setState({bodega: {...state.bodega, stock: rows, stockCargado:true, stockPagina: p,
+      stockTotal: Number.isFinite(total) ? total : 0, stockTotalConocido: Number.isFinite(total)}});
+  }catch(e){ toast(pareceFalloDeRed(e) ? 'Sin conexión: no se pudo cargar el stock' : e.message,'err'); }
 }
 
 // Buscador de SKU para una línea de ingreso o salida: mismo criterio parcial que Contar, en el
@@ -12241,9 +12267,14 @@ function renderStockBodega(){
         <button type="button" class="btn btn-secondary" id="btn-exportar-stock" style="width:auto;padding:0 12px;height:40px">Excel</button>
       </form>
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
-      ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
+      ${rows.length ? `<div class="hint" style="margin-bottom:6px">${b.stockTotalConocido ? `${b.stockTotal.toLocaleString('es-CL')} SKU` : `${rows.length} SKU en esta página`}${totalValor?` · valor de esta página $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th>${funcionBodegaActiva('reservas')?'<th class="num">Disponible</th>':''}<th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:11px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button>`:''}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:11px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button>`:''}</td></tr>`).join('')}</tbody></table></div>
+        ${(b.stockPagina > 0 || rows.length >= STOCK_POR_PAGINA) ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
+          <button type="button" class="btn btn-secondary" id="stock-pag-prev" style="width:auto;flex:none;padding:8px 14px" ${b.stockPagina<=0?'disabled':''}>Anterior</button>
+          <span class="hint" style="margin:0">${(b.stockPagina*STOCK_POR_PAGINA+1).toLocaleString('es-CL')}–${(b.stockPagina*STOCK_POR_PAGINA+rows.length).toLocaleString('es-CL')}${b.stockTotalConocido?` de ${b.stockTotal.toLocaleString('es-CL')}`:''}</span>
+          <button type="button" class="btn btn-secondary" id="stock-pag-next" style="width:auto;flex:none;padding:8px 14px" ${rows.length < STOCK_POR_PAGINA?'disabled':''}>Siguiente</button>
+        </div>` : ''}` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
   `;
 }
@@ -13123,11 +13154,17 @@ function bind(){
       });
     }));
     const form = document.getElementById('form-stock-bodega');
-    if(form) form.addEventListener('submit', e=>{ e.preventDefault(); state.bodega.stockTexto = document.getElementById('stock-texto').value; cargarStockBodega(); });
+    // Buscar o filtrar cambia el conjunto: se vuelve a la primera página, porque quedarse en la 7
+    // de un resultado que ahora tiene 2 dejaría la pantalla vacía sin explicación.
+    if(form) form.addEventListener('submit', e=>{ e.preventDefault(); state.bodega.stockTexto = document.getElementById('stock-texto').value; cargarStockBodega(0); });
+    const stockPrev = document.getElementById('stock-pag-prev');
+    const stockNext = document.getElementById('stock-pag-next');
+    if(stockPrev) stockPrev.addEventListener('click', ()=> cargarStockBodega(state.bodega.stockPagina-1));
+    if(stockNext) stockNext.addEventListener('click', ()=> cargarStockBodega(state.bodega.stockPagina+1));
     const btnExcel = document.getElementById('btn-exportar-stock');
     if(btnExcel) btnExcel.addEventListener('click', exportarStockExcel);
     const chkBajo = document.getElementById('stock-bajo-minimo');
-    if(chkBajo) chkBajo.addEventListener('change', ()=>{ state.bodega.stockSoloBajoMinimo = chkBajo.checked; cargarStockBodega(); });
+    if(chkBajo) chkBajo.addEventListener('change', ()=>{ state.bodega.stockSoloBajoMinimo = chkBajo.checked; cargarStockBodega(0); });
     document.querySelectorAll('.stock-tipo').forEach(sel=> sel.addEventListener('change', ()=> guardarTipoMaterial(sel.dataset.tipoSku, sel.value)));
     document.querySelectorAll('.stock-minimo').forEach(inp=>{
       inp.addEventListener('change', ()=> guardarStockMinimo(inp.dataset.minSku, inp.value));
