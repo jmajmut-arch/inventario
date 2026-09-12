@@ -986,7 +986,11 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Órdenes de compra: la app las emite y después recibe contra ellas.
   if(path.startsWith('/rest/v1/ordenes_compra_lista')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+    // PostgREST filtra de verdad: si la app pide numero=eq.X, devolver la lista entera haría que
+    // la prueba diera por buena una búsqueda que en producción no encuentra nada.
+    const pedido = /numero=eq\.([^&]*)/.exec(path);
+    const filtrar = filas => pedido ? filas.filter(o=> o.numero === decodeURIComponent(pedido[1])) : filas;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filtrar([
       {id:'oc-1', numero:'OC-000007', proveedor_id:'prov-1', proveedor_nombre:'Proveedor Uno', proveedor_rut:'76.000.000-1',
        proveedor_contacto:'Marcela Ríos', proveedor_email:'ventas@uno.cl', proveedor_telefono:'+56 2 2345 6789',
        proveedor_direccion:'Av. Industrial 1450', usuario_nombre:'Ana Torres',
@@ -1000,7 +1004,7 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'oc-3', numero:'OC-000009', proveedor_id:'prov-1', proveedor_nombre:'Proveedor Uno', afecta_iva:true,
        fecha:'2026-09-01', estado:'anulada', estado_guardado:'anulada', anulada_en:'2026-09-02T10:00:00Z',
        anulada_motivo:'Se pidió por error', lineas:1, cantidad_pedida:2, cantidad_recibida:0, lineas_pendientes:1, neto:0, iva:0, total:0},
-    ]) };
+    ])) };
   }
   if(path.startsWith('/rest/v1/ordenes_compra_lineas_detalle')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
@@ -7195,7 +7199,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // Comprobante PDF: cabecera, líneas y, en la salida, firmas de quien entrega y recibe.
     const cabIng = {documento_id:'doc-1', numero:'ING-000007', tipo:'ingreso', sku_code:'BOD-001', descripcion:'Filtro', cantidad:5, unidad_medida:'UN', fecha:'2026-09-08', proveedor_nombre:'Proveedor Uno', numero_guia:'GD-100', numero_oc:'OC-9', usuario_nombre:'Ana'};
     const htmlComp = ctx.comprobanteDocumentoBodegaHTML(cabIng, [cabIng], [{tipo:'guia', url:'data:x'}]);
-    assert(htmlComp.includes('Comprobante de ingreso ING-000007') && htmlComp.includes('Proveedor Uno') && htmlComp.includes('GD-100') && htmlComp.includes('BOD-001') && htmlComp.includes('<strong>5</strong>') && htmlComp.includes('Guía') && !htmlComp.includes('Recibe:'), 'el comprobante de ingreso lleva proveedor, guía, líneas, total y foto, obtuvo: '+htmlComp);
+    assert(htmlComp.includes('Comprobante de recepción ING-000007') && htmlComp.includes('Proveedor Uno') && htmlComp.includes('GD-100') && htmlComp.includes('BOD-001') && htmlComp.includes('<strong>5</strong>') && htmlComp.includes('Guía') && !htmlComp.includes('Recibe:'), 'el comprobante de ingreso lleva proveedor, guía, líneas, total y foto, obtuvo: '+htmlComp);
     const cabSal = {...cabIng, numero:'SAL-000003', tipo:'salida', retirado_por_nombre:'Juan Retira', retirado_por_area:'Mantención', destino:'Taller', despachado_por_nombre:'Ana'};
     const htmlCompSal = ctx.comprobanteDocumentoBodegaHTML(cabSal, [cabSal], []);
     assert(htmlCompSal.includes('Comprobante de salida') && htmlCompSal.includes('Juan Retira · Mantención') && htmlCompSal.includes('Recibe: Juan Retira') && htmlCompSal.includes('Entrega: Ana'), 'el comprobante de salida lleva quién retira, destino y firmas, obtuvo: '+htmlCompSal);
@@ -7704,7 +7708,85 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const docOc = ctx.__appstate.bodega.doc;
     assert(docOc.ordenCompraId==='oc-1' && docOc.numeroOc==='OC-000007' && docOc.proveedorId==='prov-1', 'la orden queda enganchada al documento, obtuvo: '+JSON.stringify({oc:docOc.ordenCompraId, numero:docOc.numeroOc, prov:docOc.proveedorId}));
     assert(docOc.lineas.length===1 && docOc.lineas[0].cantidad===10 && docOc.lineas[0].costo_unitario===2500, 'se prellena lo PENDIENTE (10 de 20), no lo pedido, y al precio acordado, obtuvo: '+JSON.stringify(docOc.lineas));
-    assert(ctx.renderDocumentoBodega('ingreso').includes('id="bd-orden-compra"'), 'el Ingreso ofrece el selector de orden de compra');
+    const htmlOc = ctx.renderDocumentoBodega('ingreso');
+    assert(htmlOc.includes('id="bd-oc"') && htmlOc.includes('id="btn-cargar-oc"'), 'la Recepción ofrece escribir el número de la orden de compra');
+    assert(htmlOc.indexOf('id="bd-oc"') < htmlOc.indexOf('id="bd-sku"'), 'la orden de compra va ARRIBA del buscador de material: primero se carga la orden, después se agrega lo que no venía en ella');
+
+    // ===== Recepción parcial: el proveedor casi nunca manda el 100% =====
+    // Pedido 20, ya recibido 10, pendiente 10. Llegan 4: se registran 4 y quedan 6 pendientes en la
+    // orden. Los tres números tienen que estar en la línea, si no la persona no puede saber cuánto
+    // le siguen debiendo.
+    assert(docOc.lineas[0].desdeOc === true && docOc.lineas[0].pedido === 20 && docOc.lineas[0].yaRecibido === 10 && docOc.lineas[0].pendiente === 10,
+      'la línea de una orden guarda lo pedido, lo ya recibido y lo pendiente, obtuvo: '+JSON.stringify(docOc.lineas[0]));
+    assert(htmlOc.includes('class="bd-cantidad-linea"'), 'la cantidad recibida se puede corregir en la línea: es lo que llegó de verdad, no lo que decía la orden');
+    assert(htmlOc.includes('Pedido 20 · pendiente 10'), 'cada ítem muestra lo pedido y lo pendiente, obtuvo: '+htmlOc.slice(htmlOc.indexOf('<thead'), htmlOc.indexOf('<thead')+600));
+
+    ctx.__appstate.bodega.doc.lineas[0].cantidad = 4;
+    const htmlParcial = ctx.renderDocumentoBodega('ingreso');
+    assert(htmlParcial.includes('Quedan 6 por llegar'), 'recibir menos de lo pendiente avisa cuánto queda, obtuvo: '+htmlParcial.slice(htmlParcial.indexOf('bd-cantidad-linea')-700, htmlParcial.indexOf('bd-cantidad-linea')+200));
+    assert(htmlParcial.includes('llega incompleto') || htmlParcial.includes('llegan incompletos'), 'y lo resume abajo de la tabla');
+
+    // Recibir de más también se avisa: la orden lo permite, pero no puede pasar calladito.
+    ctx.__appstate.bodega.doc.lineas[0].cantidad = 14;
+    assert(ctx.renderDocumentoBodega('ingreso').includes('Llegan 4 de más'), 'recibir más de lo pendiente se avisa');
+
+    // Un ítem en 0 no llegó: no viaja al servidor y lo pedido sigue pendiente en la orden.
+    ctx.__appstate.bodega.doc.lineas[0].cantidad = 0;
+    const htmlCero = ctx.renderDocumentoBodega('ingreso');
+    assert(htmlCero.includes('no entra') && htmlCero.includes('queda pendiente'), 'un ítem en 0 dice que no entra en esta recepción, obtuvo: '+htmlCero.slice(htmlCero.indexOf('material')-100, htmlCero.indexOf('material')+500));
+    ctx.__appstate.bodega.doc = {...ctx.__appstate.bodega.doc, numeroGuia:'GD-501', fotoGuia:{file:{name:'g.jpg', type:'image/jpeg'}}};
+    calls.length = 0; elements['toast-root'].hijos.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_documento_bodega')), 'con todos los ítems en 0 no se manda nada al servidor');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('en 0'), 'y se dice por qué, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Con dos ítems, uno en 0 y otro con cantidad, viaja solo el que llegó.
+    ctx.__appstate.bodega.doc.lineas = [
+      {...docOc.lineas[0], cantidad:0},
+      {sku_id:'sku-b2', sku_code:'BOD-002', descripcion:'Guante', unidad_medida:'PAR', cantidad:3, costo_unitario:500, stock_sistema:null},
+    ];
+    calls.length = 0;
+    await ctx.registrarDocumentoBodega('ingreso');
+    const cuerpoParcial = JSON.parse(calls.find(c=>c.url.includes('/rpc/registrar_documento_bodega')).opts.body);
+    assert(cuerpoParcial.p_lineas.length===1 && cuerpoParcial.p_lineas[0].sku_id==='sku-b2', 'solo viaja el ítem que de verdad llegó, obtuvo: '+JSON.stringify(cuerpoParcial.p_lineas));
+
+    // ===== Cargar la orden escribiendo su número, que es lo que trae la guía en la mano =====
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    elements['toast-root'].hijos.length = 0;
+    await ctx.cargarOrdenCompraPorNumero('OC-000007');
+    assert(ctx.__appstate.bodega.doc.ordenCompraId==='oc-1', 'escribir el número carga esa orden, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc.ordenCompraId));
+
+    // Un borrador todavía no salió al proveedor: no se puede recibir contra él, y se dice por qué.
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    elements['toast-root'].hijos.length = 0;
+    await ctx.cargarOrdenCompraPorNumero('OC-000008');
+    assert(!ctx.__appstate.bodega.doc.ordenCompraId && JSON.stringify(elements['toast-root'].hijos).includes('borrador'), 'una orden en borrador explica por qué no se puede recibir, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Una anulada tampoco.
+    elements['toast-root'].hijos.length = 0;
+    await ctx.cargarOrdenCompraPorNumero('OC-000009');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('anulada'), 'una orden anulada se avisa, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Un número que no es de una orden emitida acá NO es un error: queda anotado como referencia,
+    // que es lo que hacía el campo de siempre.
+    ctx.__appstate.bodega.doc = {...ctx.documentoBodegaVacio(), numeroOc:'ORD-EXTERNA-99'};
+    elements['toast-root'].hijos.length = 0;
+    await ctx.cargarOrdenCompraPorNumero('ORD-EXTERNA-99');
+    assert(!ctx.__appstate.bodega.doc.ordenCompraId && ctx.__appstate.bodega.doc.numeroOc==='ORD-EXTERNA-99', 'un número de otro sistema se conserva como referencia, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc));
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('referencia'), 'y se dice qué pasó, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+    // Quitar la orden deja la recepción limpia para escribir otra.
+    await ctx.usarOrdenCompraEnIngreso('oc-1');
+    await ctx.usarOrdenCompraEnIngreso('');
+    assert(!ctx.__appstate.bodega.doc.ordenCompraId && !ctx.__appstate.bodega.doc.numeroOc && !ctx.__appstate.bodega.doc.lineas.length, 'quitar la orden limpia número, id y líneas, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc));
+
+    // La Salida no cambia: sin tarjeta de orden de compra y con la cantidad fija.
+    const htmlSalida = ctx.renderDocumentoBodega('salida');
+    assert(!htmlSalida.includes('id="bd-oc"') && !htmlSalida.includes('btn-cargar-oc') && !htmlSalida.includes('bd-cantidad-linea'), 'la Salida sigue igual que antes');
+
+    // Se deja la línea como estaba (10 pendientes) para lo que sigue.
+    docOc.lineas[0].cantidad = 10;
+    ctx.__appstate.bodega.doc = docOc;
 
     // Y al guardar, el documento viaja con la orden.
     ctx.__appstate.bodega.doc = {...docOc, numeroGuia:'GD-500', fotoGuia:{file:{name:'g.jpg', type:'image/jpeg'}}};
@@ -7875,7 +7957,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.agregarLineaBodega(skuCosto, 2);
     assert(ctx.__appstate.bodega.doc.lineas[0].costo_unitario===1000, 'la línea toma el costo del maestro como sugerencia, obtuvo: '+JSON.stringify(ctx.__appstate.bodega.doc.lineas[0]));
     const htmlIng = ctx.renderDocumentoBodega('ingreso');
-    assert(htmlIng.includes('data-costo-sku="sku-b1"') && htmlIng.includes('monto del ingreso') && htmlIng.includes('$2.000'), 'el ingreso muestra costo por línea y el monto total, obtuvo: '+htmlIng.slice(htmlIng.indexOf('Costo unit.')-200, htmlIng.indexOf('Costo unit.')+900));
+    assert(htmlIng.includes('data-costo-sku="sku-b1"') && htmlIng.includes('monto de la recepción') && htmlIng.includes('$2.000'), 'el ingreso muestra costo por línea y el monto total, obtuvo: '+htmlIng.slice(htmlIng.indexOf('Costo unit.')-200, htmlIng.indexOf('Costo unit.')+900));
     assert(!ctx.renderDocumentoBodega('salida').includes('data-costo-sku='), 'la salida no pide costo');
     ctx.__appstate.bodega.doc.lineas[0].costo_unitario = 1500;
     ctx.__appstate.bodega.doc.numeroGuia = 'GD-9'; ctx.__appstate.bodega.doc.fotoGuia = {file:{name:'g.jpg', type:'image/jpeg', size:10}, preview:'data:', preparando:false};

@@ -374,22 +374,30 @@ async function loguear(page, perfil){
     assert(await esperarVisible(page, 'text=Marcela Ríos'), 'el detalle muestra el contacto del proveedor');
     const sinDesborde = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     assert(sinDesborde, 'el detalle de la orden no debe desbordar a lo ancho en pantalla de celular');
-    // "Recibir en Ingreso" lleva a la otra vista con las líneas pendientes ya cargadas.
+    // "Recepcionar" lleva a la otra vista con los ítems pendientes ya cargados.
     await page.click('[data-oc-recibir="oc-1"]');
     // Esperar al DATO, no al elemento. El handler de data-oc-recibir hace setState({view:'ingreso'})
     // y recién después await usarOrdenCompraEnIngreso(), que es quien pide las líneas al servidor:
-    // #bd-orden-compra existe con valor vacío desde el primer render. Con el mock respondiendo al
-    // instante casi siempre alcanzaba, pero en CI fallaba de a ratos -- el run 812 y el primer
-    // intento del PR #422 -- con un "obtuvo: " vacío que parecía un bug de la app y no lo era.
+    // #bd-oc existe con valor vacío desde el primer render. Con el mock respondiendo al instante
+    // casi siempre alcanzaba, pero en CI fallaba de a ratos -- el run 812 y el primer intento del
+    // PR #422 -- con un "obtuvo: " vacío que parecía un bug de la app y no lo era.
     await page.waitForFunction(
-      () => { const el = document.getElementById('bd-orden-compra'); return !!el && el.value === 'oc-1'; },
+      () => { const el = document.getElementById('bd-oc'); return !!el && el.value === 'OC-000007'; },
       null, { timeout:ESPERA });
-    const ocElegida = await page.inputValue('#bd-orden-compra');
-    assert(ocElegida==='oc-1', 'el Ingreso queda enganchado a la orden, obtuvo: '+ocElegida);
-    assert(await page.inputValue('#bd-oc')==='OC-000007', 'el número de la orden se copia al documento');
+    assert(await page.inputValue('#bd-oc')==='OC-000007', 'el número de la orden queda en la Recepción');
     await page.waitForSelector('.bd-costo', { timeout:ESPERA });
     const lineas = await page.$$eval('.bd-costo', els => els.length);
-    assert(lineas===1, 'la línea pendiente se carga sola en el Ingreso, obtuvo: '+lineas);
+    assert(lineas===1, 'el ítem pendiente se carga solo en la Recepción, obtuvo: '+lineas);
+    // Y la cantidad recibida se puede corregir con lo que de verdad llegó. Se prueba en navegador
+    // real porque el riesgo es el cableado: el input escribe al estado sin repintar (para no
+    // reemplazar el campo mientras se escribe) y recién al salir del campo se refrescan los avisos.
+    const cantidades = await page.$$eval('.bd-cantidad-linea', els => els.map(e=>e.value));
+    assert(cantidades.length===1 && cantidades[0]==='20', 'la cantidad viene con lo pendiente (20), obtuvo: '+JSON.stringify(cantidades));
+    await page.fill('.bd-cantidad-linea', '4');
+    await page.locator('.bd-cantidad-linea').dispatchEvent('change');
+    assert(await esperarVisible(page, 'text=Quedan 16 por llegar'), 'recibir 4 de 20 avisa que quedan 16 por llegar');
+    await page.fill('.bd-cantidad-linea', '20');
+    await page.locator('.bd-cantidad-linea').dispatchEvent('change');
     // El tile "Orden de compra" del Inicio entra derecho al formulario, sin pasar por la lista.
     // Se prueba acá porque el riesgo real es el cableado: un listener registrado en el bloque de
     // bind equivocado no se nota en los unit tests (ya pasó con el botón Transferir de Stock).
