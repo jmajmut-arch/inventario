@@ -1146,7 +1146,11 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(aperturaBodegaHecha ? [{id:'mov-ap'}] : []) };
   }
   if(path.startsWith('/rest/v1/stock_actual')){
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, bodega:'Bodega Central', ubicacion:'Pasillo 1', storage_bin:'R-1', stock:6, reservado:4, disponible:2, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
+    // Stock va por páginas con cabecera Range y Content-Range, igual que el maestro de SKU.
+    const rango = opts && opts.headers && opts.headers['Range'];
+    const desde = rango ? Number(String(rango).split('-')[0]) : 0;
+    const TOTAL_STOCK = 61636;
+    return { status:200, ok:true, headers:{get:(h)=> String(h).toLowerCase()==='content-range' ? `${desde}-${desde+29}/${TOTAL_STOCK}` : null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, bodega:'Bodega Central', ubicacion:'Pasillo 1', storage_bin:'R-1', stock:6, reservado:4, disponible:2, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
   }
   // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
   // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
@@ -7130,6 +7134,49 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.cargarStockBodega();
     const htmlStock = ctx.renderStockBodega();
     assert(htmlStock.includes('BOD-001') && htmlStock.includes('R-1') && htmlStock.includes('$6.000'), 'Stock muestra SKU, bin, cantidad y valor, obtuvo: '+htmlStock);
+
+    // ===== Stock de a 30, con Siguiente =====
+    // Con 300 materiales de golpe la tabla generaba 7.022 nodos y en un celular de 420 px cada fila
+    // ocupaba unos 100 px, con la descripción partida en seis líneas (auditoría del 12 de sept.).
+    const pedidoStock = calls.filter(c=>c.url.includes('/stock_actual')).pop();
+    assert(pedidoStock.opts.headers['Range']==='0-29' && pedidoStock.opts.headers['Prefer']==='count=exact',
+      'la primera página pide 30 y el total, obtuvo: '+JSON.stringify(pedidoStock.opts.headers));
+    assert(!pedidoStock.url.includes('limit=300'), 'ya no se piden 300 de una vez');
+    assert(ctx.__appstate.bodega.stockTotal===61636 && ctx.__appstate.bodega.stockPagina===0,
+      'el total sale de Content-Range, obtuvo: '+JSON.stringify({t:ctx.__appstate.bodega.stockTotal, p:ctx.__appstate.bodega.stockPagina}));
+    assert(!htmlStock.includes('id="stock-pag-next"'), 'con una sola fila no hay nada que paginar');
+
+    calls.length = 0;
+    await ctx.cargarStockBodega(1);
+    const pagina2 = calls.filter(c=>c.url.includes('/stock_actual')).pop();
+    assert(pagina2.opts.headers['Range']==='30-59' && ctx.__appstate.bodega.stockPagina===1,
+      'Siguiente pide el tramo que sigue, obtuvo: '+JSON.stringify(pagina2.opts.headers));
+
+    // Una página llena: ahí sí aparece la barra, con dónde va y con Anterior apagado en la primera.
+    const treinta = Array.from({length:30},(_,i)=>({sku_id:'x'+i, sku_code:'X'+i, descripcion:'m', stock:1,
+      unidad_medida:'UN', bodega:'B', ubicacion:null, storage_bin:null, batch:null, costo_unitario:0,
+      valor:0, bajo_minimo:false, stock_minimo:null, tipo_material:null}));
+    ctx.__appstate.bodega = {...ctx.__appstate.bodega, stock: treinta, stockPagina:0, stockTotal:61636, stockTotalConocido:true};
+    const conBarra = ctx.renderStockBodega();
+    assert(conBarra.includes('id="stock-pag-next"') && conBarra.includes('1–30 de 61.636'),
+      'la barra dice en qué página va, obtuvo: '+conBarra.slice(conBarra.indexOf('stock-pag-prev')-260, conBarra.indexOf('stock-pag-prev')+460));
+    assert(/stock-pag-prev[^>]*disabled/.test(conBarra), 'en la primera página, Anterior va apagado');
+    ctx.__appstate.bodega = {...ctx.__appstate.bodega, stockPagina:1};
+    assert(ctx.renderStockBodega().includes('31–60 de 61.636'), 'y en la segunda dice el tramo que corresponde');
+
+    // El total viaja en una cabecera que el navegador puede no dejar leer. Sin ella no se sabe
+    // cuántos hay, pero una página llena igual tiene que ofrecer Siguiente: si no, no habría
+    // forma de avanzar.
+    ctx.__appstate.bodega = {...ctx.__appstate.bodega, stockPagina:0, stockTotalConocido:false, stockTotal:0};
+    const sinTotal = ctx.renderStockBodega();
+    assert(sinTotal.includes('id="stock-pag-next"') && !/stock-pag-next[^>]*disabled/.test(sinTotal),
+      'sin el total, una página llena igual ofrece Siguiente');
+    assert(sinTotal.includes('30 SKU en esta página'), 'y dice lo que sabe, no un total inventado');
+
+    // Buscar vuelve a la primera página: quedarse en la 7 de un resultado que ahora tiene 2 dejaría
+    // la pantalla vacía sin explicación.
+    await ctx.cargarStockBodega(0);
+    assert(ctx.__appstate.bodega.stockPagina===0, 'se puede volver a la primera página');
 
     // Configuraciones: listas del admin solo con el módulo activo. Súper admin: interruptor por empresa.
     ctx.__appstate.view = 'config';
