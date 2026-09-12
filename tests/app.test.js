@@ -7595,6 +7595,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(docRes.lineas.length===1 && docRes.lineas[0].cantidad===10, 'se prellena lo PENDIENTE (10 de 15 reservados), no lo reservado, obtuvo: '+JSON.stringify(docRes.lineas));
     assert(ctx.renderDocumentoBodega('salida').includes('id="bd-reserva"'), 'la Salida ofrece el selector de reserva');
 
+    // Volver a "Sin reserva" tiene que sacar lo que trajo la reserva. Joel lo encontró en
+    // producción: elegía la reserva, volvía a "Sin reserva" y los materiales seguían en pantalla
+    // como si fueran parte del despacho.
+    ctx.agregarLineaBodega({id:'sku-b2', sku_code:'BOD-002', descripcion:'Guante', unidad_medida:'PAR', stock_sistema:22, costo_unitario:500}, 3);
+    assert(ctx.__appstate.bodega.doc.lineas.length===2, 'se agrega un material a mano además del de la reserva');
+    await ctx.usarReservaEnSalida('');
+    const trasQuitar = ctx.__appstate.bodega.doc;
+    assert(!trasQuitar.reservaId, 'la reserva se suelta');
+    assert(trasQuitar.lineas.length===1 && trasQuitar.lineas[0].sku_id==='sku-b2',
+      'se van los materiales de la reserva y se queda el que se agregó a mano, obtuvo: '+JSON.stringify(trasQuitar.lineas.map(l=>l.sku_code)));
+
+    // Se deja el documento como lo espera lo que sigue.
+    ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
+    await ctx.usarReservaEnSalida('res-1');
+
     // Y al guardar, la salida viaja con la reserva.
     calls.length = 0;
     await ctx.registrarDocumentoBodega('salida');

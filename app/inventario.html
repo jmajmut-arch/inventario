@@ -5648,11 +5648,12 @@ function agregarLineaBodega(sku, cantidad){
   // sin eso la línea perdería el aviso de lo que queda pendiente.
   const anterior = state.bodega.doc.lineas.find(l=>l.sku_id===sku.id);
   const deOc = anterior && anterior.desdeOc ? {desdeOc:true, pedido:anterior.pedido, yaRecibido:anterior.yaRecibido, pendiente:anterior.pendiente} : {};
+  const deReserva = anterior && anterior.desdeReserva ? {desdeReserva:true} : {};
   const lineas = state.bodega.doc.lineas.filter(l=>l.sku_id!==sku.id);
   // El costo del maestro viene como sugerencia editable; si el material no tiene, queda vacío.
   // Lo que quede en esa casilla al registrar el ingreso pasa a ser el costo del material (manda la
   // última compra), así que se muestra el actual para que la persona vea qué está confirmando.
-  lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema, costo_unitario: sku.costo_unitario!=null ? Number(sku.costo_unitario) : null, ...deOc});
+  lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema, costo_unitario: sku.costo_unitario!=null ? Number(sku.costo_unitario) : null, ...deOc, ...deReserva});
   state.bodega.doc.lineas = lineas;
   state.bodega.busqueda = {texto:'', resultados:[], buscando:false};
   render();
@@ -6073,7 +6074,11 @@ async function avisarReservasDescubiertas(tipo){
 // Entregar contra una reserva: la salida se prellena con lo que falta.
 async function usarReservaEnSalida(id){
   if(!id){
-    setState({bodega:{...state.bodega, doc:{...state.bodega.doc, reservaId:''}}});
+    // Volver a "Sin reserva" saca los materiales que trajo la reserva, no los que la persona
+    // agregó a mano: esos los puso ella. Sin esto quedaban en pantalla como si siguieran siendo
+    // parte del despacho, que es lo que Joel encontró en producción.
+    setState({bodega:{...state.bodega, doc:{...state.bodega.doc, reservaId:'',
+      lineas: state.bodega.doc.lineas.filter(l=>!l.desdeReserva)}}});
     return;
   }
   const r = (state.reservas.lista||[]).find(x=>x.id===id);
@@ -6083,7 +6088,7 @@ async function usarReservaEnSalida(id){
     const lineas = filas.map(f=>({sku_id:f.sku_id, sku_code:f.sku_code, descripcion:f.descripcion,
       unidad_medida:f.unidad_medida, batch:f.batch, storage_bin:f.storage_bin,
       stock_sistema: f.stock!=null ? Number(f.stock) : null,
-      cantidad:Number(f.pendiente), costo_unitario:null}));
+      cantidad:Number(f.pendiente), costo_unitario:null, desdeReserva:true}));
     setState({bodega:{...state.bodega, doc:{...state.bodega.doc, reservaId:id,
       retiradoPorId: r && r.persona_id ? r.persona_id : state.bodega.doc.retiradoPorId,
       destino: r && r.destino ? r.destino : state.bodega.doc.destino,
