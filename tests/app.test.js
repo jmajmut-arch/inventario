@@ -6975,7 +6975,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.vistaInicialParaPerfil()==='dashboard', 'sin módulo de bodega la vista inicial sigue siendo Dashboard, obtuvo: '+ctx.vistaInicialParaPerfil());
     const shellSinModulo = ctx.renderShell();
     assert(!shellSinModulo.includes('id="btn-ir-inicio"') && shellSinModulo.includes('data-tab="reconteo"'), 'sin el módulo no debe aparecer el botón Inicio y la barra es la de siempre, obtuvo: '+shellSinModulo.slice(0,400));
-    // Con el módulo: inicio con Ingreso, Salida, Inventario y Dashboard.
+    // Con el módulo: inicio con Recepción, Despacho, Inventario y Dashboard.
     ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
     assert(ctx.vistaInicialParaPerfil()==='inicio', 'con el módulo activo se entra al Inicio, obtuvo: '+ctx.vistaInicialParaPerfil());
     ctx.__appstate.bodega.pendientes = [{id:'mov-p1'}];
@@ -6998,6 +6998,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.perfil.empresas.bodega_funciones = {ordenes_compra:false};
     assert(!ctx.renderInicio().includes('data-nueva-orden'), 'con órdenes de compra apagadas no debe estar el tile');
     ctx.__appstate.perfil.empresas.bodega_funciones = null;
+
+    // ===== Los nombres del módulo: Recepción y Despacho, no Ingreso ni Salida =====
+    // Se prueba porque el nombre está repetido en muchos lados (tile, pestaña, título, etiqueta
+    // del movimiento, comprobante, reportes) y basta olvidar uno para que la app se contradiga
+    // sola: la pestaña diría una cosa y el comprobante impreso otra. El valor 'ingreso' /
+    // 'salida' de la base NO cambia, solo lo que se muestra.
+    const pantallas = [ctx.renderInicio(), ctx.renderDocumentoBodega('ingreso'), ctx.renderDocumentoBodega('salida')];
+    // La barra de abajo se arma dentro del render general, así que se revisa en el archivo: es
+    // donde más se nota un nombre olvidado, porque está en pantalla todo el tiempo.
+    assert(html.includes("tabBtn('ingreso','Recepción')") && html.includes("tabBtn('salida','Despacho')"),
+      'la barra inferior del módulo dice Recepción y Despacho');
+    assert(ctx.renderInicio().includes('>Recepción<') && ctx.renderInicio().includes('>Despacho<'), 'el Inicio de bodega ofrece Recepción y Despacho, obtuvo: '+ctx.renderInicio().slice(0,900));
+    assert(ctx.renderDocumentoBodega('ingreso').includes('Recepción de material'), 'el título de la recepción');
+    assert(ctx.renderDocumentoBodega('salida').includes('Despacho de material'), 'el título del despacho');
+    assert(ctx.renderDocumentoBodega('ingreso').includes('Guardar recepción'), 'el botón de guardar de la recepción');
+    assert(ctx.renderDocumentoBodega('salida').includes('Guardar despacho'), 'el botón de guardar del despacho');
+    assert(ctx.etiquetaTipoMovimiento('ingreso')==='Recepción' && ctx.etiquetaTipoMovimiento('salida')==='Despacho',
+      'los movimientos se etiquetan Recepción y Despacho, obtuvo: '+ctx.etiquetaTipoMovimiento('ingreso')+' / '+ctx.etiquetaTipoMovimiento('salida'));
+    pantallas.forEach((html,i)=>{
+      assert(!/>Ingreso</.test(html) && !/>Salida</.test(html) && !/Ingreso de material|Salida de material/.test(html),
+        `la pantalla ${i} no puede seguir diciendo Ingreso ni Salida`);
+    });
+    // Pero el dato que se guarda sigue siendo el mismo: renombrar la pantalla no puede cambiar lo
+    // que quedó escrito en movimientos_bodega ni lo que entiende el servidor.
+    assert(ctx.renderDocumentoBodega('salida').includes('data-tipo="salida"'), 'el formulario sigue mandando el tipo salida al servidor');
+    assert(ctx.renderDocumentoBodega('ingreso').includes('data-tipo="ingreso"'), 'y la recepción sigue mandando ingreso');
     ctx.__appstate.perfil.rol = 'operador';
     assert(!ctx.renderInicio().includes('data-nueva-orden'), 'un operador no puede emitir órdenes, no debe ver el tile');
     ctx.__appstate.perfil.rol = 'admin';
@@ -7202,7 +7228,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(htmlComp.includes('Comprobante de recepción ING-000007') && htmlComp.includes('Proveedor Uno') && htmlComp.includes('GD-100') && htmlComp.includes('BOD-001') && htmlComp.includes('<strong>5</strong>') && htmlComp.includes('Guía') && !htmlComp.includes('Recibe:'), 'el comprobante de ingreso lleva proveedor, guía, líneas, total y foto, obtuvo: '+htmlComp);
     const cabSal = {...cabIng, numero:'SAL-000003', tipo:'salida', retirado_por_nombre:'Juan Retira', retirado_por_area:'Mantención', destino:'Taller', despachado_por_nombre:'Ana'};
     const htmlCompSal = ctx.comprobanteDocumentoBodegaHTML(cabSal, [cabSal], []);
-    assert(htmlCompSal.includes('Comprobante de salida') && htmlCompSal.includes('Juan Retira · Mantención') && htmlCompSal.includes('Recibe: Juan Retira') && htmlCompSal.includes('Entrega: Ana'), 'el comprobante de salida lleva quién retira, destino y firmas, obtuvo: '+htmlCompSal);
+    assert(htmlCompSal.includes('Comprobante de despacho') && htmlCompSal.includes('Juan Retira · Mantención') && htmlCompSal.includes('Recibe: Juan Retira') && htmlCompSal.includes('Entrega: Ana'), 'el comprobante de salida lleva quién retira, destino y firmas, obtuvo: '+htmlCompSal);
     ctx.__appstate.bodega.movimientos = [cabIng];
     assert(ctx.renderMovimientosBodega().includes('data-comprobante-doc="doc-1"'), 'Movimientos ofrece el PDF por documento');
 
