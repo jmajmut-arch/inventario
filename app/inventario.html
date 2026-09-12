@@ -5648,7 +5648,7 @@ async function registrarDocumentoBodega(tipo){
       // Sin conexión: se guarda con el saldo que se ve ahora (saldo_local) para que el servidor
       // decida al sincronizar (caso C del diseño). Las fotos van a IndexedDB.
       payload.p_lineas = lineasQueEntran.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null, saldo_local: l.stock_sistema!=null ? Number(l.stock_sistema) : null}));
-      const item = encolarAccionOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Recepción':'Salida'} de ${lineasQueEntran.length} material${lineasQueEntran.length===1?'':'es'}`, idempotency_key: idempotencyKey});
+      const item = encolarAccionOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Recepción':'Despacho'} de ${lineasQueEntran.length} material${lineasQueEntran.length===1?'':'es'}`, idempotency_key: idempotencyKey});
       try{ await guardarFotosOffline(item.id, fotos.map(f=> new File([f.file], `${f.tipo}-${f.file.name||'foto.jpg'}`, {type: f.file.type||'image/jpeg'}))); }catch(err){ /* sin IndexedDB: se guarda sin fotos */ }
       state.bodega.doc = documentoBodegaVacio();
       setState({bodega: {...state.bodega, guardando:false}});
@@ -6004,7 +6004,7 @@ async function avisarReservasDescubiertas(tipo){
   const nuevas = reservasDescubiertas().filter(r=>!antes.has(r.id));
   if(!nuevas.length) return;
   const cuales = nuevas.map(r=>r.numero).join(', ');
-  toast(`La salida dejó sin respaldo ${nuevas.length===1?'la reserva':'las reservas'} ${cuales}: falta material para cubrir${nuevas.length===1?'la':'las'}`, 'warn');
+  toast(`El despacho dejó sin respaldo ${nuevas.length===1?'la reserva':'las reservas'} ${cuales}: falta material para cubrir${nuevas.length===1?'la':'las'}`, 'warn');
 }
 
 // Entregar contra una reserva: la salida se prellena con lo que falta.
@@ -6483,7 +6483,7 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
   const td = (t,der)=>`<td style="padding:4px;border-bottom:1px solid #ddd${der?';text-align:right':''}">${t}</td>`;
   return `
     ${encabezadoLogoImpresion()}
-    <h1>${esIngreso?'Comprobante de recepción':esDevolucion?'Comprobante de devolución':'Comprobante de salida'} ${esc(cab.numero)}</h1>
+    <h1>${esIngreso?'Comprobante de recepción':esDevolucion?'Comprobante de devolución':'Comprobante de despacho'} ${esc(cab.numero)}</h1>
     <div class="print-meta">${esc(empresa)} · ${fmtFecha(cab.fecha)} · Registró ${esc(cab.usuario_nombre||'')}${cab.documento_anulado_en?' · ANULADO':''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:12px">
       ${esIngreso ? dato('Proveedor', cab.proveedor_nombre)+dato('Guía de despacho', cab.numero_guia)+dato('Orden de compra', cab.numero_oc)
@@ -8588,8 +8588,8 @@ function renderDevolucionModal(){
   const d = state.devolucionModal;
   if(!d) return '';
   const cuerpo = d.cargando ? '<div class="empty"><div class="glyph">…</div>Cargando lo que se llevaron…</div>'
-    : d.error ? `<div class="hint" style="color:var(--danger)">No se pudo leer la salida: ${esc(d.error)}</div>`
-    : !d.lineas.length ? '<div class="empty"><div class="glyph">✓</div>De esta salida ya se devolvió todo.</div>'
+    : d.error ? `<div class="hint" style="color:var(--danger)">No se pudo leer el despacho: ${esc(d.error)}</div>`
+    : !d.lineas.length ? '<div class="empty"><div class="glyph">✓</div>De este despacho ya se devolvió todo.</div>'
     : `<div class="table-wrap"><table>
         <thead><tr><th>Material</th><th class="num">Salió</th><th class="num">Por devolver</th><th class="num">Devuelve</th></tr></thead>
         <tbody>${d.lineas.map(l=>`<tr>
@@ -8606,7 +8606,7 @@ function renderDevolucionModal(){
         <div><span class="eyebrow">Devolución a bodega</span><h2 style="margin:0;font-size:17px">Contra <span class="mono">${esc(d.numero)}</span></h2></div>
         <button id="devolucion-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
-      <div class="hint" style="margin-bottom:10px">Solo se puede devolver lo que salió en este documento y todavía no ha vuelto. El stock sube al guardar.</div>
+      <div class="hint" style="margin-bottom:10px">Solo se puede devolver lo que se despachó en este documento y todavía no ha vuelto. El stock sube al guardar.</div>
       ${cuerpo}
       <div style="margin-top:12px;display:flex;gap:8px">
         <button type="button" class="btn btn-primary" id="devolucion-guardar" ${d.guardando||d.cargando||!d.lineas.length?'disabled':''}>${d.guardando?'<span class="spinner"></span> Guardando…':'Registrar devolución'}</button>
@@ -11571,7 +11571,7 @@ function renderInicio(){
     <div style="display:grid;gap:12px">
       ${esAdmin && funcionBodegaActiva('ordenes_compra') ? tile('data-nueva-orden="1"','Orden de compra','Pedir material a un proveedor','ordenCompra') : ''}
       ${tile('data-ir-vista="ingreso"','Recepción','Recibir material contra la OC, con guía y fotos','ingreso')}
-      ${tile('data-ir-vista="salida"','Salida','Entregar material: quién retira y para qué','salida')}
+      ${tile('data-ir-vista="salida"','Despacho','Entregar material: quién retira y para qué','salida')}
       ${tile('data-ir-vista="conteo"','Inventario','Planificar, contar y recontar','conteo')}
       ${esAdmin ? tile('data-ir-vista="dashboard"','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
       ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Mover material</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
@@ -11720,7 +11720,7 @@ function renderReservaDetalle(){
     ${(d.entregas||[]).length ? `<div class="card">
       <span class="eyebrow">Entregas</span>
       <div class="table-wrap" style="margin-top:8px"><table>
-        <thead><tr><th>Salida</th><th>Fecha</th><th></th></tr></thead>
+        <thead><tr><th>Despacho</th><th>Fecha</th><th></th></tr></thead>
         <tbody>${d.entregas.map(x=>`<tr>
           <td class="mono" style="font-size:12px">${esc(x.numero)}${x.anulado_en?' <span class="badge badge-danger">Anulada</span>':''}</td>
           <td>${fmtFecha(x.fecha)}</td>
@@ -12037,7 +12037,7 @@ function renderDocumentoBodega(tipo){
   const totalMonto = d.lineas.reduce((s,l)=> s + (l.costo_unitario!=null && Number(l.cantidad)>0 ? Number(l.cantidad)*Number(l.costo_unitario) : 0), 0);
   const lineasSinCosto = d.lineas.filter(l=> l.costo_unitario==null && Number(l.cantidad)>0).length;
   return `
-    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${esIngreso?'Recepción de material':'Salida de material'}</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${esIngreso?'Recepción de material':'Despacho de material'}</h2></div></div>
     ${b.ultimoDocumento ? `<div class="card" style="margin-bottom:12px;border-color:var(--ok)">
       <div class="hint" style="margin:0">Guardado: <strong>${esc(b.ultimoDocumento.numero)}</strong>.${b.ultimoDocumento.tipo==='salida'?' Imprime el comprobante para que quien retira lo firme.':''}</div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
@@ -12115,7 +12115,7 @@ function renderDocumentoBodega(tipo){
         <label for="bd-obs">Observación</label>
         <textarea id="bd-obs" placeholder="Opcional">${esc(d.observacion)}</textarea>
         <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
-          <button type="submit" class="btn btn-primary" ${b.guardando?'disabled':''}>${b.guardando?'<span class="spinner"></span>':(esIngreso?'Guardar recepción':'Guardar salida')}</button>
+          <button type="submit" class="btn btn-primary" ${b.guardando?'disabled':''}>${b.guardando?'<span class="spinner"></span>':(esIngreso?'Guardar recepción':'Guardar despacho')}</button>
           <button type="button" class="btn btn-secondary" id="btn-limpiar-doc-bodega" style="width:auto;padding:10px 14px">Limpiar</button>
         </div>
       </form>
@@ -12123,7 +12123,7 @@ function renderDocumentoBodega(tipo){
   `;
 }
 
-function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Recepción', salida:'Salida', ajuste:'Ajuste', devolucion:'Devolución', transferencia_salida:'Traslado (sale)', transferencia_entrada:'Traslado (entra)'}[t] || t; }
+function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Recepción', salida:'Despacho', ajuste:'Ajuste', devolucion:'Devolución', transferencia_salida:'Traslado (sale)', transferencia_entrada:'Traslado (entra)'}[t] || t; }
 function badgeEstadoMovimiento(e){
   return e==='aprobado' ? '<span class="badge badge-ok">Aprobado</span>' : e==='anulado' ? '<span class="badge badge-danger">Anulado</span>' : e==='pendiente_revision' ? '<span class="badge badge-warn">En revisión</span>' : '<span class="badge badge-warn">Por aprobar</span>';
 }
@@ -12236,7 +12236,7 @@ function renderReportesBodega(){
     </div>` : ''}
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <h3 style="margin:0;font-size:15px">Consumo (salidas)</h3>
+        <h3 style="margin:0;font-size:15px">Consumo (despachos)</h3>
         <select id="rep-consumo-agrupar" style="width:auto;margin:0">${opciones(r.consumoAgrupar, [['persona','Por persona'],['area','Por área'],['destino','Por destino'],['tipo','Por tipo de material'],['sku','Por material']])}</select>
       </div>
       ${tabla(r.consumo, r.consumoAgrupar, r.cargando)}
@@ -12500,7 +12500,7 @@ function bindDocumentoBodega(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Salida', movimientos:'Movimientos', stock:'Stock', mover:'Mover material', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Despacho', movimientos:'Movimientos', stock:'Stock', mover:'Mover material', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
 }
 
 function renderShell(){
@@ -12567,7 +12567,7 @@ function renderShell(){
     ${(VISTAS_BODEGA.includes(state.view) || (state.view==='mover' && moduloBodegaActivo())) ? `<nav class="tabbar">
       ${tabBtn('inicio','Inicio')}
       ${tabBtn('ingreso','Recepción')}
-      ${tabBtn('salida','Salida')}
+      ${tabBtn('salida','Despacho')}
       ${tabBtn('movimientos','Movimientos')}
       ${tabBtn('stock','Stock')}
     </nav>` : `<nav class="tabbar">
