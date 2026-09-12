@@ -560,7 +560,7 @@ async function loguear(page, perfil){
     await context.close();
   }
 
-  // ===== Bodega: el botón Transferir del maestro de Stock abre el modal de traslado =====
+  // ===== Bodega: el botón Ubicación del maestro de Stock abre la ventana de cambio de ubicación =====
   // En el sandbox de unit tests las funciones se llaman directo; acá se prueba el cableado real:
   // que el listener esté registrado en la vista donde de verdad vive el botón.
   {
@@ -587,19 +587,21 @@ async function loguear(page, perfil){
     await page.click('[data-tab="stock"]');
     await page.waitForSelector('[data-transferir-sku]', { timeout:ESPERA });
     await page.click('[data-transferir-sku]');
-    await page.waitForSelector('#transferencia-backdrop', { timeout:ESPERA });
-    assert(await page.isVisible('#tra-bodega'), 'el modal de traslado debe abrirse desde el botón Transferir de Stock');
+    await page.waitForSelector('#ubicacion-sku-backdrop', { timeout:ESPERA });
+    assert(await page.isVisible('#us-bodega'), 'la ventana de cambio de ubicación debe abrirse desde Stock');
+    // La cantidad viene con todo el saldo del sitio: el caso normal es que el material se mueva entero.
+    assert(await page.inputValue('#us-cantidad')==='6', 'la cantidad parte en todo el saldo, obtuvo: '+await page.inputValue('#us-cantidad'));
     await esperarCondicion(page, () => {
-      const sel = document.getElementById('tra-bodega');
+      const sel = document.getElementById('us-bodega');
       return !!sel && Array.from(sel.options).some(o => o.value === 'Bodega Norte');
     });
-    const opciones = await page.$$eval('#tra-bodega option', els => els.map(e=>e.value));
-    assert(opciones.includes('Bodega Norte'), 'el modal ofrece las bodegas de destino, obtuvo: '+JSON.stringify(opciones));
+    const opciones = await page.$$eval('#us-bodega option', els => els.map(e=>e.value));
+    assert(opciones.includes('Bodega Norte'), 'la ventana ofrece las bodegas de destino, obtuvo: '+JSON.stringify(opciones));
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
-    assert(desborde, 'el modal de traslado no debe desbordar a lo ancho en pantalla de celular');
-    await page.click('#transferencia-cancelar');
+    assert(desborde, 'la ventana de cambio de ubicación no debe desbordar a lo ancho en pantalla de celular');
+    await page.click('#ubicacion-sku-cancelar');
     await page.waitForTimeout(200);
-    assert(await page.$('#transferencia-backdrop') === null, 'Cancelar cierra el modal de traslado');
+    assert(await page.$('#ubicacion-sku-backdrop') === null, 'Cancelar cierra la ventana');
     await context.close();
   }
 

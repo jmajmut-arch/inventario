@@ -560,7 +560,6 @@ let state = {
   // sin duplicarlo (ver guardarUbicacionSku).
   ubicacionSkuModal: null,
   devolucionModal: null,
-  transferenciaModal: null,
   ordenes: ordenesEstadoInicial(),
   reservas: reservasEstadoInicial(),
   logoGuardando: false,
@@ -1776,7 +1775,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, transferenciaModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -6353,52 +6352,6 @@ function ordenesRecibibles(){
   return (state.ordenes.lista||[]).filter(o=> o.estado==='enviada' || o.estado==='recibida_parcial');
 }
 
-// Transferencia entre bodegas: saca N unidades de donde están y las mete en otro sitio, con dos
-// movimientos del mismo documento (traslado que sale / traslado que entra). Es distinto de "Mover
-// material": ese cambia el sitio de la ficha completa y sirve para corregir un dato mal puesto;
-// esto registra un traslado físico, por cantidad, y queda en el kardex de los dos materiales.
-async function abrirTransferenciaBodega(datos){
-  setState({transferenciaModal:{...datos, cantidad:'', bodega:'', ubicacion:'', bin:'', observacion:'', guardando:false}});
-  if(!state.ubicaciones.cargado && !state.ubicaciones.cargando) cargarUbicaciones();
-}
-
-async function guardarTransferenciaBodega(){
-  const t = state.transferenciaModal;
-  if(!t || t.guardando) return false;
-  const cantidad = Number(t.cantidad);
-  if(!(cantidad > 0)){ toast('Indica cuántas unidades se trasladan','err'); return false; }
-  if(cantidad > Number(t.stock)){ toast(`Solo hay ${t.stock} ${t.unidad||''} en este sitio`,'err'); return false; }
-  const bodega = (t.bodega||'').trim();
-  if(!bodega){ toast('Elige la bodega de destino','err'); return false; }
-  const mismo = bodega===(t.bodegaOrigen||'') && (t.ubicacion||'').trim()===(t.ubicacionOrigen||'')
-             && (t.bin||'').trim()===(t.binOrigen||'');
-  if(mismo){ toast('El destino es el mismo sitio de origen','err'); return false; }
-  setState({transferenciaModal:{...t, guardando:true}});
-  try{
-    const res = await rest('/rpc/registrar_transferencia_bodega', {method:'POST', body:{
-      p_lineas: [{sku_id: t.skuId, cantidad}],
-      p_bodega_destino: bodega,
-      p_ubicacion_destino: (t.ubicacion||'').trim() || null,
-      p_bin_destino: (t.bin||'').trim() || null,
-      p_observacion: (t.observacion||'').trim() || null,
-      p_idempotency_key: crypto.randomUUID(),
-    }});
-    const doc = res && res.documento;
-    setState({transferenciaModal:null});
-    toast(`${doc? doc.numero : 'Traslado'}: ${cantidad} ${t.unidad||''} de ${t.codigo} a ${bodega}`);
-    // El traslado puede haber creado una ficha nueva en el destino: las listas de sitios y el
-    // maestro dejan de estar al día.
-    invalidarCacheAgregados(['generales']);
-    refrescarBodega();
-    refrescarListaSkus();
-    return true;
-  }catch(e){
-    setState({transferenciaModal:{...state.transferenciaModal, guardando:false}});
-    toast(e.message,'err');
-    return false;
-  }
-}
-
 // Devolución a bodega: material que salió a un área y vuelve. Va SIEMPRE contra la salida que lo
 // entregó, con tope en lo que efectivamente salió menos lo ya devuelto (lineas_por_devolver), para
 // que no exista la puerta de "devolver" material que nunca se retiró e inflar el stock. No pide
@@ -6837,6 +6790,37 @@ function mensajeUbicacionOcupada(m){
   return `Ya existe ${m.skuCode} en ese sitio${m.batch? ` con batch ${m.batch}` : ''}. Dos materiales no pueden compartir la misma ubicación: junta primero sus saldos o mueve el otro.`;
 }
 
+// Cuánto se mueve: por defecto todo. Vacío o mayor que el saldo se lee como "todo", que es lo que
+// la persona quiso decir en los dos casos.
+function cantidadCambioUbicacion(m){
+  const total = Number(m.stock);
+  if(!(total > 0)) return {total:0, cantidad:0, esTodo:true, exceso:false};
+  const txt = String(m.cantidad==null ? '' : m.cantidad).trim();
+  const n = Number(txt);
+  // Más de lo que hay no se corrige en silencio: bajarlo al saldo cambiaría lo que la persona
+  // pidió sin decírselo, y lo que necesita saber es que el saldo no es el que creía.
+  if(!isNaN(n) && n > total) return {total, cantidad:n, esTodo:false, exceso:true};
+  if(txt==='' || isNaN(n) || n<=0 || n===total) return {total, cantidad:total, esTodo:true, exceso:false};
+  return {total, cantidad:n, esTodo:false, exceso:false};
+}
+
+// Un solo lugar para cambiar de sitio un material, se entre desde el maestro de SKU, desde Cambio
+// de ubicación o desde Stock. Antes eran dos ventanas distintas -- "Mover" y "Transferir" -- y
+// había que saber que una cambiaba la ficha entera y la otra partía el saldo para elegir bien.
+function abrirCambioUbicacion(sku){
+  setState({ubicacionSkuModal:{
+    id: sku.id, skuCode: sku.skuCode, descripcion: sku.descripcion, batch: sku.batch,
+    bodega: sku.bodega||'', ubicacion: sku.ubicacion||'', storage_bin: sku.storage_bin||'',
+    bodegaOriginal: sku.bodega||null, ubicacionOriginal: sku.ubicacion||null, binOriginal: sku.storage_bin||null,
+    stock: sku.stock==null ? null : Number(sku.stock), unidad: sku.unidad||'', cantidad: null, observacion: '',
+    guardando:false, especificas:[], bins:[], cargandoOpciones:false,
+    nuevaBodega:false, nuevaUbicacion:false, nuevoBin:false,
+    historial:[], historialCargando:true, historialError:null,
+  }});
+  if(sku.bodega) cargarOpcionesUbicacionModal(sku.bodega, sku.ubicacion||'');
+  cargarHistorialUbicacionSku(sku.id);
+}
+
 async function guardarUbicacionSku(){
   const m = state.ubicacionSkuModal;
   if(!m || m.guardando) return false;
@@ -6845,9 +6829,28 @@ async function guardarUbicacionSku(){
     ubicacion: (m.ubicacion||'').trim() || null,
     storage_bin: (m.storage_bin||'').trim() || null,
   };
-  if(destino.bodega===m.bodegaOriginal && destino.ubicacion===m.ubicacionOriginal && destino.storage_bin===m.binOriginal){
-    setState({ubicacionSkuModal:null});
-    return true;
+  const mismoSitio = destino.bodega===m.bodegaOriginal && destino.ubicacion===m.ubicacionOriginal && destino.storage_bin===m.binOriginal;
+  // Dos caminos, y la app elige por la cantidad en vez de hacer elegir a la persona entre "mover"
+  // y "transferir", que era pedirle que supiera cómo funciona la base por dentro:
+  //   * se mueve TODO -> la misma ficha cambia de sitio. Conserva su historial de conteos, su
+  //     kardex y su clase ABC, y no queda una ficha en cero en el sitio viejo.
+  //   * se mueve una PARTE -> hay que partir la ficha sí o sí, y eso es un traslado: dos
+  //     movimientos (sale y entra) que quedan en el kardex de los dos sitios.
+  const { total, cantidad, esTodo, exceso } = cantidadCambioUbicacion(m);
+  if(exceso){ toast(`Solo hay ${total}${m.unidad?` ${m.unidad}`:''} en este sitio`,'err'); return false; }
+  // Sitio igual al de origen: si se movía todo, no hay nada que hacer y se cierra sin ruido. Pero
+  // si se movía una parte, la persona pidió algo que no pasó, y callarlo sería dejarla creyendo
+  // que el material se partió cuando sigue entero donde estaba.
+  if(mismoSitio){
+    if(esTodo){ setState({ubicacionSkuModal:null}); return true; }
+    toast('El destino es el mismo sitio donde está','err');
+    return false;
+  }
+  if(!esTodo){
+    // Partir el saldo exige un destino de verdad: sin bodega, la mitad del material quedaría
+    // en ninguna parte.
+    if(!destino.bodega){ toast('Elige la ubicación general de destino','err'); return false; }
+    return trasladarParteDelStock(m, destino, cantidad);
   }
   setState({ubicacionSkuModal:{...m, guardando:true}});
   try{
@@ -6868,6 +6871,38 @@ async function guardarUbicacionSku(){
   }catch(e){
     setState({ubicacionSkuModal:{...state.ubicacionSkuModal, guardando:false}});
     toast(esErrorCodigoSkuDuplicado(e) ? mensajeUbicacionOcupada(m) : e.message, 'err');
+    return false;
+  }
+}
+
+// Mover una parte obliga a partir la ficha: el saldo que se queda y el que se va no pueden vivir
+// en la misma fila. Eso es exactamente lo que hace registrar_transferencia_bodega, que además deja
+// el traslado en el kardex de los dos sitios.
+async function trasladarParteDelStock(m, destino, cantidad){
+  setState({ubicacionSkuModal:{...m, guardando:true}});
+  try{
+    if(destino.bodega && !ubicacionConocida(destino.bodega, null)) await crearUbicacion(destino.bodega, null, {silencioso:true});
+    if(destino.bodega && destino.ubicacion && !ubicacionConocida(destino.bodega, destino.ubicacion)) await crearUbicacion(destino.bodega, destino.ubicacion, {silencioso:true});
+    const res = await rest('/rpc/registrar_transferencia_bodega', {method:'POST', body:{
+      p_lineas: [{sku_id: m.id, cantidad}],
+      p_bodega_destino: destino.bodega,
+      p_ubicacion_destino: destino.ubicacion,
+      p_bin_destino: destino.storage_bin,
+      p_observacion: (m.observacion||'').trim() || null,
+      p_idempotency_key: crypto.randomUUID(),
+    }});
+    setState({ubicacionSkuModal:null});
+    const doc = res && res.documento;
+    toast(`${cantidad} ${m.unidad||''} de ${m.skuCode} a ${describirUbicacion(destino)}${doc&&doc.numero?` · ${doc.numero}`:''}`.replace(/\s+/g,' '));
+    refrescarListaSkus();
+    refrescarBodega();
+    invalidarCacheAgregados(['generales','sinUbicacion']);
+    if(state.view==='mover' && state.mover.texto) buscarMaterialParaMover(state.mover.texto);
+    if(state.view==='stock') cargarStockBodega();
+    return true;
+  }catch(e){
+    setState({ubicacionSkuModal:{...state.ubicacionSkuModal, guardando:false}});
+    toast(e.message,'err');
     return false;
   }
 }
@@ -8521,6 +8556,7 @@ function renderAjusteBodegaModal(){
 function renderUbicacionSkuModal(){
   const m = state.ubicacionSkuModal;
   if(!m) return '';
+  const { total, cantidad, esTodo } = cantidadCambioUbicacion(m);
   const origen = describirUbicacion({bodega:m.bodegaOriginal, ubicacion:m.ubicacionOriginal, storage_bin:m.binOriginal});
   const cat = state.ubicaciones.lista || [];
   // Las bodegas del catálogo que están activas, más las que tienen materiales y todavía no están
@@ -8550,17 +8586,25 @@ function renderUbicacionSkuModal(){
   return `<div class="foto-modal-backdrop" id="ubicacion-sku-backdrop">
     <div class="card" style="width:min(92vw,440px);margin-bottom:0;max-height:88vh;overflow-y:auto">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h2 style="margin:0;font-size:17px">Mover material</h2>
+        <h2 style="margin:0;font-size:17px">Cambio de ubicación</h2>
         <button id="ubicacion-sku-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
       </div>
-      <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(m.skuCode)}</span>${m.batch?` · batch ${esc(m.batch)}`:''}${m.descripcion?`<div style="margin-top:2px">${esc(m.descripcion)}</div>`:''}<div style="margin-top:4px">Hoy está en <strong>${esc(origen)}</strong>. Conserva su historial de conteos y su stock.</div></div>
+      <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(m.skuCode)}</span>${m.batch?` · batch ${esc(m.batch)}`:''}${m.descripcion?`<div style="margin-top:2px">${esc(m.descripcion)}</div>`:''}<div style="margin-top:4px">Hoy está en <strong>${esc(origen)}</strong>.</div></div>
       <form id="form-ubicacion-sku">
+        ${total > 0 ? `
+        <label for="us-cantidad">Cuánto se mueve <span class="hint" style="display:inline;margin:0">(hay ${total}${m.unidad?` ${esc(m.unidad)}`:''})</span></label>
+        <input type="number" id="us-cantidad" inputmode="decimal" min="0" max="${total}" step="any" value="${esc(m.cantidad==null?String(total):m.cantidad)}" style="margin:0">
+        <div class="hint" style="margin:6px 0 0">${esTodo
+          ? 'Se mueve la ficha completa: conserva su historial de conteos y su kardex, y no queda nada en el sitio anterior.'
+          : `Se trasladan ${cantidad} de ${total}: quedan ${total-cantidad} donde están y el traslado se registra en el kardex de los dos sitios.`}</div>` : ''}
         ${campo('us-bodega','Ubicación general', m.bodega, bodegas, m.nuevaBodega, '__nueva', 'Nombre de la bodega nueva')}
         ${campo('us-ubic','Ubicación específica', m.ubicacion, especificas, m.nuevaUbicacion, '__nueva', 'Nombre de la ubicación nueva')}
         ${campo('us-bin','Storage bin', m.storage_bin, bins, m.nuevoBin, '__nuevo', 'Ej. A-12-03')}
+        ${!esTodo ? `<label for="us-observacion" style="margin-top:8px">Observación</label>
+        <input type="text" id="us-observacion" value="${esc(m.observacion||'')}" placeholder="Por qué se traslada (opcional)" autocomplete="off" style="margin:0">` : ''}
         ${m.cargandoOpciones ? '<div class="hint" style="margin-top:8px">Cargando opciones…</div>' : ''}
         <div style="margin-top:12px;display:flex;gap:8px">
-          <button type="submit" class="btn btn-primary" ${m.guardando?'disabled':''}>${m.guardando?'<span class="spinner"></span> Moviendo…':'Mover'}</button>
+          <button type="submit" class="btn btn-primary" ${m.guardando?'disabled':''}>${m.guardando?'<span class="spinner"></span> Guardando…':(esTodo?'Cambiar ubicación':'Registrar traslado')}</button>
           <button type="button" class="btn btn-secondary" id="ubicacion-sku-cancelar" style="width:auto">Cancelar</button>
         </div>
       </form>
@@ -8616,59 +8660,6 @@ function renderDevolucionModal(){
         <button type="button" class="btn btn-primary" id="devolucion-guardar" ${d.guardando||d.cargando||!d.lineas.length?'disabled':''}>${d.guardando?'<span class="spinner"></span> Guardando…':'Registrar devolución'}</button>
         <button type="button" class="btn btn-secondary" id="devolucion-cancelar" style="width:auto">Cancelar</button>
       </div>
-    </div>
-  </div>`;
-}
-
-function renderTransferenciaModal(){
-  const t = state.transferenciaModal;
-  if(!t) return '';
-  const cat = state.ubicaciones.lista || [];
-  // Mismo criterio que "Mover material": bodegas activas del catálogo, más las que tienen
-  // materiales dentro y todavía no están en el catálogo; nunca una bodega desactivada a propósito.
-  const desactivadas = new Set(cat.filter(x=>!x.ubicacion && !x.activo).map(x=>x.bodega));
-  const bodegas = opcionesConActual([
-    ...cat.filter(x=>!x.ubicacion && x.activo).map(x=>x.bodega),
-    ...Object.keys(state.ubicaciones.materialesPorBodega||{}).filter(b=>!desactivadas.has(b)),
-  ], t.bodega);
-  const especificas = opcionesConActual(
-    cat.filter(x=> x.bodega===t.bodega && x.ubicacion && x.activo).map(x=>x.ubicacion), t.ubicacion);
-  const origen = describirUbicacion({bodega:t.bodegaOrigen, ubicacion:t.ubicacionOrigen, storage_bin:t.binOrigen});
-  const cargando = state.ubicaciones.cargando && !state.ubicaciones.cargado;
-  return `<div class="foto-modal-backdrop" id="transferencia-backdrop">
-    <div class="card" style="width:min(92vw,440px);margin-bottom:0;max-height:88vh;overflow-y:auto">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div><span class="eyebrow">Traslado entre bodegas</span><h2 style="margin:0;font-size:17px">Transferir material</h2></div>
-        <button id="transferencia-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
-      </div>
-      <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(t.codigo)}</span>${t.descripcion?`<div style="margin-top:2px">${esc(t.descripcion)}</div>`:''}<div style="margin-top:4px">Sale de <strong>${esc(origen)}</strong>, donde hay <strong>${t.stock}</strong> ${esc(t.unidad||'')}. El traslado queda en el kardex de los dos sitios y llega de inmediato.</div></div>
-      <form id="form-transferencia">
-        <label for="tra-cantidad">Cuántas unidades se trasladan</label>
-        <input type="number" id="tra-cantidad" inputmode="decimal" min="0" max="${t.stock}" step="any" value="${esc(t.cantidad)}" placeholder="0" autocomplete="off" style="margin:0">
-        <label for="tra-bodega" style="margin-top:8px">Bodega de destino</label>
-        <select id="tra-bodega" style="margin:0">
-          <option value="">— elige la bodega —</option>
-          ${bodegas.map(b=>`<option value="${esc(b)}" ${!t.nuevaBodega && t.bodega===b?'selected':''}>${esc(b)}</option>`).join('')}
-          <option value="__nueva" ${t.nuevaBodega?'selected':''}>+ Agregar una nueva…</option>
-        </select>
-        ${t.nuevaBodega ? `<input type="text" id="tra-bodega-nueva" value="${esc(t.bodega||'')}" placeholder="Nombre de la bodega nueva" autocomplete="off" style="margin:6px 0 0">` : ''}
-        <label for="tra-ubic" style="margin-top:8px">Ubicación específica del destino</label>
-        <select id="tra-ubic" style="margin:0">
-          <option value="">— sin ubicación específica —</option>
-          ${especificas.map(u=>`<option value="${esc(u)}" ${!t.nuevaUbicacion && t.ubicacion===u?'selected':''}>${esc(u)}</option>`).join('')}
-          <option value="__nueva" ${t.nuevaUbicacion?'selected':''}>+ Agregar una nueva…</option>
-        </select>
-        ${t.nuevaUbicacion ? `<input type="text" id="tra-ubic-nueva" value="${esc(t.ubicacion||'')}" placeholder="Nombre de la ubicación nueva" autocomplete="off" style="margin:6px 0 0">` : ''}
-        <label for="tra-bin" style="margin-top:8px">Storage bin del destino</label>
-        <input type="text" id="tra-bin" value="${esc(t.bin)}" placeholder="Ej. A-12-03 (opcional)" autocomplete="off" style="margin:0">
-        <label for="tra-observacion" style="margin-top:8px">Observación</label>
-        <input type="text" id="tra-observacion" value="${esc(t.observacion)}" placeholder="Por qué se traslada (opcional)" autocomplete="off" style="margin:0">
-        ${cargando ? '<div class="hint" style="margin-top:8px">Cargando bodegas…</div>' : ''}
-        <div style="margin-top:12px;display:flex;gap:8px">
-          <button type="submit" class="btn btn-primary" ${t.guardando?'disabled':''}>${t.guardando?'<span class="spinner"></span> Trasladando…':'Registrar traslado'}</button>
-          <button type="button" class="btn btn-secondary" id="transferencia-cancelar" style="width:auto">Cancelar</button>
-        </div>
-      </form>
     </div>
   </div>`;
 }
@@ -9520,7 +9511,7 @@ function renderTablaSkus(){
           <td class="mono">${esc(s.batch||'—')}</td>
           ${ocultarStockOperador()?'':`<td class="num">${s.stock_sistema!==null? s.stock_sistema:'—'}${infoStockPorTipo(s)}</td>`}
           <td>${claseAbcBadge(s.clase_abc)}</td>
-          ${esAdmin && moduloBodegaActivo()?`<td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-mover-sku="${esc(s.id)}" style="width:auto;padding:5px 10px;font-size:12px">Mover</button></td>`:''}
+          ${esAdmin && moduloBodegaActivo()?`<td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-mover-sku="${esc(s.id)}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button></td>`:''}
         </tr>`;
         }).join('')}</tbody>
       </table></div>
@@ -11578,7 +11569,7 @@ function renderInicio(){
       ${tile('data-ir-vista="salida"','Despacho','Entregar material: quién retira y para qué','salida')}
       ${tile('data-ir-vista="conteo"','Inventario','Planificar, contar y recontar','conteo')}
       ${esAdmin ? tile('data-ir-vista="dashboard"','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
-      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Mover material</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
+      ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Cambio de ubicación</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
     </div>
   `;
 }
@@ -12214,7 +12205,7 @@ function renderStockBodega(){
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${rows.length} SKU${rows.length>=300?' (primeros 300)':''}${totalValor?` · valor $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th>${funcionBodegaActiva('reservas')?'<th class="num">Disponible</th>':''}<th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:11px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Transferir</button>`:''}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:11px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button>`:''}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.stockCargado ? 'Sin resultados.' : 'Cargando…'}</div>`}
     </div>
   `;
 }
@@ -12298,12 +12289,12 @@ function renderMover(){
   // justo cuando súper admin le apaga el módulo, y ahí el formulario seguiría funcionando.
   if(!moduloBodegaActivo()){
     return `
-      <div class="section-head"><div><span class="eyebrow">Maestro</span><h2>Mover un material de ubicación</h2></div></div>
-      <div class="card"><div class="empty"><div class="glyph">📦</div>Mover material es parte del módulo de bodega, que esta empresa no tiene activo.</div></div>
+      <div class="section-head"><div><span class="eyebrow">Maestro</span><h2>Cambio de ubicación</h2></div></div>
+      <div class="card"><div class="empty"><div class="glyph">📦</div>El cambio de ubicación es parte del módulo de bodega, que esta empresa no tiene activo.</div></div>
     `;
   }
   return `
-    <div class="section-head"><div>${volverAlInicioBodega()}<h2>Mover un material de ubicación</h2></div></div>
+    <div class="section-head"><div>${volverAlInicioBodega()}<h2>Cambio de ubicación</h2></div></div>
     <div class="card">
       <p class="hint" style="margin-top:0">Busca el material por código o descripción y cámbiale la ubicación. Se mueve la misma ficha, así que conserva su historial de conteos, su kardex y su stock.</p>
       <input type="text" id="mover-buscar" placeholder="Código o descripción" value="${esc(m.texto)}" autocomplete="off" style="margin:0">
@@ -12316,7 +12307,7 @@ function renderMover(){
             <div class="hint" style="margin:2px 0 0">${esc(r.descripcion||'Sin descripción')}</div>
             <div class="hint" style="margin:2px 0 0">Hoy en <strong>${esc(describirUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin}))}</strong></div>
           </div>
-          <button type="button" class="btn btn-primary" data-mover-sku="${esc(r.id)}" style="width:auto;flex:none;padding:8px 16px">Mover</button>
+          <button type="button" class="btn btn-primary" data-mover-sku="${esc(r.id)}" style="width:auto;flex:none;padding:8px 16px">Cambiar ubicación</button>
         </div>`).join('')}</div>` : ''}
       ${!m.buscando && !m.error && m.yaBuscado && !m.resultados.length ? '<div class="empty" style="margin-top:12px"><div class="glyph">🔍</div>Sin resultados para esa búsqueda.</div>' : ''}
       ${!m.yaBuscado && !m.buscando && !m.error ? '<div class="hint" style="margin-top:12px">Escribe al menos dos caracteres.</div>' : ''}
@@ -12512,7 +12503,7 @@ function bindDocumentoBodega(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Despacho', movimientos:'Movimientos', stock:'Stock', mover:'Mover material', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Despacho', movimientos:'Movimientos', stock:'Stock', mover:'Cambio de ubicación', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
 }
 
 function renderShell(){
@@ -12648,7 +12639,7 @@ function renderDom(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderTransferenciaModal() + renderAnularOrdenModal() + renderProveedorModal() + renderCancelarReservaModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderProveedorModal() + renderCancelarReservaModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -12879,7 +12870,7 @@ function bind(){
     btn.addEventListener('click', ()=>{
       const vista = btn.dataset.irVista;
       if(vistaBloqueadaParaRol(vista)){ toast('Esta sección es solo para administradores', 'err'); return; }
-      if(vista==='mover' && !moduloBodegaActivo()){ toast('Mover material es parte del módulo de bodega', 'err'); return; }
+      if(vista==='mover' && !moduloBodegaActivo()){ toast('El cambio de ubicación es parte del módulo de bodega', 'err'); return; }
       detenerEscaner();
       const patch = {view: vista};
       if(vista==='conteo') patch.contarPlan = contarPlanAlEntrar(state.contarPlan);
@@ -13085,11 +13076,14 @@ function bind(){
   }
 
   if(state.view==='stock'){
-    document.querySelectorAll('[data-transferir-sku]').forEach(btn=> btn.addEventListener('click', ()=> abrirTransferenciaBodega({
-      skuId: btn.dataset.transferirSku, codigo: btn.dataset.transferirCodigo, descripcion: btn.dataset.transferirDesc,
-      stock: btn.dataset.transferirStock, unidad: btn.dataset.transferirUnidad,
-      bodegaOrigen: btn.dataset.transferirBodega, ubicacionOrigen: btn.dataset.transferirUbicacion, binOrigen: btn.dataset.transferirBin,
-    })));
+    document.querySelectorAll('[data-transferir-sku]').forEach(btn=> btn.addEventListener('click', ()=>{
+      if(!state.ubicaciones.cargado && !state.ubicaciones.cargando) cargarUbicaciones();
+      abrirCambioUbicacion({
+        id: btn.dataset.transferirSku, skuCode: btn.dataset.transferirCodigo, descripcion: btn.dataset.transferirDesc,
+        stock: btn.dataset.transferirStock, unidad: btn.dataset.transferirUnidad,
+        bodega: btn.dataset.transferirBodega, ubicacion: btn.dataset.transferirUbicacion, storage_bin: btn.dataset.transferirBin,
+      });
+    }));
     const form = document.getElementById('form-stock-bodega');
     if(form) form.addEventListener('submit', e=>{ e.preventDefault(); state.bodega.stockTexto = document.getElementById('stock-texto').value; cargarStockBodega(); });
     const btnExcel = document.getElementById('btn-exportar-stock');
@@ -13783,16 +13777,9 @@ function bind(){
         const sku = (state.skusPagina.rows||[]).find(r=>r.id===btn.dataset.moverSku)
           || (state.mover.resultados||[]).find(r=>r.id===btn.dataset.moverSku);
         if(!sku) return;
-        setState({ubicacionSkuModal:{
-          id: sku.id, skuCode: sku.sku_code, descripcion: sku.descripcion, batch: sku.batch,
-          bodega: sku.bodega||'', ubicacion: sku.ubicacion||'', storage_bin: sku.storage_bin||'',
-          bodegaOriginal: sku.bodega||null, ubicacionOriginal: sku.ubicacion||null, binOriginal: sku.storage_bin||null,
-          guardando:false, especificas:[], bins:[], cargandoOpciones:false,
-          nuevaBodega:false, nuevaUbicacion:false, nuevoBin:false,
-          historial:[], historialCargando:true, historialError:null,
-        }});
-        if(sku.bodega) cargarOpcionesUbicacionModal(sku.bodega, sku.ubicacion||'');
-        cargarHistorialUbicacionSku(sku.id);
+        abrirCambioUbicacion({id: sku.id, skuCode: sku.sku_code, descripcion: sku.descripcion, batch: sku.batch,
+          bodega: sku.bodega, ubicacion: sku.ubicacion, storage_bin: sku.storage_bin,
+          stock: sku.stock_sistema, unidad: sku.unidad_medida});
       });
     });
 
@@ -13811,34 +13798,6 @@ function bind(){
     const obs = document.getElementById('dev-observacion');
     if(obs) obs.addEventListener('input', ev=>{ state.devolucionModal = {...state.devolucionModal, observacion: ev.target.value}; });
     document.getElementById('devolucion-guardar').addEventListener('click', guardarDevolucionBodega);
-  }
-
-  if(state.transferenciaModal){
-    const cerrarTra = ()=> setState({transferenciaModal:null});
-    document.getElementById('transferencia-close').addEventListener('click', cerrarTra);
-    document.getElementById('transferencia-cancelar').addEventListener('click', cerrarTra);
-    document.getElementById('transferencia-backdrop').addEventListener('click', e=>{ if(e.target.id==='transferencia-backdrop') cerrarTra(); });
-    // Elegir "+ Agregar una nueva…" abre el campo para escribirla; cambiar de bodega invalida la
-    // ubicación específica, que era de la bodega anterior.
-    document.getElementById('tra-bodega').addEventListener('change', e=>{
-      const v = e.target.value, nueva = v==='__nueva';
-      setState({transferenciaModal:{...state.transferenciaModal,
-        bodega: nueva ? '' : v, nuevaBodega: nueva, ubicacion:'', nuevaUbicacion:false}});
-    });
-    document.getElementById('tra-ubic').addEventListener('change', e=>{
-      const v = e.target.value, nueva = v==='__nueva';
-      setState({transferenciaModal:{...state.transferenciaModal, ubicacion: nueva ? '' : v, nuevaUbicacion: nueva}});
-    });
-    // Lo tecleado vive en el estado: cualquier render de fondo reconstruye el modal entero.
-    [['tra-cantidad','cantidad'],['tra-bodega-nueva','bodega'],['tra-ubic-nueva','ubicacion'],['tra-bin','bin'],['tra-observacion','observacion']].forEach(([id, campo])=>{
-      const el = document.getElementById(id);
-      if(!el) return;
-      el.addEventListener('input', ev=>{ state.transferenciaModal = {...state.transferenciaModal, [campo]: ev.target.value}; });
-      if((id==='tra-bodega-nueva' || id==='tra-ubic-nueva') && document.activeElement!==el && el.value){
-        el.focus(); el.selectionStart = el.selectionEnd = el.value.length;
-      }
-    });
-    document.getElementById('form-transferencia').addEventListener('submit', e=>{ e.preventDefault(); guardarTransferenciaBodega(); });
   }
 
   if(state.ubicacionSkuModal){
@@ -13873,6 +13832,16 @@ function bind(){
 
     // Lo que se escribe en los campos nuevos se guarda en el estado a medida que se teclea: un
     // render de fondo reconstruye la pantalla y si no, se perdería a medio llenar.
+    // La cantidad se escribe al estado en cada tecla SIN repintar (repintar reemplaza el input y en
+    // iPad eso reinicia el teclado); al salir del campo se repinta para refrescar el aviso de qué
+    // va a pasar y el texto del botón.
+    const inpCant = document.getElementById('us-cantidad');
+    if(inpCant){
+      inpCant.addEventListener('input', ev=>{ state.ubicacionSkuModal = {...state.ubicacionSkuModal, cantidad: ev.target.value}; });
+      inpCant.addEventListener('change', ()=> render());
+    }
+    const inpObs = document.getElementById('us-observacion');
+    if(inpObs) inpObs.addEventListener('input', ev=>{ state.ubicacionSkuModal = {...state.ubicacionSkuModal, observacion: ev.target.value}; });
     [['us-bodega-nueva','bodega'],['us-ubic-nueva','ubicacion'],['us-bin-nueva','storage_bin']].forEach(([id, campo])=>{
       const el = document.getElementById(id);
       if(!el) return;

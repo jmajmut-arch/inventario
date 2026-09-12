@@ -7876,46 +7876,73 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       {id:'u-3', bodega:'Bodega Vieja', ubicacion:null, activo:false},
       {id:'u-4', bodega:'Bodega Norte', ubicacion:'Rack A', activo:true},
     ], materialesPorBodega:{'Bodega Central':10, 'Bodega Vieja':3}, nuevaBodega:'', renombrando:null};
-    await ctx.abrirTransferenciaBodega({skuId:'sku-b1', codigo:'BOD-001', descripcion:'Filtro', stock:'6', unidad:'UN', bodegaOrigen:'Bodega Central', ubicacionOrigen:'Pasillo 1', binOrigen:'R-1'});
-    const htmlTra = ctx.renderTransferenciaModal();
-    assert(htmlTra.includes('BOD-001') && htmlTra.includes('Bodega Central') && htmlTra.includes('R-1') && htmlTra.includes('max="6"'), 'el modal muestra el origen y no deja pasar del stock del sitio, obtuvo: '+htmlTra);
-    assert(htmlTra.includes('>Bodega Norte<') && !htmlTra.includes('>Bodega Vieja<'), 'ofrece las bodegas activas y nunca una desactivada, obtuvo: '+htmlTra);
+    // ===== Una sola ventana: "Cambio de ubicación" =====
+    // Antes eran dos, "Mover" y "Transferir", y había que saber que una cambiaba la ficha entera y
+    // la otra partía el saldo para elegir bien. Ahora se dice a dónde y cuánto, y la app decide:
+    // todo el saldo mueve la ficha (conserva historial, no deja fichas en cero); una parte es un
+    // traslado, que es la única forma de partir el saldo en dos sitios.
+    ctx.abrirCambioUbicacion({id:'sku-b1', skuCode:'BOD-001', descripcion:'Filtro', bodega:'Bodega Central',
+      ubicacion:'Pasillo 1', storage_bin:'R-1', stock:'6', unidad:'UN'});
+    const htmlCu = ctx.renderUbicacionSkuModal();
+    assert(htmlCu.includes('BOD-001') && htmlCu.includes('id="us-cantidad"') && htmlCu.includes('max="6"'),
+      'la ventana pregunta cuánto se mueve y no ofrece más de lo que hay, obtuvo: '+htmlCu.slice(0,700));
+    assert(htmlCu.includes('>Bodega Norte<') && !htmlCu.includes('>Bodega Vieja<'), 'ofrece las bodegas activas y nunca una desactivada');
+    assert(htmlCu.includes('ficha completa') && htmlCu.includes('Cambiar ubicación'),
+      'por defecto se mueve todo, y lo dice: la ficha completa cambia de sitio, obtuvo: '+htmlCu.slice(htmlCu.indexOf('us-cantidad'), htmlCu.indexOf('us-cantidad')+600));
 
-    // Más de lo que hay en el sitio: se frena en el cliente, sin molestar al servidor.
-    const traBase = ctx.__appstate.transferenciaModal;
-    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'9', bodega:'Bodega Norte'};
+    const cuBase = ctx.__appstate.ubicacionSkuModal;
+    // Una parte: cambia lo que se explica y lo que dice el botón, antes de guardar nada.
+    ctx.__appstate.ubicacionSkuModal = {...cuBase, cantidad:'2'};
+    const htmlParte = ctx.renderUbicacionSkuModal();
+    assert(htmlParte.includes('quedan 4') && htmlParte.includes('Registrar traslado'),
+      'mover una parte avisa cuánto queda y que será un traslado, obtuvo: '+htmlParte.slice(htmlParte.indexOf('us-cantidad'), htmlParte.indexOf('us-cantidad')+600));
+
+    // Más de lo que hay: se frena en el cliente y se dice cuánto hay. No se baja al saldo en
+    // silencio, porque lo que la persona necesita saber es que el saldo no es el que creía.
+    ctx.__appstate.ubicacionSkuModal = {...cuBase, cantidad:'9', bodega:'Bodega Norte'};
     calls.length = 0; elements['toast-root'].hijos.length = 0;
-    assert((await ctx.guardarTransferenciaBodega())===false, 'no debe dejar trasladar más de lo que hay');
+    assert((await ctx.guardarUbicacionSku())===false, 'no debe dejar mover más de lo que hay');
     assert(!calls.some(c=>c.url.includes('/rpc/registrar_transferencia_bodega')), 'ni siquiera llama al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(JSON.stringify(elements['toast-root'].hijos).includes('Solo hay 6'), 'el aviso dice cuánto hay, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
 
-    // Sin bodega de destino no hay traslado que valga.
-    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'2', bodega:''};
+    // Una parte sin ubicación general: la mitad del material quedaría en ninguna parte.
+    ctx.__appstate.ubicacionSkuModal = {...cuBase, cantidad:'2', bodega:''};
     calls.length = 0; elements['toast-root'].hijos.length = 0;
-    assert((await ctx.guardarTransferenciaBodega())===false && JSON.stringify(elements['toast-root'].hijos).includes('bodega de destino'), 'la bodega de destino es obligatoria, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert((await ctx.guardarUbicacionSku())===false && JSON.stringify(elements['toast-root'].hijos).includes('ubicación general'), 'un traslado parcial exige destino, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
 
-    // Destino idéntico al origen: no es un traslado, es ruido en el kardex.
-    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'2', bodega:'Bodega Central', ubicacion:'Pasillo 1', bin:'R-1'};
+    // Destino idéntico al origen moviendo una parte: la persona pidió algo que no pasó y hay que
+    // decirlo, no cerrar la ventana como si se hubiera hecho.
+    ctx.__appstate.ubicacionSkuModal = {...cuBase, cantidad:'2', bodega:'Bodega Central', ubicacion:'Pasillo 1', storage_bin:'R-1'};
     calls.length = 0; elements['toast-root'].hijos.length = 0;
-    assert((await ctx.guardarTransferenciaBodega())===false && JSON.stringify(elements['toast-root'].hijos).includes('mismo sitio'), 'el destino no puede ser el sitio de origen, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert((await ctx.guardarUbicacionSku())===false && JSON.stringify(elements['toast-root'].hijos).includes('mismo sitio'), 'el destino no puede ser el sitio de origen, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
     assert(!calls.some(c=>c.url.includes('/rpc/registrar_transferencia_bodega')), 'tampoco llega al servidor');
 
-    // Traslado válido: manda la línea, el destino y una clave de idempotencia, y cierra.
-    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'2', bodega:'Bodega Norte', ubicacion:'Rack A', bin:'N-7', observacion:'Se necesita en el norte'};
+    // Traslado parcial válido: va por la RPC de transferencia, con su clave de idempotencia.
+    ctx.__appstate.ubicacionSkuModal = {...cuBase, cantidad:'2', bodega:'Bodega Norte', ubicacion:'Rack A', storage_bin:'N-7', observacion:'Se necesita en el norte'};
     calls.length = 0; elements['toast-root'].hijos.length = 0;
-    assert((await ctx.guardarTransferenciaBodega())===true, 'un traslado dentro del stock debe guardarse');
+    assert((await ctx.guardarUbicacionSku())===true, 'un traslado dentro del stock debe guardarse');
     const rpcTra = calls.find(c=>c.url.includes('/rpc/registrar_transferencia_bodega'));
     const bodyTra = rpcTra && JSON.parse(rpcTra.opts.body);
-    assert(bodyTra && bodyTra.p_lineas.length===1 && bodyTra.p_lineas[0].sku_id==='sku-b1' && bodyTra.p_lineas[0].cantidad===2 && bodyTra.p_bodega_destino==='Bodega Norte' && bodyTra.p_ubicacion_destino==='Rack A' && bodyTra.p_bin_destino==='N-7' && typeof bodyTra.p_idempotency_key==='string', 'se manda la línea, el sitio de destino y la clave de idempotencia, obtuvo: '+JSON.stringify(bodyTra));
-    assert(ctx.__appstate.transferenciaModal===null, 'tras guardar, el modal se cierra');
-    assert(JSON.stringify(elements['toast-root'].hijos).includes('TRA-000001'), 'avisa el número del traslado, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
-    // Un sitio de destino en blanco es "la bodega, sin más detalle": debe viajar como null, no como "".
-    ctx.__appstate.transferenciaModal = {...traBase, cantidad:'1', bodega:'Bodega Norte', ubicacion:'', bin:''};
+    assert(bodyTra && bodyTra.p_lineas.length===1 && bodyTra.p_lineas[0].sku_id==='sku-b1' && bodyTra.p_lineas[0].cantidad===2
+      && bodyTra.p_bodega_destino==='Bodega Norte' && bodyTra.p_ubicacion_destino==='Rack A' && bodyTra.p_bin_destino==='N-7'
+      && typeof bodyTra.p_idempotency_key==='string', 'se manda la línea, el destino y la clave, obtuvo: '+JSON.stringify(bodyTra));
+    assert(ctx.__appstate.ubicacionSkuModal===null, 'tras guardar, la ventana se cierra');
+
+    // Un sitio de destino en blanco es "la bodega, sin más detalle": viaja como null, no como "".
+    ctx.__appstate.ubicacionSkuModal = {...cuBase, cantidad:'1', bodega:'Bodega Norte', ubicacion:'', storage_bin:''};
     calls.length = 0;
-    await ctx.guardarTransferenciaBodega();
+    await ctx.guardarUbicacionSku();
     const bodySimple = JSON.parse(calls.find(c=>c.url.includes('/rpc/registrar_transferencia_bodega')).opts.body);
     assert(bodySimple.p_ubicacion_destino===null && bodySimple.p_bin_destino===null, 'ubicación y bin vacíos viajan como null, obtuvo: '+JSON.stringify(bodySimple));
-    ctx.__appstate.transferenciaModal = null;
+
+    // Y mover TODO no es un traslado: corrige la ficha, sin tocar el kardex.
+    ctx.__appstate.ubicacionSkuModal = {...cuBase, cantidad:'6', bodega:'Bodega Norte', ubicacion:'Rack A', storage_bin:'N-7'};
+    calls.length = 0;
+    assert((await ctx.guardarUbicacionSku())===true, 'mover todo el saldo debe guardarse');
+    assert(!calls.some(c=>c.url.includes('/rpc/registrar_transferencia_bodega')), 'mover todo NO puede registrar un traslado: partiría la ficha en dos y dejaría una en cero');
+    const patch = calls.find(c=>c.url.includes('/skus?id=eq.sku-b1') && c.opts.method==='PATCH');
+    assert(patch && JSON.parse(patch.opts.body).bodega==='Bodega Norte', 'mueve la misma ficha, que conserva su historial, obtuvo: '+JSON.stringify(patch && patch.opts.body));
+    ctx.__appstate.ubicacionSkuModal = null;
     ctx.__appstate.ubicaciones = {cargado:false, cargando:false, lista:[], materialesPorBodega:{}, nuevaBodega:'', renombrando:null};
     // Dashboard: tarjeta de bodega con pendientes y últimos movimientos, solo con el módulo activo.
     ctx.__appstate.bodega.pendientes = [{id:'p1'},{id:'p2'}];
