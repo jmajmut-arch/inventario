@@ -14421,9 +14421,16 @@ function bind(){
 }
 
 async function iniciarApp(){
-  // Service Worker: cachea el app shell para que la app siga abriendo sin conexión.
+  // Service Worker: entrega la copia guardada al instante (ver sw.js) y baja la nueva atrás.
   if('serviceWorker' in navigator){
     window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+    // Como la pantalla puede estar corriendo una copia guardada, el aviso de versión nueva no
+    // puede depender solo del chequeo por HEAD cada 15 minutos: ese compara contra lo primero que
+    // vio, que ya sería la versión nueva del servidor, y nunca notaría la diferencia. Quien sabe
+    // de verdad que cambió es el service worker, que acaba de reemplazar la copia guardada.
+    navigator.serviceWorker.addEventListener('message', ev => {
+      if(ev && ev.data && ev.data.tipo === 'inventia-version-nueva' && !state.versionNueva) setState({versionNueva:true});
+    });
   }
   // Al recuperar la señal, intentamos enviar los conteos que quedaron guardados sin conexión.
   // .catch() explícito: sincronizarColaOffline() es async y el navegador no espera ni atrapa lo

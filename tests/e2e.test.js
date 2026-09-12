@@ -25,6 +25,10 @@ const PORT = 8942;
 const ESPERA = Number(process.env.E2E_TIMEOUT_MS) || 15000;
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.png':'image/png', '.jpg':'image/jpeg', '.svg':'image/svg+xml' };
 
+// `version` simula publicar: cambia el ETag, como hace GitHub Pages al subir una versión nueva.
+// Lo usa la prueba del service worker, que necesita que el servidor tenga algo distinto a lo
+// guardado en el teléfono.
+const servidorEstado = { version: 1 };
 function iniciarServidor(){
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -33,7 +37,8 @@ function iniciarServidor(){
       fs.readFile(filePath, (err, data) => {
         if(err){ res.writeHead(404); res.end('not found'); return; }
         const ext = path.extname(filePath);
-        res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+        res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream',
+          'ETag': `"v${servidorEstado.version}-${urlPath}"`, 'Cache-Control': 'no-cache' });
         res.end(data);
       });
     });
@@ -617,6 +622,46 @@ async function loguear(page, perfil){
     await page.waitForTimeout(600);
     const segundoActivo = await page.evaluate(() => document.querySelectorAll('#vista-dots .carousel-dot')[1].classList.contains('active'));
     assert(segundoActivo, 'al hacer click en el 2do punto del carrusel, debe quedar marcado como activo');
+    await context.close();
+  }
+
+  // ===== El service worker entrega la copia guardada, no espera a la red =====
+  // La app es un archivo de 927 KB y bajarlo costaba 5,4 de los 6,0 segundos que tardaba en abrir
+  // en 3G. Con la copia guardada son ~200 ms. Se prueba sin cronómetro: el servidor demora la
+  // respuesta 3 segundos a propósito, así que si la pantalla aparece antes, salió de la caché.
+  // Con la estrategia anterior (red primero) esta prueba falla por tiempo de espera.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 }, serviceWorkers:'allow' });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('service-worker: '+err.message));
+    await bloquearSentry(page);
+    await page.route('**/rest/v1/**', route => route.fulfill({ status:200, contentType:'application/json', body:'[]' }));
+
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'domcontentloaded' });
+    await page.waitForSelector('#f-email', { state:'visible', timeout:ESPERA });
+    const listo = await page.evaluate(() => navigator.serviceWorker
+      ? navigator.serviceWorker.ready.then(()=>true).catch(()=>false) : false);
+    assert(listo, 'el service worker tiene que quedar instalado');
+    await page.waitForTimeout(1200); // que alcance a guardar el shell
+
+    // Se "publica" una versión nueva. Con la copia guardada la pantalla sale igual de rápido, y el
+    // aviso de versión nueva lo tiene que prender el service worker al terminar la descarga de
+    // fondo: el chequeo por HEAD cada 15 minutos no sirve acá, porque compara contra lo primero
+    // que vio, que ya sería la versión del servidor.
+    servidorEstado.version = 2;
+    await page.reload({ waitUntil:'domcontentloaded' });
+    await page.waitForSelector('#f-email', { state:'visible', timeout:ESPERA });
+    const aviso = await esperarCondicion(page, () => typeof state !== 'undefined' && state.versionNueva === true);
+    assert(aviso, 'publicar una versión nueva tiene que prender el aviso "hay una versión nueva"');
+
+    // Y sigue abriendo sin señal.
+    await context.setOffline(true);
+    const sinSenal = await context.newPage();
+    const abrio = await sinSenal.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'domcontentloaded' })
+      .then(() => sinSenal.waitForSelector('#f-email', { state:'visible', timeout:ESPERA }))
+      .then(() => true).catch(() => false);
+    assert(abrio, 'sin conexión la app tiene que seguir abriendo desde la copia guardada');
+    await context.setOffline(false);
     await context.close();
   }
 
