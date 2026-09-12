@@ -929,7 +929,7 @@ function bodegaEstadoInicial(){
     proveedores: [], personas: [], listasCargadas: false,
     doc: documentoBodegaVacio(),
     busqueda: { texto:'', resultados:[], buscando:false, error:null },
-    nuevoSku: null, // {sku_code, descripcion, unidad_medida, bodega, storage_bin, guardando} (SKU nuevo desde Ingreso)
+    nuevoSku: null, // {sku_code, descripcion, unidad_medida, bodega, storage_bin, guardando} (SKU nuevo desde Recepción)
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
     ultimosMovimientos: [], ultimosCargados: false, // tarjeta de bodega en el Dashboard
@@ -939,6 +939,7 @@ function bodegaEstadoInicial(){
     reportes: reportesBodegaVacios(),
     stock: [], stockTexto: '', stockCargado: false,
     guardando: false, ultimoDocumento: null,
+    buscandoOc: false, // mientras se resuelve el número de orden que se escribió en la Recepción
   };
 }
 // Órdenes de compra: la app las emite (no las trae de un ERP), así que el ciclo entero vive
@@ -5571,7 +5572,7 @@ async function crearSkuDesdeIngreso(){
     return true;
   }catch(e){
     state.bodega.nuevoSku = {...state.bodega.nuevoSku, guardando:false}; render();
-    toast(pareceFalloDeRed(e) ? 'Sin conexión: el SKU nuevo se crea cuando vuelva la señal. Puedes registrar el resto del ingreso.' : (esErrorCodigoSkuDuplicado(e) ? `El código ${codigo} ya existe: búscalo arriba.` : e.message), 'err');
+    toast(pareceFalloDeRed(e) ? 'Sin conexión: el SKU nuevo se crea cuando vuelva la señal. Puedes registrar el resto de la recepción.' : (esErrorCodigoSkuDuplicado(e) ? `El código ${codigo} ya existe: búscalo arriba.` : e.message), 'err');
     return false;
   }
 }
@@ -5583,11 +5584,15 @@ function agregarLineaBodega(sku, cantidad){
     toast(`Stock insuficiente: hay ${sku.stock_sistema} de ${sku.sku_code}. Si el material está físicamente, cuéntalo primero para ajustar el stock.`,'err');
     return false;
   }
+  // Si el material ya venía de la orden de compra, se conserva de dónde viene y cuánto se pidió:
+  // sin eso la línea perdería el aviso de lo que queda pendiente.
+  const anterior = state.bodega.doc.lineas.find(l=>l.sku_id===sku.id);
+  const deOc = anterior && anterior.desdeOc ? {desdeOc:true, pedido:anterior.pedido, yaRecibido:anterior.yaRecibido, pendiente:anterior.pendiente} : {};
   const lineas = state.bodega.doc.lineas.filter(l=>l.sku_id!==sku.id);
   // El costo del maestro viene como sugerencia editable; si el material no tiene, queda vacío.
   // Lo que quede en esa casilla al registrar el ingreso pasa a ser el costo del material (manda la
   // última compra), así que se muestra el actual para que la persona vea qué está confirmando.
-  lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema, costo_unitario: sku.costo_unitario!=null ? Number(sku.costo_unitario) : null});
+  lineas.push({sku_id: sku.id, sku_code: sku.sku_code, descripcion: sku.descripcion, storage_bin: sku.storage_bin, batch: sku.batch, unidad_medida: sku.unidad_medida, cantidad: n, stock_sistema: sku.stock_sistema, costo_unitario: sku.costo_unitario!=null ? Number(sku.costo_unitario) : null, ...deOc});
   state.bodega.doc.lineas = lineas;
   state.bodega.busqueda = {texto:'', resultados:[], buscando:false};
   render();
@@ -5605,13 +5610,18 @@ async function registrarDocumentoBodega(tipo){
   const d = state.bodega.doc;
   if(!perfilCargado()) return;
   if(!d.lineas.length){ toast('Agrega al menos un material','err'); return; }
+  // Un ítem en 0 es "no llegó": no viaja al servidor y lo pedido sigue pendiente en la orden. Si
+  // quedaron todos en 0 no hay nada que recibir, y hay que decirlo en vez de mandar un documento
+  // vacío que el servidor rechazaría con un mensaje que no significa nada para quien está en pala.
+  const lineasQueEntran = d.lineas.filter(l=> Number(l.cantidad) > 0);
+  if(!lineasQueEntran.length){ toast(tipo==='ingreso' ? 'Todos los ítems están en 0: indica cuánto llegó de al menos uno' : 'Indica una cantidad mayor a 0','err'); return; }
   if(tipo==='ingreso' && !d.numeroGuia.trim()){ toast('La guía de despacho es obligatoria','err'); return; }
   if(tipo==='ingreso' && !d.fotoGuia){ toast('Toma la foto de la guía de despacho','err'); return; }
   if(tipo==='salida' && !d.retiradoPorId){ toast('Indica quién retira','err'); return; }
   await esperarFotosEnProceso();
   const idempotencyKey = crypto.randomUUID();
   const payload = {
-    p_tipo: tipo, p_lineas: d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null})), p_fecha: fechaISO(new Date()),
+    p_tipo: tipo, p_lineas: lineasQueEntran.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null})), p_fecha: fechaISO(new Date()),
     p_proveedor_id: d.proveedorId||null, p_numero_oc: d.numeroOc.trim()||null, p_numero_guia: d.numeroGuia.trim()||null,
     p_retirado_por_id: d.retiradoPorId||null, p_despachado_por_id: d.despachadoPorId||null, p_destino: d.destino.trim()||null,
     p_observacion: d.observacion.trim()||null, p_idempotency_key: idempotencyKey,
@@ -5637,8 +5647,8 @@ async function registrarDocumentoBodega(tipo){
     if(pareceFalloDeRed(e) && planIncluye('offline_habilitado')){
       // Sin conexión: se guarda con el saldo que se ve ahora (saldo_local) para que el servidor
       // decida al sincronizar (caso C del diseño). Las fotos van a IndexedDB.
-      payload.p_lineas = d.lineas.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null, saldo_local: l.stock_sistema!=null ? Number(l.stock_sistema) : null}));
-      const item = encolarAccionOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Ingreso':'Salida'} de ${d.lineas.length} material${d.lineas.length===1?'':'es'}`, idempotency_key: idempotencyKey});
+      payload.p_lineas = lineasQueEntran.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null, saldo_local: l.stock_sistema!=null ? Number(l.stock_sistema) : null}));
+      const item = encolarAccionOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Recepción':'Salida'} de ${lineasQueEntran.length} material${lineasQueEntran.length===1?'':'es'}`, idempotency_key: idempotencyKey});
       try{ await guardarFotosOffline(item.id, fotos.map(f=> new File([f.file], `${f.tipo}-${f.file.name||'foto.jpg'}`, {type: f.file.type||'image/jpeg'}))); }catch(err){ /* sin IndexedDB: se guarda sin fotos */ }
       state.bodega.doc = documentoBodegaVacio();
       setState({bodega: {...state.bodega, guardando:false}});
@@ -5828,7 +5838,7 @@ function exportarReporteBodegaExcel(){
   const hoja = (filas, etiqueta) => filas.map(f=>({[etiqueta]: f.clave, 'Cantidad': Number(f.cantidad), 'Valor': Number(f.valor), 'Movimientos': Number(f.movimientos)}));
   const wb = XLSX.utils.book_new();
   if(r.consumo.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hoja(r.consumo, etiquetaAgrupacionBodega(r.consumoAgrupar))), 'Consumo');
-  if(r.ingresos.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hoja(r.ingresos, etiquetaAgrupacionBodega(r.ingresosAgrupar))), 'Ingresos');
+  if(r.ingresos.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hoja(r.ingresos, etiquetaAgrupacionBodega(r.ingresosAgrupar))), 'Recepciones');
   XLSX.writeFile(wb, `reportes-bodega-${r.desde}_a_${r.hasta}.xlsx`);
 }
 function etiquetaAgrupacionBodega(a){ return {persona:'Persona', area:'Área', destino:'Destino', sku:'Material', proveedor:'Proveedor', tipo:'Tipo de material'}[a] || a; }
@@ -6043,7 +6053,7 @@ async function crearOrdenDesdeReserva(id){
 /* =======================================================================
    ÓRDENES DE COMPRA
    La empresa chica no tiene un módulo de compras aguas arriba, así que la OC nace acá: se
-   arma en borrador, se imprime, se marca enviada al proveedor y después el Ingreso se
+   arma en borrador, se imprime, se marca enviada al proveedor y después la Recepción se
    registra CONTRA ella. De ahí sale lo que de verdad sirve: qué falta por llegar.
    El estado que se muestra lo calcula la vista ordenes_compra_lista a partir de lo recibido;
    en la tabla solo viven borrador, enviada y anulada.
@@ -6272,11 +6282,17 @@ async function imprimirOrdenCompra(id){
   window.print();
 }
 
-// Recepción: el Ingreso se prellena con lo que falta por llegar, al precio acordado. Si la
-// factura viene con otro precio, se ve al lado.
+// Recepción contra una orden de compra: se cargan los ítems que faltan por llegar, al precio
+// acordado, y cada uno queda con su cantidad editable. Lo que casi siempre pasa en terreno es que
+// el proveedor no manda el 100%: se recibe lo que llegó y el resto queda pendiente en la orden.
+// Por eso la línea se guarda con lo pedido, lo ya recibido y lo pendiente: sin esos tres números
+// la persona no puede saber cuánto le están quedando debiendo.
 async function usarOrdenCompraEnIngreso(id){
   if(!id){
-    setState({bodega:{...state.bodega, doc:{...state.bodega.doc, ordenCompraId:'', numeroOc:''}}});
+    // Quitar la orden saca SUS ítems, no los que la persona agregó a mano: esos los puso ella y
+    // borrárselos sin avisar sería perderle trabajo hecho.
+    setState({bodega:{...state.bodega, doc:{...state.bodega.doc, ordenCompraId:'', numeroOc:'',
+      lineas: state.bodega.doc.lineas.filter(l=>!l.desdeOc)}}});
     return;
   }
   const o = (state.ordenes.lista||[]).find(x=>x.id===id);
@@ -6285,12 +6301,48 @@ async function usarOrdenCompraEnIngreso(id){
     if(!filas.length){ toast('Esa orden ya no tiene nada pendiente por recibir','err'); return; }
     const lineas = filas.map(f=>({sku_id:f.sku_id, sku_code:f.sku_code, descripcion:f.descripcion,
       unidad_medida:f.unidad_medida, batch:f.batch, storage_bin:f.storage_bin, stock_sistema:null,
-      cantidad:Number(f.pendiente), costo_unitario: f.costo_unitario!=null ? Number(f.costo_unitario) : null}));
+      cantidad:Number(f.pendiente), costo_unitario: f.costo_unitario!=null ? Number(f.costo_unitario) : null,
+      desdeOc:true, pedido:Number(f.cantidad), yaRecibido:Number(f.recibido), pendiente:Number(f.pendiente)}));
     setState({bodega:{...state.bodega, doc:{...state.bodega.doc, ordenCompraId:id,
       numeroOc: o ? o.numero : '', proveedorId: o && o.proveedor_id ? o.proveedor_id : state.bodega.doc.proveedorId,
       lineas}}});
-    toast(`${o?o.numero:'Orden'}: ${lineas.length} línea${lineas.length===1?'':'s'} por recibir`);
+    toast(`${o?o.numero:'Orden'}: ${lineas.length} ítem${lineas.length===1?'':'s'} por recibir`);
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Buscar la orden por su número, que es lo que trae la guía del proveedor en la mano.
+// Tres desenlaces, y los tres se dicen:
+//   * la orden existe y tiene pendientes -> se cargan los ítems;
+//   * existe pero no se puede recibir (borrador, anulada, ya completa) -> se explica cuál es;
+//   * no es una orden emitida acá -> NO es un error: el número igual queda anotado como referencia,
+//     que es justo lo que hacía el campo de siempre.
+// Un fallo del servidor sí se muestra como error: si se tragara, "no existe" y "no se pudo
+// consultar" se verían igual y la persona actuaría sobre algo falso.
+async function cargarOrdenCompraPorNumero(numero){
+  const n = (numero||'').trim();
+  if(!n){ toast('Escribe el número de la orden de compra','err'); return; }
+  setState({bodega:{...state.bodega, buscandoOc:true}});
+  try{
+    // Primero en lo que ya está en memoria; si no está, se le pregunta al servidor, porque la
+    // lista trae las 200 más nuevas y una orden vieja puede no estar ahí.
+    let orden = (state.ordenes.lista||[]).find(o=> (o.numero||'').toLowerCase() === n.toLowerCase());
+    if(!orden){
+      const filas = await rest(`/ordenes_compra_lista?select=*&numero=eq.${encodeURIComponent(n)}&limit=1`) || [];
+      orden = filas[0];
+    }
+    setState({bodega:{...state.bodega, buscandoOc:false}});
+    if(!orden){
+      toast(`${n} no es una orden emitida en InventIA; queda anotada como referencia`, 'warn');
+      return;
+    }
+    if(orden.estado==='borrador'){ toast(`${orden.numero} todavía está en borrador: márcala como enviada al proveedor antes de recibir contra ella`,'err'); return; }
+    if(orden.estado==='anulada'){ toast(`${orden.numero} está anulada`,'err'); return; }
+    if(orden.estado!=='enviada' && orden.estado!=='recibida_parcial'){ toast(`${orden.numero} ya no tiene nada por recibir`,'err'); return; }
+    await usarOrdenCompraEnIngreso(orden.id);
+  }catch(e){
+    setState({bodega:{...state.bodega, buscandoOc:false}});
+    toast(pareceFalloDeRed(e) ? 'Sin conexión: no se pudo buscar la orden' : e.message, 'err');
+  }
 }
 
 function ordenesRecibibles(){
@@ -6431,7 +6483,7 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
   const td = (t,der)=>`<td style="padding:4px;border-bottom:1px solid #ddd${der?';text-align:right':''}">${t}</td>`;
   return `
     ${encabezadoLogoImpresion()}
-    <h1>${esIngreso?'Comprobante de ingreso':esDevolucion?'Comprobante de devolución':'Comprobante de salida'} ${esc(cab.numero)}</h1>
+    <h1>${esIngreso?'Comprobante de recepción':esDevolucion?'Comprobante de devolución':'Comprobante de salida'} ${esc(cab.numero)}</h1>
     <div class="print-meta">${esc(empresa)} · ${fmtFecha(cab.fecha)} · Registró ${esc(cab.usuario_nombre||'')}${cab.documento_anulado_en?' · ANULADO':''}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;margin-bottom:12px">
       ${esIngreso ? dato('Proveedor', cab.proveedor_nombre)+dato('Guía de despacho', cab.numero_guia)+dato('Orden de compra', cab.numero_oc)
@@ -11518,7 +11570,7 @@ function renderInicio(){
     <div class="section-head"><div><span class="eyebrow">${esc(state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '')}</span><h2>¿Qué vas a hacer?</h2></div></div>
     <div style="display:grid;gap:12px">
       ${esAdmin && funcionBodegaActiva('ordenes_compra') ? tile('data-nueva-orden="1"','Orden de compra','Pedir material a un proveedor','ordenCompra') : ''}
-      ${tile('data-ir-vista="ingreso"','Ingreso','Recibir material con guía, OC y fotos','ingreso')}
+      ${tile('data-ir-vista="ingreso"','Recepción','Recibir material contra la OC, con guía y fotos','ingreso')}
       ${tile('data-ir-vista="salida"','Salida','Entregar material: quién retira y para qué','salida')}
       ${tile('data-ir-vista="conteo"','Inventario','Planificar, contar y recontar','conteo')}
       ${esAdmin ? tile('data-ir-vista="dashboard"','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
@@ -11711,7 +11763,7 @@ function renderOrdenesCompra(){
       <button type="button" class="btn btn-primary" id="btn-nueva-orden" style="width:auto;padding:8px 16px">Nueva orden</button>
     </div>
     <div class="card">
-      <p class="hint" style="margin-top:0">La orden la emite esta app: se arma en borrador, se imprime y se marca como enviada al proveedor. Después el Ingreso se registra contra ella y acá queda a la vista qué falta por llegar.</p>
+      <p class="hint" style="margin-top:0">La orden la emite esta app: se arma en borrador, se imprime y se marca como enviada al proveedor. Después la Recepción se registra contra ella y acá queda a la vista qué falta por llegar.</p>
       <label for="oc-filtro-estado">Estado</label>
       <select id="oc-filtro-estado" style="margin:0;max-width:260px">
         <option value="">Todas</option>
@@ -11825,7 +11877,7 @@ function renderOrdenCompraDetalle(){
         ${esAdmin && o.estado==='borrador' ? `<button type="button" class="btn btn-primary" data-oc-enviar="${esc(o.id)}" style="width:auto;padding:8px 14px">Marcar como enviada</button>` : ''}
         ${esAdmin && (o.estado==='enviada' || o.estado==='recibida_parcial') ? `<button type="button" class="btn btn-secondary" data-oc-cerrar="${esc(o.id)}" style="width:auto;padding:8px 14px">Cerrar</button>` : ''}
         ${esAdmin && o.estado!=='anulada' && Number(o.cantidad_recibida)===0 ? `<button type="button" class="btn btn-secondary" data-oc-anular="${esc(o.id)}" data-numero="${esc(o.numero)}" style="width:auto;padding:8px 14px">Anular</button>` : ''}
-        ${(o.estado==='enviada' || o.estado==='recibida_parcial') ? `<button type="button" class="btn btn-secondary" data-oc-recibir="${esc(o.id)}" style="width:auto;padding:8px 14px">Recibir en Ingreso</button>` : ''}
+        ${(o.estado==='enviada' || o.estado==='recibida_parcial') ? `<button type="button" class="btn btn-secondary" data-oc-recibir="${esc(o.id)}" style="width:auto;padding:8px 14px">Recepcionar</button>` : ''}
       </div>
     </div>
 
@@ -11855,7 +11907,7 @@ function renderOrdenCompraDetalle(){
     ${(d.recepciones||[]).length ? `<div class="card">
       <span class="eyebrow">Recepciones</span>
       <div class="table-wrap" style="margin-top:8px"><table>
-        <thead><tr><th>Ingreso</th><th>Fecha</th><th>Guía</th><th></th></tr></thead>
+        <thead><tr><th>Recepción</th><th>Fecha</th><th>Guía</th><th></th></tr></thead>
         <tbody>${d.recepciones.map(r=>`<tr>
           <td class="mono" style="font-size:12px">${esc(r.numero)}${r.anulado_en?' <span class="badge badge-danger">Anulado</span>':''}</td>
           <td>${fmtFecha(r.fecha)}</td>
@@ -11938,19 +11990,54 @@ function renderAnularOrdenModal(){
   </div>`;
 }
 
+// Tabla de lo que va en el documento. En la Recepción la cantidad es EDITABLE: el proveedor casi
+// nunca manda el 100% de lo pedido, y lo que se registra tiene que ser lo que llegó de verdad, no
+// lo que decía la orden. Lo que no llegue queda pendiente en la orden de compra y se recibe en otra
+// recepción. Poner 0 en una línea es decir "esto no llegó": la línea no viaja al servidor.
+function tablaLineasDocumentoBodega(d, esIngreso, totalLineas, totalMonto, lineasSinCosto){
+  if(!d.lineas.length) return `<div class="hint" style="margin-top:10px">${esIngreso ? 'Carga una orden de compra arriba, o busca cada material y agrégalo con su cantidad.' : 'Busca o escanea cada material y agrégalo con su cantidad.'}</div>`;
+  const nada = d.lineas.filter(l=>!(Number(l.cantidad)>0)).length;
+  const parciales = d.lineas.filter(l=> l.desdeOc && Number(l.cantidad)>0 && Number(l.cantidad) < Number(l.pendiente)).length;
+  // Lo pedido y lo pendiente van bajo el código y no en columnas propias: en un celular de 420 px
+  // (la mitad del uso) dos columnas más empujan el costo fuera de la pantalla, y lo que la persona
+  // necesita tener a mano mientras descarga el camión es la casilla de lo que llegó.
+  return `<div class="table-wrap" style="margin-top:12px"><table>
+    <thead><tr><th>SKU</th><th class="num">${esIngreso?'Recibido':'Cantidad'}</th>${esIngreso?'<th class="num">Costo unit.</th><th class="num">Monto</th>':''}<th></th></tr></thead>
+    <tbody>${d.lineas.map(l=>{
+      const cant = Number(l.cantidad);
+      const noLlega = esIngreso && !(cant>0);
+      const queda = l.desdeOc ? Number(l.pendiente) - (cant>0?cant:0) : null;
+      return `<tr${noLlega?' style="opacity:.55"':''}>
+      <td class="mono">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}${l.batch?` · ${esc(l.batch)}`:''}</div>
+        ${l.desdeOc ? `<div style="font-size:11px;color:var(--text-dim);font-family:'Inter'">Pedido ${l.pedido} · pendiente ${l.pendiente}</div>` : ''}
+        ${l.desdeOc && queda!==null && queda>0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Quedan ${queda} por llegar</div>` : ''}
+        ${l.desdeOc && queda!==null && queda<0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Llegan ${-queda} de más</div>` : ''}</td>
+      ${esIngreso
+        ? `<td class="num"><input type="number" class="bd-cantidad-linea" data-cantidad-sku="${esc(l.sku_id)}" min="0" step="any" value="${l.cantidad}" style="width:84px;margin:0;text-align:right"> <span class="hint" style="display:inline;margin:0">${esc(l.unidad_medida||'')}</span></td>`
+        : `<td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>`}
+      ${esIngreso?`<td class="num"><input type="number" class="bd-costo" data-costo-sku="${esc(l.sku_id)}" min="0" step="any" value="${l.costo_unitario!=null?l.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right"></td>
+      <td class="num">${l.costo_unitario!=null?'$'+Math.round((cant>0?cant:0)*Number(l.costo_unitario)).toLocaleString('es-CL'):'—'}</td>`:''}
+      <td class="num"><button type="button" class="icon-btn" data-quitar-linea="${esc(l.sku_id)}" aria-label="Quitar">${ICONS.x}</button></td>
+    </tr>`;}).join('')}</tbody></table></div>
+    <div class="hint" style="margin-top:6px">${d.lineas.length} material${d.lineas.length===1?'':'es'} · ${totalLineas} unidades${esIngreso && totalMonto ? ` · monto de la recepción <strong>$${Math.round(totalMonto).toLocaleString('es-CL')}</strong>${lineasSinCosto?` (${lineasSinCosto} sin costo)`:''}` : ''}</div>
+    ${parciales ? `<div class="hint" style="margin-top:4px;color:var(--warn)">${parciales} ítem${parciales===1?'':'es'} llega${parciales===1?'':'n'} incompleto${parciales===1?'':'s'}: lo que falte sigue pendiente en la orden.</div>` : ''}
+    ${nada ? `<div class="hint" style="margin-top:4px">${nada} ítem${nada===1?'':'es'} en 0: no entra${nada===1?'':'n'} en esta recepción y queda${nada===1?'':'n'} pendiente${nada===1?'':'s'} en la orden.</div>` : ''}`;
+}
+
 function renderDocumentoBodega(tipo){
   const b = state.bodega; const d = b.doc; const q = b.busqueda;
   const esIngreso = tipo==='ingreso';
   const proveedores = b.proveedores.filter(p=>p.activo);
   const personas = b.personas.filter(p=>p.activo);
   const usuarios = (state.plan && state.plan.responsables) || [];
-  const totalLineas = d.lineas.reduce((s,l)=>s+l.cantidad, 0);
+  // Los totales cuentan solo lo que de verdad entra: un ítem en 0 es "no llegó".
+  const totalLineas = d.lineas.reduce((s,l)=> s + (Number(l.cantidad)>0 ? Number(l.cantidad) : 0), 0);
   // Monto del ingreso: costo unitario por línea (opcional). El total del documento es la suma de
   // las líneas que lo tengan; se avisa si alguna quedó sin costo para que el total no engañe.
-  const totalMonto = d.lineas.reduce((s,l)=> s + (l.costo_unitario!=null ? l.cantidad*Number(l.costo_unitario) : 0), 0);
-  const lineasSinCosto = d.lineas.filter(l=> l.costo_unitario==null).length;
+  const totalMonto = d.lineas.reduce((s,l)=> s + (l.costo_unitario!=null && Number(l.cantidad)>0 ? Number(l.cantidad)*Number(l.costo_unitario) : 0), 0);
+  const lineasSinCosto = d.lineas.filter(l=> l.costo_unitario==null && Number(l.cantidad)>0).length;
   return `
-    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${esIngreso?'Ingreso de material':'Salida de material'}</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Bodega</span><h2>${esIngreso?'Recepción de material':'Salida de material'}</h2></div></div>
     ${b.ultimoDocumento ? `<div class="card" style="margin-bottom:12px;border-color:var(--ok)">
       <div class="hint" style="margin:0">Guardado: <strong>${esc(b.ultimoDocumento.numero)}</strong>.${b.ultimoDocumento.tipo==='salida'?' Imprime el comprobante para que quien retira lo firme.':''}</div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
@@ -11958,15 +12045,28 @@ function renderDocumentoBodega(tipo){
         <button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto">Ver movimientos</button>
       </div>
     </div>` : ''}
+    ${esIngreso && funcionBodegaActiva('ordenes_compra') ? `
     <div class="card">
-      <label for="bd-sku">Material (código o descripción)</label>
+      <span class="eyebrow">Orden de compra</span>
+      <label for="bd-oc">N° de orden de compra</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="bd-oc" style="flex:1;margin:0" placeholder="Ej. OC-000007" value="${esc(d.numeroOc)}" autocomplete="off" inputmode="text">
+        <button type="button" class="btn btn-secondary" id="btn-cargar-oc" style="width:auto;flex:none;padding:10px 14px" ${b.buscandoOc?'disabled':''}>${b.buscandoOc?'<span class="spinner"></span>':'Cargar'}</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Si la orden se emitió acá, se cargan abajo los ítems que faltan por llegar, con su precio acordado. Si el número es de otro sistema, queda anotado igual como referencia.</div>
+      ${!d.ordenCompraId && ordenesRecibibles().length ? `<div style="margin-top:8px"><div class="hint" style="margin:0 0 4px">Por recibir:</div><div style="display:flex;gap:6px;flex-wrap:wrap">${ordenesRecibibles().slice(0,6).map(o=>`<button type="button" class="btn btn-secondary" data-usar-oc="${esc(o.id)}" style="width:auto;padding:6px 10px;font-size:12px"><span class="mono">${esc(o.numero)}</span>${o.proveedor_nombre?` · ${esc(o.proveedor_nombre)}`:''} · faltan ${Number(o.cantidad_pedida)-Number(o.cantidad_recibida)}</button>`).join('')}</div></div>` : ''}
+      ${d.ordenCompraId ? `<div class="hint" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--ok)">Recibiendo contra <strong class="mono">${esc(d.numeroOc)}</strong><button type="button" class="btn btn-secondary" id="btn-quitar-oc" style="width:auto;padding:4px 10px;font-size:12px">Quitar</button></div>` : ''}
+    </div>` : ''}
+    <div class="card"${esIngreso && funcionBodegaActiva('ordenes_compra') ? ' style="margin-top:12px"' : ''}>
+      ${esIngreso ? `<span class="eyebrow">Materiales de la recepción</span>${tablaLineasDocumentoBodega(d, esIngreso, totalLineas, totalMonto, lineasSinCosto)}
+      <label for="bd-sku" style="margin-top:14px">Agregar otro material (código o descripción)</label>` : `<label for="bd-sku">Material (código o descripción)</label>`}
       <div style="display:flex;gap:8px;align-items:center">
         <input type="text" id="bd-sku" style="flex:1" placeholder="Ej. 4400-1123 o filtro" value="${esc(q.texto)}" autocomplete="off">
         <button type="button" id="btn-escanear-bodega" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
       </div>
       <div id="sku-bodega-resultados">${resultadosSkuBodegaHTML(tipo)}</div>
       ${esIngreso && b.nuevoSku ? `<form id="form-nuevo-sku-bodega" class="card" style="margin-top:10px;background:var(--bg)">
-        <div class="hint" style="margin-bottom:8px"><strong>SKU nuevo.</strong> Nace con stock 0; este ingreso le pone el saldo.</div>
+        <div class="hint" style="margin-bottom:8px"><strong>SKU nuevo.</strong> Nace con stock 0; esta recepción le pone el saldo.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div style="grid-column:1/-1"><label for="ns-codigo">Código</label><input type="text" id="ns-codigo" required value="${esc(b.nuevoSku.sku_code||'')}" style="margin:0"></div>
           <div style="grid-column:1/-1"><label for="ns-descripcion">Descripción</label><input type="text" id="ns-descripcion" required value="${esc(b.nuevoSku.descripcion||'')}" style="margin:0"></div>
@@ -11980,16 +12080,7 @@ function renderDocumentoBodega(tipo){
           <button type="button" class="btn btn-secondary" id="btn-cancelar-nuevo-sku" style="width:auto;padding:8px 14px">Cancelar</button>
         </div>
       </form>` : ''}
-      ${d.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
-        <thead><tr><th>SKU</th><th class="num">Cantidad</th>${esIngreso?'<th class="num">Costo unit.</th><th class="num">Monto</th>':''}<th></th></tr></thead>
-        <tbody>${d.lineas.map(l=>`<tr>
-          <td class="mono">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}${l.batch?` · ${esc(l.batch)}`:''}</div></td>
-          <td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>
-          ${esIngreso?`<td class="num"><input type="number" class="bd-costo" data-costo-sku="${esc(l.sku_id)}" min="0" step="any" value="${l.costo_unitario!=null?l.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right"></td>
-          <td class="num">${l.costo_unitario!=null?'$'+Math.round(l.cantidad*Number(l.costo_unitario)).toLocaleString('es-CL'):'—'}</td>`:''}
-          <td class="num"><button type="button" class="icon-btn" data-quitar-linea="${esc(l.sku_id)}" aria-label="Quitar">${ICONS.x}</button></td>
-        </tr>`).join('')}</tbody></table></div>
-        <div class="hint" style="margin-top:6px">${d.lineas.length} material${d.lineas.length===1?'':'es'} · ${totalLineas} unidades${esIngreso && totalMonto ? ` · monto del ingreso <strong>$${Math.round(totalMonto).toLocaleString('es-CL')}</strong>${lineasSinCosto?` (${lineasSinCosto} sin costo)`:''}` : ''}</div>` : `<div class="hint" style="margin-top:10px">Busca o escanea cada material y agrégalo con su cantidad.</div>`}
+      ${esIngreso ? '' : tablaLineasDocumentoBodega(d, esIngreso, totalLineas, totalMonto, lineasSinCosto)}
     </div>
     <div class="card" style="margin-top:12px">
       <form id="form-doc-bodega" data-tipo="${tipo}">
@@ -11997,16 +12088,9 @@ function renderDocumentoBodega(tipo){
         <label for="bd-proveedor">Proveedor</label>
         <select id="bd-proveedor"><option value="">Sin proveedor</option>${proveedores.map(p=>`<option value="${esc(p.id)}" ${d.proveedorId===p.id?'selected':''}>${esc(p.nombre)}</option>`).join('')}</select>
         ${!proveedores.length ? `<div class="hint">El administrador agrega proveedores en Configuraciones.</div>` : ''}
-        ${funcionBodegaActiva('ordenes_compra') && ordenesRecibibles().length ? `
-        <label for="bd-orden-compra">Recibir contra una orden de compra ${campoConInfo('Si el material viene de una orden que emitiste acá, elígela: las líneas se llenan solas con lo que falta por llegar, al precio acordado. Si la factura viene con otro precio, lo corriges en la línea y queda registrado el de verdad.')}</label>
-        <select id="bd-orden-compra" style="margin:0">
-          <option value="">Sin orden de compra</option>
-          ${ordenesRecibibles().map(o=>`<option value="${esc(o.id)}" ${d.ordenCompraId===o.id?'selected':''}>${esc(o.numero)} · ${esc(o.proveedor_nombre||'')} · faltan ${Number(o.cantidad_pedida)-Number(o.cantidad_recibida)}</option>`).join('')}
-        </select>` : ''}
-        <div class="row2">
-          <div><label for="bd-guia">N° guía de despacho *</label><input type="text" id="bd-guia" value="${esc(d.numeroGuia)}" required></div>
-          <div><label for="bd-oc">N° orden de compra</label><input type="text" id="bd-oc" value="${esc(d.numeroOc)}" ${d.ordenCompraId?'readonly':''}></div>
-        </div>
+        <label for="bd-guia">N° guía de despacho *</label>
+        <input type="text" id="bd-guia" value="${esc(d.numeroGuia)}" required>
+        ${funcionBodegaActiva('ordenes_compra') ? '' : `<label for="bd-oc">N° orden de compra</label><input type="text" id="bd-oc" value="${esc(d.numeroOc)}">`}
         <label>Foto de la guía *</label>
         <div class="file-input"><input type="file" id="bd-foto-guia" accept="image/*" capture="environment">${ICONS.camera.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}<div>${d.fotoGuia ? (d.fotoGuia.preparando ? 'Preparando…' : 'Guía lista, toca para reemplazar') : 'Tomar foto de la guía'}</div></div>
         ${d.fotoGuia && d.fotoGuia.preview ? `<div class="foto-preview-grid"><div class="foto-preview-item"><img src="${d.fotoGuia.preview}"></div></div>` : ''}
@@ -12031,7 +12115,7 @@ function renderDocumentoBodega(tipo){
         <label for="bd-obs">Observación</label>
         <textarea id="bd-obs" placeholder="Opcional">${esc(d.observacion)}</textarea>
         <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
-          <button type="submit" class="btn btn-primary" ${b.guardando?'disabled':''}>${b.guardando?'<span class="spinner"></span>':(esIngreso?'Guardar ingreso':'Guardar salida')}</button>
+          <button type="submit" class="btn btn-primary" ${b.guardando?'disabled':''}>${b.guardando?'<span class="spinner"></span>':(esIngreso?'Guardar recepción':'Guardar salida')}</button>
           <button type="button" class="btn btn-secondary" id="btn-limpiar-doc-bodega" style="width:auto;padding:10px 14px">Limpiar</button>
         </div>
       </form>
@@ -12039,7 +12123,7 @@ function renderDocumentoBodega(tipo){
   `;
 }
 
-function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Ingreso', salida:'Salida', ajuste:'Ajuste', devolucion:'Devolución', transferencia_salida:'Traslado (sale)', transferencia_entrada:'Traslado (entra)'}[t] || t; }
+function etiquetaTipoMovimiento(t){ return {apertura:'Apertura', ingreso:'Recepción', salida:'Salida', ajuste:'Ajuste', devolucion:'Devolución', transferencia_salida:'Traslado (sale)', transferencia_entrada:'Traslado (entra)'}[t] || t; }
 function badgeEstadoMovimiento(e){
   return e==='aprobado' ? '<span class="badge badge-ok">Aprobado</span>' : e==='anulado' ? '<span class="badge badge-danger">Anulado</span>' : e==='pendiente_revision' ? '<span class="badge badge-warn">En revisión</span>' : '<span class="badge badge-warn">Por aprobar</span>';
 }
@@ -12159,7 +12243,7 @@ function renderReportesBodega(){
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <h3 style="margin:0;font-size:15px">Ingresos</h3>
+        <h3 style="margin:0;font-size:15px">Recepciones</h3>
         <select id="rep-ingresos-agrupar" style="width:auto;margin:0">${opciones(r.ingresosAgrupar, [['proveedor','Por proveedor'],['tipo','Por tipo de material'],['sku','Por material']])}</select>
       </div>
       ${tabla(r.ingresos, r.ingresosAgrupar, r.cargando)}
@@ -12317,7 +12401,16 @@ function capturarCamposDocumentoBodega(){
   if(g('bd-despacha')) d.despachadoPorId = g('bd-despacha').value;
   if(g('bd-destino')) d.destino = g('bd-destino').value;
   if(g('bd-obs')) d.observacion = g('bd-obs').value;
-  // Costo por línea del ingreso (ver renderDocumentoBodega): vacío = sin informar, no cero.
+  // Cantidad por línea de la recepción: lo que de verdad llegó. Vacío o negativo se lee como 0,
+  // que significa "este ítem no llegó" y deja lo pedido pendiente en la orden.
+  document.querySelectorAll('.bd-cantidad-linea').forEach(inp=>{
+    const linea = d.lineas.find(l=>l.sku_id===inp.dataset.cantidadSku);
+    if(!linea) return;
+    const txt = (inp.value||'').trim();
+    const n = Number(txt);
+    linea.cantidad = (txt==='' || isNaN(n) || n<0) ? 0 : n;
+  });
+  // Costo por línea de la recepción (ver renderDocumentoBodega): vacío = sin informar, no cero.
   document.querySelectorAll('.bd-costo').forEach(inp=>{
     const linea = d.lineas.find(l=>l.sku_id===inp.dataset.costoSku);
     if(!linea) return;
@@ -12328,9 +12421,33 @@ function capturarCamposDocumentoBodega(){
 }
 function bindDocumentoBodega(){
   const tipo = state.view;
-  // Recibir contra una OC emitida acá: trae las líneas pendientes con su precio acordado.
-  const selOc = document.getElementById('bd-orden-compra');
-  if(selOc) selOc.addEventListener('change', ()=>{ capturarCamposDocumentoBodega(); usarOrdenCompraEnIngreso(selOc.value); });
+  // Recibir contra una OC emitida acá: se escribe el número que trae la guía y se cargan los ítems
+  // pendientes con su precio acordado.
+  const inputOc = document.getElementById('bd-oc');
+  const btnOc = document.getElementById('btn-cargar-oc');
+  const cargarOc = ()=>{ capturarCamposDocumentoBodega(); cargarOrdenCompraPorNumero(state.bodega.doc.numeroOc); };
+  if(btnOc) btnOc.addEventListener('click', cargarOc);
+  if(inputOc && btnOc){
+    // El texto va al estado en cada tecla y SIN render: repintar mientras se escribe reemplaza el
+    // input y en iPad eso reinicia el teclado (ver el comentario de resultadosSkuBodegaHTML).
+    inputOc.addEventListener('input', e=>{ state.bodega.doc.numeroOc = e.target.value; });
+    inputOc.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); cargarOc(); } });
+  }
+  document.querySelectorAll('[data-usar-oc]').forEach(btn=>
+    btn.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); usarOrdenCompraEnIngreso(btn.dataset.usarOc); }));
+  const btnQuitarOc = document.getElementById('btn-quitar-oc');
+  if(btnQuitarOc) btnQuitarOc.addEventListener('click', ()=>{ capturarCamposDocumentoBodega(); usarOrdenCompraEnIngreso(''); });
+  // Cantidad recibida por línea: al estado en cada tecla sin repintar, y recién al salir del campo
+  // se repinta para refrescar los totales y el aviso de lo que queda pendiente.
+  document.querySelectorAll('.bd-cantidad-linea').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const linea = state.bodega.doc.lineas.find(l=>l.sku_id===inp.dataset.cantidadSku);
+      if(!linea) return;
+      const n = Number((inp.value||'').trim());
+      linea.cantidad = (!(inp.value||'').trim() || isNaN(n) || n<0) ? 0 : n;
+    });
+    inp.addEventListener('change', ()=>{ capturarCamposDocumentoBodega(); render(); });
+  });
   // Entregar contra una reserva: trae lo pendiente y, si la reserva tiene persona y destino, los usa.
   const selRes = document.getElementById('bd-reserva');
   if(selRes) selRes.addEventListener('change', ()=>{ capturarCamposDocumentoBodega(); usarReservaEnSalida(selRes.value); });
@@ -12383,7 +12500,7 @@ function bindDocumentoBodega(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Ingreso', salida:'Salida', movimientos:'Movimientos', stock:'Stock', mover:'Mover material', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
+  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Salida', movimientos:'Movimientos', stock:'Stock', mover:'Mover material', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
 }
 
 function renderShell(){
@@ -12449,7 +12566,7 @@ function renderShell(){
     <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
     ${(VISTAS_BODEGA.includes(state.view) || (state.view==='mover' && moduloBodegaActivo())) ? `<nav class="tabbar">
       ${tabBtn('inicio','Inicio')}
-      ${tabBtn('ingreso','Ingreso')}
+      ${tabBtn('ingreso','Recepción')}
       ${tabBtn('salida','Salida')}
       ${tabBtn('movimientos','Movimientos')}
       ${tabBtn('stock','Stock')}
