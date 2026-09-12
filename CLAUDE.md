@@ -73,6 +73,15 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
 - **RLS siempre**: cada empresa ve solo lo suyo. Las vistas nuevas llevan `security_invoker=true`;
   las funciones nuevas evitan `SECURITY DEFINER` salvo que haya una razón explícita, y en ese caso
   se les revoca `EXECUTE` a `public` y `anon` y se les fija `search_path`.
+- **Qué ve un súper admin, exactamente.** Medido el 12/09/2026 barriendo las 40 relaciones con
+  `empresa_id` como súper admin: ve filas de **otras** empresas en tres, y solo tres —`auditoria`,
+  `usuarios` y `flow_eventos`—. En las otras 37 (materiales, conteos, movimientos, órdenes,
+  reservas, planes, stock) ve únicamente lo de su propia empresa, igual que cualquiera. Es
+  deliberado: el panel de súper admin administra empresas, usuarios y cobros, y para eso los
+  necesita. Pero significa que quien tenga esa cuenta **lee el registro de auditoría de todos los
+  clientes** —quién tocó qué dato y cuándo—. Antes de vender hay que poder responder esto por
+  escrito, y si se decide cerrarlo, el candidato es `auditoria`: es el más sensible y el que menos
+  hace falta para administrar. Un usuario normal no ve nada ajeno en ninguna de las 40.
 - **Nunca borrar ni purgar datos sin preguntar antes.**
 
 ## Manejo de errores en la app
