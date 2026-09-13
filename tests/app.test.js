@@ -10142,24 +10142,44 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     canvasMockDisponible = false; imagenMockCarga = null;
   }
 
-  // Salto de página: la 1ra hoja lleva el título ("Detalle de materiales" + el resumen), que
-  // ocupa el espacio de una ficha más, así que solo entran 2 fichas ahí -- desde la 2da hoja en
-  // adelante entran 3. Con 4 seleccionados, el salto debe caer justo después de la 2da (antes
-  // de la 3ra) y no sobrar ninguno al final.
+  // Hojas del PDF: la 1ra lleva el título ("Detalle de materiales" + el resumen), que ocupa el
+  // espacio de una ficha, así que solo entran 2 ahí -- desde la 2da hoja en adelante entran 3.
+  // Cada hoja es un bloque .pdf-hoja con su propio membrete (el logo va en todas las páginas,
+  // pedido de Joel); el salto lo pone el CSS antes de cada hoja que sigue a otra, así no sobra
+  // una en blanco al final. Con 4 seleccionados: dos hojas, 2 + 2.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
   const htmlTodosSeleccionados = ctx.renderBuscar();
   assert(htmlTodosSeleccionados.includes('Quitar selección'), 'con los 4 cargados ya seleccionados, el botón debe ofrecer "Quitar selección" en vez de "Seleccionar todos", obtuvo: '+htmlTodosSeleccionados);
+  const logoAntesFichas = ctx.__appstate.perfil.empresas.logo;
+  ctx.__appstate.perfil.empresas.logo = 'data:image/png;base64,LOGO-FICHAS';
   printBuscarEl.innerHTML = '';
   await ctx.exportarSeleccionadosBusquedaPDF();
-  const saltoPos = printBuscarEl.innerHTML.indexOf('pdf-salto-pagina');
-  const sku1Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-1');
-  const sku4Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-4');
-  const sku2Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-2');
-  const sku3Pos = printBuscarEl.innerHTML.indexOf('SKU-EXP-3');
-  assert(saltoPos>-1, 'con 4 seleccionados debe insertar un salto de página, obtuvo: '+printBuscarEl.innerHTML);
-  assert(sku1Pos<saltoPos && sku4Pos<saltoPos, 'los primeros 2 seleccionados deben quedar antes del salto de página, obtuvo posiciones: '+JSON.stringify({sku1Pos,sku4Pos,saltoPos}));
-  assert(sku2Pos>saltoPos && sku3Pos>saltoPos, 'el 3ro y 4to seleccionado deben quedar después del salto de página, obtuvo posiciones: '+JSON.stringify({sku2Pos,sku3Pos,saltoPos}));
-  assert((printBuscarEl.innerHTML.match(/pdf-salto-pagina/g)||[]).length===1, 'con exactamente 4 seleccionados debe haber un solo salto de página, obtuvo: '+printBuscarEl.innerHTML);
+  const hojas = printBuscarEl.innerHTML.split('<div class="pdf-hoja">').slice(1);
+  assert(hojas.length===2, 'con 4 seleccionados deben salir dos hojas, obtuvo: '+hojas.length+' en '+printBuscarEl.innerHTML);
+  assert(hojas[0].includes('SKU-EXP-1') && hojas[0].includes('SKU-EXP-4') && !hojas[0].includes('SKU-EXP-2') && hojas[0].includes('Detalle de materiales'), 'la primera hoja lleva el título y los 2 primeros seleccionados, obtuvo: '+hojas[0]);
+  assert(hojas[1].includes('SKU-EXP-2') && hojas[1].includes('SKU-EXP-3') && !hojas[1].includes('Detalle de materiales'), 'la segunda hoja lleva el 3ro y el 4to, sin repetir el título, obtuvo: '+hojas[1]);
+  assert(hojas.every(h=> h.includes('class="print-logo compacto"') && h.includes('LOGO-FICHAS')), 'cada hoja lleva el membrete con el logo de la empresa, obtuvo: '+JSON.stringify(hojas.map(h=>h.includes('print-logo'))));
+  assert(!printBuscarEl.innerHTML.includes('pdf-salto-pagina'), 'ya no hay saltos sueltos entre fichas: el salto va con la hoja');
+  assert(/\.pdf-hoja \+ \.pdf-hoja\{page-break-before:always;\}/.test(html) && /\.print-ficha\{[^}]*height:85mm;[^}]*overflow:hidden;/.test(html), 'el CSS de impresión fija el salto antes de cada hoja siguiente y el alto de cada ficha, para que entren tres por hoja en cualquier navegador');
+  ctx.__appstate.perfil.empresas.logo = logoAntesFichas;
+
+  // Con exactamente 2 seleccionados (la 1ra hoja completa, con título), una sola hoja.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  assert(printBuscarEl.innerHTML.split('<div class="pdf-hoja">').length-1===1, 'con exactamente 2 seleccionados (la 1ra hoja completa) sale una sola hoja, obtuvo: '+printBuscarEl.innerHTML);
+  // Con 6: 2 + 3 + 1, sin hoja vacía al final.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3','sku-exp-1b','sku-exp-4b']};
+  ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.concat(
+    ctx.__appstate.busqueda.resultados.filter(r=> r.sku_id==='sku-exp-1' || r.sku_id==='sku-exp-4').map(r=> ({...r, sku_id:r.sku_id+'b', sku_code:r.sku_code+'B'})));
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
+  const hojas6 = printBuscarEl.innerHTML.split('<div class="pdf-hoja">').slice(1).map(h=> (h.match(/class="print-ficha"/g)||[]).length);
+  assert(JSON.stringify(hojas6)==='[2,3,1]', 'con 6 seleccionados las hojas llevan 2, 3 y 1 fichas, obtuvo: '+JSON.stringify(hojas6));
+  ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.filter(r=> !r.sku_id.endsWith('b'));
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
+  printBuscarEl.innerHTML = '';
+  await ctx.exportarSeleccionadosBusquedaPDF();
 
   // Quién contó, en la misma línea que la fecha (pedido de Joel): la ficha conserva sus 13 filas
   // y su alto, así siguen entrando tres por hoja.
