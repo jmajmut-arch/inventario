@@ -7568,7 +7568,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // horizontales, y encerrado en el cuadrado de 34x34 un wordmark quedaba como una franja de
     // 5 px de alto. El alto manda, el ancho crece con tope.
     const cssApp = html;
-    assert(/\.brand-badge\.con-logo\{width:auto;min-width:34px;max-width:112px;\}/.test(cssApp), 'la insignia con logo crece a lo ancho en vez de encerrarlo en un cuadrado');
+    // Hoja en blanco de más al imprimir (lo vio Joel en el PDF de la orden de compra): en pantalla
+    // el body mide al menos 100vh, y en Safari/iOS al imprimir 100vh es el papel completo, más que
+    // el área imprimible con los márgenes de @page -> el body desborda a una segunda hoja vacía.
+    // Al imprimir, el body tiene que medir lo que mide el documento.
+    const cssImpresion = html.slice(html.indexOf('@media print{'));
+    assert(/html,body\{[^}]*height:auto;min-height:0;display:block;/.test(cssImpresion), 'al imprimir, el body no puede conservar min-height:100vh ni el flex de pantalla: eso deja una hoja en blanco al final');
+    assert(/body\{min-height:100vh;display:flex;flex-direction:column;\}/.test(html.slice(0, html.indexOf('@media print{'))), 'en pantalla el body sigue midiendo al menos 100vh (la barra inferior depende de eso)');
     assert(/\.brand-badge\.con-logo img\{width:auto;max-width:100%;height:100%/.test(cssApp), 'el logo se ajusta por el alto, que es lo que mantiene la proporción');
 
     // Va en el encabezado de todo lo que se imprime.
