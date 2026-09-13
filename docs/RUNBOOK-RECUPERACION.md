@@ -19,7 +19,9 @@
 >
 > **Última actualización:** 4 de septiembre de 2026, a partir del estado real
 > del proyecto Supabase `ncvwgsbcvklhbyvurxzz` (169 migraciones aplicadas) y del
-> repositorio `jmajmut-arch/inventario` en `main`.
+> repositorio `jmajmut-arch/inventario` en `main`. El 13 de septiembre se
+> actualizó §5 (Edge Functions versionadas en `supabase/functions/`) y §10.2
+> (respaldo propio en `docs/respaldo/`).
 
 ---
 
@@ -551,12 +553,12 @@ pública fija), RLS de Storage acotada por `empresa_id` en el path del archivo.
 
 ## 5. Edge Functions (Deno, `supabase/functions/`)
 
-No hay carpeta local `supabase/functions/` en el repo — el código de las Edge
-Functions vive **solo en Supabase** (se editó/desplegó directo vía MCP/CLI en
-esta sesión, nunca se versionó en git). Si se pierde el proyecto Supabase, el
-código de abajo es la única copia. **Recomendación de mantenimiento:** bajar
-estas 8 funciones a `supabase/functions/` en el repo la próxima vez que se
-toque cualquiera, para que queden versionadas de verdad.
+Desde el 13-09-2026 el código de las 8 funciones está **versionado en el repo**, en
+`supabase/functions/<slug>/index.ts`, copiado byte por byte desde el proyecto
+(`supabase/functions/README.md` dice cómo desplegar cada una y con qué
+`verify_jwt`). Esa carpeta es la fuente de verdad; el código transcrito más
+abajo en este capítulo es una fotografía de septiembre de 2026 y puede quedar
+atrás. Para restaurar, desplegar desde la carpeta, no copiar de aquí.
 
 Todas comparten patrón: CORS abierto (`Access-Control-Allow-Origin: *`),
 `createClient` de `jsr:@supabase/supabase-js@2`, y separan un "cliente anon"
@@ -573,7 +575,7 @@ sus propios chequeos de autorización en código).
 | `flow-webhook-cobro` | **false** | Flow.cl (servidor a servidor, en cada intento de cobro) | Guarda el payload crudo primero (nunca se pierde el dato), resuelve `subscriptionId` (directo o vía `invoiceId`), y marca `morosa` solo cuando Flow reporta `subscription.morose=1` (ya agotó sus propios reintentos), no en el primer fallo. |
 | `flow-cancelar-suscripcion` | true | Frontend (admin logueado) | Cancela `at_period_end=1` (sigue con acceso hasta que termine lo pagado). |
 | `flow-cambiar-plan` | true | Frontend (admin logueado, con suscripción `activa`) | Cambia Básico↔Profesional sin volver a registrar tarjeta: cancela la suscripción vieja `at_period_end=0` y crea la nueva sobre el mismo `customerId`. |
-| `flow-test-registro-500` | true | — | **Función de prueba/debug, no forma parte del flujo real.** Segura de borrar si se quiere limpiar el proyecto; no reproducirla al restaurar desde cero. |
+| `flow-sincronizar-suscripcion` | true | Frontend (cualquier usuario activo, al iniciar sesión) | Reconciliación sin depender del webhook (#94): le pregunta a Flow el estado real de la suscripción, actualiza `empresas.flow_subscription_status`/`flow_sync_en` y, si cambió, deja un evento `sincronizacion` en `flow_eventos`. Con intervalo mínimo entre llamadas. Código solo en `supabase/functions/`, no transcrito abajo. |
 
 **Variables de entorno que cada función necesita** (Supabase las inyecta solas
 para `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY`; las de
@@ -585,6 +587,10 @@ FLOW_API_KEY, FLOW_SECRET_KEY, FLOW_ENV=production
 
 (las 6 funciones `flow-*` las necesitan; `invite-user` y
 `crear-empresa-autoservicio` no).
+
+**Respaldo periódico de todo lo demás** (base de datos, cuentas de Auth, fotos
+del bucket): `docs/respaldo/respaldo.sh`, documentado en
+`docs/respaldo/README.md`. Es la única copia de las fotos fuera de Supabase.
 
 <details>
 <summary>Código completo de cada función (TypeScript/Deno)</summary>
@@ -1666,9 +1672,12 @@ las 8 Edge Functions.
 
 1. **Crear el proyecto** — Postgres 17, región `sa-east-1` (o la más cercana a
    los clientes reales).
-2. **Restaurar datos** si existe un backup/`pg_dump` reciente. Si no existe
-   ninguno, los datos de los clientes (SKU, conteos, fotos, usuarios) están
-   perdidos sin remedio — este documento no sustituye un backup real.
+2. **Restaurar datos** desde el `base.dump` más reciente que haya dejado
+   `docs/respaldo/respaldo.sh` (ver `docs/respaldo/README.md`: trae `public`,
+   `auth`, `storage` y `cron`; las fotos van aparte en la carpeta `fotos/` y
+   se vuelven a subir al bucket con la misma ruta). Si no existe ninguno, los
+   datos de los clientes (SKU, conteos, fotos, usuarios) están perdidos sin
+   remedio — este documento no sustituye un backup real.
 3. **Reconstruir el esquema** siguiendo §4 completo, en este orden:
    a. Extensiones (§4.7).
    b. Tablas (§4.2) — respetar el orden de dependencias: `empresas` y
@@ -1694,8 +1703,10 @@ las 8 Edge Functions.
    y (opcional) una empresa + usuario admin de arranque —
    **nunca crear una cuenta admin o una empresa sin que el usuario lo pida
    explícitamente** (política del proyecto).
-5. **Recrear las 8 Edge Functions** (código completo en §5) con sus variables
-   de entorno (`FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV=production`).
+5. **Desplegar las 8 Edge Functions** desde `supabase/functions/` del repo
+   (comandos y `--no-verify-jwt` por función en `supabase/functions/README.md`;
+   §5 describe qué hace cada una) con sus variables de entorno
+   (`FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV=production`).
 6. **Reconfigurar Auth** (§8.2): SMTP de Brevo, plantillas de correo, OTP,
    MFA, single-session, protección de contraseñas filtradas.
 7. **Actualizar `SUPABASE_URL`/`SUPABASE_ANON_KEY`** en `app/index.html`,
@@ -1790,5 +1801,6 @@ loader script ID, reemplazar el `src` del script en `app/index.html`,
   patrón, no transcritas literalmente.
 - No es un backup de datos. Los datos reales de clientes (SKU, conteos,
   fotos, usuarios) solo se recuperan desde los backups automáticos de
-  Supabase o un `pg_dump` propio — este documento no los contiene ni puede
+  Supabase (plan Pro, sin fotos) o desde el respaldo propio que deja
+  `docs/respaldo/respaldo.sh` — este documento no los contiene ni puede
   sustituirlos.
