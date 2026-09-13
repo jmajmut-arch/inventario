@@ -2,3 +2,6 @@ node_modules/
 
 # Copia local con tus credenciales reales para correr la prueba de carga — nunca se sube.
 loadtest/run.local.sh
+
+# Credenciales del respaldo local (ver docs/respaldo/README.md)
+docs/respaldo/.env

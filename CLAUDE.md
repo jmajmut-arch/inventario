@@ -120,6 +120,9 @@ Bodega). Lo que la persona haya tecleado en otros campos se guarda al estado ant
 - **No crear cuentas de administrador ni empresas nuevas** sin pedirlo.
 - El módulo de bodega se activa por empresa desde súper admin. Diseño en
   `docs/DISENO-MODULO-BODEGA.md`.
+- **Las Edge Functions viven en `supabase/functions/`** y se despliegan desde ahí (su README dice
+  cómo y cuáles van con `--no-verify-jwt`). Un cambio hecho en el dashboard que no vuelva al repo
+  se pierde en la siguiente restauración. El respaldo de datos y fotos es `docs/respaldo/respaldo.sh`.
 
 ## Impresión y PDF
 
