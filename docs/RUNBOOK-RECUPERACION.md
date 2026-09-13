@@ -1699,6 +1699,9 @@ las 8 Edge Functions.
       literalmente en este documento — patrón: el path del archivo empieza
       con `<empresa_id>/...`, y la policy compara ese segmento contra
       `empresa_actual()`).
+   i. **Parámetros por rol**: aplicar `roles-y-parametros.sql` del respaldo como
+      `postgres`. `pg_dump` no los incluye y sin ellos `authenticator` queda con
+      el `statement_timeout` por omisión (ver CLAUDE.md: es el rol que manda).
 4. **Sembrar datos base**: al menos una fila en `planes` por cada plan (§9),
    y (opcional) una empresa + usuario admin de arranque —
    **nunca crear una cuenta admin o una empresa sin que el usuario lo pida
