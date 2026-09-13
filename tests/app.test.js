@@ -7573,6 +7573,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // el área imprimible con los márgenes de @page -> el body desborda a una segunda hoja vacía.
     // Al imprimir, el body tiene que medir lo que mide el documento.
     const cssImpresion = html.slice(html.indexOf('@media print{'));
+    // Todo lo impreso va en papel carta (pedido de Joel): es lo que se usa en Chile y lo que
+    // imprime el iPad; con A4 el PDF de Buscar salía descuadrado allá.
+    assert(/@page\{size:letter;margin:12mm;\}/.test(cssImpresion), 'la @page de impresión tiene que ser carta con 12 mm de margen, obtuvo: '+(cssImpresion.match(/@page\{[^}]*\}/)||['sin @page'])[0]);
     assert(/html,body\{[^}]*height:auto;min-height:0;display:block;/.test(cssImpresion), 'al imprimir, el body no puede conservar min-height:100vh ni el flex de pantalla: eso deja una hoja en blanco al final');
     assert(/body\{min-height:100vh;display:flex;flex-direction:column;\}/.test(html.slice(0, html.indexOf('@media print{'))), 'en pantalla el body sigue midiendo al menos 100vh (la barra inferior depende de eso)');
     assert(/\.brand-badge\.con-logo img\{width:auto;max-width:100%;height:100%/.test(cssApp), 'el logo se ajusta por el alto, que es lo que mantiene la proporción');

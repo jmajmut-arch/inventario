@@ -389,12 +389,13 @@ textarea{resize:vertical;min-height:60px;}
 #print-informe{display:none;}
 #print-buscar{display:none;}
 @media print{
-  /* Sin esto, el tamaño de página imprimible depende de los márgenes que cada impresora/diálogo
-     de impresión traiga por defecto (variable) -- eso rompía el "3 por hoja" de Buscar: con
-     márgenes más grandes que los usados al probarlo, 3 fichas no entraban y el navegador cortaba
-     antes de llegar al salto explícito, dejando 1 o 2 por hoja. Fijando el tamaño acá, el área
-     imprimible es siempre la misma sin importar la configuración de quien imprime.  */
-  @page{size:A4;margin:12mm;}
+  /* Todo lo que imprime la app va en papel carta (215,9 x 279,4 mm), que es lo que se usa en
+     Chile y lo que imprime el iPad; era A4 y en el iPad salía descuadrado. Fijar tamaño y
+     márgenes acá hace que el área imprimible sea la misma sin importar la impresora o el diálogo
+     de quien imprime -- con la salvedad de iOS, que impone su propio papel, sus márgenes y su pie:
+     por eso cada documento se diseña para caber en los ~240 mm útiles que deja el iPad, no en
+     los 255 de esta @page. */
+  @page{size:letter;margin:12mm;}
   /* En pantalla el body mide al menos 100vh (para la barra inferior). Al imprimir, Safari e iOS
      toman 100vh como el alto del papel completo, que es más que el área imprimible (papel menos
      los 12 mm de margen): el body no cabe en una hoja y sale una segunda en blanco. Se vio en el
@@ -438,7 +439,7 @@ textarea{resize:vertical;min-height:60px;}
   #print-buscar h1{font-size:17px;margin:0 0 2px;}
   #print-buscar .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
   /* Cada ficha mide lo mismo (74 mm) y el texto lleva line-height fijo: así entran tres por
-     hoja en cualquier navegador y papel. El presupuesto lo fija el iPad, no el A4 de @page: iOS
+     hoja en cualquier navegador y papel. El presupuesto lo fija el iPad, no la @page: iOS
      imprime en carta (279 mm) con sus propios márgenes y pie, y deja unos 240 mm útiles -- medido
      en un PDF real: contenido de 16 a 256 mm. Logo 12 mm + 3 x 74 = 234. Con min-height la ficha
      crecía con la fuente, la tercera se pasaba sola a la hoja siguiente y el resto del documento
