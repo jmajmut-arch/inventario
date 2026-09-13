@@ -1870,7 +1870,8 @@ async function cargarTodo(){
 // Calendario y Grupos ya cargan lo suyo con su propio flag `cargado`.
 const CARGAS_POR_VISTA = {
   dashboard: ['dashboard'], // una sola llamada: trae el panel, el estado del maestro y las tarjetas de bodega
-  skus: ['skusPagina', 'opcionesSku', 'generales', 'ubicaciones'],
+  // Dos llamadas: la página, y los cinco catálogos juntos (ver cargarCatalogosPantallaSkus).
+  skus: ['skusPagina', 'skusCatalogos'],
   reconteo: ['reconteos'],
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
   inicio: ['bodegaPendientes'],
@@ -1890,6 +1891,7 @@ const CARGADORES = {
   dashboard: ()=> cargarDashboard(), // trae también el resumen del maestro, en la misma respuesta
   skusPagina: ()=> cargarSkusPagina(state.skusPagina.page||0),
   opcionesSku: ()=> cargarOpcionesCategoriasUnidades(),
+  skusCatalogos: ()=> cargarCatalogosPantallaSkus(),
   generales: ()=> cargarOpcionesGenerales(),
   sinUbicacion: ()=> cargarConteoSinUbicacion(),
   responsables: ()=> cargarResponsables(),
@@ -2045,57 +2047,20 @@ async function cargarVecesContadoPeriodo(sku){
 
 // Página del listado de SKUs (tabla "SKU activos"), con conteo exacto vía Prefer: count=exact
 // para poder mostrar Anterior/Siguiente y ver el 100% de los materiales, no solo los primeros 500.
+// Una sola ida y vuelta por página: pagina_skus devuelve la página de skus_lectura (el mismo
+// enmascarado de stock para operadores) con el estado del último conteo del período y la clase
+// ABC ya pegados a cada fila. Antes eran tres llamadas -- la página por Range, y aparte
+// ultimo_conteo_por_sku y skus_valor_abc, vistas sin FK que PostgREST no podía embeber -- y con
+// la señal de faena cada una cuesta más que la consulta en sí.
 async function fetchSkusPagina(page){
-  const from = page*SKUS_POR_PAGINA;
-  const to = from + SKUS_POR_PAGINA - 1;
-  // skus_lectura (no /skus directo): esta tabla la ve también un operador (no es solo-admin, ver
-  // VISTAS_SOLO_ADMIN), así que necesita el mismo enmascarado de stock que el resto.
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc`, {
-    headers:{
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
-      'Range-Unit': 'items',
-      'Range': `${from}-${to}`,
-      'Prefer': 'count=exact',
-    }
-  });
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : [];
-  if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
-  const range = res.headers.get('content-range'); // ej. "0-49/1410"
-  const total = range && range.includes('/') ? Number(range.split('/')[1]) : data.length;
-  return { data, total };
+  const d = await rest('/rpc/pagina_skus', {method:'POST', body:{p_desde: page*SKUS_POR_PAGINA, p_limite: SKUS_POR_PAGINA}}) || {};
+  return { data: d.rows||[], total: Number(d.total)||0 };
 }
 
 async function cargarSkusPagina(page=0){
   try{
     const { data, total } = await fetchSkusPagina(page);
-    const rows = data||[];
-    // Estado del último conteo de cada SKU de esta página (para el ícono verde/amarillo/rojo
-    // según si cuadró, quedó con sobrante o con faltante) — consulta aparte porque
-    // ultimo_conteo_por_sku es una vista sin FK declarada hacia skus, así que PostgREST no la
-    // puede traer embebida automáticamente.
-    if(rows.length){
-      try{
-        const ids = rows.map(r=>r.id).join(',');
-        const estados = await rest(`/ultimo_conteo_por_sku?sku_id=in.(${ids})&select=sku_id,estado,diferencia`);
-        const porSku = new Map((estados||[]).map(e=>[e.sku_id, e]));
-        rows.forEach(r=>{
-          const e = porSku.get(r.id);
-          r.ultimoEstado = e ? e.estado : null;
-          r.ultimaDiferencia = e ? e.diferencia : null;
-        });
-      }catch(e){ /* si falla, la tabla igual se ve, solo sin el ícono */ }
-      // Clase ABC (ver skus_valor_abc): consulta aparte porque vive en una vista sin FK declarada
-      // hacia skus, igual que ultimo_conteo_por_sku arriba.
-      try{
-        const ids = rows.map(r=>r.id).join(',');
-        const clases = await rest(`/skus_valor_abc?sku_id=in.(${ids})&select=sku_id,clase_abc`);
-        const claseSku = new Map((clases||[]).map(c=>[c.sku_id, c.clase_abc]));
-        rows.forEach(r=>{ r.clase_abc = claseSku.get(r.id) || null; });
-      }catch(e){ /* si falla, la tabla igual se ve, solo sin el badge de clase */ }
-    }
-    setState({skusPagina: { rows, page, total: total||0 }, skusSeleccionados: []});
+    setState({skusPagina: { rows: data, page, total }, skusSeleccionados: []});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -2149,7 +2114,14 @@ function refrescarListaSkus(){
   // Un SKU nuevo/editado o una carga masiva cambian categorías, unidades, batches y las
   // ubicaciones generales: la próxima carga debe ir al servidor.
   invalidarCacheAgregados(['opcionesSku','generales','sinUbicacion']);
-  refrescarSiCargada(['skusPagina','opcionesSku','generales','sinUbicacion']);
+  refrescarSiCargada(['skusPagina', ...clavesCatalogosDeSku(), 'sinUbicacion']);
+}
+
+// Qué recargar cuando cambian categorías, unidades, batches o bodegas: si la pantalla SKU ya
+// pidió sus catálogos, una sola llamada (skusCatalogos) renueva los tres estados y las dos cachés;
+// si no, cada pantalla que los tenga cargados los pide por su cuenta como siempre.
+function clavesCatalogosDeSku(){
+  return cargasHechas.has('skusCatalogos') ? ['skusCatalogos'] : ['opcionesSku','generales'];
 }
 
 /* =======================================================================
@@ -4562,6 +4534,42 @@ async function cargarOpcionesCategoriasUnidades(forzar){
   }catch(e){ /* la sugerencia es un plus, no bloquea el formulario si falla */ }
 }
 
+// La pantalla SKU necesita cinco catálogos: categorías, unidades y batches (los datalist del
+// formulario), las ubicaciones generales (el desplegable de bodega) y, para administradores, el
+// mantenedor de ubicaciones. Eran seis llamadas, dos de ellas a ubicaciones_generales (~400 ms
+// cada una en Escondida, porque calcula cuántos materiales quedan por planificar en cada
+// bodega). catalogos_pantalla_skus las trae en una y alimenta las mismas cachés locales
+// (opcionesSku, generales) que usan Plan y Carga, así que esas pantallas las encuentran hechas.
+// Si todo está en caché y el mantenedor ya se cargó, no se va al servidor.
+async function cargarCatalogosPantallaSkus(){
+  const esAdmin = !!(state.perfil && state.perfil.rol==='admin');
+  const enCache = leerCacheAgregado('opcionesSku') !== null && leerCacheAgregado('generales') !== null;
+  if(enCache && (!esAdmin || state.ubicaciones.cargado)){
+    await Promise.all([cargarOpcionesCategoriasUnidades(), cargarOpcionesGenerales()]);
+    return;
+  }
+  if(esAdmin) setState({ubicaciones:{...state.ubicaciones, cargando:true}});
+  try{
+    const d = await rest('/rpc/catalogos_pantalla_skus', {method:'POST', body:{}}) || {};
+    const opciones = { categorias: d.categorias||[], unidades: d.unidades||[], batches: d.batches||[] };
+    const generales = d.generales||[];
+    guardarCacheAgregado('opcionesSku', opciones);
+    guardarCacheAgregado('generales', generales);
+    const materialesPorBodega = {};
+    generales.forEach(f=>{ if(f.bodega) materialesPorBodega[f.bodega] = Number(f.cantidad_skus)||0; });
+    setState({
+      opcionesCategorias: opciones.categorias, opcionesUnidades: opciones.unidades, opcionesBatches: opciones.batches,
+      plan: {...state.plan, generales},
+      ubicaciones: esAdmin ? {...state.ubicaciones, lista: d.ubicaciones||[], materialesPorBodega, cargado:true, cargando:false} : state.ubicaciones,
+    });
+    // Configuración y Cambio de ubicación piden 'ubicaciones' por su cuenta; ya está.
+    if(esAdmin) cargasHechas.add('ubicaciones');
+  }catch(e){
+    if(esAdmin) setState({ubicaciones:{...state.ubicaciones, cargando:false}});
+    toast(e.message,'err');
+  }
+}
+
 // BODEGA_VACIA (el grupo "Sin bodega asignada" del <select>) necesita bodega=is.null en vez
 // de un eq. literal contra ese texto — igual que filtroBodega() para el universo planificable.
 function filtroBodegaOpciones(bodega){
@@ -5389,7 +5397,7 @@ async function renombrarUbicacionGeneral(desde, hasta){
     await cargarUbicaciones();
     // La bodega aparece en el maestro, en los selectores de planificación y en el Dashboard.
     invalidarCacheAgregados(['generales','sinUbicacion','opcionesSku']);
-    refrescarSiCargada(['generales','sinUbicacion','opcionesSku','skusPagina','dashboard']);
+    refrescarSiCargada([...clavesCatalogosDeSku(),'sinUbicacion','skusPagina','dashboard']);
     cargarSkus();
     toast(`${d} ahora se llama ${h} (${hechos.toLocaleString('es-CL')} material${hechos===1?'':'es'})`);
     return true;

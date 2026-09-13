@@ -126,6 +126,7 @@ const calls = [];
 let fotoFixtureConteoFotos = null; // filas de conteo_fotos para comprimirFotosExistentes (null = comportamiento previo)
 let etagPublicado = '"v1"';   // ETag que devuelve el servidor para el propio HTML (ver verificarVersionNueva)
 let headVersionFalla = false;  // simula sin señal en el HEAD de versión
+let catalogosSkusFalla = null; // mensaje de error de catalogos_pantalla_skus; null = responde bien
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
   if(opts && opts.method==='HEAD'){
@@ -743,6 +744,32 @@ const fakeFetchImpl = async (url, opts) => {
         {id:'u2', nombre:'Joel Majmut'},
       ]),
     };
+  }
+  if(path.startsWith('/rest/v1/rpc/pagina_skus')){
+    // Una página con el estado del último conteo y la clase ABC ya pegados (ver pagina_skus).
+    // sku-pag-3 queda sin conteo y sin clase (sin costo cargado -> clase_abc null).
+    const desde = Number(JSON.parse(opts.body).p_desde)||0;
+    const filas = desde>0 ? [] : [
+      {id:'sku-pag-1', sku_code:'SKU-PAG-1', descripcion:'Con diferencia', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:10, clase_abc:'A', ultimoEstado:'con_diferencia', ultimaDiferencia:-2},
+      {id:'sku-pag-2', sku_code:'SKU-PAG-2', descripcion:'Cuadrado', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:5, clase_abc:'B', ultimoEstado:'aprobado', ultimaDiferencia:0},
+      {id:'sku-pag-3', sku_code:'SKU-PAG-3', descripcion:'Sin contar', bodega:'Nave', ubicacion:null, storage_bin:null, stock_sistema:2, clase_abc:null, ultimoEstado:null, ultimaDiferencia:null},
+    ];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:3, rows:filas}) };
+  }
+  if(path.startsWith('/rest/v1/rpc/catalogos_pantalla_skus')){
+    if(catalogosSkusFalla) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:catalogosSkusFalla}) };
+    // Los cinco catálogos de la pantalla SKU en una respuesta: mismos valores que los mocks
+    // sueltos de categorias_sku, unidades_medida_sku, batches_sku, ubicaciones_generales y
+    // ubicaciones, para que lo que ve la pantalla no dependa de por dónde llegaron.
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({
+      categorias:['Repuestos','Seguridad'], unidades:['KG','UN'], batches:['L-001','L-002'],
+      generales:[
+        {bodega:'Nave Mina', cantidad_pendiente: 18234, cantidad_skus: 23708},
+        {bodega:'Nave Planta', cantidad_pendiente: 4235, cantidad_skus: 4235},
+        {bodega:null, cantidad_pendiente: 6, cantidad_skus: 8},
+      ],
+      ubicaciones: ubicacionesFixture,
+    }) };
   }
   if(path === '/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc'){
     const filas = [
@@ -5174,15 +5201,88 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlTablaAbc.includes('Clase A'), 'el listado de Materiales debe mostrar la clase ABC de cada SKU, obtuvo: '+htmlTablaAbc);
   assert(filaAbcSc.includes('Sin clasificar') && !filaAbcSc.includes('★ Crítico'), 'un SKU sin costo ni marca de crítico debe verse "Sin clasificar" y sin el badge de crítico, obtuvo: '+filaAbcSc);
 
-  // cargarSkusPagina: además del estado del último conteo (ultimo_conteo_por_sku), debe traer la
-  // clase ABC de skus_valor_abc y pegarla a cada fila por sku_id (mismo patrón, vista sin FK).
+  // cargarSkusPagina: una sola llamada (pagina_skus) trae la página con el estado del último
+  // conteo y la clase ABC ya pegados a cada fila. Antes eran tres: la página por Range, y aparte
+  // ultimo_conteo_por_sku y skus_valor_abc (vistas sin FK que PostgREST no podía embeber).
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  calls.length = 0;
   await ctx.cargarSkusPagina(0);
   await new Promise(r=>setTimeout(r, 0));
+  const llamadasPagina = calls.filter(c=>c.url.includes('/rest/v1/'));
+  assert(llamadasPagina.length===1 && llamadasPagina[0].url.includes('/rest/v1/rpc/pagina_skus'), 'la página de SKU debe ser una sola llamada a pagina_skus, obtuvo: '+JSON.stringify(llamadasPagina.map(c=>c.url)));
+  assert(JSON.parse(llamadasPagina[0].opts.body).p_desde===0 && JSON.parse(llamadasPagina[0].opts.body).p_limite===50, 'pide la página por p_desde/p_limite, obtuvo: '+llamadasPagina[0].opts.body);
+  assert(ctx.__appstate.skusPagina.total===3 && ctx.__appstate.skusPagina.rows.length===3, 'el total viene en la misma respuesta (antes venía en content-range), obtuvo: '+JSON.stringify({total:ctx.__appstate.skusPagina.total, filas:ctx.__appstate.skusPagina.rows.length}));
   const filaPag1Abc = ctx.__appstate.skusPagina.rows.find(r=>r.id==='sku-pag-1');
-  assert(!!filaPag1Abc && filaPag1Abc.clase_abc==='A', 'cargarSkusPagina debe pegar la clase ABC de skus_valor_abc a cada fila, obtuvo: '+JSON.stringify(filaPag1Abc));
+  assert(!!filaPag1Abc && filaPag1Abc.clase_abc==='A' && filaPag1Abc.ultimoEstado==='con_diferencia' && filaPag1Abc.ultimaDiferencia===-2, 'cada fila trae clase ABC y estado del último conteo, obtuvo: '+JSON.stringify(filaPag1Abc));
   const filaPag3Abc = ctx.__appstate.skusPagina.rows.find(r=>r.id==='sku-pag-3');
-  assert(!!filaPag3Abc && filaPag3Abc.clase_abc===null, 'un SKU sin fila en skus_valor_abc (o sin clase) debe quedar clase_abc null, no undefined, obtuvo: '+JSON.stringify(filaPag3Abc));
+  assert(!!filaPag3Abc && filaPag3Abc.clase_abc===null && filaPag3Abc.ultimoEstado===null, 'un SKU sin clase ni conteo queda con null, no undefined, obtuvo: '+JSON.stringify(filaPag3Abc));
+  // Paginar es otra llamada igual, con el desplazamiento de la página pedida.
+  calls.length = 0;
+  await ctx.cargarSkusPagina(2);
+  await new Promise(r=>setTimeout(r, 0));
+  assert(calls.length===1 && JSON.parse(calls[0].opts.body).p_desde===100, 'la página 3 pide p_desde=100 en una sola llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url+' '+(c.opts&&c.opts.body))));
+  assert(ctx.__appstate.skusPagina.page===2 && ctx.__appstate.skusPagina.rows.length===0, 'y deja la página pedida en el estado, obtuvo: '+JSON.stringify({page:ctx.__appstate.skusPagina.page, filas:ctx.__appstate.skusPagina.rows.length}));
+
+  // cargarCatalogosPantallaSkus: los cinco catálogos de la pantalla SKU en una llamada. Eran
+  // seis (categorias_sku, unidades_medida_sku, batches_sku, ubicaciones_generales dos veces y
+  // ubicaciones); ubicaciones_generales cuesta ~400 ms en Escondida y se pedía dos veces.
+  {
+    ctx.localStorage.removeItem('agg_v1_emp-1_opcionesSku');
+    ctx.localStorage.removeItem('agg_v1_emp-1_generales');
+    ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:false, cargando:false, lista:[], materialesPorBodega:{}};
+    ctx.__appstate.opcionesCategorias = []; ctx.__appstate.opcionesUnidades = []; ctx.__appstate.opcionesBatches = [];
+    ctx.__appstate.plan = {...ctx.__appstate.plan, generales:[]};
+    vm.runInContext('cargasHechas.delete("skusPagina"); cargasHechas.delete("skusCatalogos"); cargasHechas.delete("ubicaciones")', ctx);
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('skus');
+    await new Promise(r=>setTimeout(r, 30));
+    const urlsSkus = calls.map(c=>c.url.split('/rest/v1/')[1]);
+    assert(calls.length===2 && urlsSkus.includes('rpc/pagina_skus') && urlsSkus.includes('rpc/catalogos_pantalla_skus'), 'mostrar la pantalla SKU sin caché son exactamente dos llamadas, obtuvo: '+JSON.stringify(urlsSkus));
+    assert(JSON.stringify(ctx.__appstate.opcionesCategorias)===JSON.stringify(['Repuestos','Seguridad']) && JSON.stringify(ctx.__appstate.opcionesUnidades)===JSON.stringify(['KG','UN']) && JSON.stringify(ctx.__appstate.opcionesBatches)===JSON.stringify(['L-001','L-002']), 'los datalist del formulario salen de la misma respuesta, obtuvo: '+JSON.stringify([ctx.__appstate.opcionesCategorias, ctx.__appstate.opcionesUnidades, ctx.__appstate.opcionesBatches]));
+    assert(ctx.__appstate.plan.generales.length===3 && ctx.__appstate.plan.generales[0].bodega==='Nave Mina', 'las ubicaciones generales también, obtuvo: '+JSON.stringify(ctx.__appstate.plan.generales));
+    assert(ctx.__appstate.ubicaciones.cargado && ctx.__appstate.ubicaciones.lista.length===3 && ctx.__appstate.ubicaciones.materialesPorBodega['Nave Mina']===23708 && !ctx.__appstate.ubicaciones.cargando, 'y el mantenedor de ubicaciones queda cargado con cuántos materiales hay por bodega, obtuvo: '+JSON.stringify(ctx.__appstate.ubicaciones));
+    assert(!!ctx.localStorage.getItem('agg_v1_emp-1_opcionesSku') && !!ctx.localStorage.getItem('agg_v1_emp-1_generales'), 'alimenta las mismas cachés locales que usan Plan y Carga, obtuvo: '+JSON.stringify(Object.keys(ctx.localStorage)));
+    assert(vm.runInContext('cargasHechas.has("ubicaciones")', ctx), 'Configuración no tiene que volver a pedir las ubicaciones que ya llegaron');
+
+    // Con las cachés tibias y el mantenedor cargado, volver a la pantalla no va al servidor.
+    calls.length = 0;
+    await ctx.cargarCatalogosPantallaSkus();
+    await new Promise(r=>setTimeout(r, 0));
+    assert(calls.length===0, 'con todo en caché no se pide nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(JSON.stringify(ctx.__appstate.opcionesCategorias)===JSON.stringify(['Repuestos','Seguridad']) && ctx.__appstate.plan.generales.length===3, 'y el estado queda igual desde la caché');
+
+    // Tras crear o editar un SKU (refrescarListaSkus) los catálogos se renuevan con una sola
+    // llamada, no con las cuatro de antes.
+    calls.length = 0;
+    ctx.refrescarListaSkus();
+    await new Promise(r=>setTimeout(r, 30));
+    const urlsRefresco = calls.map(c=>c.url.split('/rest/v1/')[1].split('?')[0]);
+    assert(urlsRefresco.filter(u=>u==='rpc/catalogos_pantalla_skus').length===1 && !urlsRefresco.some(u=>/^(categorias_sku|unidades_medida_sku|batches_sku|ubicaciones_generales)$/.test(u)), 'el refresco tras editar un SKU renueva los catálogos con una llamada, obtuvo: '+JSON.stringify(urlsRefresco));
+
+    // Un operador no administra ubicaciones: su estado no se toca, el resto sí llega.
+    ctx.localStorage.removeItem('agg_v1_emp-1_opcionesSku');
+    ctx.localStorage.removeItem('agg_v1_emp-1_generales');
+    ctx.__appstate.perfil = { id:2, nombre:'Pedro', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.ubicaciones = {...ctx.__appstate.ubicaciones, cargado:false, lista:[], materialesPorBodega:{}};
+    calls.length = 0;
+    await ctx.cargarCatalogosPantallaSkus();
+    await new Promise(r=>setTimeout(r, 0));
+    assert(calls.length===1 && !ctx.__appstate.ubicaciones.cargado && ctx.__appstate.ubicaciones.lista.length===0 && ctx.__appstate.opcionesCategorias.length===2, 'para un operador llegan los datalist pero no se toca el mantenedor de ubicaciones, obtuvo: '+JSON.stringify({llamadas:calls.length, ubicaciones:ctx.__appstate.ubicaciones, categorias:ctx.__appstate.opcionesCategorias}));
+
+    // Si la función falla, se ve el error: no una pantalla sin desplegables y sin explicación.
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.localStorage.removeItem('agg_v1_emp-1_opcionesSku');
+    catalogosSkusFalla = 'canceling statement due to statement timeout';
+    const toastRootCat = elements['toast-root'];
+    const toastsAntesCat = toastRootCat.hijos.length;
+    await ctx.cargarCatalogosPantallaSkus();
+    await new Promise(r=>setTimeout(r, 0));
+    catalogosSkusFalla = null;
+    const toastsCat = toastRootCat.hijos.slice(toastsAntesCat);
+    assert(toastsCat.length===1 && toastsCat[0].textContent.includes('statement timeout'), 'un error del servidor al cargar los catálogos se muestra como error, obtuvo: '+JSON.stringify(toastsCat.map(t=>t.textContent)));
+    assert(!ctx.__appstate.ubicaciones.cargando, 'y el mantenedor no queda "cargando" para siempre');
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  }
 
   // renderBuscar: mismos badges (clase ABC + crítico) en la tabla de resultados.
   ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[
@@ -10689,7 +10789,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // La página de SKU pide skus_lectura sin limit=500 (pagina con Range); la lista de Reconteo
     // ordena por ultimo_conteo_fecha (el dashboard también consulta reconteo_pendiente, pero es su
     // top 10 por valor de diferencia).
-    const esPaginaSku = u => u.startsWith('/rest/v1/skus_lectura?activo=eq.true&order=sku_code.asc') && !u.includes('limit=500');
+    const esPaginaSku = u => u.startsWith('/rest/v1/rpc/pagina_skus');
     const esListaReconteo = u => u.startsWith('/rest/v1/reconteo_pendiente') && u.includes('order=ultimo_conteo_fecha');
     assert(!urls.some(u=>u.startsWith('/rest/v1/categorias_sku') || u.startsWith('/rest/v1/unidades_medida_sku') || u.startsWith('/rest/v1/batches_sku') || u.startsWith('/rest/v1/ubicaciones_generales') || esListaReconteo(u) || u.startsWith('/rest/v1/plan_semanal_detalle') || esPaginaSku(u)), 'el arranque NO debe pedir filtros de SKU, ubicaciones generales, reconteos, planificación ni la página de SKU (van por pestaña), obtuvo: '+JSON.stringify(urls));
     // Volver a mostrar el dashboard no repite la carga.
@@ -10697,13 +10797,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.asegurarDatosDeVista('dashboard');
     await new Promise(r=>setTimeout(r, 10));
     assert(calls.length===0, 'una vista ya cargada no debe volver a pedir sus datos al mostrarse de nuevo, obtuvo: '+JSON.stringify(urlsDe()));
-    // Entrar a SKU: página + filtros + ubicaciones generales, una sola vez.
+    // Entrar a SKU: la página y los catálogos (datalist + ubicaciones generales + mantenedor), en dos llamadas y una sola vez.
     ctx.invalidarCacheAgregados(['opcionesSku','generales','sinUbicacion']);
     calls.length = 0;
     await ctx.asegurarDatosDeVista('skus');
     await new Promise(r=>setTimeout(r, 30));
     urls = urlsDe();
-    assert(urls.some(esPaginaSku) && urls.some(u=>u.startsWith('/rest/v1/categorias_sku')) && urls.some(u=>u.startsWith('/rest/v1/ubicaciones_generales')), 'al mostrar SKU debe pedir la página, los filtros y las ubicaciones generales, obtuvo: '+JSON.stringify(urls));
+    assert(urls.length===2 && urls.some(esPaginaSku) && urls.some(u=>u.startsWith('/rest/v1/rpc/catalogos_pantalla_skus')), 'al mostrar SKU debe pedir la página y los catálogos, dos llamadas, obtuvo: '+JSON.stringify(urls));
     // Entrar a Plan: ubicaciones generales ya están (no se repiten); sí responsables, sin ubicación y la planificación.
     calls.length = 0;
     ctx.__appstate.plan = {...ctx.__appstate.plan, diaFiltro:null, cicloFiltro:'', rango:'semana'};

@@ -53,7 +53,9 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
   14 consultas de 2 a 73 ms cada una: lo caro era que fueran 14 (cada una con su preflight CORS,
   su verificación de token y su turno en el pool) y que la pantalla no mostrara nada hasta la
-  última. Antes de optimizar una consulta, contar cuántas llamadas hace la pantalla. Cuando se
+  última. Lo mismo en SKU: nueve llamadas, dos de ellas a `ubicaciones_generales` (400 ms cada
+  una en Escondida); quedaron en dos (`pagina_skus` por página, `catalogos_pantalla_skus` una vez
+  por sesión). Antes de optimizar una consulta, contar cuántas llamadas hace la pantalla. Cuando se
   junten varias en una función, verificar que el JSON nuevo sea idéntico al que armaban las
   consultas originales, con datos reales, antes de tocar la app.
 - **Medir con datos reales, no con la demo.** Escondida tiene más de 63.000 materiales; lo que
