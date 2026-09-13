@@ -121,6 +121,25 @@ Bodega). Lo que la persona haya tecleado en otros campos se guarda al estado ant
 - El módulo de bodega se activa por empresa desde súper admin. Diseño en
   `docs/DISENO-MODULO-BODEGA.md`.
 
+## Impresión y PDF
+
+- **Todo lo impreso va en papel carta** (`@page{size:letter;margin:12mm}`): es lo que se usa en
+  Chile y lo que imprime el iPad.
+- **Un documento con maqueta fija (N por hoja) no se hace con `window.print()`.** Medido en tres
+  PDF reales del iPad de Joel: iOS imprime con sus propios márgenes y su pie (deja ~240 mm útiles
+  en carta), maqueta la página al ancho de su ventana y la **escala** para llenar el papel (fichas
+  de 74 mm salieron de 86-90), y sus `vw` son los de la ventana, no los del papel. Ninguna medida
+  en mm, px ni vw sobrevive a eso. Las fichas de Buscar las arma la app con pdf-lib
+  (`app/lib/pdf-lib.min.js`, MIT, cargado recién al exportar y guardado en el shell del service
+  worker): `generarPdfFichasBusqueda` escribe cada página punto por punto y sale igual en cualquier
+  dispositivo. Lo que sí se imprime desde HTML (comprobantes, orden de compra, hoja de conteo,
+  informes) es contenido que fluye; no depende de cuántos entran por hoja.
+- **pdf-lib**: las fuentes estándar solo saben WinAnsi (`textoPdf` reemplaza lo demás por "?"); un
+  PNG malformado lo deja en un bucle infinito, por eso el logo pasa siempre por un canvas antes de
+  incrustarse; se guarda con `useObjectStreams:false` para que cualquier visor lo lea.
+- Al imprimir, el body no puede conservar `min-height:100vh` (Safari lo toma como el papel
+  completo y sale una hoja en blanco al final): en `@media print` mide lo que mide el documento.
+
 ## Cómo presentar mejoras
 
 Cada mejora, hallazgo u oportunidad que se le presente a Joel lleva su **ámbito** por delante:

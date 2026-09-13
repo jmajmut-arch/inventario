@@ -90,6 +90,7 @@ const universoEntradaPlanFixture = {
   ],
 };
 let fallarFirmaConTransform = false; // simula un proyecto sin Image Transformations habilitadas
+let fotoBytesFalla = false; // simula que la descarga de una foto firmada falla
 // Simulan el navegador al reducir fotos para el PDF (reducirFotoEnNavegador): `imagenMockCarga`
 // = {w,h} hace que new Image() "cargue" con esas dimensiones, null hace que falle; con
 // `canvasMockDisponible` document.createElement('canvas') devuelve un canvas falso que registra
@@ -574,7 +575,9 @@ const fakeFetchImpl = async (url, opts) => {
     const ruta = path.replace('/storage/v1/object/sign/fotos-inventario/', '');
     // GET de una URL ya firmada (descarga de la foto, ver comprimirFotosExistentes): devuelve el blob.
     if(!opts || !opts.method || opts.method==='GET'){
-      return { status:200, ok:true, headers:{get:()=>null}, blob: async()=>({ size: blobFotoDescargadaSize, type:'image/jpeg' }), text: async()=>'' };
+      if(fotoBytesFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>'' };
+      return { status:200, ok:true, headers:{get:(h)=> h==='content-type' ? 'image/jpeg' : null}, blob: async()=>({ size: blobFotoDescargadaSize, type:'image/jpeg' }),
+        arrayBuffer: async()=> new Uint8Array([0xFF,0xD8,0xFF,0xD9]).buffer, text: async()=>'' };
     }
     const pideTransform = opts && opts.body && JSON.parse(opts.body).transform;
     if(pideTransform && fallarFirmaConTransform){
@@ -7560,7 +7563,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
         }
         sinLogo.push(rhs.slice(0, 60));
       }
-      assert(conContenido >= 10, 'la revisión debe encontrar los diez documentos imprimibles, encontró: '+conContenido);
+      assert(conContenido >= 9, 'la revisión debe encontrar los nueve documentos imprimibles (las fichas de Buscar ya no se imprimen: el PDF lo arma la app), encontró: '+conContenido);
       assert(sinLogo.length===0, 'estos documentos se imprimen sin el logo de la empresa: '+JSON.stringify(sinLogo));
     }
 
@@ -10038,28 +10041,66 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlDosSelecciones = ctx.renderBuscar();
   assert(htmlDosSelecciones.includes('Exportar 2 seleccionados a PDF'), 'con 2 seleccionados, el botón debe verse en plural, obtuvo: '+htmlDosSelecciones);
 
-  // Genera el PDF (vía impresión del navegador, mismo mecanismo que imprimirPlan/imprimirInformeCiclo):
-  // debe traer el detalle completo de cada seleccionado y resolver la foto más reciente a su URL
-  // firmada; el SKU nunca contado no tiene foto, así que debe avisar "Sin foto" en vez de romperse.
-  const printBuscarEl = makeEl('print-buscar');
+  // ===== El PDF de Buscar lo arma la app con pdf-lib, no la impresión del navegador =====
+  // Tres PDF reales del iPad salieron descuadrados con la impresión HTML (iOS imprime en carta con
+  // sus márgenes, escala la página al ancho de la ventana y sus vw son los de la ventana). Con
+  // pdf-lib la app escribe el documento punto por punto: la maqueta es la misma en cualquier
+  // dispositivo. Acá pdf-lib es un doble que anota qué se dibujó en cada página.
+  const pdfFalso = { docs: [], fallarSave: false };
+  const fuentePdfFalsa = { widthOfTextAtSize: (t, s) => t.length * s * 0.5 };
+  ctx.PDFLib = {
+    StandardFonts: { Helvetica:'Helvetica', HelveticaBold:'Helvetica-Bold', CourierBold:'Courier-Bold' },
+    rgb: (r,g,b) => ({r,g,b}),
+    PDFDocument: { create: async () => {
+      const doc = { paginas:[], imagenes:[], meta:{}, opciones:null,
+        setTitle(t){ doc.meta.title = t; }, setProducer(){}, setCreator(){},
+        embedFont: async () => fuentePdfFalsa,
+        embedJpg: async (bytes) => { const im = { tipo:'jpg', bytes, scaleToFit:(w,h)=>({width:Math.min(w,400), height:Math.min(h,400)}) }; doc.imagenes.push(im); return im; },
+        embedPng: async (bytes) => { const im = { tipo:'png', bytes, scaleToFit:(w,h)=>{ const e=Math.min(w/300,h/100); return {width:300*e, height:100*e}; } }; doc.imagenes.push(im); return im; },
+        addPage(size){ const pg = { size, textos:[], imagenes:[], lineas:0, rects:[],
+          drawText(t,o){ pg.textos.push({t, ...o}); }, drawImage(im,o){ pg.imagenes.push({im, ...o}); }, drawLine(){ pg.lineas++; }, drawRectangle(o){ pg.rects.push(o); } };
+          doc.paginas.push(pg); return pg; },
+        save: async (o) => { if(pdfFalso.fallarSave) throw new Error('No se pudo escribir el PDF'); doc.opciones = o; pdfFalso.docs.push(doc); return new Uint8Array([0x25,0x50,0x44,0x46]); },
+      };
+      return doc;
+    } },
+  };
+  const entregasPdf = [];
+  ctx.entregarArchivoPdf = (bytes, nombre) => { entregasPdf.push({bytes, nombre}); };
+  const ultimoPdf = () => pdfFalso.docs[pdfFalso.docs.length-1];
+  const textosDe = pg => pg.textos.map(x=>x.t);
+  const skusEn = pg => textosDe(pg).filter(t=>/^SKU-EXP/.test(t));
+
+  // Dos seleccionados: una hoja con título, las 13 filas de cada uno, la foto del que tiene y
+  // "Sin foto" para el nunca contado; se entrega como archivo .pdf con la fecha en el nombre.
   const printInformeElBusqPrevio = makeEl('print-informe'); printInformeElBusqPrevio.innerHTML = '<h1>basura de un informe anterior</h1>';
-  const printPlanElBusqPrevio = makeEl('print-plan'); printPlanElBusqPrevio.innerHTML = '<h1>basura de un plan anterior</h1>';
-  printCalled = 0;
+  printCalled = 0; calls.length = 0; elements['toast-root'].hijos.length = 0;
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printCalled===1, 'exportarSeleccionadosBusquedaPDF debe llamar a window.print()');
-  assert(printInformeElBusqPrevio.innerHTML==='' && printPlanElBusqPrevio.innerHTML==='', 'debe limpiar los otros contenedores de impresión para no arrastrar un PDF anterior, obtuvo: '+JSON.stringify({informe:printInformeElBusqPrevio.innerHTML, plan:printPlanElBusqPrevio.innerHTML}));
-  assert(printBuscarEl.innerHTML.includes('SKU-EXP-1') && printBuscarEl.innerHTML.includes('Rodamiento') && printBuscarEl.innerHTML.includes('Pasillo 2') && printBuscarEl.innerHTML.includes('B-04'), 'el PDF debe traer el detalle del primer seleccionado, obtuvo: '+printBuscarEl.innerHTML);
-  // La etiqueta "Crítico" va en rojo solo para el material que sí lo es (SKU-EXP-1); para
-  // SKU-EXP-4 (no crítico) debe quedar sin color especial.
-  assert((printBuscarEl.innerHTML.match(/<th style="color:var\(--danger\);font-weight:600">Crítico<\/th>/g)||[]).length===1, 'debe haber exactamente una etiqueta "Crítico" en rojo (solo SKU-EXP-1 es crítico entre los seleccionados), obtuvo: '+printBuscarEl.innerHTML);
-  assert(printBuscarEl.innerHTML.includes('<th>Crítico</th>'), 'el material no crítico (SKU-EXP-4) debe mostrar la etiqueta "Crítico" sin color especial, obtuvo: '+printBuscarEl.innerHTML);
-  // Camino principal: la foto se pide reducida a Supabase (Image Transformations, ~30 KB) y el
-  // PDF incrusta esa URL firmada; la etiqueta lleva la ruta original para poder reintentar en el
-  // navegador si la imagen transformada falla recién al cargarse.
-  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && printBuscarEl.innerHTML.includes('transform=1'), 'debe incrustar la foto (la más reciente, a.jpg) pedida con transform a Supabase, obtuvo: '+printBuscarEl.innerHTML);
-  assert(printBuscarEl.innerHTML.includes('data-ruta-foto="a.jpg"'), 'la imagen transformada debe llevar data-ruta-foto para reintentar en el navegador si falla al cargar, obtuvo: '+printBuscarEl.innerHTML);
-  assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && JSON.parse(c.opts.body).transform && JSON.parse(c.opts.body).transform.width===400), 'la firma debe pedir un transform 400x400, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('a.jpg')).map(c=>c.opts.body)));
-  assert(!printBuscarEl.innerHTML.includes('data:image/'), 'con transform disponible no debe reducir en el navegador, obtuvo: '+printBuscarEl.innerHTML);
+  assert(printCalled===0, 'el PDF de Buscar ya no pasa por window.print()');
+  assert(entregasPdf.length===1 && /^InventIA-materiales-\d{4}-\d{2}-\d{2}\.pdf$/.test(entregasPdf[0].nombre) && entregasPdf[0].bytes[0]===0x25, 'se entrega un archivo .pdf con la fecha en el nombre, obtuvo: '+JSON.stringify(entregasPdf.map(e=>e.nombre)));
+  assert(JSON.stringify(elements['toast-root'].hijos).includes('PDF listo'), 'avisa que el PDF quedó listo, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+  let doc = ultimoPdf();
+  assert(doc.paginas.length===1 && doc.paginas[0].size[0]===612 && doc.paginas[0].size[1]===792, 'dos fichas caben en una hoja carta (612x792 pt), obtuvo: '+JSON.stringify(doc.paginas.map(p=>p.size)));
+  assert(doc.opciones && doc.opciones.useObjectStreams===false, 'se guarda sin object streams, legible por cualquier visor');
+  {
+    const p1 = doc.paginas[0], t = textosDe(p1);
+    assert(t.includes('Detalle de materiales') && t.some(x=>/^2 materiales · Generado /.test(x)), 'la primera hoja lleva el título y el resumen, obtuvo: '+JSON.stringify(t.slice(0,4)));
+    assert(JSON.stringify(skusEn(p1))===JSON.stringify(['SKU-EXP-1','SKU-EXP-4']), 'las dos fichas, en orden, obtuvo: '+JSON.stringify(skusEn(p1)));
+    assert(t.includes('Rodamiento') && t.includes('Pasillo 2') && t.includes('B-04') && t.includes('Nunca contado'), 'cada ficha lleva su detalle, obtuvo: '+JSON.stringify(t));
+    const etiquetas = p1.textos.filter(x=>x.size===7 && /^[A-ZÁÉÍÓÚÑ ]+$/.test(x.t) && x.t!=='SIN FOTO');
+    assert(etiquetas.filter(x=>x.t==='DESCRIPCIÓN').length===2 && etiquetas.length>=26, 'trece etiquetas por ficha, en mayúsculas, obtuvo: '+etiquetas.length);
+    const criticos = p1.textos.filter(x=>x.t==='CRÍTICO');
+    assert(criticos.length===2 && criticos.filter(x=>x.color.r>0.7).length===1, 'la etiqueta Crítico va en rojo solo para el material crítico (SKU-EXP-1), obtuvo: '+JSON.stringify(criticos.map(c=>c.color)));
+    assert(t.filter(x=>x==='Sin foto').length===1 && p1.imagenes.length===1 && p1.imagenes[0].im.tipo==='jpg', 'SKU-EXP-1 lleva su foto incrustada y SKU-EXP-4 dice "Sin foto", obtuvo: '+JSON.stringify({sinFoto:t.filter(x=>x==='Sin foto').length, imagenes:p1.imagenes.length}));
+    assert(t.includes('Página 1 de 1') && t.some(x=>/^Generado .* · InventIA$/.test(x)), 'pie con la página y la fecha, obtuvo: '+JSON.stringify(t.slice(-3)));
+    assert(p1.textos.some(x=>x.t==='Ana Torres · '+ctx.fmtFechaHora('2026-08-20T14:00:00Z')), 'Contado por: quién y cuándo en la misma línea, obtuvo: '+JSON.stringify(t.filter(x=>x.includes('Ana Torres'))));
+    assert(p1.textos.some(x=>x.t==='—' && x.x>36) , 'el nunca contado deja "—" en Contado por');
+  }
+  // Camino principal de la foto: se pide reducida a Supabase (Image Transformations, ~30 KB) y se
+  // descargan sus bytes.
+  assert(calls.some(c=>c.url.includes('/storage/v1/object/sign/fotos-inventario/a.jpg') && c.opts && c.opts.method==='POST' && JSON.parse(c.opts.body).transform && JSON.parse(c.opts.body).transform.width===400), 'la firma pide la foto reducida a 400 px, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/object/sign/fotos-inventario/a.jpg?token=fake&transform=1') && (!c.opts || !c.opts.method || c.opts.method==='GET')), 'y descarga esa URL firmada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
   // Sentry: los dos mensajes que la app muestra a propósito (sesión cerrada por "una sesión por
   // usuario" y sin conexión) van en ignoreErrors, configurado ANTES del Loader Script para que
   // lo respete; si no, cada pérdida de señal abría un issue en GitHub (Sentry #278, #371).
@@ -10072,34 +10113,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(vm.runInContext('MENSAJE_SESION_TERMINADA', ctx).startsWith('Tu sesión terminó') && vm.runInContext('MENSAJE_SIN_CONEXION', ctx).startsWith('No se pudo conectar. Revisa tu conexión'), 'los patrones de ignoreErrors deben seguir calzando con los mensajes reales de la app');
   }
 
-  // Plan B: si Supabase rechaza el transform (función no habilitada o cuota restringida), la foto
-  // se firma sin transform y se reduce en el navegador con canvas: recorte cuadrado al centro de
-  // la original (1600x1200 -> 1200x1200 desde x=200) escalado a 400x400, JPEG calidad 0.7, y el
-  // PDF incrusta el data URL (sin data-ruta-foto: ya no hay nada que reintentar).
+
+  // Plan B: si Supabase rechaza el transform (función no habilitada o cuota restringida), se
+  // reduce en el navegador con canvas (recorte cuadrado al centro, 400 px, JPEG 0.7). El canvas
+  // de mentira devuelve un data URL que no es base64 válido, así que acá la foto termina llegando
+  // por el tercer camino, la original firmada sin transform: lo importante es que la ficha no se
+  // queda sin foto por un fallo del transform.
   fallarFirmaConTransform = true;
   canvasMockDisponible = true; imagenMockCarga = {w:1600, h:1200}; canvasDibujos = [];
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1']};
-  printBuscarEl.innerHTML = '';
+  calls.length = 0;
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('data:image/jpeg;base64,FAKE-400x400-q0.7'), 'sin transform, el PDF debe incrustar la foto reducida en el navegador a 400x400 JPEG calidad 0.7, obtuvo: '+printBuscarEl.innerHTML);
-  assert(!printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('data-ruta-foto'), 'con la foto reducida, el PDF no debe incrustar la URL firmada ni la ruta de reintento, obtuvo: '+printBuscarEl.innerHTML);
-  assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([200,0,1200,1200,0,0,400,400]), 'debe recortar el cuadrado central de la foto (1200x1200 desde x=200) y escalarlo a 400x400, obtuvo: '+JSON.stringify(canvasDibujos));
-  // Foto más chica que 400px: no se agranda.
-  imagenMockCarga = {w:300, h:500}; canvasDibujos = [];
-  printBuscarEl.innerHTML = '';
+  doc = ultimoPdf();
+  assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([200,0,1200,1200,0,0,400,400]), 'sin transform intenta reducir en el navegador: recorte cuadrado central escalado a 400, obtuvo: '+JSON.stringify(canvasDibujos));
+  assert(doc.paginas[0].imagenes.length===1 && calls.some(c=>c.url.includes('/object/sign/fotos-inventario/a.jpg?token=fake') && !c.url.includes('transform')), 'la ficha igual lleva foto (la original firmada), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // Sin canvas (navegador muy viejo), va la original.
+  canvasMockDisponible = false; imagenMockCarga = null;
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('FAKE-300x300-q0.7') && JSON.stringify(canvasDibujos[0])===JSON.stringify([0,100,300,300,0,0,300,300]), 'una foto más chica que 400px se recorta al cuadrado pero no se agranda, obtuvo: '+printBuscarEl.innerHTML+' '+JSON.stringify(canvasDibujos));
-  // Si la foto no carga en el navegador (CORS, archivo corrupto), va la URL firmada original.
-  imagenMockCarga = null;
-  printBuscarEl.innerHTML = '';
+  assert(ultimoPdf().paginas[0].imagenes.length===1, 'sin canvas ni transform, la foto original igual se incrusta');
+  // Si la descarga de la foto falla, la ficha dice "Sin foto" y el PDF sale igual.
+  fotoBytesFalla = true;
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('transform=1') && !printBuscarEl.innerHTML.includes('data:image/'), 'si la foto no carga para reducirla, el PDF debe usar la URL firmada original en vez de quedar "Sin foto", obtuvo: '+printBuscarEl.innerHTML);
-  // Sin canvas (navegador muy viejo), también va la original.
-  canvasMockDisponible = false;
-  printBuscarEl.innerHTML = '';
-  await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.includes('/object/sign/fotos-inventario/a.jpg') && !printBuscarEl.innerHTML.includes('transform=1'), 'sin canvas ni transform, el PDF debe usar la URL firmada original, obtuvo: '+printBuscarEl.innerHTML);
-  fallarFirmaConTransform = false;
+  assert(ultimoPdf().paginas[0].imagenes.length===0 && textosDe(ultimoPdf().paginas[0]).includes('Sin foto'), 'una foto que no se puede bajar no impide el PDF: la ficha dice "Sin foto"');
+  fotoBytesFalla = false; fallarFirmaConTransform = false;
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
 
   // mapConcurrente: con 100+ fotos, lanzarlas todas juntas dejaba pegada la pestaña. Debe
@@ -10145,63 +10181,62 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     canvasMockDisponible = false; imagenMockCarga = null;
   }
 
-  // Hojas del PDF: la 1ra lleva el título ("Detalle de materiales" + el resumen), que ocupa el
-  // espacio de una ficha, así que solo entran 2 ahí -- desde la 2da hoja en adelante entran 3.
-  // Cada hoja es un bloque .pdf-hoja con su propio membrete (el logo va en todas las páginas,
-  // pedido de Joel); el salto lo pone el CSS antes de cada hoja que sigue a otra, así no sobra
-  // una en blanco al final. Con 4 seleccionados: dos hojas, 2 + 2.
+  // Hojas: la primera lleva el título y 2 fichas; las siguientes, 3. El logo de la empresa va
+  // en todas (pedido de Joel). Con 4 seleccionados: 2 + 2; con 6: 2 + 3 + 1.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
   const htmlTodosSeleccionados = ctx.renderBuscar();
   assert(htmlTodosSeleccionados.includes('Quitar selección'), 'con los 4 cargados ya seleccionados, el botón debe ofrecer "Quitar selección" en vez de "Seleccionar todos", obtuvo: '+htmlTodosSeleccionados);
   const logoAntesFichas = ctx.__appstate.perfil.empresas.logo;
-  ctx.__appstate.perfil.empresas.logo = 'data:image/png;base64,LOGO-FICHAS';
-  printBuscarEl.innerHTML = '';
+  ctx.__appstate.perfil.empresas.logo = 'data:image/png;base64,iVBORw0KGgo=';
   await ctx.exportarSeleccionadosBusquedaPDF();
-  const hojas = printBuscarEl.innerHTML.split('<div class="pdf-hoja">').slice(1);
-  assert(hojas.length===2, 'con 4 seleccionados deben salir dos hojas, obtuvo: '+hojas.length+' en '+printBuscarEl.innerHTML);
-  assert(hojas[0].includes('SKU-EXP-1') && hojas[0].includes('SKU-EXP-4') && !hojas[0].includes('SKU-EXP-2') && hojas[0].includes('Detalle de materiales'), 'la primera hoja lleva el título y los 2 primeros seleccionados, obtuvo: '+hojas[0]);
-  assert(hojas[1].includes('SKU-EXP-2') && hojas[1].includes('SKU-EXP-3') && !hojas[1].includes('Detalle de materiales'), 'la segunda hoja lleva el 3ro y el 4to, sin repetir el título, obtuvo: '+hojas[1]);
-  assert(hojas.every(h=> h.includes('class="print-logo compacto"') && h.includes('LOGO-FICHAS')), 'cada hoja lleva el membrete con el logo de la empresa, obtuvo: '+JSON.stringify(hojas.map(h=>h.includes('print-logo'))));
-  assert(!printBuscarEl.innerHTML.includes('pdf-salto-pagina'), 'ya no hay saltos sueltos entre fichas: el salto va con la hoja');
-  assert(/\.pdf-hoja \+ \.pdf-hoja\{page-break-before:always;\}/.test(html) && /\.print-ficha\{[^}]*height:39vw;[^}]*overflow:hidden;/.test(html), 'el CSS de impresión fija el salto antes de cada hoja siguiente y el alto de cada ficha en vw (el iPad escala la página al imprimir; en mm no cabían tres)');
-  ctx.__appstate.perfil.empresas.logo = logoAntesFichas;
-
-  // Con exactamente 2 seleccionados (la 1ra hoja completa, con título), una sola hoja.
-  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
-  printBuscarEl.innerHTML = '';
-  await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(printBuscarEl.innerHTML.split('<div class="pdf-hoja">').length-1===1, 'con exactamente 2 seleccionados (la 1ra hoja completa) sale una sola hoja, obtuvo: '+printBuscarEl.innerHTML);
-  // Con 6: 2 + 3 + 1, sin hoja vacía al final.
+  {
+    const d = ultimoPdf();
+    assert(d.paginas.length===2, 'con 4 seleccionados salen dos hojas, obtuvo: '+d.paginas.length);
+    assert(JSON.stringify(skusEn(d.paginas[0]))==='["SKU-EXP-1","SKU-EXP-4"]' && textosDe(d.paginas[0]).includes('Detalle de materiales'), 'la primera hoja lleva el título y los 2 primeros, obtuvo: '+JSON.stringify(skusEn(d.paginas[0])));
+    assert(JSON.stringify(skusEn(d.paginas[1]))==='["SKU-EXP-2","SKU-EXP-3"]' && !textosDe(d.paginas[1]).includes('Detalle de materiales'), 'la segunda lleva el 3ro y el 4to, sin repetir el título, obtuvo: '+JSON.stringify(skusEn(d.paginas[1])));
+    assert(d.paginas.every(p=> p.imagenes.some(i=> i.im.tipo==='png' && i.y > 700)), 'cada hoja lleva el logo de la empresa arriba, obtuvo: '+JSON.stringify(d.paginas.map(p=>p.imagenes.map(i=>i.im.tipo))));
+    assert(textosDe(d.paginas[0]).includes('Página 1 de 2') && textosDe(d.paginas[1]).includes('Página 2 de 2'), 'el pie numera las hojas');
+    // Tres fichas por hoja tienen que caber: la última termina por encima del pie.
+    const yMin = Math.min(...d.paginas[1].textos.filter(x=>x.size!==7 || !/InventIA|Página/.test(x.t)).map(x=>x.y));
+    assert(yMin > 40, 'las fichas no pisan el pie de página, la más baja termina en y='+yMin);
+  }
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3','sku-exp-1b','sku-exp-4b']};
   ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.concat(
     ctx.__appstate.busqueda.resultados.filter(r=> r.sku_id==='sku-exp-1' || r.sku_id==='sku-exp-4').map(r=> ({...r, sku_id:r.sku_id+'b', sku_code:r.sku_code+'B'})));
-  printBuscarEl.innerHTML = '';
   await ctx.exportarSeleccionadosBusquedaPDF();
-  const hojas6 = printBuscarEl.innerHTML.split('<div class="pdf-hoja">').slice(1).map(h=> (h.match(/class="print-ficha"/g)||[]).length);
-  assert(JSON.stringify(hojas6)==='[2,3,1]', 'con 6 seleccionados las hojas llevan 2, 3 y 1 fichas, obtuvo: '+JSON.stringify(hojas6));
+  assert(JSON.stringify(ultimoPdf().paginas.map(p=>skusEn(p).length))==='[2,3,1]', 'con 6 seleccionados las hojas llevan 2, 3 y 1 fichas, obtuvo: '+JSON.stringify(ultimoPdf().paginas.map(p=>skusEn(p).length)));
   ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.filter(r=> !r.sku_id.endsWith('b'));
-  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
-  printBuscarEl.innerHTML = '';
-  await ctx.exportarSeleccionadosBusquedaPDF();
+  ctx.__appstate.perfil.empresas.logo = logoAntesFichas;
 
-  // Quién contó, en la misma línea que la fecha (pedido de Joel): la ficha conserva sus 13 filas
-  // y su alto, así siguen entrando tres por hoja.
+  // Texto: lo que no cabe se corta con "…" (Descripción puede usar dos líneas), y lo que la fuente
+  // del PDF no sabe escribir (★, emojis) sale como "?" en vez de romper el documento.
+  ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.map(r=> r.sku_id==='sku-exp-1'
+    ? {...r, descripcion:'RODAMIENTO DE RODILLOS CONICOS PARA EJE TRASERO DE CAMION DE EXTRACCION CON SELLO DOBLE Y JAULA DE ACERO INOXIDABLE REFORZADA PARA TRABAJO PESADO EN ALTURA CON LUBRICACION PERMANENTE', storage_bin:'B-04-PASILLO-LARGO-ESTANTERIA-SUPERIOR-NIVEL-3-POSICION-27-SECTOR-NORTE-ZONA-FRIA', observacion:'Caja ★ abierta 📦'}
+    : r);
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1']};
+  await ctx.exportarSeleccionadosBusquedaPDF();
   {
-    const fichaDe = code => { const h = printBuscarEl.innerHTML; const i = h.indexOf('<h2>'+code+'</h2>'); return h.slice(i, h.indexOf('</table>', i)); };
-    const f1 = fichaDe('SKU-EXP-1'), f3 = fichaDe('SKU-EXP-3'), f4 = fichaDe('SKU-EXP-4');
-    assert(/<th>Contado por<\/th><td>Ana Torres · [^<—]+<\/td>/.test(f1), 'la ficha dice quién contó y cuándo, en una sola línea, obtuvo: '+f1);
-    assert(/<th>Contado por<\/th><td>Sin asignar · [^<—]+<\/td>/.test(f3), 'un conteo sin persona asociada dice "Sin asignar", como el filtro de Buscar, obtuvo: '+f3);
-    assert(/<th>Contado por<\/th><td>—<\/td>/.test(f4), 'un material nunca contado no tiene quién ni cuándo, obtuvo: '+f4);
-    assert(!f1.includes('Fecha de conteo') && (f1.match(/<tr>/g)||[]).length===13, 'la fila de fecha se fusiona con la de quién contó: siguen siendo 13 filas, obtuvo: '+(f1.match(/<tr>/g)||[]).length);
+    const t = textosDe(ultimoPdf().paginas[0]);
+    const descripcion = t.filter(x=>x.startsWith('RODAMIENTO') || x.startsWith('CAMION') || /^[A-Z ]+…$/.test(x));
+    const lineasDesc = ultimoPdf().paginas[0].textos.filter(x=> x.size===8.5 && x.x>36 && (x.t.startsWith('RODAMIENTO') || x.t.endsWith('…')) && !x.t.startsWith('B-04'));
+    assert(lineasDesc.length===2 && lineasDesc[1].t.endsWith('…'), 'la descripción larga usa dos líneas y la segunda termina en "…", obtuvo: '+JSON.stringify(lineasDesc.map(x=>x.t)));
+    assert(t.some(x=> x.startsWith('B-04-PASILLO') && x.endsWith('…')) && !t.some(x=> x.endsWith('POSICION-27')), 'un valor largo de una línea se corta con "…", obtuvo: '+JSON.stringify(t.filter(x=>x.startsWith('B-04'))));
+    assert(t.includes('Caja ? abierta ?'), 'lo que WinAnsi no sabe escribir sale como "?", obtuvo: '+JSON.stringify(t.filter(x=>x.startsWith('Caja'))));
   }
+  ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.map(r=> r.sku_id==='sku-exp-1' ? {...r, descripcion:'Rodamiento', storage_bin:'B-04', observacion:'Rodamiento con desgaste visible en el borde'} : r);
 
-  // Con exactamente 2 seleccionados (la 1ra hoja completa, con título), no debe sobrar un salto
-  // de página al final.
-  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
-  printBuscarEl.innerHTML = '';
+  // Si el PDF no se puede escribir, se ve el error y no queda "Generando…" para siempre.
+  pdfFalso.fallarSave = true; elements['toast-root'].hijos.length = 0;
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(!printBuscarEl.innerHTML.includes('pdf-salto-pagina'), 'con exactamente 2 seleccionados (la 1ra hoja completa) no debe sobrar un salto de página, obtuvo: '+printBuscarEl.innerHTML);
+  assert(JSON.stringify(elements['toast-root'].hijos).includes('No se pudo escribir el PDF') && !ctx.__appstate.busqueda.exportandoPdf, 'un fallo al generar se muestra como error y libera el botón, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+  pdfFalso.fallarSave = false;
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
+
+  // La librería viaja con la app y con el shell del service worker, para que exportar no dependa
+  // de un CDN (sin señal, al menos las fichas sin foto salen igual).
+  assert(fs.existsSync(path.join(__dirname, '..', 'app', 'lib', 'pdf-lib.min.js')), 'app/lib/pdf-lib.min.js tiene que estar en el repo');
+  assert(fs.readFileSync(path.join(__dirname, '..', 'app', 'sw.js'), 'utf8').includes("'./lib/pdf-lib.min.js'"), 'el service worker guarda pdf-lib con el shell');
+  assert(html.includes("cargarScriptUnaVez('lib/pdf-lib.min.js')"), 'la app carga pdf-lib recién al exportar, no en cada apertura');
 
   // ===== Exportar conteos a Excel (para cargar a un ERP): vista conteos_exportables filtrada
   // por fecha_conteo, paginada, mapeada a columnas en español y escrita con XLSX (mockeado

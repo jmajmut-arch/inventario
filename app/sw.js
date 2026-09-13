@@ -16,7 +16,7 @@
 // que ya existía. Nunca se recarga sola: la persona puede estar a mitad de un conteo.
 const CACHE_NAME = 'inventia-shell-v2';
 const APP_SHELL = [
-  './', './index.html', './inventario.html', './manifest.json',
+  './', './index.html', './inventario.html', './manifest.json', './lib/pdf-lib.min.js',
   '../icons/icon-192.png', '../icons/icon-512.png', '../icons/icon-maskable-512.png', '../icons/apple-touch-icon.png',
 ];
 
