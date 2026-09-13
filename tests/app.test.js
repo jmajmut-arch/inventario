@@ -127,6 +127,7 @@ let fotoFixtureConteoFotos = null; // filas de conteo_fotos para comprimirFotosE
 let etagPublicado = '"v1"';   // ETag que devuelve el servidor para el propio HTML (ver verificarVersionNueva)
 let headVersionFalla = false;  // simula sin señal en el HEAD de versión
 let catalogosSkusFalla = null; // mensaje de error de catalogos_pantalla_skus; null = responde bien
+let empresasPatchFalla = null; // mensaje de error del PATCH a /empresas; null = responde bien
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
   if(opts && opts.method==='HEAD'){
@@ -972,6 +973,7 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Logo de la empresa: se guarda como data URI en empresas.logo.
   if(path.startsWith('/rest/v1/empresas?id=eq.') && opts && opts.method==='PATCH'){
+    if(empresasPatchFalla) return { status:403, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:empresasPatchFalla}) };
     return { status:204, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   // ===== Módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md) =====
@@ -7796,6 +7798,56 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const pdfOc = ctx.ordenCompraHTML(ctx.__appstate.ordenes.lista[0], ctx.__appstate.ordenes.detalle.lineas);
     assert(pdfOc.includes('Orden de compra OC-000007') && pdfOc.includes('Marcela Ríos') && pdfOc.includes('ventas@uno.cl') && pdfOc.includes('IVA 19%') && pdfOc.includes('30 días'), 'el PDF de la orden lleva proveedor, condiciones e IVA, obtuvo: '+pdfOc.slice(0,900));
     ctx.__appstate.ordenes.detalle = null;
+
+    // ===== Términos y condiciones por empresa, al pie de cada orden impresa =====
+    // Pedido de Joel: cada empresa tiene sus condiciones de compra (pago, garantía, entrega) y
+    // tienen que salir en el PDF que se le manda al proveedor. Se editan en la misma pantalla de
+    // Órdenes de compra y viven en empresas.terminos_orden_compra.
+    {
+      const lineasOc = [{sku_code:'BOD-001', descripcion:'Filtro', unidad_medida:'UN', cantidad:2, costo_unitario:1000}];
+      // Sin términos: el PDF sale como siempre, sin el bloque.
+      ctx.__appstate.perfil.empresas.terminos_orden_compra = null;
+      const pdfSinTerminos = ctx.ordenCompraHTML(ctx.__appstate.ordenes.lista[0], lineasOc);
+      assert(!pdfSinTerminos.includes('Términos y condiciones'), 'sin términos guardados el PDF no lleva el bloque, obtuvo: '+pdfSinTerminos.slice(-700));
+      const htmlSinTerminos = ctx.renderOrdenesCompra();
+      assert(htmlSinTerminos.includes('id="oc-terminos"') && htmlSinTerminos.includes('id="btn-guardar-terminos"') && htmlSinTerminos.includes('Todavía no hay términos'), 'la pantalla de órdenes ofrece el editor de términos y dice que aún no hay, obtuvo: '+htmlSinTerminos.slice(-1200));
+
+      // Con términos: van en el PDF después del total y antes de las firmas, con los saltos de
+      // línea respetados y el texto escapado (un "<" en las condiciones no es HTML).
+      ctx.__appstate.perfil.empresas.terminos_orden_compra = 'Pago a 30 días contra factura.\nGarantía mínima 12 meses <sin excepción>.';
+      const pdfConTerminos = ctx.ordenCompraHTML(ctx.__appstate.ordenes.lista[0], lineasOc);
+      const posTerminos = pdfConTerminos.indexOf('Términos y condiciones');
+      assert(posTerminos > pdfConTerminos.indexOf('<strong>Total</strong>') && posTerminos < pdfConTerminos.indexOf('Autoriza:'), 'los términos van después del total y antes de las firmas, obtuvo: '+pdfConTerminos.slice(-900));
+      assert(pdfConTerminos.includes('white-space:pre-line') && pdfConTerminos.includes('Pago a 30 días contra factura.\nGarantía mínima 12 meses &lt;sin excepción&gt;.'), 'respeta los saltos de línea y escapa el texto, obtuvo: '+pdfConTerminos.slice(posTerminos, posTerminos+300));
+      const htmlConTerminos = ctx.renderOrdenesCompra();
+      assert(htmlConTerminos.includes('Pago a 30 días contra factura.') && htmlConTerminos.includes('Salen al pie de cada orden'), 'el editor muestra los términos guardados, obtuvo: '+htmlConTerminos.slice(-1200));
+
+      // Lo tecleado sobrevive a un repintado: el borrador manda sobre lo guardado.
+      ctx.__appstate.ordenes.terminosBorrador = 'Borrador a medio escribir';
+      assert(ctx.renderOrdenesCompra().includes('>Borrador a medio escribir</textarea>'), 'un repintado no borra lo que la persona lleva escrito');
+
+      // Guardar: PATCH a la empresa, estado del perfil actualizado, borrador limpio, aviso.
+      calls.length = 0; elements['toast-root'].hijos.length = 0;
+      assert((await ctx.guardarTerminosOrdenCompra('  Entrega en bodega central, 8:00 a 17:00.  '))===true, 'guardar términos devuelve true');
+      const patchTerminos = calls.find(c=>c.url.includes('/rest/v1/empresas?id=eq.emp-1') && c.opts && c.opts.method==='PATCH');
+      assert(!!patchTerminos && JSON.stringify(JSON.parse(patchTerminos.opts.body))===JSON.stringify({terminos_orden_compra:'Entrega en bodega central, 8:00 a 17:00.'}), 'guarda el texto recortado en empresas.terminos_orden_compra, obtuvo: '+JSON.stringify(calls.map(c=>c.url+' '+(c.opts&&c.opts.body))));
+      assert(ctx.__appstate.perfil.empresas.terminos_orden_compra==='Entrega en bodega central, 8:00 a 17:00.' && ctx.__appstate.ordenes.terminosBorrador===null && !ctx.__appstate.ordenes.terminosGuardando, 'el perfil queda con el texto nuevo y el borrador limpio, obtuvo: '+JSON.stringify({perfil:ctx.__appstate.perfil.empresas.terminos_orden_compra, ordenes:ctx.__appstate.ordenes}));
+      assert(JSON.stringify(elements['toast-root'].hijos).includes('salen al pie'), 'avisa que quedaron guardados, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+      assert(ctx.ordenCompraHTML(ctx.__appstate.ordenes.lista[0], lineasOc).includes('Entrega en bodega central, 8:00 a 17:00.'), 'y la siguiente orden impresa ya los lleva');
+
+      // Vaciar el campo quita los términos (null en la base, no cadena vacía).
+      calls.length = 0;
+      await ctx.guardarTerminosOrdenCompra('   ');
+      const patchVacio = calls.find(c=>c.url.includes('/rest/v1/empresas?id=eq.emp-1') && c.opts && c.opts.method==='PATCH');
+      assert(!!patchVacio && JSON.parse(patchVacio.opts.body).terminos_orden_compra===null && ctx.__appstate.perfil.empresas.terminos_orden_compra===null, 'vaciar el campo guarda null, obtuvo: '+(patchVacio&&patchVacio.opts.body));
+      assert(!ctx.ordenCompraHTML(ctx.__appstate.ordenes.lista[0], lineasOc).includes('Términos y condiciones'), 'y el PDF vuelve a salir sin el bloque');
+
+      // Si el servidor rechaza, se ve el error y el botón vuelve a estar disponible.
+      empresasPatchFalla = 'permission denied for table empresas';
+      elements['toast-root'].hijos.length = 0;
+      assert((await ctx.guardarTerminosOrdenCompra('x'))===false && JSON.stringify(elements['toast-root'].hijos).includes('permission denied') && !ctx.__appstate.ordenes.terminosGuardando, 'un fallo al guardar se muestra como error y no deja el botón en Guardando…, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+      empresasPatchFalla = null;
+    }
 
     // Emitir: sin proveedor y sin líneas no se manda nada al servidor.
     ctx.abrirNuevaOrdenCompra();
