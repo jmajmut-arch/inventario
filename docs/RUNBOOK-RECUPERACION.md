@@ -1534,10 +1534,11 @@ dashboard** (no hay CLI/API conectada a este proyecto para subirlas sola):
    `resetPasswordForEmail()` (botón "olvidé mi contraseña" del login).
    Asunto: `Accede a tu cuenta de InventIA`.
 
-> **Pendiente conocido (13/09/2026):** el dominio **no** tiene DKIM de Brevo ni
-> `include:spf.brevo.com` en su SPF, así que estos correos salen sin autenticar
-> contra `inventiapp.cl`. Hoy llegan por volumen bajo, pero es frágil: Outlook y
-> Gmail los pueden mandar a spam o rechazarlos sin avisar. Ver §8.6.
+> **Autenticación del dominio (13/09/2026):** `inventiapp.cl` está autenticado
+> ante Brevo con sus dos registros DKIM, así que estos correos salen firmados y
+> alineados con el dominio. Queda por confirmar que el remitente configurado en
+> SMTP Settings sea una dirección `@inventiapp.cl`: si no, se pierde esa
+> alineación. Ver §8.6.
 
 Para que estos correos lleguen a cualquier usuario real (no solo al equipo del
 proyecto) y digan "InventIA" como remitente, hace falta un **SMTP propio**
@@ -1639,59 +1640,74 @@ menciona `sentry.io`/`View on Sentry`) que se revisan en el chequeo periódico.
 
 ### 8.6 Correo del dominio (`contacto@inventiapp.cl`)
 
-**El dominio recibe correo pero no puede enviarlo.** No es una falla: es cómo
-está armado hoy. Conviene entenderlo antes de tocar nada, porque el síntoma
-("me llegan los correos, pero los que mando yo no llegan") se diagnostica mal
-con facilidad.
+**El dominio recibe correo por un lado y lo envía por otro.** Entender esa
+separación evita diagnosticar mal el síntoma clásico ("me llegan los correos,
+pero los que mando yo no llegan").
 
-Registros medidos el 13/09/2026 (todos se editan en el DNS de Cloudflare, §8.5):
+- **Entrante**: los `MX` apuntan a **Cloudflare Email Routing**, que es un
+  reenviador: recibe lo dirigido a `contacto@inventiapp.cl` y lo empuja a un
+  buzón externo (el Gmail de Joel). **No expone servidor de salida (SMTP)**, así
+  que por ahí no se puede enviar nada, y no es algo que se pueda configurar.
+- **Saliente**: lo hace **Brevo**, que es también quien manda las invitaciones y
+  los correos de "olvidé mi contraseña" de la app (§8.1).
 
-| Registro | Valor | Para qué sirve |
-|---|---|---|
-| `MX` | `route1/2/3.mx.cloudflare.net` | **Cloudflare Email Routing**: recibe y reenvía a un buzón externo (el Gmail de Joel). |
-| `TXT` (SPF) | `v=spf1 include:_spf.mx.cloudflare.net ~all` | Autoriza **solo** a Cloudflare a enviar en nombre del dominio. |
-| `TXT` | `brevo-code:7ae61b63…` | Verificación de propiedad del dominio ante Brevo. |
-| `TXT` `_dmarc` | `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` | Política laxa (no rechaza) con reportes a Brevo. |
-| `TXT` `cf2024-1._domainkey` | `v=DKIM1; …` | DKIM de Cloudflare, para el correo que **reenvía**. |
+Registros verificados el 13/09/2026 (todos se editan en el DNS de Cloudflare,
+§8.5). Los de Brevo son los que autentican el correo saliente:
 
-**Por qué no se puede enviar.** Cloudflare Email Routing es un reenviador y
-nada más: no expone servidor de salida (SMTP). Mandar desde Gmail poniendo
-`contacto@inventiapp.cl` como remitente sale por los servidores de Google, que
-no están en el SPF del dominio y no tienen DKIM que los respalde. El correo
-termina en spam o rechazado según quién reciba (Outlook/Hotmail son los más
-estrictos).
+| Registro | Tipo | Valor | Para qué sirve |
+|---|---|---|---|
+| `@` | `MX` | `route1/2/3.mx.cloudflare.net` | Recepción y reenvío (Cloudflare). |
+| `@` | `TXT` | `v=spf1 include:_spf.mx.cloudflare.net ~all` | SPF. Cubre lo que **reenvía** Cloudflare. |
+| `@` | `TXT` | `brevo-code:7ae61b63…` | Verificación de propiedad ante Brevo. |
+| `brevo1._domainkey` | `CNAME` | `b1.inventiapp-cl.dkim.brevo.com` | **DKIM 1** de Brevo. |
+| `brevo2._domainkey` | `CNAME` | `b2.inventiapp-cl.dkim.brevo.com` | **DKIM 2** de Brevo. |
+| `_dmarc` | `TXT` | `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` | Política laxa con reportes a Brevo. |
+| `cf2024-1._domainkey` | `TXT` | `v=DKIM1; …` | DKIM de Cloudflare, para el correo reenviado. |
+| `mail`, `r.mail`, `img.mail` | `CNAME` | `…brand.brevosend.com` | Enlaces e imágenes con el dominio propio (Brevo). |
 
-**Hueco abierto, y el que más importa.** Brevo —que manda las invitaciones y
-los correos de "olvidé mi contraseña" de la app (§8.1)— está a medio
-configurar: tiene el `brevo-code` de verificación, pero **no** tiene registro
-DKIM ni `include:spf.brevo.com` en el SPF. Con volumen bajo llegan igual;
-cuando se empiece a invitar gente de empresas con Outlook, es exactamente el
-escenario donde se pierden sin aviso.
+**El dominio está autenticado ante Brevo.** Comprobado siguiendo la cadena
+completa: los `CNAME` de DKIM resuelven y en su destino hay clave RSA publicada.
+Con eso los correos que salen **por Brevo** van firmados como `inventiapp.cl` y
+alinean con DMARC.
 
-**Cómo se arregla (y arregla las dos cosas de una vez).** No hace falta
-contratar nada nuevo: las credenciales SMTP de Brevo ya existen.
+> **El SPF no lleva `include:spf.brevo.com`, y está bien así.** Brevo autentica
+> por DKIM y no lo pide entre sus registros. No agregarlo: cada `include:` gasta
+> una de las 10 consultas DNS que permite el SPF, y un SPF pasado de ese límite
+> falla entero.
 
-1. **Brevo** → *Senders, Domains & Dedicated IPs* → completar la autenticación
-   de `inventiapp.cl`. Entrega el registro DKIM que falta.
-2. **Cloudflare DNS** → agregar ese DKIM y **fusionar** el SPF en uno solo:
-   `v=spf1 include:_spf.mx.cloudflare.net include:spf.brevo.com ~all`.
-3. **Gmail** → *Configuración → Cuentas → Enviar como* → agregar
-   `contacto@inventiapp.cl` enviando por SMTP: `smtp-relay.brevo.com`, puerto
-   587, con el usuario y la clave SMTP de Brevo. El código de confirmación
-   llega por el reenvío de Cloudflare.
+**Lo que sigue faltando: enviar desde Gmail como `contacto@inventiapp.cl`.** El
+DKIM de Brevo solo firma lo que sale **por Brevo**. Un correo escrito en Gmail
+con ese remitente sale por los servidores de Google, sin SPF ni DKIM del
+dominio, y termina en spam o rechazado (Outlook/Hotmail son los más estrictos).
+La solución es hacer que Gmail lo entregue por Brevo:
 
-> **Trampa clásica:** tiene que quedar **un solo** registro SPF. Dos registros
-> SPF en el mismo dominio invalidan la verificación entera y dejan el correo
-> peor que antes. Se fusionan los `include:`, no se agrega un TXT nuevo.
+*Gmail → Configuración → Cuentas e importación → Enviar como → Agregar otra
+dirección de correo* → `contacto@inventiapp.cl`, **desmarcar** "Tratar como
+alias" si se quiere que las respuestas lleguen bien, y elegir enviar a través de
+SMTP: servidor `smtp-relay.brevo.com`, puerto `587`, TLS, con el usuario y la
+clave SMTP de Brevo (*SMTP & API*, la misma familia de credenciales que usa
+Supabase). El código de confirmación llega por el reenvío de Cloudflare.
+
+**Remitente de los correos de la app.** Para que las invitaciones aprovechen el
+DKIM, el "From" configurado en Supabase Auth → SMTP Settings tiene que ser una
+dirección `@inventiapp.cl`. Si apunta a otro dominio, el correo sale firmado por
+Brevo pero **no** alineado con `inventiapp.cl`, y se pierde la ventaja.
+
+**Endurecer DMARC más adelante.** Hoy `p=none`: reporta y no rechaza. Una vez
+que todo lo que sale del dominio pase por Brevo (o por Gmail vía Brevo), se
+puede subir a `p=quarantine` y después a `p=reject`. Antes no: cualquier camino
+de envío que quede sin firmar empieza a rebotar.
 
 **Alternativa**, si en algún momento se quiere un buzón de verdad en vez de un
 reenvío (se ve mejor para vender, cuesta una mensualidad y obliga a cambiar los
-`MX`): Zoho Mail o Google Workspace. El arreglo de arriba no cierra esa puerta.
+`MX`): Zoho Mail o Google Workspace.
 
 **Si se pierde el acceso a Cloudflare**: el dominio sigue siendo de NIC Chile.
 Se reapunta el DNS a otro proveedor y hay que rehacer, además de los registros
-web (§8.5), los `MX`, el SPF, el DKIM y el DMARC de esta sección; mientras
-tanto `contacto@inventiapp.cl` deja de recibir.
+web (§8.5), **toda la tabla de arriba**; mientras tanto `contacto@inventiapp.cl`
+deja de recibir y los correos de la app salen sin firmar. Los valores de Brevo
+se vuelven a sacar de *Senders, domains, IPs → inventiapp.cl*, que los muestra
+con un check verde cuando coinciden con el DNS.
 
 ---
 
