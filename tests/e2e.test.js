@@ -665,6 +665,42 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== La orden de compra impresa cabe en una hoja =====
+  // Joel vio una hoja en blanco de más en el PDF de la orden. Acá se imprime una orden real
+  // (proveedor completo, tres líneas, IVA y términos y condiciones) al PDF de Chromium y se
+  // cuentan las páginas: tiene que ser una. Chromium no reproduce la causa vista en Safari (el
+  // 100vh del body al imprimir), así que esto vigila lo que sí puede pasar acá: que el contenido
+  // de la orden crezca hasta pasarse de la hoja sin que nadie lo note.
+  {
+    const context = await browser.newContext({ viewport:{ width:794, height:1123 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('pdf-orden: '+err.message));
+    const perfilOc = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilOc.empresas.modulo_bodega_habilitado = true;
+    perfilOc.empresas.terminos_orden_compra = 'Pago a 30 días contra factura.\nEntregar en bodega central, lunes a viernes de 8:00 a 17:00.\nGarantía mínima de 12 meses.';
+    await mockearSupabaseApp(page, perfilOc);
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.evaluate(() => {
+      window.print = () => {};
+      const lineas = [0,1,2].map(i => ({ sku_code:'1037189'+i, descripcion:'FILTRO DE ACEITE MOTOR CAT 3512 '+i, unidad_medida:'UN', cantidad:2+i, costo_unitario:18500 }));
+      state.ordenes.lista = [{ id:'oc-1', numero:'OC-000007', proveedor_nombre:'FINNING CHILE S A', proveedor_rut:'91.081.000-6', proveedor_contacto:'Marcela Ríos',
+        proveedor_email:'ventas@finning.cl', proveedor_telefono:'+56 2 2000 0000', proveedor_direccion:'Av. Industrial 1234, Santiago', afecta_iva:true, fecha:'2026-09-10',
+        fecha_esperada:'2026-09-20', condiciones_pago:'30 días', lugar_entrega:'Bodega central', observacion:'Entregar con guía', usuario_nombre:'Ana Torres' }];
+      state.ordenes.detalle = { id:'oc-1', lineas };
+      return imprimirOrdenCompra('oc-1');
+    });
+    const contenido = await page.evaluate(() => document.getElementById('print-buscar').innerHTML);
+    assert(contenido.includes('Orden de compra OC-000007') && contenido.includes('Términos y condiciones'), 'la orden quedó lista para imprimir, con sus términos');
+    const pdf = await page.pdf({ format:'A4', printBackground:true, preferCSSPageSize:true });
+    const paginas = (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) || []).length;
+    assert(paginas === 1, `la orden de compra impresa tiene que caber en una hoja, salieron ${paginas}`);
+    await context.close();
+  }
+
   assert(erroresPagina.length===0, 'no debe haber errores de JS no capturados en ninguna página, obtuvo: '+JSON.stringify(erroresPagina));
 
   await browser.close();

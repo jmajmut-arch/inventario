@@ -395,7 +395,11 @@ textarea{resize:vertical;min-height:60px;}
      antes de llegar al salto explícito, dejando 1 o 2 por hoja. Fijando el tamaño acá, el área
      imprimible es siempre la misma sin importar la configuración de quien imprime.  */
   @page{size:A4;margin:12mm;}
-  html,body{background:#fff;}
+  /* En pantalla el body mide al menos 100vh (para la barra inferior). Al imprimir, Safari e iOS
+     toman 100vh como el alto del papel completo, que es más que el área imprimible (papel menos
+     los 12 mm de margen): el body no cabe en una hoja y sale una segunda en blanco. Se vio en el
+     PDF de la orden de compra. Al imprimir, el body mide lo que mide el documento. */
+  html,body{background:#fff;height:auto;min-height:0;display:block;}
   /* La marca de agua con el nombre de quien usa la app es para la pantalla: salía impresa en
      los comprobantes, la hoja de conteo y los informes. */
   #app,#toast-root,#marca-agua{display:none;}
