@@ -7573,6 +7573,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // el área imprimible con los márgenes de @page -> el body desborda a una segunda hoja vacía.
     // Al imprimir, el body tiene que medir lo que mide el documento.
     const cssImpresion = html.slice(html.indexOf('@media print{'));
+    // Todo lo impreso va en papel carta (pedido de Joel): es lo que se usa en Chile y lo que
+    // imprime el iPad; con A4 el PDF de Buscar salía descuadrado allá.
+    assert(/@page\{size:letter;margin:12mm;\}/.test(cssImpresion), 'la @page de impresión tiene que ser carta con 12 mm de margen, obtuvo: '+(cssImpresion.match(/@page\{[^}]*\}/)||['sin @page'])[0]);
     assert(/html,body\{[^}]*height:auto;min-height:0;display:block;/.test(cssImpresion), 'al imprimir, el body no puede conservar min-height:100vh ni el flex de pantalla: eso deja una hoja en blanco al final');
     assert(/body\{min-height:100vh;display:flex;flex-direction:column;\}/.test(html.slice(0, html.indexOf('@media print{'))), 'en pantalla el body sigue midiendo al menos 100vh (la barra inferior depende de eso)');
     assert(/\.brand-badge\.con-logo img\{width:auto;max-width:100%;height:100%/.test(cssApp), 'el logo se ajusta por el alto, que es lo que mantiene la proporción');
@@ -10160,7 +10163,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(hojas[1].includes('SKU-EXP-2') && hojas[1].includes('SKU-EXP-3') && !hojas[1].includes('Detalle de materiales'), 'la segunda hoja lleva el 3ro y el 4to, sin repetir el título, obtuvo: '+hojas[1]);
   assert(hojas.every(h=> h.includes('class="print-logo compacto"') && h.includes('LOGO-FICHAS')), 'cada hoja lleva el membrete con el logo de la empresa, obtuvo: '+JSON.stringify(hojas.map(h=>h.includes('print-logo'))));
   assert(!printBuscarEl.innerHTML.includes('pdf-salto-pagina'), 'ya no hay saltos sueltos entre fichas: el salto va con la hoja');
-  assert(/\.pdf-hoja \+ \.pdf-hoja\{page-break-before:always;\}/.test(html) && /\.print-ficha\{[^}]*height:85mm;[^}]*overflow:hidden;/.test(html), 'el CSS de impresión fija el salto antes de cada hoja siguiente y el alto de cada ficha, para que entren tres por hoja en cualquier navegador');
+  assert(/\.pdf-hoja \+ \.pdf-hoja\{page-break-before:always;\}/.test(html) && /\.print-ficha\{[^}]*height:74mm;[^}]*overflow:hidden;/.test(html), 'el CSS de impresión fija el salto antes de cada hoja siguiente y el alto de cada ficha, para que entren tres por hoja en cualquier navegador');
   ctx.__appstate.perfil.empresas.logo = logoAntesFichas;
 
   // Con exactamente 2 seleccionados (la 1ra hoja completa, con título), una sola hoja.

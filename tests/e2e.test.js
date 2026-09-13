@@ -695,7 +695,7 @@ async function loguear(page, perfil){
     });
     const contenido = await page.evaluate(() => document.getElementById('print-buscar').innerHTML);
     assert(contenido.includes('Orden de compra OC-000007') && contenido.includes('Términos y condiciones'), 'la orden quedó lista para imprimir, con sus términos');
-    const pdf = await page.pdf({ format:'A4', printBackground:true, preferCSSPageSize:true });
+    const pdf = await page.pdf({ format:'Letter', printBackground:true, preferCSSPageSize:true });
     const paginas = (pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) || []).length;
     assert(paginas === 1, `la orden de compra impresa tiene que caber en una hoja, salieron ${paginas}`);
     await context.close();

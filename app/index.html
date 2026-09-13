@@ -389,12 +389,13 @@ textarea{resize:vertical;min-height:60px;}
 #print-informe{display:none;}
 #print-buscar{display:none;}
 @media print{
-  /* Sin esto, el tamaño de página imprimible depende de los márgenes que cada impresora/diálogo
-     de impresión traiga por defecto (variable) -- eso rompía el "3 por hoja" de Buscar: con
-     márgenes más grandes que los usados al probarlo, 3 fichas no entraban y el navegador cortaba
-     antes de llegar al salto explícito, dejando 1 o 2 por hoja. Fijando el tamaño acá, el área
-     imprimible es siempre la misma sin importar la configuración de quien imprime.  */
-  @page{size:A4;margin:12mm;}
+  /* Todo lo que imprime la app va en papel carta (215,9 x 279,4 mm), que es lo que se usa en
+     Chile y lo que imprime el iPad; era A4 y en el iPad salía descuadrado. Fijar tamaño y
+     márgenes acá hace que el área imprimible sea la misma sin importar la impresora o el diálogo
+     de quien imprime -- con la salvedad de iOS, que impone su propio papel, sus márgenes y su pie:
+     por eso cada documento se diseña para caber en los ~240 mm útiles que deja el iPad, no en
+     los 255 de esta @page. */
+  @page{size:letter;margin:12mm;}
   /* En pantalla el body mide al menos 100vh (para la barra inferior). Al imprimir, Safari e iOS
      toman 100vh como el alto del papel completo, que es más que el área imprimible (papel menos
      los 12 mm de margen): el body no cabe en una hoja y sale una segunda en blanco. Se vio en el
@@ -437,19 +438,19 @@ textarea{resize:vertical;min-height:60px;}
   #print-buscar{display:block;padding:0;color:#000;background:#fff;}
   #print-buscar h1{font-size:17px;margin:0 0 2px;}
   #print-buscar .print-meta{font-size:11px;color:#333;margin-bottom:14px;}
-  /* Cada ficha mide lo mismo (80 mm) y el texto lleva line-height fijo: así entran tres por
-     hoja en cualquier navegador, aunque la fuente de impresión no sea la misma que en pantalla.
-     Con min-height la ficha crecía con la fuente y en Safari la tercera se pasaba a la hoja
-     siguiente, descuadrando el resto del documento. overflow:hidden es la red: si algo se
-     alarga de más se corta abajo, en vez de correr todas las hojas que siguen. */
-  .print-ficha{display:flex;align-items:center;gap:20px;padding:12px 0;border-bottom:1px solid #ccc;page-break-inside:avoid;height:85mm;box-sizing:border-box;overflow:hidden;}
+  /* Cada ficha mide lo mismo (74 mm) y el texto lleva line-height fijo: así entran tres por
+     hoja en cualquier navegador y papel. El presupuesto lo fija el iPad, no la @page: iOS
+     imprime en carta (279 mm) con sus propios márgenes y pie, y deja unos 240 mm útiles -- medido
+     en un PDF real: contenido de 16 a 256 mm. Logo 12 mm + 3 x 74 = 234. Con min-height la ficha
+     crecía con la fuente, la tercera se pasaba sola a la hoja siguiente y el resto del documento
+     corría. overflow:hidden es la red: si algo se alarga de más se corta abajo, en vez de correr
+     todas las hojas que siguen. Descripción es la única que puede ocupar dos líneas. */
+  .print-ficha{display:flex;align-items:center;gap:20px;padding:10px 0;border-bottom:1px solid #ccc;page-break-inside:avoid;height:74mm;box-sizing:border-box;overflow:hidden;}
   .print-ficha:first-of-type{border-top:1px solid #ccc;}
   .print-ficha-datos{flex:1;min-width:0;overflow:hidden;}
-  .print-ficha-datos h2{font-size:16px;line-height:20px;margin:0 0 6px;font-family:monospace;}
-  .print-ficha-datos table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px;line-height:15px;}
+  .print-ficha-datos h2{font-size:16px;line-height:20px;margin:0 0 4px;font-family:monospace;}
+  .print-ficha-datos table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px;line-height:14px;}
   .print-ficha-datos th{width:42mm;text-align:left;color:#555;font-weight:normal;padding:2px 10px 2px 0;white-space:nowrap;vertical-align:top;}
-  /* Un valor por línea, cortado con "…" si no cabe: la altura de la fila no depende del texto.
-     Descripción y Observación pueden ocupar dos líneas; más, también se cortan. */
   .print-ficha-datos td{padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .print-ficha-datos td .print-2lineas{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
   .print-ficha-foto{flex:none;width:190px;height:190px;}
@@ -458,7 +459,6 @@ textarea{resize:vertical;min-height:60px;}
   /* Cada hoja del PDF de Buscar es un bloque con su propio membrete: 2 fichas en la primera
      (que además lleva el título) y 3 en las demás. El salto va ANTES de cada hoja que sigue a
      otra, nunca después de la última: así no sobra una hoja en blanco al final. */
-  .pdf-hoja{page-break-inside:avoid;}
   .pdf-hoja + .pdf-hoja{page-break-before:always;}
   .pdf-hoja .print-logo{float:none;display:flex;justify-content:flex-end;margin:0 0 4px;}
   .pdf-hoja + .pdf-hoja .print-logo img{max-height:11mm;}
@@ -5070,7 +5070,7 @@ function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud, rutaFoto){
     // midiendo lo mismo para que entren tres por hoja.
     ['Contado por', contado ? `${r.contado_por || 'Sin asignar'} · ${fmtFechaHora(r.fecha_conteo)}` : '—'],
     ['Ciclo', r.ciclo_nombre || '—'],
-    ['Observación', r.observacion || '—', false, true],
+    ['Observación', r.observacion || '—'],
   ];
   return `
     <div class="print-ficha">
