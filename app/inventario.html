@@ -5054,7 +5054,9 @@ function fichaBusquedaPDF(r, fotoUrl, ocultarMagnitud, rutaFoto){
     ['Cantidad contada', contado ? r.cantidad_contada : '—'],
     ['Estado', estadoTexto],
     ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
-    ['Fecha de conteo', contado ? fmtFechaHora(r.fecha_conteo) : '—'],
+    // Quién contó va en la misma línea que la fecha (pedido de Joel): la ficha tiene que seguir
+    // midiendo lo mismo para que entren tres por hoja.
+    ['Contado por', contado ? `${r.contado_por || 'Sin asignar'} · ${fmtFechaHora(r.fecha_conteo)}` : '—'],
     ['Ciclo', r.ciclo_nombre || '—'],
     ['Observación', r.observacion || '—'],
   ];

@@ -10009,7 +10009,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // ===== Seleccionar resultados de Buscar y exportarlos a PDF con foto (Joel: "en Buscar, ¿puedo
   // elegir algunos SKU y que me imprima un PDF con el detalle y una foto?") =====
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: [
-    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A', observacion:'Rodamiento con desgaste visible en el borde'},
+    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A', contado_por:'Ana Torres', observacion:'Rodamiento con desgaste visible en el borde'},
     {sku_id:'sku-exp-4', sku_code:'SKU-EXP-4', descripcion:'Nunca contado', bodega:'Nave Mina', ubicacion:null, storage_bin:null, batch:null, critico:false, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[], clase_abc:null},
     {sku_id:'sku-exp-2', sku_code:'SKU-EXP-2', descripcion:'Filtro', bodega:'Nave Mina', ubicacion:'Pasillo 1', storage_bin:'B-01', batch:null, critico:false, conteo_id:'c-2', cantidad_contada:3, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', fotos:[], clase_abc:'B'},
     {sku_id:'sku-exp-3', sku_code:'SKU-EXP-3', descripcion:'Correa', bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'B-07', batch:null, critico:false, conteo_id:'c-3', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', fotos:[], clase_abc:'C'},
@@ -10160,6 +10160,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(sku1Pos<saltoPos && sku4Pos<saltoPos, 'los primeros 2 seleccionados deben quedar antes del salto de página, obtuvo posiciones: '+JSON.stringify({sku1Pos,sku4Pos,saltoPos}));
   assert(sku2Pos>saltoPos && sku3Pos>saltoPos, 'el 3ro y 4to seleccionado deben quedar después del salto de página, obtuvo posiciones: '+JSON.stringify({sku2Pos,sku3Pos,saltoPos}));
   assert((printBuscarEl.innerHTML.match(/pdf-salto-pagina/g)||[]).length===1, 'con exactamente 4 seleccionados debe haber un solo salto de página, obtuvo: '+printBuscarEl.innerHTML);
+
+  // Quién contó, en la misma línea que la fecha (pedido de Joel): la ficha conserva sus 13 filas
+  // y su alto, así siguen entrando tres por hoja.
+  {
+    const fichaDe = code => { const h = printBuscarEl.innerHTML; const i = h.indexOf('<h2>'+code+'</h2>'); return h.slice(i, h.indexOf('</table>', i)); };
+    const f1 = fichaDe('SKU-EXP-1'), f3 = fichaDe('SKU-EXP-3'), f4 = fichaDe('SKU-EXP-4');
+    assert(/<th>Contado por<\/th><td>Ana Torres · [^<—]+<\/td>/.test(f1), 'la ficha dice quién contó y cuándo, en una sola línea, obtuvo: '+f1);
+    assert(/<th>Contado por<\/th><td>Sin asignar · [^<—]+<\/td>/.test(f3), 'un conteo sin persona asociada dice "Sin asignar", como el filtro de Buscar, obtuvo: '+f3);
+    assert(/<th>Contado por<\/th><td>—<\/td>/.test(f4), 'un material nunca contado no tiene quién ni cuándo, obtuvo: '+f4);
+    assert(!f1.includes('Fecha de conteo') && (f1.match(/<tr>/g)||[]).length===13, 'la fila de fecha se fusiona con la de quién contó: siguen siendo 13 filas, obtuvo: '+(f1.match(/<tr>/g)||[]).length);
+  }
 
   // Con exactamente 2 seleccionados (la 1ra hoja completa, con título), no debe sobrar un salto
   // de página al final.
