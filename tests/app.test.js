@@ -10333,6 +10333,42 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.vistaBloqueadaParaRol('plan')===false, 'un admin NO debe tener bloqueada la vista plan');
   assert(ctx.vistaBloqueadaParaRol('carga')===false, 'un admin NO debe tener bloqueada la vista carga');
   assert(ctx.vistaInicialParaPerfil()==='dashboard', 'un admin debe arrancar en el Dashboard, obtuvo: '+ctx.vistaInicialParaPerfil());
+
+  // ===== Al recargar se vuelve a la pantalla en la que se estaba (pedido de Joel) =====
+  // Cambiar de vista la anota en el navegador; al arrancar con sesión guardada se usa esa vista
+  // si sigue siendo válida para quien entra, y si no, la de siempre.
+  {
+    const perfilAdmin = ctx.__appstate.perfil;
+    ctx.localStorage.removeItem('vista_actual');
+    ctx.setState({view:'buscar'});
+    assert(ctx.localStorage.getItem('vista_actual')==='buscar', 'cambiar de vista la anota en el navegador, obtuvo: '+ctx.localStorage.getItem('vista_actual'));
+    assert(ctx.vistaAlArrancar()==='buscar', 'con sesión guardada se arranca donde se estaba, obtuvo: '+ctx.vistaAlArrancar());
+    ctx.setState({view:'reconteo'});
+    assert(ctx.localStorage.getItem('vista_actual')==='reconteo', 'se anota la última, obtuvo: '+ctx.localStorage.getItem('vista_actual'));
+    // Un operador no puede volver a una vista de administrador: arranca en la suya.
+    ctx.localStorage.setItem('vista_actual', 'dashboard');
+    ctx.__appstate.perfil = { ...perfilAdmin, rol:'operador', es_super_admin:false };
+    assert(ctx.vistaAlArrancar()==='conteo', 'una vista de admin guardada no le sirve a un operador: arranca en Contar, obtuvo: '+ctx.vistaAlArrancar());
+    ctx.__appstate.perfil = perfilAdmin;
+    // Una vista de bodega guardada con el módulo apagado tampoco.
+    ctx.localStorage.setItem('vista_actual', 'stock');
+    assert(ctx.vistaAlArrancar()==='dashboard', 'una vista de bodega no vale sin el módulo, obtuvo: '+ctx.vistaAlArrancar());
+    ctx.__appstate.perfil = { ...perfilAdmin, empresas:{...perfilAdmin.empresas, modulo_bodega_habilitado:true, bodega_funciones:{ordenes_compra:false}} };
+    assert(ctx.vistaAlArrancar()==='stock', 'con el módulo activo sí se vuelve a Stock, obtuvo: '+ctx.vistaAlArrancar());
+    ctx.localStorage.setItem('vista_actual', 'ordenes');
+    assert(ctx.vistaAlArrancar()==='inicio', 'Órdenes de compra desactivadas: arranca en el Inicio de bodega, obtuvo: '+ctx.vistaAlArrancar());
+    ctx.__appstate.perfil = perfilAdmin;
+    // Basura o nada guardado: la vista de siempre.
+    ctx.localStorage.setItem('vista_actual', 'superadmin-o-lo-que-sea');
+    assert(ctx.vistaAlArrancar()==='dashboard', 'una vista desconocida no se restaura, obtuvo: '+ctx.vistaAlArrancar());
+    ctx.localStorage.removeItem('vista_actual');
+    assert(ctx.vistaAlArrancar()==='dashboard', 'sin nada guardado, la vista de siempre');
+    // Cerrar sesión (o una sesión guardada que ya no vale) la olvida.
+    ctx.localStorage.setItem('vista_actual', 'buscar');
+    ctx.borrarSesionGuardada();
+    assert(ctx.localStorage.getItem('vista_actual')===null, 'borrar la sesión guardada olvida la vista');
+    ctx.__appstate.view = 'dashboard';
+  }
   const htmlTabAdminDashboard = ctx.tabBtn('dashboard', 'Dashboard');
   assert(!htmlTabAdminDashboard.includes('tab-bloqueada') && !htmlTabAdminDashboard.includes('tab-candado'), 'el tab Dashboard de un admin NO debe mostrar candado, obtuvo: '+htmlTabAdminDashboard);
 

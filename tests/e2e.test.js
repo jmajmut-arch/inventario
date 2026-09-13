@@ -665,6 +665,23 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Recargar deja a la persona en la pantalla en la que estaba =====
+  // Pedido de Joel: estaba en Buscar, actualizó la página y la app lo devolvió al Dashboard.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('recarga-vista: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.click('#btn-ir-buscar');
+    await page.waitForSelector('#b-texto', { timeout:ESPERA });
+    await page.reload({ waitUntil:'networkidle' });
+    const volvioABuscar = await page.waitForSelector('#b-texto', { timeout:ESPERA }).then(()=>true).catch(()=>false);
+    assert(volvioABuscar, 'tras recargar, la app tiene que volver a Buscar, no al Dashboard');
+    const vista = await page.evaluate(() => state.view);
+    assert(vista === 'buscar', 'la vista restaurada es Buscar, obtuvo: '+vista);
+    await context.close();
+  }
+
   // ===== El PDF de Buscar lo arma la app con pdf-lib (real, en Chromium) =====
   // El doble de pdf-lib de app.test.js prueba la maqueta; acá se carga la librería de verdad desde
   // app/lib, se incrustan una foto JPEG y el logo PNG de la empresa, y se revisa que salga un PDF
