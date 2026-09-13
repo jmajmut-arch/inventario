@@ -20,8 +20,9 @@
 > **Última actualización:** 4 de septiembre de 2026, a partir del estado real
 > del proyecto Supabase `ncvwgsbcvklhbyvurxzz` (169 migraciones aplicadas) y del
 > repositorio `jmajmut-arch/inventario` en `main`. El 13 de septiembre se
-> actualizó §5 (Edge Functions versionadas en `supabase/functions/`) y §10.2
-> (respaldo propio en `docs/respaldo/`).
+> actualizó §5 (Edge Functions versionadas en `supabase/functions/`), §10.2
+> (respaldo propio en `docs/respaldo/`) y §8.5-8.6 (DNS en Cloudflare y correo
+> del dominio, medidos ese día).
 
 ---
 
@@ -66,7 +67,7 @@ este repo o se puede reconstruir siguiendo este documento.
 |---|---|---|---|
 | Código fuente | GitHub | `jmajmut-arch/inventario`, rama `main` | Repo público de código; sin backend propio que desplegar. |
 | Hosting del sitio | GitHub Pages | Settings → Pages del repo | Sirve el repo completo tal cual (root), sin build step. |
-| Dominio | Registrador del dominio (fuera de GitHub/Supabase) | `inventiapp.cl` | DNS apunta a GitHub Pages; `CNAME` en la raíz del repo lo declara. Ver §9. |
+| Dominio | NIC Chile (registro) + Cloudflare (DNS) | `inventiapp.cl` | Los registros se editan en Cloudflare. DNS apunta a GitHub Pages; `CNAME` en la raíz del repo lo declara. Ver §8.5 y §8.6. |
 | Base de datos + Auth + Storage + Edge Functions | Supabase | proyecto `ncvwgsbcvklhbyvurxzz` (`inventario-toma-fisica`), org `ynliapaucpwyclgmbfdc` | Región `sa-east-1`. Hay un segundo proyecto Supabase en la misma cuenta (`pdakngzwlfdxoqsqmfal`, us-east-2, "jmajmut-arch's Project") que **no se usa** — es el proyecto por defecto de la cuenta, no tocarlo. |
 | Pagos recurrentes | Flow.cl | comercio propio, cuenta de Joel | Producción (no sandbox) desde PR #97. Ver §7. |
 | Correo saliente (Auth) | Brevo (SMTP) | cuenta de Brevo de Joel | Configurado en Supabase Auth → Settings → SMTP Settings. Ver §8.1. |
@@ -74,7 +75,7 @@ este repo o se puede reconstruir siguiendo este documento.
 | Analítica del landing | Google Analytics 4 + GTM | GA4: `G-G5WNMGTXSH` · GTM: `GTM-5RH88HLL` | Solo en `index.html` (landing), no en la app. |
 | CI | GitHub Actions | `.github/workflows/tests.yml`, `loadtest.yml` | Corre en cada push/PR a `main`. |
 | WhatsApp de contacto | — | +56 9 6837 2524 | Botón flotante del landing. |
-| Correo de contacto | — | contacto@inventiapp.cl | Vía Brevo. |
+| Correo de contacto (entrante) | Cloudflare Email Routing | contacto@inventiapp.cl | **Reenvía** a un buzón externo; no envía. Ver §8.6. |
 
 ### Credenciales y secretos — dónde viven, no qué valen
 
@@ -1533,6 +1534,11 @@ dashboard** (no hay CLI/API conectada a este proyecto para subirlas sola):
    `resetPasswordForEmail()` (botón "olvidé mi contraseña" del login).
    Asunto: `Accede a tu cuenta de InventIA`.
 
+> **Pendiente conocido (13/09/2026):** el dominio **no** tiene DKIM de Brevo ni
+> `include:spf.brevo.com` en su SPF, así que estos correos salen sin autenticar
+> contra `inventiapp.cl`. Hoy llegan por volumen bajo, pero es frágil: Outlook y
+> Gmail los pueden mandar a spam o rechazarlos sin avisar. Ver §8.6.
+
 Para que estos correos lleguen a cualquier usuario real (no solo al equipo del
 proyecto) y digan "InventIA" como remitente, hace falta un **SMTP propio**
 configurado en Supabase Dashboard → Authentication → Settings → SMTP
@@ -1609,10 +1615,13 @@ menciona `sentry.io`/`View on Sentry`) que se revisan en el chequeo periódico.
 
 ### 8.5 Dominio y hosting
 
-- **Dominio**: `inventiapp.cl`, comprado y administrado fuera de GitHub (en el
-  registrador que Joel eligió — no documentado en este repo qué registrador
-  es). DNS apunta a GitHub Pages (típicamente `A` records a las IPs de GitHub
-  Pages, o `CNAME` a `<usuario>.github.io` si es un subdominio).
+- **Dominio**: `inventiapp.cl`. Al ser `.cl` el registro vive en NIC Chile; el
+  **DNS está delegado a Cloudflare** (`chad.ns.cloudflare.com`,
+  `surina.ns.cloudflare.com`, verificado el 13/09/2026). Ahí se editan todos
+  los registros, incluidos los de correo (§8.6).
+- **Registros web vigentes** (medidos el 13/09/2026): la raíz apunta con `A` a
+  las cuatro IP de GitHub Pages (`185.199.108-111.153`) y `www` es un `CNAME`
+  a `jmajmut-arch.github.io`.
 - **`CNAME`** en la raíz del repo declara `inventiapp.cl` — GitHub Pages lo
   lee automático.
 - **GitHub Pages**: Settings → Pages del repo → "Deploy from branch" → `main`
@@ -1627,6 +1636,62 @@ menciona `sentry.io`/`View on Sentry`) que se revisan en el chequeo periódico.
   `inventiapp.cl` en las Edge Functions (`invite-user`, `flow-registro-callback`
   usan `SITE_URL = 'https://inventiapp.cl/app/'` — **hay que actualizar esta
   constante en ambas si cambia el dominio**).
+
+### 8.6 Correo del dominio (`contacto@inventiapp.cl`)
+
+**El dominio recibe correo pero no puede enviarlo.** No es una falla: es cómo
+está armado hoy. Conviene entenderlo antes de tocar nada, porque el síntoma
+("me llegan los correos, pero los que mando yo no llegan") se diagnostica mal
+con facilidad.
+
+Registros medidos el 13/09/2026 (todos se editan en el DNS de Cloudflare, §8.5):
+
+| Registro | Valor | Para qué sirve |
+|---|---|---|
+| `MX` | `route1/2/3.mx.cloudflare.net` | **Cloudflare Email Routing**: recibe y reenvía a un buzón externo (el Gmail de Joel). |
+| `TXT` (SPF) | `v=spf1 include:_spf.mx.cloudflare.net ~all` | Autoriza **solo** a Cloudflare a enviar en nombre del dominio. |
+| `TXT` | `brevo-code:7ae61b63…` | Verificación de propiedad del dominio ante Brevo. |
+| `TXT` `_dmarc` | `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` | Política laxa (no rechaza) con reportes a Brevo. |
+| `TXT` `cf2024-1._domainkey` | `v=DKIM1; …` | DKIM de Cloudflare, para el correo que **reenvía**. |
+
+**Por qué no se puede enviar.** Cloudflare Email Routing es un reenviador y
+nada más: no expone servidor de salida (SMTP). Mandar desde Gmail poniendo
+`contacto@inventiapp.cl` como remitente sale por los servidores de Google, que
+no están en el SPF del dominio y no tienen DKIM que los respalde. El correo
+termina en spam o rechazado según quién reciba (Outlook/Hotmail son los más
+estrictos).
+
+**Hueco abierto, y el que más importa.** Brevo —que manda las invitaciones y
+los correos de "olvidé mi contraseña" de la app (§8.1)— está a medio
+configurar: tiene el `brevo-code` de verificación, pero **no** tiene registro
+DKIM ni `include:spf.brevo.com` en el SPF. Con volumen bajo llegan igual;
+cuando se empiece a invitar gente de empresas con Outlook, es exactamente el
+escenario donde se pierden sin aviso.
+
+**Cómo se arregla (y arregla las dos cosas de una vez).** No hace falta
+contratar nada nuevo: las credenciales SMTP de Brevo ya existen.
+
+1. **Brevo** → *Senders, Domains & Dedicated IPs* → completar la autenticación
+   de `inventiapp.cl`. Entrega el registro DKIM que falta.
+2. **Cloudflare DNS** → agregar ese DKIM y **fusionar** el SPF en uno solo:
+   `v=spf1 include:_spf.mx.cloudflare.net include:spf.brevo.com ~all`.
+3. **Gmail** → *Configuración → Cuentas → Enviar como* → agregar
+   `contacto@inventiapp.cl` enviando por SMTP: `smtp-relay.brevo.com`, puerto
+   587, con el usuario y la clave SMTP de Brevo. El código de confirmación
+   llega por el reenvío de Cloudflare.
+
+> **Trampa clásica:** tiene que quedar **un solo** registro SPF. Dos registros
+> SPF en el mismo dominio invalidan la verificación entera y dejan el correo
+> peor que antes. Se fusionan los `include:`, no se agrega un TXT nuevo.
+
+**Alternativa**, si en algún momento se quiere un buzón de verdad en vez de un
+reenvío (se ve mejor para vender, cuesta una mensualidad y obliga a cambiar los
+`MX`): Zoho Mail o Google Workspace. El arreglo de arriba no cierra esa puerta.
+
+**Si se pierde el acceso a Cloudflare**: el dominio sigue siendo de NIC Chile.
+Se reapunta el DNS a otro proveedor y hay que rehacer, además de los registros
+web (§8.5), los `MX`, el SPF, el DKIM y el DMARC de esta sección; mientras
+tanto `contacto@inventiapp.cl` deja de recibir.
 
 ---
 
