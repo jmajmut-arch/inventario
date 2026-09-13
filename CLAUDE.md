@@ -121,6 +121,13 @@ Bodega). Lo que la persona haya tecleado en otros campos se guarda al estado ant
 - El módulo de bodega se activa por empresa desde súper admin. Diseño en
   `docs/DISENO-MODULO-BODEGA.md`.
 
+## Cómo presentar mejoras
+
+Cada mejora, hallazgo u oportunidad que se le presente a Joel lleva su **ámbito** por delante:
+seguridad, rendimiento, experiencia, datos, producto, costo u operación. Sirve para decidir rápido
+qué se atiende y qué se posterga, y para que una lista de diez no mezcle un riesgo de pérdida de
+datos con un texto cortado. Si una mejora toca más de un ámbito, se nombra el principal primero.
+
 ## Documentación
 
 Los manuales se editan en `docs/src-manuales/*.html` y se regeneran con `render.py`
