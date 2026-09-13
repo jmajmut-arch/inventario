@@ -959,6 +959,8 @@ function ordenesEstadoInicial(){
     form:null,     // {id, proveedorId, fechaEsperada, condicionesPago, lugarEntrega, observacion, afectaIva, lineas[], guardando}
     detalle:null,  // {id, orden, lineas, cargando, error}
     anulando:null, // {id, numero, motivo, guardando}
+    terminosBorrador:null, // texto de Términos y condiciones tecleado y aún no guardado (null = sin cambios)
+    terminosGuardando:false,
   };
 }
 function documentoBodegaVacio(){
@@ -1442,7 +1444,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -3582,6 +3584,29 @@ async function actualizarConteoCiego(activo){
     toast(activo? 'Conteo ciego activado' : 'Conteo ciego desactivado');
     render();
   }catch(e){ toast(e.message,'err'); }
+}
+// Términos y condiciones de la orden de compra: texto libre por empresa (forma de pago,
+// garantías, horario de entrega...) que sale al pie de cada orden impresa. Se edita en la misma
+// pantalla de Órdenes de compra, que es donde se echa de menos. Vacío = la orden sale como antes.
+function terminosOrdenCompra(){
+  const e = state.perfil && state.perfil.empresas;
+  return (e && e.terminos_orden_compra) ? String(e.terminos_orden_compra) : '';
+}
+async function guardarTerminosOrdenCompra(texto){
+  if(!state.perfil || !state.perfil.empresa_id) return false;
+  const t = (texto||'').trim() || null;
+  setState({ordenes:{...state.ordenes, terminosGuardando:true}});
+  try{
+    await rest(`/empresas?id=eq.${state.perfil.empresa_id}`, {method:'PATCH', body:{terminos_orden_compra:t}, prefer:'return=minimal'});
+    state.perfil.empresas.terminos_orden_compra = t;
+    setState({ordenes:{...state.ordenes, terminosBorrador:null, terminosGuardando:false}});
+    toast(t ? 'Términos y condiciones guardados: salen al pie de cada orden de compra' : 'Términos y condiciones quitados');
+    return true;
+  }catch(e){
+    setState({ordenes:{...state.ordenes, terminosGuardando:false}});
+    toast(e.message,'err');
+    return false;
+  }
 }
 function ocultarStockOperador(){
   return !!(state.perfil && state.perfil.rol==='operador' && state.perfil.empresas && state.perfil.empresas.conteo_ciego_habilitado);
@@ -6336,6 +6361,7 @@ function ordenCompraHTML(o, lineas){
       </tfoot>
     </table>
     ${o.afecta_iva?'':'<div style="font-size:11px;color:#555;margin-bottom:12px">Orden exenta de IVA.</div>'}
+    ${terminosOrdenCompra() ? `<div style="font-size:11px;margin-bottom:12px"><div style="font-weight:700;margin-bottom:2px">Términos y condiciones</div><div style="white-space:pre-line">${esc(terminosOrdenCompra())}</div></div>` : ''}
     <div style="display:flex;gap:40px;margin-top:48px;font-size:12px">
       <div style="flex:1;border-top:1px solid #000;padding-top:4px">Autoriza: ${esc(o.usuario_nombre||'')}</div>
       <div style="flex:1;border-top:1px solid #000;padding-top:4px">Recibe conforme (proveedor)</div>
@@ -11857,6 +11883,14 @@ function renderOrdenesCompra(){
           <td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-oc-ver="${esc(f.id)}" style="width:auto;padding:5px 10px;font-size:12px">Ver</button></td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty" style="margin-top:12px"><div class="glyph">🧾</div>${o.cargado ? (o.filtroEstado ? 'Ninguna orden en ese estado.' : 'Todavía no hay órdenes de compra. Crea la primera con "Nueva orden".') : 'Cargando…'}</div>`}
+    </div>
+    <div class="card">
+      <div class="section-head" style="margin:0 0 6px"><div><span class="eyebrow">Empresa</span><h2 style="font-size:15px">Términos y condiciones ${campoConInfo('Texto que sale al pie de cada orden de compra impresa, debajo del total: forma de pago, garantías, plazo y lugar de entrega, multas por atraso, lo que tu empresa exige a sus proveedores. Es el mismo para todas las órdenes; lo particular de una orden va en sus condiciones de pago, lugar de entrega y observación. Se respetan los saltos de línea. Vacío = la orden sale sin este bloque.')}</h2></div></div>
+      <textarea id="oc-terminos" rows="6" placeholder="Ej. Pago a 30 días contra factura. Entregar en bodega central de lunes a viernes, 8:00 a 17:00. Garantía mínima de 12 meses." style="margin:0;resize:vertical" ${o.terminosGuardando?'disabled':''}>${esc(o.terminosBorrador!==null && o.terminosBorrador!==undefined ? o.terminosBorrador : terminosOrdenCompra())}</textarea>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <button type="button" class="btn btn-primary" id="btn-guardar-terminos" style="width:auto;padding:8px 16px" ${o.terminosGuardando?'disabled':''}>${o.terminosGuardando?'Guardando…':'Guardar términos'}</button>
+        <span class="hint" style="margin:0">${terminosOrdenCompra() ? 'Salen al pie de cada orden de compra impresa.' : 'Todavía no hay términos: las órdenes salen sin este bloque.'}</span>
+      </div>
     </div>`;
 }
 
@@ -13125,6 +13159,12 @@ function bind(){
       const filtro = document.getElementById('oc-filtro-estado');
       if(filtro) filtro.addEventListener('change', ()=> setState({ordenes:{...state.ordenes, filtroEstado: filtro.value}}));
       document.querySelectorAll('[data-oc-ver]').forEach(b=> b.addEventListener('click', ()=> abrirDetalleOrdenCompra(b.dataset.ocVer)));
+      const terminos = document.getElementById('oc-terminos');
+      // Lo tecleado se guarda al estado sin repintar: un repintado por otra causa (llega la
+      // lista, un toast) no puede borrar lo que la persona lleva escrito.
+      if(terminos) terminos.addEventListener('input', ()=>{ state.ordenes.terminosBorrador = terminos.value; });
+      const btnTerminos = document.getElementById('btn-guardar-terminos');
+      if(btnTerminos) btnTerminos.addEventListener('click', ()=> guardarTerminosOrdenCompra(terminos ? terminos.value : ''));
     }
   }
 
