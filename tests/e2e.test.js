@@ -665,6 +665,58 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== El PDF de Buscar lo arma la app con pdf-lib (real, en Chromium) =====
+  // El doble de pdf-lib de app.test.js prueba la maqueta; acá se carga la librería de verdad desde
+  // app/lib, se incrustan una foto JPEG y el logo PNG de la empresa, y se revisa que salga un PDF
+  // válido con las hojas que corresponden (4 fichas: 2 + 2).
+  {
+    const JPG_PRUEBA = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAQABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCpRRRXin0p/9k=', 'base64');
+    const LOGO_PRUEBA_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAAgCAYAAADZubxIAAAAiElEQVR4nO3awQmDQBBA0RgsIaklvST12YvWYhGmAwOCET7vXWcPA5+57TC/H9uNrPvVC3AugeMEjhM4TuA4geMEjht/PXhN6z/24KDl89ydu+A4geMEjhM4TuA4geMEjhM4TuA4geMEjhM4TuA4geMEjhv8i25zwXECxwkcJ3CcwHECxwkc9wXWdgerkwIbJgAAAABJRU5ErkJggg==';
+    const context = await browser.newContext({ viewport:{ width:820, height:1100 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('pdf-buscar: '+err.message));
+    const perfilPdf = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilPdf.empresas.logo = LOGO_PRUEBA_PNG;
+    await mockearSupabaseApp(page, perfilPdf);
+    await page.route('**/storage/v1/object/sign/**', route => {
+      if(route.request().method()==='POST'){
+        const ruta = route.request().url().split('/object/sign/fotos-inventario/')[1];
+        return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ signedURL:'/object/sign/fotos-inventario/'+ruta+'?token=fake' }) });
+      }
+      return route.fulfill({ status:200, contentType:'image/jpeg', body: JPG_PRUEBA });
+    });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    const resultado = await Promise.race([
+      page.evaluate(async () => {
+        window.entregarArchivoPdf = (bytes, nombre) => { window.__pdf = { bytes: Array.from(bytes), nombre }; };
+        const filas = [0,1,2,3].map(i => ({ sku_id:'s'+i, sku_code:'1037189'+i, descripcion:'FILTRO DE ACEITE MOTOR CAT 3512 NUMERO '+i, bodega:'B501', ubicacion:'0102', storage_bin:'N1E-330-F'+i, batch:null, clase_abc:'A', critico:i===0,
+          conteo_id: i===3 ? null : 'c'+i, cantidad_contada: i===3 ? null : 12+i, estado:'aprobado', diferencia:0, fecha_conteo:'2026-09-10T14:32:00Z', fuera_de_plan:true, ciclo_nombre:'Q1-MEL1', observacion:null,
+          fotos: i===1 ? [{ foto_url:'emp-1/foto1.jpg' }] : [], contado_por:'Joel Majmut' }));
+        state.busqueda.resultados = filas; state.busqueda.seleccionados = filas.map(f => f.sku_id);
+        await exportarSeleccionadosBusquedaPDF();
+        return { pdf: window.__pdf || null, libCargada: typeof PDFLib !== 'undefined', exportando: state.busqueda.exportandoPdf };
+      }),
+      new Promise(res => setTimeout(() => res('TIMEOUT'), 30000)),
+    ]);
+    assert(resultado !== 'TIMEOUT', 'generar el PDF de Buscar no puede quedarse pegado (30 s)');
+    if(resultado !== 'TIMEOUT'){
+      assert(resultado.libCargada, 'pdf-lib se carga desde app/lib al exportar');
+      assert(!!resultado.pdf && /^InventIA-materiales-\d{4}-\d{2}-\d{2}\.pdf$/.test(resultado.pdf.nombre), 'se entrega un archivo .pdf con la fecha en el nombre, obtuvo: '+JSON.stringify(resultado.pdf && resultado.pdf.nombre));
+      const pdf = Buffer.from(resultado.pdf ? resultado.pdf.bytes : []);
+      const texto = pdf.toString('latin1');
+      assert(texto.startsWith('%PDF-1.'), 'el archivo empieza como PDF, obtuvo: '+texto.slice(0,10));
+      const paginas = (texto.match(/\/Type \/Page(?!s)/g) || []).length;
+      assert(paginas === 2, `4 fichas son 2 hojas (2 + 2), salieron ${paginas}`);
+      assert((texto.match(/\/Subtype \/Image/g) || []).length === 2, 'lleva dos imágenes: la foto de una ficha y el logo (una vez, reutilizado en cada hoja), obtuvo: '+(texto.match(/\/Subtype \/Image/g) || []).length);
+      assert(!resultado.exportando, 'al terminar, el botón vuelve a "Exportar a PDF"');
+    }
+    await context.close();
+  }
+
   // ===== La orden de compra impresa cabe en una hoja =====
   // Joel vio una hoja en blanco de más en el PDF de la orden. Acá se imprime una orden real
   // (proveedor completo, tres líneas, IVA y términos y condiciones) al PDF de Chromium y se
