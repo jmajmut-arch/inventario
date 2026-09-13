@@ -972,6 +972,36 @@ function vistaInicialParaPerfil(){
   return vistaBloqueadaParaRol('dashboard') ? 'conteo' : 'dashboard';
 }
 
+// Al recargar la página (F5, el botón Recargar de "versión nueva", la PWA que iOS vuelve a abrir)
+// se vuelve a la pantalla en la que se estaba, no al Dashboard. Pedido de Joel: estaba en Buscar
+// y cada actualización lo mandaba al inicio. La última vista se anota en el navegador cada vez
+// que cambia; al arrancar se usa solo si sigue siendo válida para quien entra (rol, módulo de
+// bodega, funciones activas) y si no, la de siempre. Iniciar sesión a mano arranca en la vista
+// de siempre; cerrar sesión la olvida.
+const VISTA_ACTUAL_KEY = 'vista_actual';
+const VISTAS_RESTAURABLES = ['dashboard','carga','ciclos','grupos','plan','conteo','reconteo','buscar','skus','config','calendario','mover',
+  'inicio','ingreso','salida','movimientos','stock','reportes','ordenes','reservas'];
+function guardarVistaActual(view){
+  if(!VISTAS_RESTAURABLES.includes(view)) return;
+  try{ localStorage.setItem(VISTA_ACTUAL_KEY, view); }catch(e){ /* modo privado: sin memoria, sin drama */ }
+}
+function olvidarVistaActual(){
+  try{ localStorage.removeItem(VISTA_ACTUAL_KEY); }catch(e){ /* nada que olvidar */ }
+}
+function vistaValidaParaPerfil(view){
+  if(!VISTAS_RESTAURABLES.includes(view)) return false;
+  if(vistaBloqueadaParaRol(view)) return false;
+  if(VISTAS_BODEGA.includes(view) && !moduloBodegaActivo()) return false;
+  if(view==='ordenes' && !funcionBodegaActiva('ordenes_compra')) return false;
+  if(view==='reservas' && !funcionBodegaActiva('reservas')) return false;
+  return true;
+}
+function vistaAlArrancar(){
+  let guardada = null;
+  try{ guardada = localStorage.getItem(VISTA_ACTUAL_KEY); }catch(e){ guardada = null; }
+  return (guardada && vistaValidaParaPerfil(guardada)) ? guardada : vistaInicialParaPerfil();
+}
+
 // La Recepción y el Despacho son dos documentos distintos, no uno que se rellena de dos formas.
 // Compartían el mismo y cambiar de pestaña se lo llevaba entero -- líneas, guía, orden de compra,
 // reserva. Pasó en producción: se cargó una orden en Recepción, se pasó a Despacho y el servidor
@@ -998,7 +1028,10 @@ function cambiarDocumentoDeBodega(vistaNueva){
 }
 
 function setState(patch){
-  if(patch && patch.view !== undefined && patch.view !== state.view) cambiarDocumentoDeBodega(patch.view);
+  if(patch && patch.view !== undefined && patch.view !== state.view){
+    cambiarDocumentoDeBodega(patch.view);
+    guardarVistaActual(patch.view);
+  }
   Object.assign(state, patch);
   render();
 }
@@ -1375,6 +1408,7 @@ function guardarSesion(data){
 
 function borrarSesionGuardada(){
   try{ localStorage.removeItem(SESION_KEY); }catch(e){ /* nada que borrar */ }
+  olvidarVistaActual();
 }
 
 // El access_token dura ~1h; con el refresh_token pedimos uno nuevo sin que
@@ -1417,7 +1451,7 @@ async function restaurarSesionGuardada(){
   }
   if(state.empresaBloqueada) return; // sesión sigue viva: se muestra la pantalla de cuenta bloqueada
   if(!state.perfil){ state.session = null; borrarSesionGuardada(); return; }
-  state.view = vistaInicialParaPerfil();
+  state.view = vistaAlArrancar();
   cargarTodo();
   sincronizarSuscripcionFlow();
 }
