@@ -7485,12 +7485,16 @@ async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, fil
 // universo de conteo y los totales por material. La app los cuenta y ofrece limpiarlos; la
 // decisión es del administrador, cada vez.
 const LIMPIAR_SOBRANTES_LOTE = 2000;
-async function revisarSobrantesDeCarga(cargaId){
+// `archivo` viene cuando el aviso se recalcula al entrar a Carga (ver cargarHistorialCargas) y no
+// recién terminada una carga: cambia el texto ("el último archivo (x)") pero no el resto.
+async function revisarSobrantesDeCarga(cargaId, archivo){
   if(!cargaId) return;
   try{
     const r = await rest('/rpc/resumen_skus_no_traidos', {method:'POST', body:{p_carga_id: cargaId}}) || {};
-    if(!r.total) return;
-    setState({cargaSobrantes:{cargaId, ...r, limpiando:false, progreso:null}});
+    // Los ya contados en el ciclo no se ofrecen (ver desactivar_skus_no_traidos): si solo quedan
+    // esos, no hay nada que decidir y no se muestra la tarjeta.
+    if(!r.total || (Number(r.total) - (Number(r.contados)||0)) <= 0) return;
+    setState({cargaSobrantes:{cargaId, archivo: archivo||null, ...r, limpiando:false, progreso:null, plegado:false}});
   }catch(e){ /* informativo: si falla, la carga igual quedó bien */ }
 }
 
@@ -7523,12 +7527,21 @@ async function cargarHistorialCargas(){
   state.cargasHistorial.cargando = true;
   render();
   try{
-    const filas = await rest('/cargas_masivas?select=id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,detalle_errores,created_at,usuarios(nombre)&order=created_at.desc&limit=20');
+    const filas = await rest('/cargas_masivas?select=id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,detalle_errores,created_at,marca_tiempo,usuarios(nombre)&order=created_at.desc&limit=20');
     state.cargasHistorial.filas = filas || [];
     // Igual que cargarEquipo/cargarAuditoria/cargarPlanDeHoy: marcar cargado solo si el pedido
     // realmente funcionó, para que un corte de red en el primer ingreso no deje el historial
     // vacío para siempre (ver el resguardo en bind(), "if(!state.cargasHistorial.cargado)").
     state.cargasHistorial.cargado = true;
+    // El aviso de sobrantes se recalcula cada vez que se entra a Carga, a partir de la última carga
+    // del maestro con marca de tiempo. Antes solo existía recién terminada la carga y "Ahora no"
+    // lo borraba para siempre: pasó de verdad (Escondida, 15/09/2026) y 1.714 materiales que el
+    // archivo ya no traía —704 con tránsito de otra fecha— siguieron activos sin que nadie lo
+    // viera. Es un dato de la base, no un recuerdo de la sesión, así que se vuelve a mirar.
+    if(!state.cargaSobrantes){
+      const ultima = (filas||[]).find(f => f.tipo==='skus' && f.marca_tiempo);
+      if(ultima) await revisarSobrantesDeCarga(ultima.id, ultima.nombre_archivo);
+    }
   }catch(e){ toast(e.message,'err'); }
   state.cargasHistorial.cargando = false;
   render();
@@ -9909,8 +9922,17 @@ function renderSobrantesDeCarga(){
   const protegidos = Number(s.contados)||0;
   const aDesactivar = s.total - protegidos;
   const p = s.progreso;
+  // "Ahora no" pliega el aviso en vez de borrarlo: queda una línea con el número y "Revisar", y al
+  // volver a entrar a Carga en otra sesión vuelve completo (ver cargarHistorialCargas).
+  if(s.plegado) return `<div class="card" style="border-color:var(--warn);display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px">
+    <div style="flex:1;font-size:13px"><b>${s.total} materiales</b> que el último archivo no trajo siguen activos.</div>
+    <button class="btn btn-secondary" id="btn-revisar-sobrantes" style="width:auto;padding:6px 12px;font-size:12px">Revisar</button>
+  </div>`;
+  const titulo = s.archivo
+    ? `Hay ${s.total} materiales que el último archivo (${esc(s.archivo)}) no trajo`
+    : `Quedaron ${s.total} materiales que este archivo no traía`;
   return `<div class="card" style="border-color:var(--warn)">
-    <h3 style="margin:0 0 4px;font-size:16px">Quedaron ${s.total} materiales que este archivo no traía</h3>
+    <h3 style="margin:0 0 4px;font-size:16px">${titulo}</h3>
     <div class="hint">Siguen activos de cargas anteriores: bins renombrados en tu ERP que conviven con su versión vieja, material que ya se consumió, o filas de tránsito de otra fecha. Aparecen en el buscador, entran al universo de conteo y suman en los totales del material.</div>
     <div class="hint">De esos, <b>${s.con_stock||0}</b> tienen stock${s.sin_ubicacion?` y <b>${s.sin_ubicacion}</b> no tienen ubicación ni bin`:''}.${protegidos?` <b>${protegidos}</b> ya se contaron en este ciclo y no se tocan: desactivarlos bajaría el avance y borraría trabajo hecho en terreno.`:''}</div>
     ${p ? `<div class="hint" style="margin-top:8px">Desactivando ${p.hechos} de ${p.total}…<div class="progress-track" style="margin-top:6px"><div class="progress-fill" style="width:${p.total?Math.round(p.hechos/p.total*100):0}%"></div></div></div>` : `
@@ -13987,7 +14009,9 @@ function bind(){
       const btnLimpiar = document.getElementById('btn-limpiar-sobrantes');
       if(btnLimpiar) btnLimpiar.addEventListener('click', limpiarSobrantesDeCarga);
       const btnOmitir = document.getElementById('btn-omitir-sobrantes');
-      if(btnOmitir) btnOmitir.addEventListener('click', ()=> setState({cargaSobrantes:null}));
+      if(btnOmitir) btnOmitir.addEventListener('click', ()=> setState({cargaSobrantes:{...state.cargaSobrantes, plegado:true}}));
+      const btnRevisar = document.getElementById('btn-revisar-sobrantes');
+      if(btnRevisar) btnRevisar.addEventListener('click', ()=> setState({cargaSobrantes:{...state.cargaSobrantes, plegado:false}}));
     }
   }
 

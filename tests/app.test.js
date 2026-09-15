@@ -5151,6 +5151,68 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(JSON.parse(lotesSobrantes[0].opts.body).p_carga_id==='carga-1', 'los lotes van por id de carga, no por fecha: '+lotesSobrantes[0].opts.body);
   assert(ctx.__appstate.cargaSobrantes===null, 'al terminar, el aviso desaparece');
   assert(JSON.stringify(elements['toast-root'].hijos).includes('1893'), 'avisa cuántos quedaron inactivos, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+  // ===== El aviso de sobrantes no se pierde con "Ahora no" y se recalcula al entrar a Carga.
+  // Pasó de verdad (Escondida, 15/09/2026): se cerró el aviso y 1.714 materiales que el archivo
+  // ya no traía —704 con tránsito de otra fecha— siguieron activos sin que nadie lo viera. =====
+  {
+    // (a) Al entrar a Carga sin aviso en el estado, el historial trae la última carga del maestro
+    // con marca de tiempo y se consulta el resumen de esa carga.
+    const fetchAntes = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      if(String(url).includes('/rest/v1/cargas_masivas?select=')){
+        calls.push({url:String(url), opts}); // el fetch original registra en calls; este atajo también
+        return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+          {id:'carga-hoy', nombre_archivo:'Materials (1).xlsx', tipo:'skus', filas_totales:61862, filas_ok:61862, filas_error:0, detalle_errores:[], created_at:'2026-09-15T10:59:28Z', marca_tiempo:'2026-09-15T10:58:47Z', usuarios:{nombre:'Joel'}},
+          {id:'carga-vieja', nombre_archivo:'Materials (6).xlsx', tipo:'skus', filas_totales:61722, filas_ok:61722, filas_error:0, detalle_errores:[], created_at:'2026-09-10T10:21:18Z', marca_tiempo:'2026-09-10T10:20:42Z', usuarios:{nombre:'Joel'}},
+        ]) };
+      }
+      return fetchAntes(url, opts);
+    };
+    ctx.__appstate.view = 'carga';
+    ctx.__appstate.cargaSobrantes = null;
+    ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+    calls.length = 0;
+    await ctx.cargarHistorialCargas();
+    const getHist = calls.find(c=>c.url.includes('/rest/v1/cargas_masivas?select='));
+    assert(getHist && getHist.url.includes('marca_tiempo'), 'el historial debe pedir la marca de tiempo de cada carga, obtuvo: '+(getHist&&getHist.url));
+    const resumenAlEntrar = calls.find(c=>c.url.includes('/rpc/resumen_skus_no_traidos'));
+    assert(resumenAlEntrar && JSON.parse(resumenAlEntrar.opts.body).p_carga_id==='carga-hoy', 'al entrar a Carga debe consultarse el resumen de la última carga del maestro, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const sobEntrar = ctx.__appstate.cargaSobrantes;
+    assert(sobEntrar && sobEntrar.cargaId==='carga-hoy' && sobEntrar.archivo==='Materials (1).xlsx' && sobEntrar.plegado===false, 'el aviso queda en el estado con el archivo de referencia, obtuvo: '+JSON.stringify(sobEntrar));
+    const htmlEntrar = ctx.renderCargaMasiva();
+    assert(htmlEntrar.includes('Hay 1909 materiales que el último archivo (Materials (1).xlsx) no trajo'), 'recalculado al entrar, el título nombra al último archivo, obtuvo: '+htmlEntrar);
+    assert(htmlEntrar.includes('id="btn-omitir-sobrantes"') && htmlEntrar.includes('Desactivar 1893 material(es)'), 'con los mismos botones de siempre, obtuvo: '+htmlEntrar);
+
+    // (b) Con el aviso ya en el estado, volver a cargar el historial no consulta de nuevo.
+    calls.length = 0;
+    await ctx.cargarHistorialCargas();
+    assert(!calls.some(c=>c.url.includes('/rpc/resumen_skus_no_traidos')), 'si el aviso ya está, no se vuelve a consultar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+    // (c) "Ahora no" pliega, no borra: queda una línea con el número y Revisar.
+    ctx.bind();
+    elements['btn-omitir-sobrantes'].dispatch('click');
+    assert(ctx.__appstate.cargaSobrantes && ctx.__appstate.cargaSobrantes.plegado===true && ctx.__appstate.cargaSobrantes.total===1909, '"Ahora no" debe plegar el aviso conservando el resumen, obtuvo: '+JSON.stringify(ctx.__appstate.cargaSobrantes));
+    const htmlPlegado = ctx.renderCargaMasiva();
+    assert(htmlPlegado.includes('<b>1909 materiales</b> que el último archivo no trajo siguen activos') && htmlPlegado.includes('id="btn-revisar-sobrantes"'), 'plegado queda una línea con el número y Revisar, obtuvo: '+htmlPlegado);
+    assert(!htmlPlegado.includes('id="btn-limpiar-sobrantes"'), 'plegado no muestra el botón de desactivar, obtuvo: '+htmlPlegado);
+    ctx.bind();
+    elements['btn-revisar-sobrantes'].dispatch('click');
+    assert(ctx.__appstate.cargaSobrantes.plegado===false && ctx.renderCargaMasiva().includes('id="btn-limpiar-sobrantes"'), '"Revisar" vuelve a mostrar el aviso completo');
+
+    // (d) Si lo único que queda son materiales ya contados en el ciclo, no hay nada que decidir y
+    // no se muestra la tarjeta (antes quedaba con el botón deshabilitado para siempre).
+    ctx.__appstate.cargaSobrantes = null;
+    const fetchAntesContados = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      if(String(url).includes('/rpc/resumen_skus_no_traidos')){ calls.push({url:String(url), opts}); return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:19, con_stock:3, sin_ubicacion:0, contados:19, activas:61748}) }; }
+      return fetchAntesContados(url, opts);
+    };
+    await ctx.revisarSobrantesDeCarga('carga-hoy', 'Materials (1).xlsx');
+    assert(ctx.__appstate.cargaSobrantes===null, 'si todos los sobrantes están contados en el ciclo no se muestra nada, obtuvo: '+JSON.stringify(ctx.__appstate.cargaSobrantes));
+    ctx.fetch = fetchAntes;
+    ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[]};
+  }
   ctx.__appstate.view = 'skus';
 
   // renderTablaSkus: en vez de pintar el fondo de toda la fila, muestra un ícono de color junto
