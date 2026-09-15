@@ -1681,12 +1681,23 @@ con ese remitente sale por los servidores de Google, sin SPF ni DKIM del
 dominio, y termina en spam o rechazado (Outlook/Hotmail son los más estrictos).
 La solución es hacer que Gmail lo entregue por Brevo:
 
-*Gmail → Configuración → Cuentas e importación → Enviar como → Agregar otra
-dirección de correo* → `contacto@inventiapp.cl`, **desmarcar** "Tratar como
-alias" si se quiere que las respuestas lleguen bien, y elegir enviar a través de
-SMTP: servidor `smtp-relay.brevo.com`, puerto `587`, TLS, con el usuario y la
-clave SMTP de Brevo (*SMTP & API*, la misma familia de credenciales que usa
-Supabase). El código de confirmación llega por el reenvío de Cloudflare.
+1. **Brevo** → *Senders, domains, IPs → Senders → Add a sender*: `InventIA`,
+   `contacto@inventiapp.cl`. Con el dominio autenticado queda validado solo.
+2. **Brevo** → *SMTP & API → SMTP*: anotar servidor (`smtp-relay.brevo.com`),
+   puerto (`587`), usuario, y **generar una clave SMTP** (no es la contraseña
+   de Brevo; es la misma familia de credenciales que usa Supabase Auth).
+3. **Gmail en el navegador** (la app del iPad no tiene esta pantalla) →
+   *Configuración → Cuentas e importación → Enviar como → Añadir otra
+   dirección*: `contacto@inventiapp.cl`, **dejar marcado** "Tratar como un
+   alias" (los correos a esa dirección ya llegan a este mismo Gmail por el
+   reenvío de Cloudflare), y enviar por SMTP con los datos del paso 2, TLS.
+   El código de confirmación llega por el reenvío de Cloudflare.
+4. Probar mandando a una casilla de **Outlook/Hotmail** (no a otro Gmail) y
+   revisar en *Ver original* que diga `dkim=pass header.d=inventiapp.cl`.
+
+Fallas típicas: "no se pudo autenticar en el servidor SMTP" es la contraseña de
+Brevo puesta en vez de la clave SMTP; el código que no llega es el reenvío de
+Cloudflare caído o el correo en spam.
 
 **Remitente de los correos de la app.** Para que las invitaciones aprovechen el
 DKIM, el "From" configurado en Supabase Auth → SMTP Settings tiene que ser una
