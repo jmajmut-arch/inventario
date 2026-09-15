@@ -8778,6 +8778,29 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   }
   ctx.__appstate.conteoOrigenPlan = false;
 
+  // ===== "Reincidente": el material ya terminó con diferencia en un ciclo ANTERIOR
+  // (reconteo_pendiente.reincidente / ciclos_con_diferencia). Distinto de "Diferencia recurrente",
+  // que mira solo el ciclo actual. Va al lado de la causa probable en Reconteo y en el top de
+  // diferencias del Dashboard; sin la marca no aparece nada. Pedido de Joel. =====
+  {
+    const reconteosAntes = ctx.__appstate.reconteos;
+    ctx.__appstate.reconteos = [
+      { id:'sku-rei-1', conteo_id:'c-rei-1', sku_code:'SKU-REI', descripcion:'Descuadra cada ciclo', stock_sistema:10, ultima_cantidad_contada:7, ultima_diferencia:-3, ultimo_conteo_fecha:'2026-09-10T10:00:00Z', causa_probable:'Sin patrón detectado', reincidente:true, ciclos_con_diferencia:3, fotos:[] },
+      { id:'sku-rei-2', conteo_id:'c-rei-2', sku_code:'SKU-NUEVO', descripcion:'Primera vez', stock_sistema:5, ultima_cantidad_contada:4, ultima_diferencia:-1, ultimo_conteo_fecha:'2026-09-10T10:00:00Z', causa_probable:'Diferencia recurrente', reincidente:false, ciclos_con_diferencia:1, fotos:[] },
+    ];
+    const htmlRei = ctx.renderReconteo();
+    assert(htmlRei.includes('badge-danger" title="Terminó con diferencia en 3 ciclos, contando el actual">Reincidente · 3 ciclos</span>'), 'un material reincidente debe llevar la etiqueta con cuántos ciclos, obtuvo: '+htmlRei);
+    assert(htmlRei.includes('Sin patrón detectado</span> <span class="badge badge-danger" title="Terminó con diferencia en 3 ciclos'), 'la etiqueta va al lado de la causa probable, sin reemplazarla, obtuvo: '+htmlRei);
+    assert((htmlRei.match(/Reincidente ·/g)||[]).length===1 && htmlRei.includes('Diferencia recurrente</span>'), 'el material sin reincidencia no lleva la etiqueta y conserva su causa probable, obtuvo: '+htmlRei);
+    // Filas viejas o de otras fuentes sin la columna (p. ej. informe guardado): nada, sin romper.
+    assert(ctx.badgeReincidente({}) === '' && ctx.badgeReincidente(null) === '', 'sin datos de reincidencia no debe pintarse nada');
+    // El top de diferencias del Dashboard lee las mismas filas (dashboard_ejecutivo hace select *
+    // de reconteo_pendiente), así que la etiqueta debe aparecer ahí también.
+    const htmlTop = ctx.tablaTopDiferencias([{ sku_code:'SKU-REI', descripcion:'x', stock_sistema:10, ultima_cantidad_contada:7, ultima_diferencia:-3, valor_diferencia_linea:-300, causa_probable:'Sin patrón detectado', reincidente:true, ciclos_con_diferencia:2 }]);
+    assert(htmlTop.includes('Reincidente · 2 ciclos'), 'el top de diferencias del Dashboard debe mostrar la reincidencia, obtuvo: '+htmlTop);
+    ctx.__appstate.reconteos = reconteosAntes;
+  }
+
   // Render de Reconteo: con conteo ciego, la columna "Sistema" desaparece y la diferencia se
   // neutraliza a "Con diferencia" (sin el monto) -- "Contado" + el monto también delatarían el
   // stock del sistema. Reusa el fixture rf1/rf2 (stock_sistema 10 y 5) ya cargado arriba.

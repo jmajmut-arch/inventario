@@ -8740,7 +8740,7 @@ function tablaTopDiferencias(rows){
       <td class="num">${r.ultima_cantidad_contada}</td>
       <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
       <td class="num" style="${Number(r.valor_diferencia_linea)<0?'color:var(--danger)':'color:var(--ok)'}">${clp(r.valor_diferencia_linea)}</td>
-      <td>${causaProbableBadge(r.causa_probable)}</td>
+      <td>${causaProbableBadge(r.causa_probable)} ${badgeReincidente(r)}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -9610,6 +9610,16 @@ function causaProbableBadge(causa){
   if(!causa) return '';
   return `<span class="badge ${CAUSA_PROBABLE_BADGE[causa]||'badge-neutral'}">${esc(causa)}</span>`;
 }
+// "Reincidente": el material ya terminó con diferencia en al menos un ciclo ANTERIOR (ver
+// reconteo_pendiente.reincidente / ciclos_con_diferencia, que cuenta también el actual). Es otra
+// cosa que "Diferencia recurrente", que mira solo el ciclo actual y se reinicia al cerrarlo: un
+// material que descuadra una vez por ciclo, ciclo tras ciclo, solo se ve con esta señal. Pedido de
+// Joel al revisar los avisos del reconteo. Va al lado de la causa probable, no la reemplaza.
+function badgeReincidente(r){
+  if(!r || !r.reincidente) return '';
+  const n = Number(r.ciclos_con_diferencia)||2;
+  return `<span class="badge badge-danger" title="Terminó con diferencia en ${n} ciclos, contando el actual">Reincidente · ${n} ciclos</span>`;
+}
 
 // Las fotos de un SKU se agregan desde TODOS sus conteos (reconteo_pendiente / skus_busqueda),
 // cada una con el número de conteo al que pertenece (1 = el conteo original, 2+ = reconteos) —
@@ -10292,7 +10302,7 @@ function renderReconteo(){
           <td class="num">${ocultarSistema
             ? `<span class="badge badge-warn">Con diferencia</span>`
             : `<span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span>`}</td>
-          <td>${causaProbableBadge(r.causa_probable)}</td>
+          <td>${causaProbableBadge(r.causa_probable)} ${badgeReincidente(r)}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
           <td class="num">${(r.fotos||[]).length
             ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(r.fotos))}" aria-label="Ver fotos">${ICONS.camera}${r.fotos.length>1?` ${r.fotos.length}`:''}</button>`
