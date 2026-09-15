@@ -7330,6 +7330,49 @@ function identidadesRepetidas(data, mapeo){
   return resultado;
 }
 
+// Antes de "Reemplazar completo": cuántos materiales con diferencia pendiente de reconteo y
+// cuántos contados en el ciclo actual NO vienen en el archivo. Esos quedarían inactivos y
+// saldrían de Reconteo y del Dashboard sin que nadie lo notara (conservan el historial, pero
+// dejan de verse). Pedido de Joel al pensar en una empresa que carga listas de conteo en vez del
+// maestro completo. Se compara por la misma clave con la que la base identifica cada fila
+// (código+bodega+batch+ubicación+bin, ver el upsert de confirmarCargaMasiva) y solo se traen los
+// dos conjuntos chicos, pendientes y contados del ciclo: nunca el maestro entero.
+async function calcularImpactoReemplazo(){
+  const p = state.cargaPreview;
+  if(!p) return;
+  p.impactoReemplazo = {cargando:true};
+  render();
+  try{
+    const valor = (row, campo) => p.mapeo[campo] ? (row[p.mapeo[campo]]!==undefined ? String(row[p.mapeo[campo]]).trim() : '') : '';
+    const claves = new Set(p.data.map(row => [valor(row,'sku_code'), valor(row,'bodega'), valor(row,'batch'), valor(row,'ubicacion'), valor(row,'storage_bin')].join('|')));
+    const clave = s => [s.sku_code||'', s.bodega||'', s.batch||'', s.ubicacion||'', s.storage_bin||''].join('|');
+    let ciclo = (state.ciclos||[]).find(c=>c.es_actual);
+    if(!ciclo && !(state.ciclos||[]).length){
+      const cs = await rest('/ciclos_conteo?select=id,nombre&es_actual=eq.true&limit=1');
+      ciclo = (cs||[])[0];
+    }
+    const [pendientes, contados] = await Promise.all([
+      rest('/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin'),
+      ciclo ? rest(`/conteos?select=sku_id,skus(sku_code,bodega,batch,ubicacion,storage_bin)&ciclo_id=eq.${ciclo.id}`) : Promise.resolve(null),
+    ]);
+    if(state.cargaPreview !== p) return; // se canceló o se cargó otro archivo mientras tanto
+    const pend = pendientes || [];
+    const porSku = new Map();
+    (contados||[]).forEach(c => { if(c.skus) porSku.set(c.sku_id, c.skus); }); // un material contado varias veces cuenta una
+    const cont = [...porSku.values()];
+    p.impactoReemplazo = {
+      cargando:false,
+      pendientes: { total: pend.length, noVienen: pend.filter(s => !claves.has(clave(s))).length },
+      contados: ciclo ? { total: cont.length, noVienen: cont.filter(s => !claves.has(clave(s))).length, ciclo: ciclo.nombre } : null,
+    };
+  }catch(e){
+    if(state.cargaPreview !== p) return;
+    // Un error del servidor se ve como error (CLAUDE.md): no se disfraza de "todo viene".
+    p.impactoReemplazo = {cargando:false, error: e.message};
+  }
+  render();
+}
+
 async function confirmarCargaMasiva(){
   if(!perfilCargado()) return;
   const { file, data, mapeo, modo } = state.cargaPreview;
@@ -9944,6 +9987,24 @@ function renderSobrantesDeCarga(){
   </div>`;
 }
 
+// Tarjeta de "Reemplazar completo": qué se pierde de vista si se confirma (ver
+// calcularImpactoReemplazo). Con cero en ambos dice explícitamente que todo viene, para que la
+// ausencia de aviso no se confunda con que no se revisó.
+function renderImpactoReemplazo(imp){
+  if(!imp) return '';
+  if(imp.cargando) return `<div class="hint" style="margin:8px 2px 0">Revisando qué materiales con diferencias o contados en este ciclo no vienen en el archivo…</div>`;
+  if(imp.error) return `<div class="card" style="border-color:var(--danger);margin:8px 0 0"><div style="font-weight:600;color:var(--danger)">No se pudo revisar el impacto del reemplazo</div><div class="hint">${esc(imp.error)}. Puedes reintentar eligiendo de nuevo "Reemplazar completo", o cargar en modo Agregar / complementar.</div></div>`;
+  const pe = imp.pendientes, co = imp.contados;
+  const hayPerdida = (pe && pe.noVienen>0) || (co && co.noVienen>0);
+  const n = x => x.toLocaleString('es-CL');
+  return `<div class="card" style="border-color:${hayPerdida?'var(--danger)':'var(--ok)'};margin:8px 0 0">
+    <div style="font-weight:600;color:${hayPerdida?'var(--danger)':'var(--ok)'}">${hayPerdida ? '⚠ Este archivo deja fuera materiales con trabajo en curso' : '✓ Todo lo pendiente y lo contado en este ciclo viene en el archivo'}</div>
+    <div class="hint" style="margin-top:4px">Con diferencia pendiente de reconteo: <b>${n(pe.total)}</b>${pe.noVienen ? `, de los cuales <b>${n(pe.noVienen)}</b> no ${pe.noVienen===1?'viene':'vienen'} en este archivo y ${pe.noVienen===1?'saldría':'saldrían'} de Reconteo.` : '. Todos vienen en el archivo.'}</div>
+    ${co ? `<div class="hint">Contados en el ciclo ${esc(co.ciclo)}: <b>${n(co.total)}</b>${co.noVienen ? `, de los cuales <b>${n(co.noVienen)}</b> no ${co.noVienen===1?'viene':'vienen'} y ${co.noVienen===1?'saldría':'saldrían'} del Dashboard.` : '. Todos vienen en el archivo.'}</div>` : ''}
+    ${hayPerdida ? `<div class="hint" style="margin-top:6px">No se borra nada: conservan su historial y se pueden reactivar desde SKU. Si el ciclo sigue abierto, conviene cerrarlo antes de reemplazar, o cargar en modo Agregar / complementar.</div>` : ''}
+  </div>`;
+}
+
 function renderCargaPreview(){
   const { headers, data, campos, mapeo, modo, confirmaReemplazo, avisoBodega } = state.cargaPreview;
   const filasPreview = data.slice(0,5);
@@ -9984,6 +10045,7 @@ function renderCargaPreview(){
       </div>
     </label>
     ${modo==='reemplazar'? `
+      ${renderImpactoReemplazo(state.cargaPreview.impactoReemplazo)}
       <label style="display:flex;align-items:flex-start;gap:8px;margin:10px 2px 4px;font-size:12.5px;color:var(--text-dim)">
         <input type="checkbox" id="chk-confirma-reemplazo" style="margin-top:2px" ${confirmaReemplazo?'checked':''}>
         Entiendo que los SKU activos que no estén en este archivo quedarán inactivos.
@@ -13984,9 +14046,12 @@ function bind(){
         r.addEventListener('change', e=>{
           state.cargaPreview.modo = e.target.value;
           state.cargaPreview.confirmaReemplazo = false; // exige reconfirmar cada vez que se elige reemplazar
+          // Al elegir Reemplazar se vuelve a calcular el impacto (el archivo o el mapeo pudieron cambiar).
+          if(e.target.value==='reemplazar'){ state.cargaPreview.impactoReemplazo = null; calcularImpactoReemplazo(); return; }
           render();
         });
       });
+      if(state.cargaPreview.modo==='reemplazar' && !state.cargaPreview.impactoReemplazo) calcularImpactoReemplazo();
       const chkReemplazo = document.getElementById('chk-confirma-reemplazo');
       if(chkReemplazo) chkReemplazo.addEventListener('change', e=>{
         state.cargaPreview.confirmaReemplazo = e.target.checked;

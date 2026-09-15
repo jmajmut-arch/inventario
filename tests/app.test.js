@@ -63,6 +63,7 @@ let ubicacionesFixture = [
 ];
 let renombrarLlamadas = 0;
 let sobrantesLlamadas = 0;
+let impactoReemplazoFalla = false; // impacto de Reemplazar completo: simular caída del servidor
 // Bloque de bodega dentro de la respuesta del Dashboard: null cuando la empresa no tiene el
 // módulo activo, que es lo que devuelve la función real en ese caso.
 let dashboardBodegaFixture = null;
@@ -296,6 +297,15 @@ const fakeFetchImpl = async (url, opts) => {
   // Usado por eliminarSkusSeleccionados para saber cuáles de los SKU seleccionados ya
   // tienen conteos registrados (y por lo tanto no se pueden borrar) — chequear antes que
   // los otros matchers de /conteos?select=, que son más genéricos.
+  // Impacto de "Reemplazar completo": contados en el ciclo, con la clave del material embebida.
+  // El mismo material contado dos veces (x1) cuenta una sola vez.
+  if(path.startsWith('/rest/v1/conteos?select=sku_id,skus(')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {sku_id:'x1', skus:{sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'}},
+      {sku_id:'x1', skus:{sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'}},
+      {sku_id:'x2', skus:{sku_code:'SKU-D', bodega:'Nave', batch:'NEW', ubicacion:'P2', storage_bin:'D-1'}},
+    ]) };
+  }
   if(path.startsWith('/rest/v1/conteos?select=sku_id')){
     const match = path.match(/sku_id=in\.\(([^)]*)\)/);
     const ids = match ? match[1].split(',') : [];
@@ -677,6 +687,17 @@ const fakeFetchImpl = async (url, opts) => {
   // reconteo_pendiente_por_semana: gráfico de pendientes por semana en Reconteo (ver cargarReconteos).
   if(path.startsWith('/rest/v1/rpc/reconteo_pendiente_por_semana')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(reconteoPorSemanaFixture) };
+  }
+  // Impacto de "Reemplazar completo" (ver calcularImpactoReemplazo): pendientes de reconteo con
+  // su clave completa. A viene en el archivo de prueba; B no; C tiene el mismo código que A pero
+  // otro bin, así que tampoco viene.
+  if(path.startsWith('/rest/v1/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin')){
+    if(impactoReemplazoFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'},
+      {sku_code:'SKU-B', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'B-1'},
+      {sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-2'},
+    ]) };
   }
   if(path.startsWith('/rest/v1/reconteo_pendiente')){
     const offsetMatch = path.match(/offset=(\d+)/);
@@ -5151,6 +5172,78 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(JSON.parse(lotesSobrantes[0].opts.body).p_carga_id==='carga-1', 'los lotes van por id de carga, no por fecha: '+lotesSobrantes[0].opts.body);
   assert(ctx.__appstate.cargaSobrantes===null, 'al terminar, el aviso desaparece');
   assert(JSON.stringify(elements['toast-root'].hijos).includes('1893'), 'avisa cuántos quedaron inactivos, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+
+  // ===== "Reemplazar completo" avisa qué se pierde de vista antes de confirmar: cuántos
+  // materiales con diferencia pendiente y cuántos contados en el ciclo NO vienen en el archivo.
+  // Pedido de Joel al pensar en empresas que cargan listas de conteo en vez del maestro. =====
+  {
+    const camposPrueba = [['sku_code','Material'],['bodega','Ubicación general'],['ubicacion','Ubicación específica'],['storage_bin','Storage bin'],['batch','Batch'],['stock_sistema','Stock sistema'],['costo_unitario','Costo unitario']].map(([campo,etiqueta])=>({campo, etiqueta, obligatorio: campo!=='batch'}));
+    const previewReemplazo = () => ({
+      file:{name:'lista.xlsx'}, modo:'reemplazar', confirmaReemplazo:false, campos:camposPrueba, headers:['Codigo','Bodega','Ubic','Bin','Batch','Stock','Costo'],
+      mapeo:{ sku_code:'Codigo', bodega:'Bodega', ubicacion:'Ubic', storage_bin:'Bin', batch:'Batch', stock_sistema:'Stock', costo_unitario:'Costo' },
+      data:[ { Codigo:'SKU-A', Bodega:'Nave', Ubic:'P1', Bin:'A-1', Batch:'', Stock:'10', Costo:'100' },
+             { Codigo:'SKU-Z', Bodega:'Nave', Ubic:'P9', Bin:'Z-1', Batch:'', Stock:'1', Costo:'5' } ],
+    });
+    const ciclosAntes = ctx.__appstate.ciclos;
+    ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'Q1', es_actual:true}];
+    ctx.__appstate.view = 'carga';
+    ctx.__appstate.cargaPreview = previewReemplazo();
+    calls.length = 0;
+    await ctx.calcularImpactoReemplazo();
+    const imp = ctx.__appstate.cargaPreview.impactoReemplazo;
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin')), 'debe traer los pendientes con su clave completa, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/conteos?select=sku_id,skus(') && c.url.includes('ciclo_id=eq.ciclo-1')), 'debe traer los contados del ciclo actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/rest/v1/skus?')), 'nunca debe traer el maestro entero para esto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(imp && !imp.cargando && imp.pendientes.total===3 && imp.pendientes.noVienen===2, 'de 3 pendientes, 2 no vienen (B, y A en otro bin): la clave es código+bodega+batch+ubicación+bin, obtuvo: '+JSON.stringify(imp));
+    assert(imp.contados && imp.contados.total===2 && imp.contados.noVienen===1 && imp.contados.ciclo==='Q1', 'de 2 contados distintos (x1 repetido cuenta una vez), 1 no viene, obtuvo: '+JSON.stringify(imp));
+    const htmlImp = ctx.renderCargaPreview();
+    assert(htmlImp.includes('Este archivo deja fuera materiales con trabajo en curso'), 'con pérdida, la tarjeta lo dice en rojo, obtuvo: '+htmlImp);
+    assert(htmlImp.includes('<b>2</b> no vienen en este archivo y saldrían de Reconteo') && htmlImp.includes('Contados en el ciclo Q1: <b>2</b>, de los cuales <b>1</b> no viene y saldría del Dashboard'), 'la tarjeta dice cuántos y de dónde saldrían, obtuvo: '+htmlImp);
+    assert(htmlImp.includes('id="chk-confirma-reemplazo"'), 'la casilla de confirmación sigue existiendo');
+
+    // Todo viene: lo dice explícitamente, para que no se confunda con "no se revisó".
+    ctx.__appstate.cargaPreview = previewReemplazo();
+    ctx.__appstate.cargaPreview.data = [
+      { Codigo:'SKU-A', Bodega:'Nave', Ubic:'P1', Bin:'A-1', Batch:'', Stock:'10', Costo:'100' },
+      { Codigo:'SKU-A', Bodega:'Nave', Ubic:'P1', Bin:'A-2', Batch:'', Stock:'10', Costo:'100' },
+      { Codigo:'SKU-B', Bodega:'Nave', Ubic:'P1', Bin:'B-1', Batch:'', Stock:'10', Costo:'100' },
+      { Codigo:'SKU-D', Bodega:'Nave', Ubic:'P2', Bin:'D-1', Batch:'NEW', Stock:'10', Costo:'100' },
+    ];
+    await ctx.calcularImpactoReemplazo();
+    const htmlTodo = ctx.renderCargaPreview();
+    assert(htmlTodo.includes('Todo lo pendiente y lo contado en este ciclo viene en el archivo') && !htmlTodo.includes('saldría'), 'sin pérdida, lo dice en verde, obtuvo: '+htmlTodo);
+
+    // Sin ciclo activo: solo se informan los pendientes, sin inventar contados.
+    ctx.__appstate.ciclos = [{id:'ciclo-viejo', nombre:'Q0', es_actual:false}];
+    ctx.__appstate.cargaPreview = previewReemplazo();
+    calls.length = 0;
+    await ctx.calcularImpactoReemplazo();
+    assert(ctx.__appstate.cargaPreview.impactoReemplazo.contados===null && !calls.some(c=>c.url.includes('/conteos?select=sku_id')), 'sin ciclo activo no se consultan contados, obtuvo: '+JSON.stringify(ctx.__appstate.cargaPreview.impactoReemplazo));
+    assert(!ctx.renderCargaPreview().includes('Contados en el ciclo'), 'sin ciclo activo la tarjeta no habla de contados');
+
+    // Si el servidor falla, se ve como error, no como "todo viene" (CLAUDE.md).
+    ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'Q1', es_actual:true}];
+    ctx.__appstate.cargaPreview = previewReemplazo();
+    impactoReemplazoFalla = true;
+    await ctx.calcularImpactoReemplazo();
+    impactoReemplazoFalla = false;
+    const htmlErr = ctx.renderCargaPreview();
+    assert(ctx.__appstate.cargaPreview.impactoReemplazo.error && htmlErr.includes('No se pudo revisar el impacto del reemplazo') && htmlErr.includes('statement timeout') && !htmlErr.includes('Todo lo pendiente'), 'un error del servidor se muestra como error, obtuvo: '+htmlErr);
+
+    // bind(): con Reemplazar elegido y sin cálculo, lo dispara solo; en Agregar/complementar no.
+    ctx.__appstate.cargaPreview = previewReemplazo();
+    calls.length = 0;
+    ctx.bind();
+    await new Promise(r=>setTimeout(r,0));
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code')), 'al pintar la vista en modo Reemplazar sin cálculo, se calcula solo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.cargaPreview = { ...previewReemplazo(), modo:'complementar' };
+    calls.length = 0;
+    ctx.bind();
+    await new Promise(r=>setTimeout(r,0));
+    assert(!calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code')), 'en Agregar/complementar no se calcula nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.cargaPreview = null;
+    ctx.__appstate.ciclos = ciclosAntes;
+  }
 
   // ===== El aviso de sobrantes no se pierde con "Ahora no" y se recalcula al entrar a Carga.
   // Pasó de verdad (Escondida, 15/09/2026): se cerró el aviso y 1.714 materiales que el archivo
