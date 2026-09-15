@@ -8720,6 +8720,62 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.conteoVecesPeriodo = null;
 
   ctx.__appstate.skuSeleccionado = null;
+
+  // ===== Recontar desde la pestaña Reconteo: "Ya contado N veces" es ruido ahí (obvio que ya se
+  // contó, por eso se recuenta). En su lugar la tarjeta dice de qué conteo viene, y no se gasta la
+  // ida y vuelta a veces_contado_periodo. Pedido de Joel: "al recontarlo me indica inmediatamente
+  // que ya se contó... ¿no debería ser a la segunda contada?". =====
+  {
+    // El bloque siguiente reusa la lista de reconteos ya cargada: se guarda y se restaura.
+    const reconteosAntes = ctx.__appstate.reconteos, viewAntes = ctx.__appstate.view;
+    ctx.__appstate.view = 'reconteo';
+    ctx.__appstate.reconteos = [{ id:'sku-rec-1', conteo_id:'conteo-rec-1', sku_code:'SKU-REC', descripcion:'Recontable', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-09-08T10:00:00Z', causa_probable:'Sin patrón detectado', fotos:[] }];
+    // bind() ubica el botón por selector; el mock de document no los soporta, así que se le
+    // entrega un botón falso solo para [data-recontar] y se dispara su listener real.
+    const btnRecontar = makeEl('btn-recontar-falso'); btnRecontar.dataset.recontar = 'sku-rec-1';
+    const qsaOriginal = documentMock.querySelectorAll;
+    documentMock.querySelectorAll = sel => sel==='[data-recontar]' ? [btnRecontar] : [];
+    ctx.bind();
+    btnRecontar.dispatch('click');
+    documentMock.querySelectorAll = qsaOriginal;
+    assert(ctx.__appstate.view==='conteo' && ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-rec-1', 'Recontar debe llevar a Contar con el SKU elegido, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, sku:ctx.__appstate.skuSeleccionado&&ctx.__appstate.skuSeleccionado.id}));
+    assert(ctx.__appstate.conteoReconteo && ctx.__appstate.conteoReconteo.skuId==='sku-rec-1' && ctx.__appstate.conteoReconteo.cantidad===8 && ctx.__appstate.conteoReconteo.diferencia===-2, 'Recontar debe recordar de qué conteo viene (skuId, cantidad, diferencia, fecha), obtuvo: '+JSON.stringify(ctx.__appstate.conteoReconteo));
+
+    // Al pintar Contar no se consulta veces_contado_periodo ni se muestra "Ya contado".
+    calls.length = 0;
+    conteosEnPeriodoRespuesta = 1;
+    ctx.bind();
+    await new Promise(r=>setTimeout(r,0));
+    assert(!calls.some(c=>c.url.includes('/rpc/veces_contado_periodo')), 'viniendo de Recontar no debe consultarse veces_contado_periodo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const htmlRecontar = ctx.renderConteo();
+    assert(!htmlRecontar.includes('Ya contado'), 'viniendo de Recontar no debe mostrarse "Ya contado", obtuvo: '+htmlRecontar);
+    assert(htmlRecontar.includes('Reconteo · el ') && htmlRecontar.includes('se contaron 8 (diferencia -2)'), 'la tarjeta debe decir de qué conteo viene el reconteo, con cantidad y diferencia, obtuvo: '+htmlRecontar);
+
+    // Conteo ciego para operador: el servidor manda ultima_diferencia null. Entonces ni la
+    // diferencia ni la cantidad anterior se muestran (anclarían el nuevo conteo), solo la fecha.
+    ctx.__appstate.conteoReconteo = {...ctx.__appstate.conteoReconteo, diferencia:null};
+    const htmlRecontarCiego = ctx.renderConteo();
+    assert(htmlRecontarCiego.includes('Reconteo · el ') && !htmlRecontarCiego.includes('se contaron') && !htmlRecontarCiego.includes('diferencia'), 'con la diferencia oculta por el servidor solo debe mostrarse la fecha del conteo anterior, obtuvo: '+htmlRecontarCiego);
+
+    // Elegir otro material (plan o buscador) no arrastra el aviso de reconteo: vuelve el
+    // comportamiento normal, incluida la consulta de veces_contado_periodo.
+    ctx.__appstate.skuSeleccionado = {id:'sku-otro-1', sku_code:'SKU-OTRO', descripcion:'Otro', bodega:'Nave', ubicacion:'', unidad_medida:'UN'};
+    ctx.__appstate.conteoVecesPeriodo = null;
+    calls.length = 0;
+    ctx.bind();
+    await new Promise(r=>setTimeout(r,0));
+    assert(calls.some(c=>c.url.includes('/rpc/veces_contado_periodo')), 'con otro SKU elegido debe volver a consultarse veces_contado_periodo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!ctx.renderConteo().includes('Reconteo · el '), 'con otro SKU elegido no debe mostrarse el aviso de reconteo');
+
+    // Guardar el conteo limpia el origen de reconteo, para que el siguiente material parta de cero.
+    ctx.__appstate.skuSeleccionado = {id:'sku-rec-1', sku_code:'SKU-REC', descripcion:'Recontable', bodega:'Nave', ubicacion:'', unidad_medida:'UN', stock_sistema:10};
+    ctx.__appstate.conteoOrigenPlan = true; ctx.__appstate.conteoFotos = [];
+    await ctx.guardarConteo({cantidad:'10', ubicacion:'', bodega:'Nave', observacion:''});
+    assert(ctx.__appstate.conteoReconteo === null && ctx.__appstate.skuSeleccionado === null, 'al guardar debe limpiarse el origen de reconteo, obtuvo: '+JSON.stringify(ctx.__appstate.conteoReconteo));
+    conteosEnPeriodoRespuesta = 0;
+    ctx.__appstate.conteoVecesPeriodo = null;
+    ctx.__appstate.reconteos = reconteosAntes; ctx.__appstate.view = viewAntes;
+  }
   ctx.__appstate.conteoOrigenPlan = false;
 
   // Render de Reconteo: con conteo ciego, la columna "Sistema" desaparece y la diferencia se

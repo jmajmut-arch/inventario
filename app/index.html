@@ -525,6 +525,12 @@ let state = {
   // -- {skuId, veces, cargando} o null si todavía no se consultó para el SKU actual. Aviso para
   // no duplicar trabajo si dos personas cuentan lo mismo sin saberlo (a pedido de Joel).
   conteoVecesPeriodo: null,
+  // El SKU elegido llegó desde el botón Recontar de la pestaña Reconteo: {skuId, fecha, cantidad,
+  // diferencia} del conteo que se va a repetir. En ese caso "Ya contado N veces" es ruido (obvio
+  // que ya se contó, por eso se recuenta) y en su lugar la tarjeta muestra de qué conteo viene.
+  // diferencia llega null cuando el servidor la oculta (conteo ciego para operador): entonces no
+  // se muestra ni la diferencia ni la cantidad anterior, para no anclar el nuevo conteo.
+  conteoReconteo: null,
   conteoFotos: [],       // [{file, preview, bytesOriginal}] -- file ya comprimido en el dispositivo (ver comprimirFoto)
   bodega: bodegaEstadoInicial(), // módulo de bodega (ver docs/DISENO-MODULO-BODEGA.md)
   comprimiendoFotos: null, // progreso de "Comprimir fotos existentes" (Configuraciones): {total, hechas, comprimidas, ahorroBytes, errores, cancelar}
@@ -7991,7 +7997,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     }
 
     toast('Conteo registrado');
-    setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null});
+    setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
     invalidarCacheAgregados(['generales','sinUbicacion']); // cambió cuántos SKU quedan pendientes por bodega
     refrescarSiCargada(['dashboard','reconteos']);
@@ -8018,7 +8024,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
         ubicacion_distinta: !!ubicacionDistinta,
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
-      setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null});
+      setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
       toast(e.motivoTimeout
         ? 'La conexión está muy lenta: el conteo quedó guardado en este dispositivo y se enviará solo cuando mejore la señal.'
         : 'Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
@@ -10114,10 +10120,25 @@ function renderResultadosBuscadorLibre(){
 // cargarVecesContadoPeriodo). No se muestra mientras carga ni si el SKU no tiene conteos
 // todavía este período -- solo aparece cuando hay algo que avisar.
 function avisoVecesContadoPeriodo(){
+  if(!state.skuSeleccionado) return '';
+  if(esReconteoDelSkuActual()){
+    const r = state.conteoReconteo;
+    const conDif = r.diferencia != null && r.cantidad != null;
+    const detalle = conDif
+      ? ` se contaron ${r.cantidad} (diferencia ${Number(r.diferencia)>0?'+':''}${r.diferencia})`
+      : '';
+    return `<div class="hint" style="margin-top:6px;color:var(--steel);font-weight:600">↻ Reconteo · el ${fmtFecha(r.fecha)}${detalle}.</div>`;
+  }
   const info = state.conteoVecesPeriodo;
-  if(!state.skuSeleccionado || !info || info.skuId !== state.skuSeleccionado.id) return '';
+  if(!info || info.skuId !== state.skuSeleccionado.id) return '';
   if(info.cargando || !info.veces) return '';
   return `<div class="hint" style="margin-top:6px;color:var(--amber);font-weight:600">⚠ Ya contado ${info.veces} ${info.veces===1?'vez':'veces'} en este período.</div>`;
+}
+// El SKU elegido en Contar viene del botón Recontar (ver bind de [data-recontar]) y sigue siendo
+// el mismo: se compara por skuId para que elegir otro material por el plan o el buscador no
+// arrastre el aviso de reconteo.
+function esReconteoDelSkuActual(){
+  return !!(state.conteoReconteo && state.skuSeleccionado && state.conteoReconteo.skuId === state.skuSeleccionado.id);
 }
 
 function renderConteo(){
@@ -14007,8 +14028,10 @@ function bind(){
       // Carga en segundo plano "ya contado este período" para el SKU elegido -- guard por
       // skuId para no repetir la consulta en cada re-render (cargarVecesContadoPeriodo marca
       // conteoVecesPeriodo.skuId de inmediato, antes de esperar la respuesta del servidor).
-      if(!state.conteoVecesPeriodo || state.conteoVecesPeriodo.skuId !== state.skuSeleccionado.id) cargarVecesContadoPeriodo(state.skuSeleccionado);
-      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], conteoVecesPeriodo:null}));
+      // Si viene de Recontar no se consulta: la tarjeta ya sabe de qué conteo viene y se ahorra
+      // la ida y vuelta (ver avisoVecesContadoPeriodo).
+      if(!esReconteoDelSkuActual() && (!state.conteoVecesPeriodo || state.conteoVecesPeriodo.skuId !== state.skuSeleccionado.id)) cargarVecesContadoPeriodo(state.skuSeleccionado);
+      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], conteoVecesPeriodo:null, conteoReconteo:null}));
       document.getElementById('c-foto').addEventListener('change', e=>{
         const files = Array.from(e.target.files || []);
         files.forEach(file=>{
@@ -14094,6 +14117,10 @@ function bind(){
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
           // Adherencia al plan, aunque su conteo original sí venía del plan del día.
           conteoOrigenPlan:true, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(),
+          // Qué conteo se va a repetir (ver avisoVecesContadoPeriodo): reemplaza el "Ya contado"
+          // por la fecha y, si el servidor la muestra, la diferencia que motivó el reconteo.
+          conteoReconteo:{skuId:r.id, fecha:r.ultimo_conteo_fecha, cantidad:r.ultima_cantidad_contada, diferencia:r.ultima_diferencia},
+          conteoVecesPeriodo:null,
         });
       });
     });
