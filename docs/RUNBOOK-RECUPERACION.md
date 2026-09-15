@@ -1712,6 +1712,20 @@ firmado por Brevo pero **no** alineado con `inventiapp.cl`. Si alguna vez vuelve
 a apuntar a otro dominio, se pierde la ventaja aunque el DNS siga perfecto. Las
 respuestas a ese remitente entran por el reenvío de Cloudflare.
 
+**Entregabilidad en empresas grandes (medido con BHP, 14/09/2026).** BHP
+recibe por Proofpoint (`pphosted.com`). El primer correo desde
+`contacto@inventiapp.cl` llegó, pasó todos los filtros técnicos y cayó en
+"Correo no deseado" con un solo motivo: *Newly registered email address*, la
+edad del dominio. No hay configuración que lo evite; se resuelve con meses de
+correo legítimo. Bastó que el destinatario lo marcara como "No es correo no
+deseado" y agregara el remitente a seguros para que los siguientes entraran
+directo. Regla operativa mientras el dominio sea joven: **cada primer contacto
+con una empresa grande va acompañado de un aviso por otro canal** ("te va a
+llegar un correo desde contacto@inventiapp.cl; si no lo ves, está en no
+deseado, márcalo como seguro"). Y nunca reenviar varias veces seguidas: los
+filtros lo leen como spam. Si un correo no llega, *Transaccional → Registros*
+en Brevo dice si fue entregado, diferido o bloqueado, y por qué.
+
 **Endurecer DMARC más adelante.** Hoy `p=none`: reporta y no rechaza. Una vez
 que todo lo que sale del dominio pase por Brevo (o por Gmail vía Brevo), se
 puede subir a `p=quarantine` y después a `p=reject`. Antes no: cualquier camino
