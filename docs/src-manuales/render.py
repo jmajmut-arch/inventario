@@ -3,6 +3,7 @@
 Uso (desde cualquier carpeta):
   python3 docs/src-manuales/render.py usuario.html ../InventIA-Manual-de-Usuario.pdf "InventIA · Manual de usuario"
   python3 docs/src-manuales/render.py tecnico.html ../InventIA-Manual-Tecnico.pdf "InventIA · Manual técnico"
+  python3 docs/src-manuales/render.py pendientes.html ../InventIA-Pendientes.pdf "InventIA · Pendientes"
 
 Requiere Playwright para Python con Chromium (el mismo que usan los tests end-to-end).
 Cada <section class="page"> es una página A4; el pie con el número de página lo pone Chromium.

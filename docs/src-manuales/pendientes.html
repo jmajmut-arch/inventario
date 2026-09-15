@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>InventIA · Pendientes</title>
+<link rel="stylesheet" href="estilo.css">
+<style>
+  .item{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;margin:0 0 9px;font-size:9.6pt;page-break-inside:avoid;}
+  .item .head{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+  .item .num{width:22px;height:22px;border-radius:50%;background:var(--text);color:#fff;font-weight:700;font-size:9pt;display:flex;align-items:center;justify-content:center;flex:none;}
+  .item .h{font-weight:700;font-size:10.6pt;flex:1;}
+  .amb{display:inline-block;font-size:7.4pt;letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding:2px 7px;border-radius:100px;flex:none;}
+  .amb.datos{background:var(--new-soft);color:var(--new);}
+  .amb.seguridad{background:var(--amber-soft);color:var(--amber);}
+  .amb.producto{background:var(--ok-soft);color:var(--ok);}
+  .amb.operacion{background:var(--warn-soft);color:var(--warn);}
+  .amb.documentacion{background:#EEE9E0;color:var(--dim);}
+  .item p{margin:0 0 5px;}
+  .item .meta{display:flex;gap:14px;flex-wrap:wrap;font-size:8.4pt;color:var(--dim);border-top:1px dotted var(--line);padding-top:5px;margin-top:6px;}
+  .item .meta b{color:var(--text);}
+  .legend{display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:10mm;}
+  .legend h2{font-size:9pt;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 8px;}
+  .legend .row{display:flex;gap:8px;align-items:baseline;font-size:9.4pt;margin-bottom:5px;}
+  .legend .k{font-weight:700;min-width:44mm;}
+  .prio{display:inline-block;font-size:7.4pt;letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding:2px 8px;border-radius:100px;}
+  .prio.alta{background:var(--amber);color:#fff;} .prio.media{background:var(--warn-soft);color:var(--warn);} .prio.baja{background:#EEE9E0;color:var(--dim);}
+</style></head>
+<body>
+
+<!-- PORTADA -->
+<section class="page cover">
+  <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
+  <div class="doc-kind">Pendientes priorizados</div>
+  <h1>Lo que queda por hacer, ordenado por lo que más cuesta si no se hace.</h1>
+  <p class="lead">Once puntos en tres niveles. Cada uno lleva por delante su <b>ámbito</b> —seguridad, datos, producto, operación o documentación— para decidir rápido qué se atiende y qué se posterga, y no mezclar un riesgo de pérdida de datos con un texto cortado. Estado al 15 de septiembre de 2026, tomado del código, los issues abiertos y lo conversado esa semana. Reemplaza al backlog del 24 de agosto.</p>
+  <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
+
+  <div class="legend">
+    <div>
+      <h2>Prioridad</h2>
+      <div class="row"><span class="k"><span class="prio alta">Alta</span></span><span>Protege datos o condiciona vender. Si pasa algo mañana, no tiene arreglo.</span></div>
+      <div class="row"><span class="k"><span class="prio media">Media</span></span><span>Mejora el producto o cierra un cabo. No bloquea nada hoy.</span></div>
+      <div class="row"><span class="k"><span class="prio baja">Baja</span></span><span>Cuando haya demanda o tiempo. Sin fecha.</span></div>
+    </div>
+    <div>
+      <h2>Ámbito</h2>
+      <div class="row"><span class="k"><span class="amb datos">Datos</span></span><span>Pérdida, integridad o respaldo de la información.</span></div>
+      <div class="row"><span class="k"><span class="amb seguridad">Seguridad</span></span><span>Quién ve qué, y qué puede suplantarse.</span></div>
+      <div class="row"><span class="k"><span class="amb producto">Producto</span></span><span>Lo que la app hace o deja de hacer para un cliente.</span></div>
+      <div class="row"><span class="k"><span class="amb operacion">Operación</span></span><span>Rutinas y fechas que hay que cumplir.</span></div>
+    </div>
+  </div>
+
+  <div class="toc">
+    <h2>Contenido</h2>
+    <div class="toc-grid">
+      <div class="toc-row"><span><span class="n">01</span>Prioridad alta: tres puntos</span><span class="p">pág. 2</span></div>
+      <div class="toc-row"><span><span class="n">03</span>Prioridad baja: cuatro puntos</span><span class="p">pág. 4</span></div>
+      <div class="toc-row"><span><span class="n">02</span>Prioridad media: cuatro puntos</span><span class="p">pág. 3</span></div>
+      <div class="toc-row"><span><span class="n">04</span>Lo que se cerró desde el backlog anterior</span><span class="p">pág. 4</span></div>
+    </div>
+  </div>
+
+  <div class="note">Si hay que elegir uno solo para esta semana: el primero. Es el único de la lista que, si algo falla mañana, no tiene arreglo.</div>
+</section>
+
+<!-- 01 ALTA -->
+<section class="page">
+  <div class="kicker">01 · Prioridad alta</div>
+  <h2 class="title">Protegen datos o condicionan vender</h2>
+  <p class="intro">Tres puntos. Los dos primeros son decisiones o rutinas tuyas, no desarrollo. El tercero es desarrollo, pero conviene hacerlo antes de que aparezca el cliente que lo necesita, no después.</p>
+
+  <div class="item">
+    <div class="head"><span class="num">1</span><span class="h">Correr el respaldo por primera vez y guardarlo fuera del computador</span><span class="amb datos">Datos</span></div>
+    <p>Hoy la copia propia de la base y de las fotos existe como script (<code>docs/respaldo/respaldo.sh</code>), no como respaldo. Los respaldos automáticos de Supabase cubren solo la base, no se pueden descargar y duran siete días; no incluyen las fotos ni las funciones. El script deja una carpeta con fecha con la base completa, las cuentas, las fotos, los parámetros de rol y las funciones, y la empaqueta.</p>
+    <p>Después: una vez por semana, y siempre tras una carga masiva. El archivo va a Drive o a un disco externo; un respaldo que vive en la misma máquina que se puede perder no es respaldo.</p>
+    <div class="meta"><span><b>Quién:</b> Joel</span><span><b>Esfuerzo:</b> 15 minutos la primera vez, 5 las siguientes</span><span><b>Si no se hace:</b> perder Supabase es perder los datos de Escondida sin remedio</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">2</span><span class="h">Decidir por escrito qué ve el súper admin de los otros clientes</span><span class="amb seguridad">Seguridad</span></div>
+    <p>Medido: la cuenta de súper admin ve filas de otras empresas en tres tablas, y solo tres: <code>auditoria</code>, <code>usuarios</code> y <code>flow_eventos</code>. Es deliberado, porque el panel administra empresas, usuarios y cobros. Pero significa que quien tenga esa cuenta lee el registro de auditoría de todos los clientes: quién tocó qué dato y cuándo. Un cliente puede preguntarlo, y hay que poder responder por escrito.</p>
+    <p>Si se decide cerrarlo, el candidato es <code>auditoria</code>: es la más sensible y la que menos hace falta para administrar. Un usuario normal no ve nada ajeno en ninguna de las cuarenta tablas.</p>
+    <div class="meta"><span><b>Quién:</b> Joel decide, el cambio es chico</span><span><b>Esfuerzo:</b> una decisión, luego una política de base de datos</span><span><b>Si no se hace:</b> una respuesta incómoda en la primera revisión de un cliente</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">3</span><span class="h">IVA por empresa, no fijo en 19% (issue #428)</span><span class="amb producto">Producto</span></div>
+    <p>La orden de compra calcula el impuesto con el 19% escrito en el código. Para una empresa en Perú o Argentina saldría con el total equivocado, y lo peligroso es que no falla: la orden se emite, se imprime y se manda al proveedor con el número malo. Se descubre al cuadrar contra la factura.</p>
+    <p>La forma: una columna en <code>empresas</code> con la tasa, editable desde súper admin, con default 19% para no cambiar nada hoy, y guardar la tasa <b>en la orden</b> al emitirla, para que una orden vieja no cambie de total si mañana se ajusta la de la empresa. Moneda y formato de números pueden esperar al caso concreto.</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> medio, con migración y pruebas</span><span><b>Si no se hace:</b> el primer cliente fuera de Chile recibe documentos mal calculados sin aviso</span></div>
+  </div>
+</section>
+
+<!-- 02 MEDIA -->
+<section class="page">
+  <div class="kicker">02 · Prioridad media</div>
+  <h2 class="title">Mejoran el producto o cierran un cabo</h2>
+  <p class="intro">Ninguno bloquea nada hoy. Dos son desarrollo chico, dos son rutinas con fecha.</p>
+
+  <div class="item">
+    <div class="head"><span class="num">4</span><span class="h">Tipos de material propios al crear un SKU desde Ingreso (issue #429)</span><span class="amb producto">Producto</span></div>
+    <p>Las listas que ofrece la app (tipos de material, unidades) son sugerencias, no restricciones: una empresa trae las suyas en su Excel y en Stock se conservan. Pero el formulario de "SKU nuevo" dentro de Ingreso solo ofrece la lista fija, así que un material nace mal clasificado y empuja a la empresa hacia nuestra taxonomía en vez de la suya. Ofrecer ahí los tipos que la empresa ya usa, además de los sugeridos. Revisar unidades de medida de paso.</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> bajo</span><span><b>Impacto:</b> chico pero real en cada empresa con clasificación propia</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">5</span><span class="h">Subir DMARC de "solo reportar" a "cuarentena"</span><span class="amb seguridad">Seguridad</span></div>
+    <p>Desde el 14 de septiembre todo lo que sale del dominio pasa por Brevo firmado con DKIM: las invitaciones de la app y lo que se escribe desde Gmail como contacto@inventiapp.cl. Con eso se puede endurecer la política: si alguien intenta enviar haciéndose pasar por inventiapp.cl, los receptores lo mandan a spam. Hoy la política solo reporta. Esperar dos o tres semanas de reportes limpios antes de cambiar el registro; si quedara un camino de envío sin firmar, empezaría a rebotar.</p>
+    <div class="meta"><span><b>Quién:</b> Joel, en el DNS de Cloudflare, con el valor exacto que se le pase</span><span><b>Esfuerzo:</b> un registro</span><span><b>Cuándo:</b> primera semana de octubre</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">6</span><span class="h">Restos del arreglo del correo en Brevo y Gmail</span><span class="amb operacion">Operación</span></div>
+    <p>Dos cosas menores que quedaron abiertas: borrar en Brevo la clave SMTP llamada "Gmail" del 21 de agosto, que ya no usa nada; y, si se prefiere, que al enviar desde contacto@ el nombre visible sea "InventIA" en vez del nombre personal, en Gmail → Enviar como → editar información.</p>
+    <div class="meta"><span><b>Quién:</b> Joel</span><span><b>Esfuerzo:</b> dos minutos</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">7</span><span class="h">Cierre del ciclo Q1-MEL1 en Escondida, 1 de octubre</span><span class="amb operacion">Operación</span></div>
+    <p>Ese día corren por primera vez con datos reales dos cosas nuevas: el informe de cierre de ciclo y la señal <b>Reincidente</b>, que marca los materiales que ya terminaron con diferencia en un ciclo anterior. Vale la pena mirar Reconteo y el Dashboard ese día y el siguiente, y avisar si algo no calza con lo que se esperaba.</p>
+    <div class="meta"><span><b>Quién:</b> Joel mira, desarrollo corrige si hace falta</span><span><b>Esfuerzo:</b> media hora de revisión</span><span><b>Fecha fija:</b> 1 de octubre de 2026</span></div>
+  </div>
+</section>
+
+<!-- 03 BAJA + CERRADO -->
+<section class="page">
+  <div class="kicker">03 · Prioridad baja</div>
+  <h2 class="title">Cuando haya demanda o tiempo</h2>
+  <p class="intro">Sin fecha. Se retoman cuando un cliente los pida o cuando no quede nada de arriba.</p>
+
+  <div class="item">
+    <div class="head"><span class="num">8</span><span class="h">Catálogo de materiales por proveedor en órdenes de compra (issue #434)</span><span class="amb producto">Producto</span></div>
+    <p>La etapa 1 ya está en producción: con el proveedor elegido, el buscador pone primero lo que ya se le compró, con precio y fecha. La etapa 2 es un catálogo explícito por proveedor, con código del proveedor y precio, un interruptor por empresa para filtrar de verdad, y carga por Excel. Solo tiene sentido cuando exista una empresa que trabaje con listas de contrato; hoy Escondida tiene cero proveedores cargados.</p>
+    <div class="meta"><span><b>Esfuerzo:</b> alto</span><span><b>Condición:</b> un cliente concreto que lo necesite</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">9</span><span class="h">Cinco hallazgos de la revisión del 12 de septiembre dejados "para después"</span><span class="amb datos">Datos</span></div>
+    <p>En esa revisión se atendieron cinco puntos y se dejaron otros cinco para más adelante. No están registrados como issues. Cuando se quiera retomarlos, se presentan de nuevo con su ámbito y su impacto, y se decide cuáles entran.</p>
+    <div class="meta"><span><b>Esfuerzo:</b> variable</span><span><b>Siguiente paso:</b> volver a presentarlos</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">10</span><span class="h">Regenerar la copia del repositorio guardada en el iPad</span><span class="amb operacion">Operación</span></div>
+    <p>La copia del 13 de septiembre sirve para reconstruir GitHub desde cero, con todo el historial. Envejece con cada cambio publicado; conviene pedir una nueva después de cambios grandes o una vez al mes. Se genera en un minuto.</p>
+    <div class="meta"><span><b>Esfuerzo:</b> mínimo</span></div>
+  </div>
+
+  <div class="item">
+    <div class="head"><span class="num">11</span><span class="h">Manual técnico: reflejar dónde viven ahora las funciones y el respaldo</span><span class="amb documentacion">Documentación</span></div>
+    <p>El runbook ya está al día. El manual técnico en PDF describe la arquitectura de antes de septiembre: falta que diga que las Edge Functions viven en el repo y que existe el script de respaldo. No urge, porque el runbook es la fuente para reconstruir.</p>
+    <div class="meta"><span><b>Esfuerzo:</b> bajo</span></div>
+  </div>
+
+  <div class="kicker" style="margin-top:8mm">04 · Cerrado desde el backlog del 24 de agosto</div>
+  <div class="summary">
+    <div>Flow.cl en producción; la reconciliación del estado de la suscripción ya no depende del webhook.</div>
+    <div>Respaldo completo con script propio: base, cuentas, fotos, parámetros de rol y funciones.</div>
+    <div>Las ocho Edge Functions versionadas en el repositorio, con instrucciones de despliegue.</div>
+    <div>Correo del dominio autenticado; la app y Gmail envían como contacto@inventiapp.cl.</div>
+    <div>Informe de cierre de ciclo exportable desde el Dashboard.</div>
+    <div>Reconteo: aviso útil al recontar y señal de reincidencia entre ciclos.</div>
+  </div>
+  <div class="foot-note">Es una lectura del estado real al 15 de septiembre de 2026, no una hoja de ruta comprometida. Las prioridades se ajustan en conversación. Preguntas puntuales: contacto@inventiapp.cl.</div>
+</section>
+
+</body></html>
