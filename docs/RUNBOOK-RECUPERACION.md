@@ -1534,11 +1534,13 @@ dashboard** (no hay CLI/API conectada a este proyecto para subirlas sola):
    `resetPasswordForEmail()` (botón "olvidé mi contraseña" del login).
    Asunto: `Accede a tu cuenta de InventIA`.
 
-> **Autenticación del dominio (13/09/2026):** `inventiapp.cl` está autenticado
-> ante Brevo con sus dos registros DKIM, así que estos correos salen firmados y
-> alineados con el dominio. Queda por confirmar que el remitente configurado en
-> SMTP Settings sea una dirección `@inventiapp.cl`: si no, se pierde esa
-> alineación. Ver §8.6.
+> **Autenticación del dominio (13/09/2026) y remitente (14/09/2026):**
+> `inventiapp.cl` está autenticado ante Brevo con sus dos registros DKIM, y el
+> **Sender email** de SMTP Settings es `contacto@inventiapp.cl` (antes era el
+> Gmail de Joel, y Brevo lo reescribía a una dirección `@…brevosend.com` sin
+> firma del dominio). Verificado con un "Olvidé mi contraseña" real: el `De`
+> llega como `contacto@inventiapp.cl`. Ese remitente existe también en Brevo
+> (*Remitentes*) con DKIM y DMARC en verde. Ver §8.6.
 
 Para que estos correos lleguen a cualquier usuario real (no solo al equipo del
 proyecto) y digan "InventIA" como remitente, hace falta un **SMTP propio**
@@ -1548,8 +1550,12 @@ esa configuración, hay que recrearla con las credenciales SMTP de la cuenta de
 Brevo de Joel (no están en este repo).
 
 **Pasos para reconstruir de cero** (dashboard de Supabase):
-1. Authentication → Settings → SMTP Settings → configurar host/puerto/usuario/
-   contraseña de Brevo, `Sender name: InventIA`.
+1. Authentication → Settings → SMTP Settings → host `smtp-relay.brevo.com`,
+   puerto `587`, el usuario que muestra Brevo en *SMTP & API* (es un login
+   generado, no el correo de la cuenta), una clave SMTP generada ahí mismo,
+   `Sender name: InventIA` y **`Sender email: contacto@inventiapp.cl`** (tiene
+   que ser una dirección del dominio autenticado; con otra, Brevo reescribe el
+   remitente a `@…brevosend.com` y se pierde la firma DKIM).
 2. Authentication → Templates → pestaña **Invite user**: pegar
    `supabase/templates/invite.html`, asunto `Te invitaron a InventIA`.
 3. Authentication → Templates → pestaña **Reset Password**: pegar
@@ -1699,10 +1705,12 @@ Fallas típicas: "no se pudo autenticar en el servidor SMTP" es la contraseña d
 Brevo puesta en vez de la clave SMTP; el código que no llega es el reenvío de
 Cloudflare caído o el correo en spam.
 
-**Remitente de los correos de la app.** Para que las invitaciones aprovechen el
-DKIM, el "From" configurado en Supabase Auth → SMTP Settings tiene que ser una
-dirección `@inventiapp.cl`. Si apunta a otro dominio, el correo sale firmado por
-Brevo pero **no** alineado con `inventiapp.cl`, y se pierde la ventaja.
+**Remitente de los correos de la app.** El "From" configurado en Supabase Auth
+→ SMTP Settings es `contacto@inventiapp.cl` desde el 14/09/2026. Antes era el
+Gmail de Joel y Brevo lo reescribía a `jmajmut@…brevosend.com`: el correo salía
+firmado por Brevo pero **no** alineado con `inventiapp.cl`. Si alguna vez vuelve
+a apuntar a otro dominio, se pierde la ventaja aunque el DNS siga perfecto. Las
+respuestas a ese remitente entran por el reenvío de Cloudflare.
 
 **Endurecer DMARC más adelante.** Hoy `p=none`: reporta y no rechaza. Una vez
 que todo lo que sale del dominio pase por Brevo (o por Gmail vía Brevo), se
