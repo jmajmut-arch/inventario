@@ -581,6 +581,8 @@ let state = {
   cargaSobrantes: null,
   // Buscar: los desplegables de Ubicación general/específica salen de ubicaciones_lista (ver cargarUbicacionesLista).
   ubicacionesLista: { cargado:false, cargando:false, filas:[], error:null },
+  // Buscar: desplegable "Contado por" (ver cargarPersonasBuscar).
+  personasBuscar: { cargado:false, cargando:false, filas:[], error:null },
   busqueda: { texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[] },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
@@ -1848,7 +1850,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -1911,7 +1913,7 @@ const CARGAS_POR_VISTA = {
   // Dos llamadas: la página, y los cinco catálogos juntos (ver cargarCatalogosPantallaSkus).
   skus: ['skusPagina', 'skusCatalogos'],
   reconteo: ['reconteos'],
-  buscar: ['ubicacionesLista'], // los dos desplegables de ubicación, en una llamada (ver cargarUbicacionesLista)
+  buscar: ['ubicacionesLista', 'personasBuscar'], // desplegables de ubicación (una llamada) y de "Contado por"
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
@@ -1933,6 +1935,7 @@ const CARGADORES = {
   skusCatalogos: ()=> cargarCatalogosPantallaSkus(),
   generales: ()=> cargarOpcionesGenerales(),
   ubicacionesLista: ()=> cargarUbicacionesLista(),
+  personasBuscar: ()=> cargarPersonasBuscar(),
   sinUbicacion: ()=> cargarConteoSinUbicacion(),
   responsables: ()=> cargarResponsables(),
   bodegaListas: ()=> cargarListasBodega(),
@@ -3817,6 +3820,10 @@ async function cargarEquipo(){
     const empresaFiltroEquipo = state.perfil && state.perfil.empresa_id ? `&empresa_id=eq.${encodeURIComponent(state.perfil.empresa_id)}` : '';
     const filas = await rest(`/usuarios?select=id,nombre,rol,activo${empresaFiltroEquipo}&order=nombre.asc`);
     state.equipo.personas = filas || [];
+    // Es la misma consulta que alimenta "Contado por" en Buscar: se comparte, así una persona
+    // recién invitada o desactivada aparece bien en las dos pantallas sin pedirla dos veces.
+    state.personasBuscar = {cargado:true, cargando:false, filas: filas || [], error:null};
+    cargasHechas.add('personasBuscar');
     // Marcar "cargado" solo si de verdad llegaron los datos (mismo bug que Contar/cargarPlanDeHoy:
     // ver bind() más abajo, "if(!state.equipo.cargado) cargarEquipo()") -- si se marca cargado
     // pase lo que pase, un corte de red en el primer ingreso a Configuraciones deja "Mi equipo"
@@ -4552,6 +4559,49 @@ async function cargarOpcionesGenerales(forzar){
     if(cache === null) guardarCacheAgregado('generales', rows);
     setState({plan: {...state.plan, generales: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Buscar: desplegable "Contado por" (pedido de Joel) con las personas de la empresa, activas o
+// no -- alguien desactivado sigue teniendo conteos que vale la pena encontrar. Es la misma
+// consulta de "Mi equipo" (cargarEquipo la comparte). El filtro ya existía para el salto desde
+// Calendario (usuarioId, server-side: contado_por_id / p_usuario_id); esto solo lo pone en el
+// formulario. Sin setState/render(), por la misma razón que cargarUbicacionesLista.
+async function cargarPersonasBuscar(){
+  state.personasBuscar = {...state.personasBuscar, cargando:true, error:null};
+  actualizarSelectPersonaBuscar();
+  try{
+    const empresaFiltro = state.perfil && state.perfil.empresa_id ? `&empresa_id=eq.${encodeURIComponent(state.perfil.empresa_id)}` : '';
+    const filas = await rest(`/usuarios?select=id,nombre,rol,activo${empresaFiltro}&order=nombre.asc`) || [];
+    state.personasBuscar = {cargado:true, cargando:false, filas, error:null};
+  }catch(e){
+    state.personasBuscar = {...state.personasBuscar, cargado:false, cargando:false, error:e.message};
+    cargasHechas.delete('personasBuscar'); // la próxima entrada a Buscar reintenta
+  }
+  actualizarSelectPersonaBuscar();
+}
+function htmlOpcionesPersonaBuscar(elegidaId){
+  const b = state.busqueda;
+  const filas = state.personasBuscar.filas || [];
+  // Si el filtro llegó desde Calendario antes de que cargara la lista, la persona elegida se
+  // muestra igual, con el nombre que ya trae el estado.
+  const faltaElegida = elegidaId && !filas.some(u=>u.id===elegidaId);
+  return `<option value="">Todas</option>`
+    + (faltaElegida ? `<option value="${esc(elegidaId)}" selected>${esc(b.usuarioNombre||'Esta cuenta')}</option>` : '')
+    + filas.map(u=>`<option value="${esc(u.id)}" ${elegidaId===u.id?'selected':''}>${esc(u.nombre)}${u.activo===false?' (inactivo)':''}</option>`).join('');
+}
+function textoAvisoPersonasBuscar(pb){
+  if(pb.error) return `No se pudo cargar la lista de personas: ${esc(pb.error)}`;
+  if(pb.cargando) return 'Cargando personas…';
+  return '';
+}
+function actualizarSelectPersonaBuscar(){
+  const sel = document.getElementById('b-usuario');
+  if(!sel) return;
+  const pb = state.personasBuscar;
+  sel.innerHTML = htmlOpcionesPersonaBuscar(state.busqueda.usuarioId);
+  sel.disabled = !!pb.cargando;
+  const aviso = document.getElementById('b-usuario-aviso');
+  if(aviso){ aviso.innerHTML = textoAvisoPersonasBuscar(pb); aviso.style.color = pb.error ? 'var(--danger)' : ''; }
 }
 
 // Buscar: una sola llamada alimenta los desplegables de Ubicación general y específica.
@@ -10504,6 +10554,7 @@ function thOrdenBuscar(campo, etiqueta, claseExtra){
 function renderBuscar(){
   const b = state.busqueda;
   const ul = state.ubicacionesLista;
+  const pb = state.personasBuscar;
   const resultados = b.resultados;
   const quienConto = resumenQuienConto(resultados);
   // Selección desde el gráfico "Quién contó" (ver toggleFiltroContadoPor): filtra la tabla de
@@ -10577,7 +10628,10 @@ function renderBuscar(){
           ${gruposParaFiltroBuscar().map(g=>`<option value="${esc(g.id)}" ${b.grupoId===g.id?'selected':''}>${esc(g.nombre)}</option>`).join('')}
         </select>
         ` : ''}
-        <label for="b-clase-abc">Clase ABC</label>
+        <label for="b-usuario" style="margin-top:12px">Contado por</label>
+        <select id="b-usuario" ${pb.cargando?'disabled':''}>${htmlOpcionesPersonaBuscar(b.usuarioId)}</select>
+        <div id="b-usuario-aviso" class="hint" style="margin-top:4px${pb.error?';color:var(--danger)':''}">${textoAvisoPersonasBuscar(pb)}</div>
+        <label for="b-clase-abc" style="margin-top:12px">Clase ABC</label>
         <select id="b-clase-abc">
           <option value="">Todas</option>
           <option value="A" ${b.claseAbc==='A'?'selected':''}>Clase A</option>
@@ -14448,11 +14502,16 @@ function bind(){
       const selCiclo = document.getElementById('b-ciclo');
       const selGrupo = document.getElementById('b-grupo');
       const selUbicacion = document.getElementById('b-ubicacion');
+      const selUsuario = document.getElementById('b-usuario');
+      const usuarioId = (selUsuario && selUsuario.value) || null;
+      const personaElegida = usuarioId ? (state.personasBuscar.filas||[]).find(u=>u.id===usuarioId) : null;
       setState({busqueda:{
         ...state.busqueda,
         texto: document.getElementById('b-texto').value,
         bodega: document.getElementById('b-bodega').value,
         ubicacion: selUbicacion ? selUbicacion.value : '',
+        usuarioId,
+        usuarioNombre: usuarioId ? (personaElegida ? personaElegida.nombre : (usuarioId===state.busqueda.usuarioId ? state.busqueda.usuarioNombre : null)) : null,
         estado: document.getElementById('b-estado').value,
         ciclo: selCiclo ? selCiclo.value : '',
         grupoId: selGrupo ? selGrupo.value : '',

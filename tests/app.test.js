@@ -65,6 +65,7 @@ let renombrarLlamadas = 0;
 let sobrantesLlamadas = 0;
 let impactoReemplazoFalla = false; // impacto de Reemplazar completo: simular caída del servidor
 let ubicacionesListaFalla = false; // desplegables de ubicación de Buscar: simular caída del servidor
+let personasBuscarFalla = false; // desplegable "Contado por" de Buscar: simular caída del servidor
 // Bloque de bodega dentro de la respuesta del Dashboard: null cuando la empresa no tiene el
 // módulo activo, que es lo que devuelve la función real en ese caso.
 let dashboardBodegaFixture = null;
@@ -692,6 +693,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/usuarios?select=')){
+    if(personasBuscarFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
     const filas = [
       {id:'eq1', nombre:'Beto Ríos', rol:'operador', activo:true},
       {id:'eq2', nombre:'Marta Soto', rol:'admin', activo:false},
@@ -10271,6 +10273,66 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r, 30));
     assert(calls.some(c=>c.url.includes('/rest/v1/ubicaciones_lista')), 'invalidar generales debe volver a pedir la lista de Buscar al entrar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, bodega:'', ubicacion:''};
+  }
+
+  // ===== Buscar: "Contado por" como desplegable con las personas de la empresa (pedido de Joel).
+  // El filtro server-side (contado_por_id / p_usuario_id) ya existía para el salto desde
+  // Calendario; esto lo pone en el formulario, con la misma consulta que "Mi equipo".
+  {
+    const enviarBuscar = () => new Promise(resolve => {
+      elements['form-buscar'].dispatch('submit', {target: elements['form-buscar'], preventDefault(){}});
+      setTimeout(resolve, 30);
+    });
+    const perfilAntesPersonas = ctx.__appstate.perfil;
+    ctx.__appstate.perfil = {...(ctx.__appstate.perfil||{}), empresa_id:'emp-1'};
+    vm.runInContext("cargasHechas.delete('personasBuscar')", ctx);
+    ctx.__appstate.personasBuscar = {cargado:false, cargando:false, filas:[], error:null};
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('buscar');
+    await new Promise(r=>setTimeout(r, 30));
+    const urlsPersonas = calls.map(c=>c.url).filter(u=>u.includes('/rest/v1/usuarios?select=id,nombre,rol,activo'));
+    assert(urlsPersonas.length===1 && urlsPersonas[0].includes('empresa_id=eq.emp-1'), 'al entrar a Buscar debe pedir las personas de la empresa propia una sola vez, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.personasBuscar.cargado===true && ctx.__appstate.personasBuscar.filas.length===2, 'la lista de personas debe quedar en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.personasBuscar));
+    ctx.__appstate.view = 'buscar';
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, texto:'', bodega:'', ubicacion:'', usuarioId:null, usuarioNombre:null};
+    let htmlPersonas = ctx.renderBuscar();
+    assert(htmlPersonas.includes('<select id="b-usuario"') && htmlPersonas.includes('>Beto Ríos<') && htmlPersonas.includes('>Marta Soto (inactivo)<'), '"Contado por" debe listar a todas las personas, marcando las inactivas, obtuvo: '+htmlPersonas);
+    // Si el filtro llega desde Calendario antes de que cargue la lista, la persona elegida se ve igual.
+    ctx.__appstate.personasBuscar = {cargado:false, cargando:true, filas:[], error:null};
+    ctx.__appstate.busqueda.usuarioId = 'op-nasib'; ctx.__appstate.busqueda.usuarioNombre = 'Nasib V2';
+    htmlPersonas = ctx.renderBuscar();
+    assert(htmlPersonas.includes('value="op-nasib" selected>Nasib V2<') && /<select id="b-usuario" disabled>/.test(htmlPersonas) && htmlPersonas.includes('Cargando personas…'), 'con la lista cargando, la persona elegida debe verse igual y el desplegable ir deshabilitado, obtuvo: '+htmlPersonas);
+    await ctx.cargarPersonasBuscar();
+    ctx.__appstate.busqueda.usuarioId = 'eq1'; ctx.__appstate.busqueda.usuarioNombre = 'Beto Ríos';
+    htmlPersonas = ctx.renderBuscar();
+    assert(htmlPersonas.includes('value="eq1" selected>Beto Ríos<') && !htmlPersonas.includes('Nasib'), 'con la lista cargada, la persona elegida sale seleccionada de la lista, obtuvo: '+htmlPersonas);
+    // Enviar: restringe server-side (filas y RPC del total) y guarda el nombre para el aviso.
+    ctx.bind();
+    elements['b-texto'].value = ''; elements['b-bodega'].value = ''; elements['b-ubicacion'].value = ''; elements['b-usuario'].value = 'eq2';
+    calls.length = 0;
+    await enviarBuscar();
+    const urlPersonas = (calls.find(c=>c.url.includes('/skus_busqueda?select='))||{url:''}).url;
+    const bodyPersonas = JSON.parse(calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus')).opts.body);
+    assert(urlPersonas.includes('contado_por_id=eq.eq2') && bodyPersonas.p_usuario_id==='eq2', 'buscar por persona debe filtrar por contado_por_id en las filas y p_usuario_id en el total, obtuvo: '+urlPersonas+' '+JSON.stringify(bodyPersonas));
+    assert(ctx.__appstate.busqueda.usuarioId==='eq2' && ctx.__appstate.busqueda.usuarioNombre==='Marta Soto', 'al buscar deben quedar id y nombre de la persona en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
+    const htmlConPersona = ctx.renderBuscar();
+    assert(htmlConPersona.includes('id="btn-quitar-filtro-usuario"') && htmlConPersona.includes('Marta Soto'), 'con persona elegida sigue el aviso "Mostrando solo lo contado por", obtuvo: '+htmlConPersona);
+    // "Todas" vuelve a buscar sin restricción.
+    elements['b-usuario'].value = '';
+    calls.length = 0;
+    await enviarBuscar();
+    assert(!calls.some(c=>c.url.includes('contado_por_id')) && ctx.__appstate.busqueda.usuarioId===null && ctx.__appstate.busqueda.usuarioNombre===null, 'con "Todas" no debe ir contado_por_id ni quedar persona en el estado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Un error del servidor se ve como error, no como lista vacía.
+    personasBuscarFalla = true;
+    await ctx.cargarPersonasBuscar();
+    assert(ctx.__appstate.personasBuscar.error && ctx.renderBuscar().includes('No se pudo cargar la lista de personas: canceling statement'), 'un error al cargar las personas debe verse bajo el desplegable, obtuvo: '+JSON.stringify(ctx.__appstate.personasBuscar));
+    personasBuscarFalla = false;
+    // "Mi equipo" (Configuraciones) comparte la lista: al recargarla, Buscar la ve actualizada.
+    ctx.__appstate.personasBuscar = {cargado:false, cargando:false, filas:[], error:null};
+    await ctx.cargarEquipo();
+    assert(ctx.__appstate.personasBuscar.cargado===true && ctx.__appstate.personasBuscar.filas.length===2 && !ctx.__appstate.personasBuscar.error, 'cargarEquipo debe dejar la lista de "Contado por" al día, obtuvo: '+JSON.stringify(ctx.__appstate.personasBuscar));
+    ctx.__appstate.perfil = perfilAntesPersonas;
+    ctx.__appstate.view = 'buscar';
   }
 
   ctx.__appstate.busqueda.resultados = [
