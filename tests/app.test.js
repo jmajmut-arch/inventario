@@ -64,6 +64,7 @@ let ubicacionesFixture = [
 let renombrarLlamadas = 0;
 let sobrantesLlamadas = 0;
 let impactoReemplazoFalla = false; // impacto de Reemplazar completo: simular caída del servidor
+let ubicacionesListaFalla = false; // desplegables de ubicación de Buscar: simular caída del servidor
 // Bloque de bodega dentro de la respuesta del Dashboard: null cuando la empresa no tiene el
 // módulo activo, que es lo que devuelve la función real en ese caso.
 let dashboardBodegaFixture = null;
@@ -253,6 +254,19 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
       {batch:'L-001', cantidad_skus:5},
       {batch:'L-002', cantidad_skus:2},
+    ]) };
+  }
+  // Buscar: desplegables de Ubicación general/específica (ver cargarUbicacionesLista). Trae filas
+  // con ubicación null (materiales con bodega pero sin ubicación específica) y una sin bodega
+  // (BODEGA_VACIA), para probar que cada desplegable filtra lo que le corresponde.
+  if(path.startsWith('/rest/v1/ubicaciones_lista')){
+    if(ubicacionesListaFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {bodega:null, ubicacion:'Piso', cantidad_skus:8},
+      {bodega:'Nave Mina', ubicacion:null, cantidad_skus:20},
+      {bodega:'Nave Mina', ubicacion:'Interior Nave', cantidad_skus:100},
+      {bodega:'Nave Mina', ubicacion:'Rack', cantidad_skus:50},
+      {bodega:'Nave Planta', ubicacion:'Estante 1', cantidad_skus:40},
     ]) };
   }
   if(path.startsWith('/rest/v1/ubicaciones_especificas')){
@@ -10177,6 +10191,87 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.busqueda.resultados.length>0, 'tras enviar el formulario deben quedar resultados cargados en el estado, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
   const htmlTrasBuscarReal = ctx.renderBuscar();
   assert(htmlTrasBuscarReal.includes('resultado') && htmlTrasBuscarReal.includes('table-wrap'), 'tras enviar el formulario, la tabla de resultados debe mostrarse (no el mensaje de "aún no has buscado"), obtuvo: '+htmlTrasBuscarReal);
+
+  // ===== Buscar: Ubicación general y Ubicación específica son desplegables con lo que existe en
+  // el maestro (pedido de Joel), alimentados por ubicaciones_lista en UNA llamada al entrar a la
+  // pestaña (no por ubicaciones_generales + ubicaciones_especificas: 400 + 900 ms en Escondida).
+  {
+    const enviarBuscar = () => new Promise(resolve => {
+      elements['form-buscar'].dispatch('submit', {target: elements['form-buscar'], preventDefault(){}});
+      setTimeout(resolve, 30);
+    });
+    vm.runInContext("cargasHechas.delete('ubicacionesLista')", ctx);
+    ctx.__appstate.ubicacionesLista = {cargado:false, cargando:false, filas:[], error:null};
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('buscar');
+    await new Promise(r=>setTimeout(r, 30));
+    const urlsLista = calls.map(c=>c.url).filter(u=>u.includes('/rest/v1/ubicaciones_lista'));
+    assert(urlsLista.length===1 && urlsLista[0].includes('select=bodega,ubicacion,cantidad_skus'), 'al entrar a Buscar debe pedir ubicaciones_lista una sola vez, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/rest/v1/ubicaciones_generales') || c.url.includes('/rest/v1/ubicaciones_especificas')), 'Buscar no debe pedir las vistas pesadas de planificación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.ubicacionesLista.cargado===true && ctx.__appstate.ubicacionesLista.filas.length===5, 'la lista debe quedar en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.ubicacionesLista));
+    // Sin bodega elegida: la general lista todas las bodegas (sumando también sus filas sin
+    // ubicación) y "Sin bodega asignada"; la específica va deshabilitada.
+    ctx.__appstate.view = 'buscar';
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, texto:'', bodega:'', ubicacion:''};
+    let htmlUbic = ctx.renderBuscar();
+    assert(htmlUbic.includes('<select id="b-bodega"') && !htmlUbic.includes('type="text" id="b-bodega"'), 'Ubicación general debe ser un <select>, no un campo de texto, obtuvo: '+htmlUbic);
+    assert(htmlUbic.includes('>Nave Mina (170)<') && htmlUbic.includes('>Nave Planta (40)<') && htmlUbic.includes('value="__bodega_vacia__"') && htmlUbic.includes('>Sin bodega asignada (8)<'), 'la general debe listar cada bodega con sus materiales y "Sin bodega asignada", obtuvo: '+htmlUbic);
+    assert(/<select id="b-ubicacion"[^>]*disabled>/.test(htmlUbic) && !htmlUbic.includes('>Interior Nave ('), 'sin bodega elegida, la específica va deshabilitada y sin opciones, obtuvo: '+htmlUbic);
+    // Con bodega elegida: la específica se habilita con las ubicaciones de ESA bodega (sin la
+    // fila sin ubicación ni las de otras bodegas) y conserva la elegida.
+    ctx.__appstate.busqueda.bodega = 'Nave Mina'; ctx.__appstate.busqueda.ubicacion = 'Rack';
+    htmlUbic = ctx.renderBuscar();
+    const iniUbic = htmlUbic.indexOf('<select id="b-ubicacion"');
+    const selUbicHtml = htmlUbic.slice(iniUbic, htmlUbic.indexOf('</select>', iniUbic));
+    assert(!/<select id="b-ubicacion"[^>]*disabled/.test(selUbicHtml) && selUbicHtml.includes('>Interior Nave (100)<') && selUbicHtml.includes('selected>Rack (50)<') && !selUbicHtml.includes('Piso') && !selUbicHtml.includes('Estante'), 'con bodega elegida, la específica lista solo sus ubicaciones y conserva la elegida, obtuvo: '+selUbicHtml);
+    assert(htmlUbic.includes('value="Nave Mina" selected'), 'la general debe conservar la bodega elegida, obtuvo: '+htmlUbic);
+    // Cambiar la bodega en el <select> repinta SOLO la específica (sin render(): lo tecleado en
+    // "Código o descripción" todavía no está en el estado y se perdería) y la vuelve a "Todas".
+    ctx.bind();
+    let rendersUbic = 0; const renderOriginalUbic = ctx.render; ctx.render = ()=>{ rendersUbic++; };
+    const selBodegaEl = elements['b-bodega']; selBodegaEl.value = '__bodega_vacia__';
+    selBodegaEl.dispatch('change', {target: selBodegaEl});
+    ctx.render = renderOriginalUbic;
+    assert(rendersUbic===0, 'cambiar la bodega no debe repintar toda la pantalla, obtuvo renders='+rendersUbic);
+    assert(ctx.__appstate.busqueda.bodega==='__bodega_vacia__' && ctx.__appstate.busqueda.ubicacion==='', 'cambiar la bodega debe guardarla y vaciar la específica, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
+    assert(elements['b-ubicacion'].innerHTML.includes('>Piso (8)<') && !elements['b-ubicacion'].innerHTML.includes('Rack') && elements['b-ubicacion'].disabled===false, 'la específica debe repintarse con las ubicaciones de la bodega nueva, obtuvo: '+elements['b-ubicacion'].innerHTML);
+    // Enviar el formulario: filtro exacto (no "contiene") en las filas y en el RPC del total --
+    // con ilike, "Bodega 1" traía también "Bodega 10".
+    elements['b-texto'].value = ''; elements['b-bodega'].value = 'Nave Mina'; elements['b-ubicacion'].value = 'Rack';
+    calls.length = 0;
+    await enviarBuscar();
+    const urlFilasUbic = (calls.find(c=>c.url.includes('/skus_busqueda?select='))||{url:''}).url;
+    assert(urlFilasUbic.includes('&bodega=eq.Nave%20Mina') && urlFilasUbic.includes('&ubicacion=eq.Rack') && !urlFilasUbic.includes('ilike.*Nave'), 'las filas deben filtrarse por igualdad exacta de bodega y ubicación, obtuvo: '+urlFilasUbic);
+    const bodyUbic = JSON.parse(calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus')).opts.body);
+    assert(bodyUbic.p_bodega==='Nave Mina' && bodyUbic.p_ubicacion==='Rack', 'el RPC del total debe recibir bodega y ubicación, obtuvo: '+JSON.stringify(bodyUbic));
+    assert(ctx.__appstate.busqueda.bodega==='Nave Mina' && ctx.__appstate.busqueda.ubicacion==='Rack', 'al buscar, bodega y ubicación deben quedar en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
+    // "Sin bodega asignada" viaja como bodega=is.null (igual que en Plan) y como BODEGA_VACIA al RPC.
+    elements['b-bodega'].value = '__bodega_vacia__'; elements['b-ubicacion'].value = '';
+    calls.length = 0;
+    await enviarBuscar();
+    const urlVacia = (calls.find(c=>c.url.includes('/skus_busqueda?select='))||{url:''}).url;
+    const bodyVacia = JSON.parse(calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus')).opts.body);
+    assert(urlVacia.includes('&bodega=is.null') && !urlVacia.includes('ubicacion=eq') && bodyVacia.p_bodega==='__bodega_vacia__' && bodyVacia.p_ubicacion===null, '"Sin bodega asignada" debe ir como bodega=is.null y BODEGA_VACIA al RPC, obtuvo: '+urlVacia+' '+JSON.stringify(bodyVacia));
+    // Exportar a Excel usa el mismo path: hereda los dos filtros.
+    // Si la lista no se puede cargar, se ve como error (no como "sin ubicaciones") y volver a
+    // entrar a Buscar reintenta.
+    ubicacionesListaFalla = true;
+    await ctx.cargarUbicacionesLista();
+    assert(ctx.__appstate.ubicacionesLista.error && ctx.renderBuscar().includes('No se pudieron cargar las ubicaciones: canceling statement'), 'un error del servidor debe verse como error bajo los desplegables, obtuvo: '+JSON.stringify(ctx.__appstate.ubicacionesLista));
+    ubicacionesListaFalla = false;
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('buscar');
+    await new Promise(r=>setTimeout(r, 30));
+    assert(calls.some(c=>c.url.includes('/rest/v1/ubicaciones_lista')) && !ctx.__appstate.ubicacionesLista.error && ctx.__appstate.ubicacionesLista.cargado, 'tras un error, volver a entrar a Buscar debe reintentar la carga, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Una carga masiva, renombrar una bodega o mover material invalidan 'generales': la lista de
+    // Buscar sale de los mismos datos, así que se vuelve a pedir al entrar.
+    ctx.invalidarCacheAgregados(['generales']);
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('buscar');
+    await new Promise(r=>setTimeout(r, 30));
+    assert(calls.some(c=>c.url.includes('/rest/v1/ubicaciones_lista')), 'invalidar generales debe volver a pedir la lista de Buscar al entrar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, bodega:'', ubicacion:''};
+  }
 
   ctx.__appstate.busqueda.resultados = [
     {sku_code:'SKU-NC', descripcion:'Nunca contado', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[]},
