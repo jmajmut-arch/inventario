@@ -579,7 +579,9 @@ let state = {
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
   // Sobrantes de la última carga: materiales que siguen activos pero que el archivo ya no trajo.
   cargaSobrantes: null,
-  busqueda: { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[] },
+  // Buscar: los desplegables de Ubicación general/específica salen de ubicaciones_lista (ver cargarUbicacionesLista).
+  ubicacionesLista: { cargado:false, cargando:false, filas:[], error:null },
+  busqueda: { texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[] },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -1846,7 +1848,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -1909,6 +1911,7 @@ const CARGAS_POR_VISTA = {
   // Dos llamadas: la página, y los cinco catálogos juntos (ver cargarCatalogosPantallaSkus).
   skus: ['skusPagina', 'skusCatalogos'],
   reconteo: ['reconteos'],
+  buscar: ['ubicacionesLista'], // los dos desplegables de ubicación, en una llamada (ver cargarUbicacionesLista)
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
@@ -1929,6 +1932,7 @@ const CARGADORES = {
   opcionesSku: ()=> cargarOpcionesCategoriasUnidades(),
   skusCatalogos: ()=> cargarCatalogosPantallaSkus(),
   generales: ()=> cargarOpcionesGenerales(),
+  ubicacionesLista: ()=> cargarUbicacionesLista(),
   sinUbicacion: ()=> cargarConteoSinUbicacion(),
   responsables: ()=> cargarResponsables(),
   bodegaListas: ()=> cargarListasBodega(),
@@ -4536,6 +4540,9 @@ function guardarCacheAgregado(nombre, v){
 }
 function invalidarCacheAgregados(nombres){
   nombres.forEach(n=>{ const clave = claveCacheAgregado(n); if(clave){ try{ localStorage.removeItem(clave); }catch(e){ /* nada */ } } });
+  // Todo lo que cambia bodegas/ubicaciones (carga, renombrar, mover) invalida 'generales'; los
+  // desplegables de Buscar salen de los mismos datos, así que se vuelven a pedir al entrar.
+  if(nombres.includes('generales')) cargasHechas.delete('ubicacionesLista');
 }
 
 async function cargarOpcionesGenerales(forzar){
@@ -4545,6 +4552,76 @@ async function cargarOpcionesGenerales(forzar){
     if(cache === null) guardarCacheAgregado('generales', rows);
     setState({plan: {...state.plan, generales: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
+}
+
+// Buscar: una sola llamada alimenta los desplegables de Ubicación general y específica.
+// ubicaciones_lista es `skus` agrupado por bodega+ubicación, sin el join a planificación que
+// hacen ubicaciones_generales (400 ms en Escondida) y ubicaciones_especificas (900 ms) y que
+// Buscar no necesita: medido, 40 ms. La específica se filtra en el cliente por la bodega elegida.
+// Se pide una vez por sesión al entrar a Buscar (CARGAS_POR_VISTA) y de nuevo cuando algo cambia
+// bodegas/ubicaciones (ver invalidarCacheAgregados). No pasa por setState/render(): si la persona
+// ya está escribiendo en Buscar, un repintado completo le reemplazaría el <input> (y en iOS
+// reinicia el teclado) -- se repintan solo los desplegables.
+async function cargarUbicacionesLista(){
+  state.ubicacionesLista = {...state.ubicacionesLista, cargando:true, error:null};
+  actualizarSelectsUbicacionBuscar();
+  try{
+    const filas = await rest('/ubicaciones_lista?select=bodega,ubicacion,cantidad_skus&order=bodega.asc.nullsfirst,ubicacion.asc') || [];
+    state.ubicacionesLista = {cargado:true, cargando:false, filas, error:null};
+  }catch(e){
+    // Se muestra como error bajo los desplegables (ver renderBuscar), no como "sin ubicaciones".
+    state.ubicacionesLista = {...state.ubicacionesLista, cargado:false, cargando:false, error:e.message};
+    cargasHechas.delete('ubicacionesLista'); // la próxima entrada a Buscar reintenta
+  }
+  actualizarSelectsUbicacionBuscar();
+}
+// Bodegas para el desplegable de Ubicación general de Buscar, con cuántos materiales tiene cada
+// una. BODEGA_VACIA agrupa los que tienen ubicación específica pero no bodega, igual que en Plan.
+function opcionesBodegasBuscar(){
+  const porBodega = new Map();
+  (state.ubicacionesLista.filas||[]).forEach(f=>{
+    const k = f.bodega===null ? BODEGA_VACIA : f.bodega;
+    porBodega.set(k, (porBodega.get(k)||0) + (Number(f.cantidad_skus)||0));
+  });
+  const bodegas = Array.from(porBodega.keys()).filter(k=>k!==BODEGA_VACIA).sort((a,b)=>a.localeCompare(b));
+  return { bodegas, hayVacia: porBodega.has(BODEGA_VACIA), cantidad: k=> porBodega.get(k)||0 };
+}
+function opcionesUbicacionesBuscar(bodega){
+  if(!bodega) return [];
+  return (state.ubicacionesLista.filas||[]).filter(f=> f.ubicacion!==null && (bodega===BODEGA_VACIA ? f.bodega===null : f.bodega===bodega));
+}
+function htmlOpcionesBodegaBuscar(elegida){
+  const o = opcionesBodegasBuscar();
+  return `<option value="">Todas</option>`
+    + (o.hayVacia ? `<option value="${BODEGA_VACIA}" ${elegida===BODEGA_VACIA?'selected':''}>Sin bodega asignada (${o.cantidad(BODEGA_VACIA).toLocaleString('es-CL')})</option>` : '')
+    + o.bodegas.map(bd=>`<option value="${esc(bd)}" ${elegida===bd?'selected':''}>${esc(bd)} (${o.cantidad(bd).toLocaleString('es-CL')})</option>`).join('');
+}
+function htmlOpcionesUbicacionBuscar(bodega, elegida){
+  return `<option value="">Todas</option>`
+    + opcionesUbicacionesBuscar(bodega).map(f=>`<option value="${esc(f.ubicacion)}" ${elegida===f.ubicacion?'selected':''}>${esc(f.ubicacion)} (${(Number(f.cantidad_skus)||0).toLocaleString('es-CL')})</option>`).join('');
+}
+function textoAvisoUbicacionesBuscar(ul){
+  if(ul.error) return `No se pudieron cargar las ubicaciones: ${esc(ul.error)}`;
+  if(ul.cargando) return 'Cargando ubicaciones…';
+  return '';
+}
+// Repinta solo los <select> de ubicación de Buscar (y su aviso), sin render() -- ver
+// cargarUbicacionesLista. Si la vista ya no es Buscar, no hay nada que tocar.
+function actualizarSelectsUbicacionBuscar(){
+  const selBodega = document.getElementById('b-bodega');
+  if(!selBodega) return;
+  const ul = state.ubicacionesLista;
+  selBodega.innerHTML = htmlOpcionesBodegaBuscar(state.busqueda.bodega);
+  selBodega.disabled = !!ul.cargando;
+  actualizarSelectUbicacionEspecificaBuscar();
+  const aviso = document.getElementById('b-ubicaciones-aviso');
+  if(aviso){ aviso.innerHTML = textoAvisoUbicacionesBuscar(ul); aviso.style.color = ul.error ? 'var(--danger)' : ''; }
+}
+function actualizarSelectUbicacionEspecificaBuscar(){
+  const selUbic = document.getElementById('b-ubicacion');
+  if(!selUbic) return;
+  selUbic.innerHTML = htmlOpcionesUbicacionBuscar(state.busqueda.bodega, state.busqueda.ubicacion);
+  selUbic.disabled = !state.busqueda.bodega;
 }
 
 // Crear/quitar una entrada del plan (o excluir un SKU puntual) cambia cuántos SKU quedan
@@ -4753,8 +4830,11 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
   // Además de código/descripción, también busca por batch y storage bin -- alguien que escribe
   // un lote o una ubicación física puntual en el buscador libre espera encontrarlo igual.
   if(texto) path += `&or=(sku_code.ilike.*${encodeURIComponent(texto)}*,descripcion.ilike.*${encodeURIComponent(texto)}*,batch.ilike.*${encodeURIComponent(texto)}*,storage_bin.ilike.*${encodeURIComponent(texto)}*)`;
-  const bodega = sanearTextoFiltro(state.busqueda.bodega);
-  if(bodega) path += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
+  // Ubicación general y específica vienen de desplegables con los valores reales del maestro
+  // (ver cargarUbicacionesLista): igualdad exacta, no "contiene" -- con ilike, "Bodega 1" traía
+  // también "Bodega 10". BODEGA_VACIA = con ubicación pero sin bodega, igual que en Plan.
+  if(state.busqueda.bodega) path += `&${filtroBodegaOpciones(state.busqueda.bodega)}`;
+  if(state.busqueda.ubicacion) path += `&ubicacion=eq.${encodeURIComponent(state.busqueda.ubicacion)}`;
   if(state.busqueda.estado === 'no_contado') path += `&conteo_id=is.null`;
   // "Pendiente de reconteo" (pedido de Joel): los mismos materiales que lista la pestaña Reconteo
   // (último conteo del período con diferencia y no descartado), como columna de skus_busqueda.
@@ -4843,7 +4923,8 @@ function construirParametrosBusquedaRpc(){
   const grupo = grupoBuscarSeleccionado();
   return {
     p_texto: sanearTextoFiltro(state.busqueda.texto) || null,
-    p_bodega: sanearTextoFiltro(state.busqueda.bodega) || null,
+    p_bodega: state.busqueda.bodega || null,
+    p_ubicacion: state.busqueda.ubicacion || null,
     p_estado: state.busqueda.estado || null,
     p_ciclo: state.busqueda.ciclo || null,
     p_solo_fuera_de_plan: !!state.busqueda.soloFueraDePlan,
@@ -4873,7 +4954,7 @@ function irABuscarSku(skuCode){
   setState({
     view: 'buscar',
     busqueda: {
-      texto: skuCode, bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
+      texto: skuCode, bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, seleccionados:[],
       usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[],
     },
@@ -4893,7 +4974,7 @@ function irABuscarDelDia(fecha){
   setState({
     view: 'buscar',
     busqueda: {
-      texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'',
+      texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'',
       fechaDesde: fecha, fechaHasta: fecha, orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, seleccionados:[],
       usuarioId: esAdmin ? null : (state.perfil && state.perfil.id) || null,
@@ -10422,6 +10503,7 @@ function thOrdenBuscar(campo, etiqueta, claseExtra){
 
 function renderBuscar(){
   const b = state.busqueda;
+  const ul = state.ubicacionesLista;
   const resultados = b.resultados;
   const quienConto = resumenQuienConto(resultados);
   // Selección desde el gráfico "Quién contó" (ver toggleFiltroContadoPor): filtra la tabla de
@@ -10463,8 +10545,15 @@ function renderBuscar(){
         <label for="b-texto">Código o descripción del SKU</label>
         <input type="text" id="b-texto" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(b.texto)}">
         <div class="row2">
-          <div><label for="b-bodega">Ubicación general</label><input type="text" id="b-bodega" placeholder="Bodega Central" value="${esc(b.bodega)}"></div>
-          <div><label for="b-estado">Estado</label>
+          <div><label for="b-bodega">Ubicación general</label>
+            <select id="b-bodega" ${ul.cargando?'disabled':''}>${htmlOpcionesBodegaBuscar(b.bodega)}</select>
+          </div>
+          <div><label for="b-ubicacion">Ubicación específica</label>
+            <select id="b-ubicacion" ${b.bodega?'':'disabled'}>${htmlOpcionesUbicacionBuscar(b.bodega, b.ubicacion)}</select>
+          </div>
+        </div>
+        <div id="b-ubicaciones-aviso" class="hint" style="margin-top:4px${ul.error?';color:var(--danger)':''}">${textoAvisoUbicacionesBuscar(ul)}</div>
+        <label for="b-estado" style="margin-top:12px">Estado</label>
             <select id="b-estado">
               <option value="">Todos</option>
               <option value="no_contado" ${b.estado==='no_contado'?'selected':''}>No contado</option>
@@ -10473,8 +10562,6 @@ function renderBuscar(){
               <option value="pendiente_revision" ${b.estado==='pendiente_revision'?'selected':''}>Pendiente</option>
               <option value="reconteo_pendiente" ${b.estado==='reconteo_pendiente'?'selected':''}>Pendiente de reconteo</option>
             </select>
-          </div>
-        </div>
         ${state.ciclos.length? `
         <label for="b-ciclo">Ciclo de conteo</label>
         <select id="b-ciclo">
@@ -14348,14 +14435,24 @@ function bind(){
     // Mismo patrón que Grupos/Períodos: cargar la lista una sola vez, en segundo plano, para
     // tener con qué llenar el <select> de "Grupo de conteo" (ver gruposParaFiltroBuscar).
     if(!state.grupos.cargado && !state.grupos.cargando) cargarGrupos();
+    // Cambiar la Ubicación general vacía la específica y le pone las de esa bodega. Sin render():
+    // lo tecleado en "Código o descripción" todavía no está en el estado y se perdería.
+    const selBodegaBuscar = document.getElementById('b-bodega');
+    if(selBodegaBuscar) selBodegaBuscar.addEventListener('change', e=>{
+      state.busqueda.bodega = e.target.value;
+      state.busqueda.ubicacion = '';
+      actualizarSelectUbicacionEspecificaBuscar();
+    });
     document.getElementById('form-buscar').addEventListener('submit', e=>{
       e.preventDefault();
       const selCiclo = document.getElementById('b-ciclo');
       const selGrupo = document.getElementById('b-grupo');
+      const selUbicacion = document.getElementById('b-ubicacion');
       setState({busqueda:{
         ...state.busqueda,
         texto: document.getElementById('b-texto').value,
         bodega: document.getElementById('b-bodega').value,
+        ubicacion: selUbicacion ? selUbicacion.value : '',
         estado: document.getElementById('b-estado').value,
         ciclo: selCiclo ? selCiclo.value : '',
         grupoId: selGrupo ? selGrupo.value : '',
