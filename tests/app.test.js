@@ -66,6 +66,8 @@ let sobrantesLlamadas = 0;
 let impactoReemplazoFalla = false; // impacto de Reemplazar completo: simular caída del servidor
 let ubicacionesListaFalla = false; // desplegables de ubicación de Buscar: simular caída del servidor
 let personasBuscarFalla = false; // desplegable "Contado por" de Buscar: simular caída del servidor
+let corregirConteoFalla = false; // corregir_conteo: simular rechazo del servidor
+let corregirConteoCiego = false; // corregir_conteo con conteo ciego: el servidor no devuelve diferencia ni estado
 // Bloque de bodega dentro de la respuesta del Dashboard: null cuando la empresa no tiene el
 // módulo activo, que es lo que devuelve la función real en ese caso.
 let dashboardBodegaFixture = null;
@@ -163,6 +165,18 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/rest/v1/informes_ciclo')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(informesCicloFixture||[]) };
+  }
+  // Corregir conteo (ver corregirConteo): devuelve la fila corregida como la deja el servidor
+  // (los triggers recalculan diferencia/estado contra un stock de 10 en este fixture).
+  if(path.startsWith('/rest/v1/rpc/corregir_conteo')){
+    if(corregirConteoFalla) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'Un operador solo puede corregir conteos del mismo día. Para uno anterior, vuelve a contarlo.'}) };
+    const b = JSON.parse(opts.body);
+    const dif = b.p_cantidad - 10;
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({
+      id: b.p_conteo_id, cantidad_contada: b.p_cantidad,
+      diferencia: corregirConteoCiego ? null : dif, estado: corregirConteoCiego ? null : (dif===0 ? 'aprobado' : 'con_diferencia'),
+      observacion: b.p_observacion || null, cantidad_original: 12, corregido_en: '2026-09-17T12:00:00Z', motivo_correccion: b.p_motivo,
+    }) };
   }
   if(path.startsWith('/rest/v1/rpc/descartar_reconteo')){
     if(descartarReconteoError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:descartarReconteoError}) };
@@ -7163,6 +7177,102 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const auditoriaCallMas = calls.find(c=>c.url.includes('/auditoria?select='));
   assert(!!auditoriaCallMas && auditoriaCallMas.url.includes(`offset=${filasAntesDeCargarMas}`), 'cargarMasAuditoria debe pedir la página siguiente con offset=<lo ya cargado>, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.auditoria.filas.length === filasAntesDeCargarMas*2, 'cargarMasAuditoria debe agregar las filas nuevas a las que ya había, no reemplazarlas, obtuvo: '+ctx.__appstate.auditoria.filas.length);
+
+  // ===== Corregir un conteo (pedido de Joel: "tal vez me equivoque"): botón Editar en Buscar y
+  // Reconteo, modal con motivo obligatorio y RPC corregir_conteo, que vuelve a validar en el servidor.
+  {
+    const hoy = new Date().toISOString();
+    const ayer = new Date(Date.now() - 36*3600*1000).toISOString();
+    const perfilAntesCorr = ctx.__appstate.perfil;
+    const ADMIN = { id:'adm-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    const OPERADOR = { id:'op-1', nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    // Quién ve el botón: admin siempre; operador solo su propio conteo y solo el mismo día.
+    ctx.__appstate.perfil = ADMIN;
+    assert(ctx.puedeCorregirConteo({conteo_id:'c1', contado_por_id:'op-9', fecha_conteo:ayer})===true, 'un admin puede corregir cualquier conteo');
+    assert(ctx.puedeCorregirConteo({conteo_id:null})===false, 'sin conteo no hay nada que corregir');
+    ctx.__appstate.perfil = OPERADOR;
+    assert(ctx.puedeCorregirConteo({conteo_id:'c1', contado_por_id:'op-1', fecha_conteo:hoy})===true, 'un operador puede corregir su propio conteo de hoy');
+    assert(ctx.puedeCorregirConteo({conteo_id:'c1', contado_por_id:'op-1', fecha_conteo:ayer})===false, 'un operador no puede corregir un conteo de otro día');
+    assert(ctx.puedeCorregirConteo({conteo_id:'c1', contado_por_id:'op-2', fecha_conteo:hoy})===false, 'un operador no puede corregir el conteo de otra persona');
+    assert(ctx.puedeCorregirConteo({conteo_id:'c1', contado_por_id:'op-1', fecha_conteo:hoy, capturado_en:ayer})===false, 'manda la hora de captura en terreno (sin conexión), no la de sincronización');
+    // Buscar: botón Editar solo cuando corresponde, con los datos para el modal; marca "corregido · antes N".
+    ctx.__appstate.view = 'buscar';
+    const busquedaAntesCorr = ctx.__appstate.busqueda;
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, yaBuscado:true, filtroContadoPor:null, seleccionados:[], usuarioId:null, usuarioNombre:null, resultados:[
+      {sku_id:'s1', sku_code:'SKU-MIO', descripcion:'Mío hoy', bodega:'Nave', conteo_id:'c-mio', contado_por_id:'op-1', cantidad_contada:12, estado:'con_diferencia', diferencia:2, fecha_conteo:hoy, capturado_en:hoy, fuera_de_plan:false, ciclo_nombre:null, fotos:[], observacion:'ok'},
+      {sku_id:'s2', sku_code:'SKU-AJENO', descripcion:'De otro', bodega:'Nave', conteo_id:'c-ajeno', contado_por_id:'op-2', cantidad_contada:5, estado:'aprobado', diferencia:0, fecha_conteo:hoy, capturado_en:hoy, fuera_de_plan:false, ciclo_nombre:null, fotos:[], cantidad_original:8, corregido_en:hoy, motivo_correccion:'tecleo'},
+    ]};
+    let htmlCorr = ctx.renderBuscar();
+    const filaMia = htmlCorr.slice(htmlCorr.indexOf('SKU-MIO'), htmlCorr.indexOf('SKU-AJENO'));
+    const filaAjena = htmlCorr.slice(htmlCorr.indexOf('SKU-AJENO'));
+    assert(filaMia.includes('data-corregir-conteo="c-mio"') && filaMia.includes('data-corregir-cantidad="12"') && filaMia.includes('data-corregir-observacion="ok"') && filaMia.includes('>Editar<'), 'el operador ve Editar en su conteo de hoy, con los datos para el modal, obtuvo: '+filaMia);
+    assert(!filaAjena.includes('data-corregir-conteo'), 'el operador no ve Editar en el conteo de otra persona, obtuvo: '+filaAjena);
+    assert(filaAjena.includes('corregido · antes 8') && filaAjena.includes('title="tecleo"'), 'un conteo corregido muestra la cantidad original y el motivo, obtuvo: '+filaAjena);
+    assert(!filaMia.includes('corregido · antes'), 'un conteo sin corregir no lleva la marca, obtuvo: '+filaMia);
+    ctx.__appstate.perfil = ADMIN;
+    htmlCorr = ctx.renderBuscar();
+    assert(htmlCorr.includes('data-corregir-conteo="c-ajeno"') && htmlCorr.includes('data-corregir-conteo="c-mio"'), 'el admin ve Editar en todos, obtuvo: '+htmlCorr);
+    // Reconteo: mismo botón y misma marca (la vista reconteo_pendiente trae los mismos campos).
+    ctx.__appstate.view = 'reconteo';
+    const reconteosAntesCorr = ctx.__appstate.reconteos;
+    ctx.__appstate.reconteos = [{id:'s2', sku_code:'SKU-AJENO', descripcion:'De otro', bodega:'Nave', conteo_id:'c-ajeno', contado_por_id:'op-2', ultima_cantidad_contada:5, ultima_diferencia:-3, diferencia_abs:3, stock_sistema:8, ultimo_conteo_fecha:hoy, capturado_en:hoy, fotos:[], cantidad_original:8, corregido_en:hoy, motivo_correccion:'tecleo', observacion:'', veces_con_diferencia:1, causa_probable:'Sin patrón detectado', ubicacion_distinta:false}];
+    const htmlRec = ctx.renderReconteo();
+    assert(htmlRec.includes('data-corregir-conteo="c-ajeno"') && htmlRec.includes('data-corregir-cantidad="5"') && htmlRec.includes('corregido · antes 8'), 'Reconteo muestra Editar y la marca de corregido, obtuvo: '+htmlRec);
+    ctx.__appstate.reconteos = reconteosAntesCorr;
+    // El botón abre el modal con los datos de la fila (bind global: sirve en Buscar y Reconteo).
+    ctx.__appstate.view = 'buscar';
+    const btnCorr = makeEl('btn-corregir-prueba');
+    btnCorr.dataset = {corregirConteo:'c-mio', corregirSku:'SKU-MIO', corregirCantidad:'12', corregirObservacion:'ok', corregirFecha:hoy, corregirOriginal:''};
+    const qsaAntesCorr = documentMock.querySelectorAll;
+    documentMock.querySelectorAll = sel => sel==='[data-corregir-conteo]' ? [btnCorr] : [];
+    ctx.bind();
+    documentMock.querySelectorAll = qsaAntesCorr;
+    btnCorr.dispatch('click');
+    const mAbierto = ctx.__appstate.corregirConteoModal;
+    assert(mAbierto && mAbierto.conteoId==='c-mio' && mAbierto.skuCode==='SKU-MIO' && mAbierto.cantidad==='12' && mAbierto.cantidadActual==='12' && mAbierto.observacion==='ok' && mAbierto.motivo==='' && mAbierto.cantidadOriginal===null && mAbierto.guardando===false, 'Editar debe abrir el modal con los datos de la fila, obtuvo: '+JSON.stringify(mAbierto));
+    const htmlModalCorr = ctx.renderCorregirConteoModal();
+    assert(htmlModalCorr.includes('id="corregir-conteo-cantidad"') && htmlModalCorr.includes('value="12"') && htmlModalCorr.includes('id="corregir-conteo-motivo"') && htmlModalCorr.includes('SKU-MIO') && htmlModalCorr.includes('se registraron <strong>12</strong>'), 'el modal muestra el material, lo registrado y los campos, obtuvo: '+htmlModalCorr);
+    assert(ctx.render.toString().length>0 && ctx.renderCorregirConteoModal !== undefined, 'renderCorregirConteoModal existe');
+    // Sin motivo, o con cantidad vacía o negativa, no se llama al servidor y el modal sigue abierto.
+    for(const caso of [{cantidad:'10', motivo:'   '}, {cantidad:'-1', motivo:'me equivoqué'}, {cantidad:'', motivo:'me equivoqué'}, {cantidad:'abc', motivo:'me equivoqué'}]){
+      calls.length = 0;
+      ctx.__appstate.corregirConteoModal = {...mAbierto, ...caso};
+      await ctx.corregirConteo();
+      assert(!calls.some(c=>c.url.includes('/rpc/corregir_conteo')) && ctx.__appstate.corregirConteoModal!==null, 'con datos inválidos no debe llamarse al RPC ni cerrarse el modal, caso: '+JSON.stringify(caso)+' obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    }
+    // Con datos válidos: RPC con el contrato del servidor (coma decimal aceptada), modal cerrado,
+    // fila de Buscar actualizada en pantalla sin repetir la búsqueda.
+    ctx.__appstate.corregirConteoModal = {...mAbierto, cantidad:'10,5', observacion:'ajustado', motivo:'tecleé 12 en vez de 10,5'};
+    calls.length = 0;
+    await ctx.corregirConteo();
+    const rpcCorr = calls.find(c=>c.url.includes('/rpc/corregir_conteo'));
+    assert(!!rpcCorr, 'con datos válidos debe llamarse a corregir_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const bodyCorr = JSON.parse(rpcCorr.opts.body);
+    assert(bodyCorr.p_conteo_id==='c-mio' && bodyCorr.p_cantidad===10.5 && bodyCorr.p_motivo==='tecleé 12 en vez de 10,5' && bodyCorr.p_observacion==='ajustado', 'el RPC debe recibir id, cantidad numérica, motivo y observación, obtuvo: '+JSON.stringify(bodyCorr));
+    assert(ctx.__appstate.corregirConteoModal===null, 'al corregir con éxito el modal debe cerrarse');
+    assert(!calls.some(c=>c.url.includes('/skus_busqueda?select=')), 'no debe repetir la búsqueda entera: la fila se actualiza en pantalla, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const filaAct = ctx.__appstate.busqueda.resultados.find(r=>r.conteo_id==='c-mio');
+    assert(filaAct.cantidad_contada===10.5 && filaAct.diferencia===0.5 && filaAct.estado==='con_diferencia' && filaAct.cantidad_original===12 && filaAct.motivo_correccion==='tecleé 12 en vez de 10,5' && filaAct.observacion==='ajustado', 'la fila debe reflejar lo que devolvió el servidor, obtuvo: '+JSON.stringify(filaAct));
+    assert(ctx.renderBuscar().includes('corregido · antes 12'), 'tras corregir, la fila muestra la marca con la cantidad original');
+    // Con conteo ciego el servidor no devuelve diferencia ni estado: se conserva lo que había.
+    corregirConteoCiego = true;
+    ctx.__appstate.corregirConteoModal = {...mAbierto, cantidad:'7', motivo:'otra vez'};
+    await ctx.corregirConteo();
+    corregirConteoCiego = false;
+    const filaCiega = ctx.__appstate.busqueda.resultados.find(r=>r.conteo_id==='c-mio');
+    assert(filaCiega.cantidad_contada===7 && filaCiega.diferencia===0.5 && filaCiega.estado==='con_diferencia', 'con conteo ciego no debe pisarse diferencia/estado con null, obtuvo: '+JSON.stringify(filaCiega));
+    // Si el servidor rechaza (p.ej. operador fuera de plazo), el modal sigue abierto, sin quedar
+    // trabado en "guardando" y sin perder lo escrito; el mensaje del servidor se muestra.
+    corregirConteoFalla = true;
+    ctx.__appstate.corregirConteoModal = {...mAbierto, cantidad:'9', motivo:'intento'};
+    await ctx.corregirConteo();
+    corregirConteoFalla = false;
+    const mFalla = ctx.__appstate.corregirConteoModal;
+    assert(mFalla && mFalla.guardando===false && mFalla.motivo==='intento' && mFalla.cantidad==='9', 'si el RPC falla, el modal sigue abierto con lo escrito, obtuvo: '+JSON.stringify(mFalla));
+    ctx.__appstate.corregirConteoModal = null;
+    ctx.__appstate.busqueda = busquedaAntesCorr;
+    ctx.__appstate.perfil = perfilAntesCorr;
+  }
 
   // ===== Reconteo: "Cargar más" con offset, en vez de traer todo con un límite fijo =====
   calls.length = 0;
