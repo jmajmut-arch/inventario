@@ -943,6 +943,7 @@ function bodegaEstadoInicial(){
     docTipo: null,      // de qué pantalla es el documento que está en `doc`: 'ingreso' o 'salida'
     docsPorTipo: {},    // el de la otra pantalla, esperando a que se vuelva a ella
     busqueda: { texto:'', resultados:[], buscando:false, error:null },
+    anulando: null,     // modal de anular: {clase:'movimiento'|'documento', id, numero, motivo, guardando, ...} (ver anularMovimientoBodega)
     nuevoSku: null, // {sku_code, descripcion, unidad_medida, bodega, storage_bin, guardando} (SKU nuevo desde Recepción)
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
@@ -6110,17 +6111,6 @@ async function subirFotosDocumentoBodega(documentoId, fotos){
   if(filas.length) await rest('/movimiento_fotos', {method:'POST', body: filas, prefer:'return=minimal'});
 }
 
-async function anularDocumentoBodega(documentoId, numero){
-  const motivo = prompt(`Motivo para anular ${numero}:`);
-  if(motivo===null) return;
-  if(!motivo.trim()){ toast('Indica el motivo','err'); return; }
-  try{
-    await rest('/rpc/anular_documento_bodega', {method:'POST', body:{p_documento_id: documentoId, p_motivo: motivo.trim()}});
-    toast(`${numero} anulado`);
-    refrescarBodega();
-  }catch(e){ toast(e.message,'err'); }
-}
-
 async function resolverMovimientoBodega(movimientoId, aprobar){
   let motivo = null;
   if(!aprobar){ motivo = prompt('Motivo del rechazo:'); if(motivo===null) return; if(!motivo.trim()){ toast('Indica el motivo','err'); return; } }
@@ -6170,15 +6160,79 @@ async function registrarAjusteBodega(){
 }
 
 // Anula un movimiento suelto (ajuste o apertura); los de un documento se anulan con el documento.
-async function anularMovimientoBodega(movimientoId, numero){
-  const motivo = prompt(`Motivo para anular ${numero}:`);
-  if(motivo===null) return;
-  if(!motivo.trim()){ toast('Indica el motivo','err'); return; }
+// Anular en Bodega (pedido de Joel: "anular la recepción"): un modal con motivo obligatorio que
+// dice exactamente qué se anula, en vez del prompt() del navegador. Dos alcances:
+// - un movimiento suelto o UNA línea de una recepción -> anular_movimiento_bodega (el servidor
+//   solo permite líneas sueltas en recepciones; salidas y devoluciones se anulan completas);
+// - el documento completo -> anular_documento_bodega.
+// El servidor valida rol, estado y que el stock no quede negativo; acá solo se arma el modal con
+// lo que ya está en pantalla (state.bodega.movimientos).
+function anularMovimientoBodega(movimientoId, numero){
+  const m = (state.bodega.movimientos||[]).find(x=>x.id===movimientoId) || {};
+  setState({bodega:{...state.bodega, anulando:{
+    clase:'movimiento', id:movimientoId, numero, motivo:'', guardando:false,
+    esLinea: !!m.documento_id, tipo: m.tipo||'', sku_code: m.sku_code||'', descripcion: m.descripcion||'', cantidad: m.cantidad, unidad_medida: m.unidad_medida||'',
+  }}});
+}
+function anularDocumentoBodega(documentoId, numero){
+  const lineas = (state.bodega.movimientos||[]).filter(x=>x.documento_id===documentoId && x.estado!=='anulado');
+  setState({bodega:{...state.bodega, anulando:{
+    clase:'documento', id:documentoId, numero, motivo:'', guardando:false,
+    tipo: lineas.length ? lineas[0].tipo : '',
+    lineas: lineas.map(x=>({sku_code:x.sku_code, descripcion:x.descripcion, cantidad:x.cantidad, unidad_medida:x.unidad_medida})),
+  }}});
+}
+async function confirmarAnularBodega(){
+  const a = state.bodega.anulando;
+  if(!a || a.guardando) return false;
+  const motivo = (a.motivo||'').trim();
+  if(!motivo){ toast('Indica el motivo','err'); return false; }
+  setState({bodega:{...state.bodega, anulando:{...a, guardando:true}}});
   try{
-    await rest('/rpc/anular_movimiento_bodega', {method:'POST', body:{p_movimiento_id: movimientoId, p_motivo: motivo.trim()}});
-    toast(`${numero} anulado`);
+    if(a.clase==='documento') await rest('/rpc/anular_documento_bodega', {method:'POST', body:{p_documento_id: a.id, p_motivo: motivo}});
+    else await rest('/rpc/anular_movimiento_bodega', {method:'POST', body:{p_movimiento_id: a.id, p_motivo: motivo}});
+    setState({bodega:{...state.bodega, anulando:null}});
+    toast(a.clase!=='documento' && a.esLinea ? `Línea de ${a.numero} anulada` : `${a.numero} anulado`);
     refrescarBodega();
-  }catch(e){ toast(e.message,'err'); }
+    return true;
+  }catch(e){
+    setState({bodega:{...state.bodega, anulando:{...state.bodega.anulando, guardando:false}}});
+    toast(e.message,'err');
+    return false;
+  }
+}
+function etiquetaDocumentoBodega(tipo){
+  return tipo==='ingreso' ? 'la recepción' : tipo==='salida' ? 'el despacho' : tipo==='devolucion' ? 'la devolución' : 'el documento';
+}
+function renderAnularBodegaModal(){
+  const a = state.bodega.anulando;
+  if(!a) return '';
+  const esDoc = a.clase==='documento';
+  const titulo = esDoc ? `Anular ${etiquetaDocumentoBodega(a.tipo)} <span class="mono">${esc(a.numero)}</span>`
+    : (a.esLinea ? `Anular una línea de <span class="mono">${esc(a.numero)}</span>` : `Anular <span class="mono">${esc(a.numero)}</span>`);
+  const fmtLinea = l => `<li><span class="mono">${esc(l.sku_code||'')}</span> ${esc(l.descripcion||'')} · <strong>${l.cantidad==null?'':l.cantidad} ${esc(l.unidad_medida||'')}</strong></li>`;
+  const lineas = esDoc ? (a.lineas||[]) : (a.sku_code ? [a] : []);
+  const explicacion = esDoc
+    ? `Se anulan <strong>todas</strong> sus líneas y el stock vuelve a lo que había antes. Si venía de una orden de compra, esas cantidades vuelven a quedar pendientes. Queda registrado con el motivo; nada se borra.`
+    : (a.esLinea
+      ? `Solo esta línea queda anulada: el resto de ${esc(a.numero)} sigue válido y el comprobante la muestra tachada con el motivo. El stock descuenta esta cantidad y, si venía de una orden de compra, vuelve a quedar pendiente. Si era la única línea viva, se anula el documento completo.`
+      : `El movimiento queda anulado con el motivo y el stock vuelve a lo que había antes.`);
+  return `<div class="foto-modal-backdrop" id="anular-bodega-backdrop">
+    <div class="card" style="width:min(92vw,440px);margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h2 style="margin:0;font-size:17px">${titulo}</h2>
+        <button id="anular-bodega-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      ${lineas.length ? `<ul class="hint" style="margin:0 0 8px 18px;padding:0">${lineas.map(fmtLinea).join('')}</ul>` : ''}
+      <div class="hint" style="margin-bottom:10px">${explicacion}</div>
+      <label for="anular-bodega-motivo">Motivo</label>
+      <input type="text" id="anular-bodega-motivo" value="${esc(a.motivo||'')}" placeholder="Por qué se anula" autocomplete="off" style="margin:0">
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button type="button" class="btn btn-danger" id="anular-bodega-guardar" ${a.guardando?'disabled':''}>${a.guardando?'<span class="spinner"></span> Anulando…':(esDoc?'Anular todo':(a.esLinea?'Anular la línea':'Anular'))}</button>
+        <button type="button" class="btn btn-secondary" id="anular-bodega-cancelar" style="width:auto">Volver</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 // Kardex por SKU: movimientos aprobados con saldo corrido (vista kardex_bodega). Se muestra en un
@@ -6872,9 +6926,11 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
   const empresa = state.perfil && state.perfil.empresas ? state.perfil.empresas.nombre : '';
   const esIngreso = cab.tipo==='ingreso';
   const esDevolucion = cab.tipo==='devolucion';
-  const total = filas.reduce((s,l)=>s+Number(l.cantidad),0);
+  // Las líneas anuladas se muestran tachadas, con su motivo, y no suman en los totales.
+  const vivas = filas.filter(l=> l.estado!=='anulado');
+  const total = vivas.reduce((s,l)=>s+Number(l.cantidad),0);
   const hayMonto = filas.some(l=> l.costo_aplicado!=null);
-  const totalMonto = filas.reduce((s,l)=> s + (l.costo_aplicado!=null ? Number(l.costo_aplicado)*Number(l.cantidad) : 0), 0);
+  const totalMonto = vivas.reduce((s,l)=> s + (l.costo_aplicado!=null ? Number(l.costo_aplicado)*Number(l.cantidad) : 0), 0);
   const money = n => '$'+Math.round(Number(n)||0).toLocaleString('es-CL');
   const dato = (k,v)=> v ? `<div><span style="color:#555">${k}:</span> ${esc(String(v))}</div>` : '';
   const th = (t,der)=>`<th style="text-align:${der?'right':'left'};border-bottom:1px solid #000;padding:4px">${t}</th>`;
@@ -6891,7 +6947,7 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px">
       <thead><tr>${th('SKU')}${th('Descripción')}${th('Bin')}${th('Cantidad',true)}${hayMonto?th('Costo unit.',true)+th('Monto',true):''}</tr></thead>
-      <tbody>${filas.map(l=>`<tr>${td(`<span style="font-family:monospace">${esc(l.sku_code)}${l.batch?` · ${esc(l.batch)}`:''}</span>`)}${td(esc(l.descripcion||''))}${td(esc(l.storage_bin||'—'))}${td(`${l.cantidad} ${esc(l.unidad_medida||'')}`,true)}${hayMonto?td(l.costo_aplicado!=null?money(l.costo_aplicado):'—',true)+td(l.costo_aplicado!=null?money(Number(l.costo_aplicado)*Number(l.cantidad)):'—',true):''}</tr>`).join('')}</tbody>
+      <tbody>${filas.map(l=>{ const anulada = l.estado==='anulado'; const c = t=> anulada ? `<s style="color:#888">${t}</s>` : t; return `<tr>${td(c(`<span style="font-family:monospace">${esc(l.sku_code)}${l.batch?` · ${esc(l.batch)}`:''}</span>`))}${td(c(esc(l.descripcion||''))+(anulada?`<div style="font-size:10px;color:#a00">Línea anulada${l.anulado_motivo?`: ${esc(l.anulado_motivo)}`:''}</div>`:''))}${td(c(esc(l.storage_bin||'—')))}${td(c(`${l.cantidad} ${esc(l.unidad_medida||'')}`),true)}${hayMonto?td(c(l.costo_aplicado!=null?money(l.costo_aplicado):'—'),true)+td(c(l.costo_aplicado!=null?money(Number(l.costo_aplicado)*Number(l.cantidad)):'—'),true):''}</tr>`; }).join('')}</tbody>
       <tfoot><tr><td colspan="3" style="padding:4px;text-align:right">Total</td><td style="padding:4px;text-align:right"><strong>${total}</strong></td>${hayMonto?`<td></td><td style="padding:4px;text-align:right"><strong>${money(totalMonto)}</strong></td>`:''}</tr></tfoot>
     </table>
     ${fotos.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${fotos.map(f=>`<figure style="margin:0;font-size:10px;text-align:center"><img src="${esc(f.url)}" style="width:130px;height:130px;object-fit:cover;border:1px solid #ccc"><figcaption>${f.tipo==='guia'?'Guía':'Material'}</figcaption></figure>`).join('')}</div>` : ''}
@@ -12838,7 +12894,7 @@ function renderMovimientosBodega(){
           <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : m.tipo==='devolucion' ? `Devuelve ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">${esc(m.motivo||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(m.fecha)}</td>
           <td>${badgeEstadoMovimiento(m.estado)}</td>
-          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${m.documento_id ? ` <button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(m.documento_id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button>`:''}${funcionBodegaActiva('devoluciones') && m.tipo==='salida' && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-devolver-doc="${esc(m.documento_id)}" data-devolver-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Devolver</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
+          <td class="num" style="white-space:nowrap">${fotos.length?`<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(fotos.map(f=>({foto_url:f.foto_url, numero_conteo:null, fecha_conteo:m.fecha}))))}" aria-label="Ver fotos">${ICONS.camera}${fotos.length>1?` ${fotos.length}`:''}</button>`:''} <button type="button" class="btn btn-secondary" data-kardex-sku="${esc(m.sku_id)}" data-kardex-codigo="${esc(m.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button>${m.documento_id ? ` <button type="button" class="btn btn-secondary" data-comprobante-doc="${esc(m.documento_id)}" style="width:auto;padding:5px 10px;font-size:12px">PDF</button>`:''}${funcionBodegaActiva('devoluciones') && m.tipo==='salida' && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? ` <button type="button" class="btn btn-secondary" data-devolver-doc="${esc(m.documento_id)}" data-devolver-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Devolver</button>`:''}${esAdmin && m.documento_id && m.estado==='aprobado' && !m.documento_anulado_en ? (m.tipo==='ingreso' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular línea</button> <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular recepción</button>` : ` <button type="button" class="btn btn-secondary" data-anular-doc="${esc(m.documento_id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`):''}${esAdmin && !m.documento_id && m.estado==='aprobado' ? ` <button type="button" class="btn btn-secondary" data-anular-mov="${esc(m.id)}" data-numero="${esc(m.numero)}" style="width:auto;padding:5px 10px;font-size:12px">Anular</button>`:''}</td>
         </tr>`; }).join('')}</tbody></table></div>` : `<div class="empty"><div class="glyph">✓</div>${b.movimientosCargados ? 'Aún no hay movimientos.' : 'Cargando…'}</div>`}
     </div>
   `;
@@ -13299,7 +13355,7 @@ function renderDom(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderProveedorModal() + renderCancelarReservaModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -13739,6 +13795,16 @@ function bind(){
     const motivo = document.getElementById('anular-oc-motivo');
     if(motivo) motivo.addEventListener('input', ev=>{ state.ordenes.anulando = {...state.ordenes.anulando, motivo: ev.target.value}; });
     document.getElementById('anular-oc-guardar').addEventListener('click', anularOrdenCompra);
+  }
+
+  if(state.bodega.anulando){
+    const cerrarAnularBodega = ()=> setState({bodega:{...state.bodega, anulando:null}});
+    document.getElementById('anular-bodega-close').addEventListener('click', cerrarAnularBodega);
+    document.getElementById('anular-bodega-cancelar').addEventListener('click', cerrarAnularBodega);
+    document.getElementById('anular-bodega-backdrop').addEventListener('click', e=>{ if(e.target.id==='anular-bodega-backdrop') cerrarAnularBodega(); });
+    const motivoAnularBodega = document.getElementById('anular-bodega-motivo');
+    if(motivoAnularBodega) motivoAnularBodega.addEventListener('input', ev=>{ state.bodega.anulando = {...state.bodega.anulando, motivo: ev.target.value}; });
+    document.getElementById('anular-bodega-guardar').addEventListener('click', confirmarAnularBodega);
   }
 
   if(state.view==='stock'){
