@@ -42,6 +42,7 @@ let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVist
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
 let universoZonaGiganteLen = 0;
 let bodegaRpcFalla = false; // simula sin conexión al registrar un documento de bodega
+let anularBodegaFalla = false; // anular_movimiento_bodega / anular_documento_bodega: simular rechazo del servidor
 let buscadorBodegaFalla = null; // mensaje de error a devolver en el buscador de bodega
 let aperturaPendientes = 0; // materiales con stock y sin movimiento, para registrar_apertura_bodega
 let ajusteEstadoMock = 'aprobado'; // estado que devuelve registrar_ajuste_bodega (admin: aprobado; operador: pendiente_aprobacion)
@@ -1182,6 +1183,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({documento:{id:'tra-1', numero:'TRA-000001', tipo:'transferencia'}, movimientos:[], repetido:false}) };
   }
   if(path.startsWith('/rest/v1/rpc/anular_documento_bodega') || path.startsWith('/rest/v1/rpc/resolver_movimiento_bodega')){
+    if(anularBodegaFalla && path.includes('anular_documento_bodega')) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'No se puede anular: el material BOD-001 ya salió de bodega'}) };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
   }
   if(path.startsWith('/rest/v1/skus?select=id,sku_code,descripcion') && opts && opts.method==='POST'){
@@ -1205,7 +1207,10 @@ const fakeFetchImpl = async (url, opts) => {
     const body = JSON.parse(opts.body);
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({id:'mov-aj', numero:'AJU-000001', estado: ajusteEstadoMock, delta: body.p_cantidad_nueva - 6, stock: body.p_cantidad_nueva}) };
   }
-  if(path.startsWith('/rest/v1/rpc/anular_movimiento_bodega')) return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  if(path.startsWith('/rest/v1/rpc/anular_movimiento_bodega')){
+    if(anularBodegaFalla) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'No se puede anular: de este material ya salió parte de lo recibido'}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
   if(path.startsWith('/rest/v1/kardex_bodega')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
       {id:'k2', numero:'SAL-000003', tipo:'salida', cantidad:2, efecto:-2, saldo:4, fecha:'2026-09-08', retirado_por_nombre:'Juan Retira', destino:'Taller', usuario_nombre:'Ana', unidad_medida:'UN'},
@@ -7272,6 +7277,71 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.corregirConteoModal = null;
     ctx.__appstate.busqueda = busquedaAntesCorr;
     ctx.__appstate.perfil = perfilAntesCorr;
+  }
+
+  // ===== Bodega: anular UNA línea de una recepción (pedido de Joel) y modal con motivo en vez
+  // de prompt(). Salidas y devoluciones siguen anulándose completas.
+  {
+    const perfilAntesAnu = ctx.__appstate.perfil;
+    const bodegaAntesAnu = ctx.__appstate.bodega;
+    ctx.__appstate.perfil = { id:'adm-1', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', modulo_bodega_habilitado:true} };
+    ctx.__appstate.view = 'movimientos';
+    const movsAnu = [
+      {id:'mov-1', documento_id:'doc-1', numero:'ING-000007', tipo:'ingreso', sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', cantidad:5, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08', proveedor_nombre:'Proveedor Uno'},
+      {id:'mov-1b', documento_id:'doc-1', numero:'ING-000007', tipo:'ingreso', sku_id:'sku-b2', sku_code:'BOD-002', descripcion:'Correa', cantidad:3, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08', proveedor_nombre:'Proveedor Uno'},
+      {id:'mov-1c', documento_id:'doc-1', numero:'ING-000007', tipo:'ingreso', sku_id:'sku-b3', sku_code:'BOD-003', descripcion:'Sello', cantidad:4, unidad_medida:'UN', estado:'anulado', anulado_motivo:'Se contó de más', fecha:'2026-09-08', proveedor_nombre:'Proveedor Uno'},
+      {id:'mov-2', documento_id:'doc-2', numero:'SAL-000003', tipo:'salida', sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', cantidad:2, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08', retirado_por_nombre:'Juan Retira', destino:'Taller'},
+    ];
+    ctx.__appstate.bodega = {...ctx.bodegaEstadoInicial(), movimientosCargados:true, movimientos: movsAnu};
+    const htmlAnu = ctx.renderMovimientosBodega();
+    const filaLinea = htmlAnu.slice(htmlAnu.indexOf('data-kardex-sku="sku-b1"'), htmlAnu.indexOf('data-kardex-sku="sku-b2"'));
+    assert(filaLinea.includes('data-anular-mov="mov-1"') && filaLinea.includes('>Anular línea<') && filaLinea.includes('data-anular-doc="doc-1"') && filaLinea.includes('>Anular recepción<'), 'una línea de recepción ofrece "Anular línea" y "Anular recepción", obtuvo: '+filaLinea);
+    const filaAnulada = htmlAnu.slice(htmlAnu.indexOf('data-kardex-sku="sku-b3"'), htmlAnu.indexOf('SAL-000003'));
+    assert(!filaAnulada.includes('data-anular-'), 'una línea ya anulada no ofrece anular, obtuvo: '+filaAnulada);
+    const filaSalida = htmlAnu.slice(htmlAnu.indexOf('SAL-000003'));
+    assert(filaSalida.includes('data-anular-doc="doc-2"') && !filaSalida.includes('data-anular-mov="mov-2"') && !filaSalida.includes('Anular línea'), 'un despacho solo se anula completo, obtuvo: '+filaSalida);
+    // "Anular línea" abre el modal con la línea y lo que va a pasar; sin motivo no llama al servidor.
+    ctx.anularMovimientoBodega('mov-1', 'ING-000007');
+    let anu = ctx.__appstate.bodega.anulando;
+    assert(anu && anu.clase==='movimiento' && anu.esLinea===true && anu.sku_code==='BOD-001' && anu.cantidad===5 && anu.motivo==='' , 'Anular línea abre el modal con los datos de la línea, obtuvo: '+JSON.stringify(anu));
+    let htmlModalAnu = ctx.renderAnularBodegaModal();
+    assert(htmlModalAnu.includes('Anular una línea de') && htmlModalAnu.includes('ING-000007') && htmlModalAnu.includes('BOD-001') && htmlModalAnu.includes('id="anular-bodega-motivo"') && htmlModalAnu.includes('>Anular la línea<') && htmlModalAnu.includes('Solo esta línea queda anulada'), 'el modal explica que se anula solo la línea, obtuvo: '+htmlModalAnu);
+    calls.length = 0;
+    assert((await ctx.confirmarAnularBodega())===false && !calls.some(c=>c.url.includes('/rpc/anular_')) && ctx.__appstate.bodega.anulando!==null, 'sin motivo no se anula ni se llama al servidor');
+    ctx.__appstate.bodega.anulando = {...ctx.__appstate.bodega.anulando, motivo:'  Se registró de más  '};
+    calls.length = 0;
+    assert((await ctx.confirmarAnularBodega())===true, 'con motivo sí se anula la línea');
+    const rpcLinea = calls.find(c=>c.url.includes('/rpc/anular_movimiento_bodega'));
+    assert(rpcLinea && JSON.parse(rpcLinea.opts.body).p_movimiento_id==='mov-1' && JSON.parse(rpcLinea.opts.body).p_motivo==='Se registró de más', 'anular línea llama a anular_movimiento_bodega con id y motivo, obtuvo: '+JSON.stringify(rpcLinea && rpcLinea.opts.body));
+    assert(!calls.some(c=>c.url.includes('/rpc/anular_documento_bodega')), 'anular una línea no toca el documento');
+    assert(ctx.__appstate.bodega.anulando===null, 'al anular con éxito el modal se cierra');
+    // "Anular recepción" lista las líneas vivas (no la ya anulada) y llama al documento completo.
+    ctx.anularDocumentoBodega('doc-1', 'ING-000007');
+    anu = ctx.__appstate.bodega.anulando;
+    assert(anu && anu.clase==='documento' && anu.tipo==='ingreso' && anu.lineas.length===2 && !anu.lineas.some(l=>l.sku_code==='BOD-003'), 'Anular recepción arma el modal con las líneas vivas, obtuvo: '+JSON.stringify(anu));
+    htmlModalAnu = ctx.renderAnularBodegaModal();
+    assert(htmlModalAnu.includes('Anular la recepción') && htmlModalAnu.includes('BOD-001') && htmlModalAnu.includes('BOD-002') && htmlModalAnu.includes('<strong>todas</strong>') && htmlModalAnu.includes('>Anular todo<'), 'el modal del documento dice que se anulan todas las líneas, obtuvo: '+htmlModalAnu);
+    ctx.__appstate.bodega.anulando = {...anu, motivo:'Guía equivocada'};
+    calls.length = 0;
+    assert((await ctx.confirmarAnularBodega())===true, 'con motivo se anula el documento');
+    const rpcDoc = calls.find(c=>c.url.includes('/rpc/anular_documento_bodega'));
+    assert(rpcDoc && JSON.parse(rpcDoc.opts.body).p_documento_id==='doc-1' && JSON.parse(rpcDoc.opts.body).p_motivo==='Guía equivocada', 'anular recepción llama a anular_documento_bodega, obtuvo: '+JSON.stringify(rpcDoc && rpcDoc.opts.body));
+    // Si el servidor rechaza (p.ej. el material ya salió), el modal sigue abierto con el motivo y sin quedar trabado.
+    ctx.anularMovimientoBodega('mov-1b', 'ING-000007');
+    ctx.__appstate.bodega.anulando = {...ctx.__appstate.bodega.anulando, motivo:'intento'};
+    anularBodegaFalla = true;
+    assert((await ctx.confirmarAnularBodega())===false, 'si el servidor rechaza, devuelve false');
+    anularBodegaFalla = false;
+    anu = ctx.__appstate.bodega.anulando;
+    assert(anu && anu.guardando===false && anu.motivo==='intento', 'si el servidor rechaza, el modal sigue abierto con lo escrito, obtuvo: '+JSON.stringify(anu));
+    // Comprobante: la línea anulada va tachada con su motivo y no suma en el total.
+    const filasComp = movsAnu.filter(m=>m.documento_id==='doc-1'); // el fixture, no el estado: refrescarBodega() lo reemplazó con el mock
+    const htmlComp = ctx.comprobanteDocumentoBodegaHTML(filasComp[0], filasComp, []);
+    assert(htmlComp.includes('<s style="color:#888"><span style="font-family:monospace">BOD-003') && htmlComp.includes('Línea anulada: Se contó de más'), 'la línea anulada va tachada con su motivo, obtuvo: '+htmlComp);
+    assert(htmlComp.includes('<strong>8</strong>') && !htmlComp.includes('<strong>12</strong>'), 'el total del comprobante excluye la línea anulada (5+3=8, no 12), obtuvo: '+htmlComp);
+    assert(!htmlComp.includes('<s style="color:#888"><span style="font-family:monospace">BOD-001'), 'las líneas vivas no van tachadas');
+    ctx.__appstate.bodega = bodegaAntesAnu;
+    ctx.__appstate.perfil = perfilAntesAnu;
   }
 
   // ===== Reconteo: "Cargar más" con offset, en vez de traer todo con un límite fijo =====
