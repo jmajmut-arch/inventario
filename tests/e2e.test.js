@@ -284,6 +284,58 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: los dos módulos tienen su sección, y ninguna captura sale deformada =====
+  // La regresión concreta: un <img> con atributo height dentro de .phone-frame. El CSS fija
+  // width:100% pero no el alto, así que el atributo se aplicaba como alto CSS y estiraba la
+  // captura de Bodega a 1584 px (tres veces lo que le tocaba) sin que nada fallara.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-modulos: '+err.message));
+    await bloquearSentry(page);
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+
+    for(const id of ['bodega','inventario']){
+      assert(await page.$('#'+id) !== null, `la landing debe tener la sección #${id}`);
+      assert(await page.$(`.nav-links a[href="#${id}"]`) !== null, `el menú debe enlazar a #${id}`);
+    }
+
+    // Las capturas son de carga diferida: sin recorrer la página primero, naturalWidth es 0,
+    // se saltan todas y la prueba pasaría sin haber medido nada.
+    await page.evaluate(async () => {
+      for(let y = 0; y <= document.body.scrollHeight; y += 600){
+        window.scrollTo(0, y);
+        await new Promise(r => setTimeout(r, 60));
+      }
+      window.scrollTo(0, 0);
+      const imgs = [...document.querySelectorAll('.phone-frame img, .comparativa-img')];
+      await Promise.all(imgs.map(i => i.complete ? null : new Promise(r => {
+        i.addEventListener('load', r, {once:true}); i.addEventListener('error', r, {once:true});
+      })));
+    });
+
+    const medidas = await page.evaluate(() => {
+      const revisadas = [], malas = [];
+      document.querySelectorAll('.phone-frame img, .comparativa-img').forEach(img => {
+        const archivo = img.getAttribute('src').split('/').pop();
+        if(!img.naturalWidth || !img.naturalHeight) return;
+        const r = img.getBoundingClientRect();
+        if(!r.width || !r.height) return;
+        revisadas.push(archivo);
+        const esperado = img.naturalHeight / img.naturalWidth;
+        const real = r.height / r.width;
+        if(Math.abs(real - esperado) / esperado > 0.02)
+          malas.push(archivo + ': ' + real.toFixed(2) + ' en vez de ' + esperado.toFixed(2));
+      });
+      return { revisadas, malas };
+    });
+    assert(medidas.revisadas.includes('bodega-demo.png'),
+      'la prueba tiene que alcanzar a medir la captura de Bodega; si no, pasa sin comprobar nada. Midió: '+medidas.revisadas.join(', '));
+    assert(medidas.malas.length === 0,
+      'ninguna captura de la landing debe renderizarse con otra proporción que la suya, obtuvo: '+medidas.malas.join(' | '));
+    await context.close();
+  }
+
   // ===== Bodega: reservas y el atajo a la orden de compra, con clicks reales =====
   {
     const context = await browser.newContext({ viewport:{ width:420, height:900 } });
