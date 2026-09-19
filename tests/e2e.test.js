@@ -304,6 +304,8 @@ async function loguear(page, perfil){
         modales: !!document.getElementById('demo-modal-backdrop') && !!document.getElementById('contacto-modal-backdrop'),
         whatsapp: !!document.getElementById('whatsapp-float-link'),
         nav: [...document.querySelectorAll('.nav-links a')].map(a => a.getAttribute('href')),
+        inicio: [...document.querySelectorAll('.nav-links a')].some(a => a.getAttribute('href') === 'index.html' && /inicio/i.test(a.textContent)),
+        actual: [...document.querySelectorAll('.nav-links a[aria-current="page"]')].map(a => a.getAttribute('href')),
         desbordeH: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       }));
       assert(estado.fondo === 'rgb(250, 246, 238)', `${archivo}: assets/comun.css no aplicó, el fondo quedó en ${estado.fondo}`);
@@ -311,6 +313,11 @@ async function loguear(page, perfil){
       assert(estado.whatsapp, `${archivo}: falta el botón flotante de WhatsApp`);
       assert(estado.nav.includes('bodega.html') && estado.nav.includes('inventario.html'),
         `${archivo}: el menú debe enlazar a las dos páginas de módulo, obtuvo ${JSON.stringify(estado.nav)}`);
+      // Desde una página de módulo, la única vuelta a la portada era el logo. Con tres páginas
+      // el menú tiene que ofrecerla como tal, y decir en cuál está parado el visitante.
+      assert(estado.inicio, `${archivo}: el menú debe ofrecer "Inicio" hacia index.html, obtuvo ${JSON.stringify(estado.nav)}`);
+      assert(estado.actual.length === 1 && estado.actual[0] === archivo,
+        `${archivo}: el menú debe marcar la página actual con aria-current, obtuvo ${JSON.stringify(estado.actual)}`);
       assert(!estado.desbordeH, `${archivo}: la página no debe tener barra horizontal`);
       assert(erroresJs.length === 0, `${archivo}: sin errores de JavaScript, obtuvo: ${erroresJs.join(' | ')}`);
     }
@@ -334,6 +341,38 @@ async function loguear(page, perfil){
     await page.goto(`http://localhost:${PORT}/bodega.html#bodega`, { waitUntil:'networkidle' });
     await page.waitForTimeout(250);
     assert(page.url().endsWith('bodega.html#bodega'), 'el ancla propia de la página no debe redirigir, quedó en '+page.url());
+    await context.close();
+  }
+
+  // ===== Landing: las dos tarjetas del selector se ven sin scrollear =====
+  // La regresión concreta: las tarjetas llevaban la clase .reveal, que las deja en opacity 0
+  // hasta que el IntersectionObserver ve el 15% de ellas. Al compactar la portada quedaron
+  // arriba del pliegue pero con solo un 9% dentro, así que el observador no disparaba: se veía
+  // el título de la sección y debajo un hueco en blanco, peor que tenerlas más abajo. Son la
+  // acción principal de la portada y tienen que estar visibles desde que la página carga.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-selector: '+err.message));
+    await bloquearSentry(page);
+    for(const [ancho, alto] of [[1280,800], [420,860]]){
+      await page.setViewportSize({ width: ancho, height: alto });
+      await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+      await page.waitForTimeout(400);   // sin scrollear: así la ve quien llega
+      const tarjetas = await page.evaluate(() => Array.from(document.querySelectorAll('.path')).map(function(e){
+        const r = e.getBoundingClientRect();
+        return { destino:(e.getAttribute('href')||''), arriba:Math.round(r.top), opacidad:getComputedStyle(e).opacity };
+      }));
+      assert(tarjetas.length === 2, `la portada debe tener las dos tarjetas del selector, tiene ${tarjetas.length}`);
+      // En celular las dos se apilan y la segunda no cabe: lo exigible es que la primera
+      // asome, para que se entienda que hay que elegir, y que ninguna dependa del observador.
+      assert(tarjetas[0].arriba < alto, `a ${ancho}px la primera tarjeta empieza en ${tarjetas[0].arriba}px, bajo el borde de ${alto}px`);
+      for(const t of tarjetas){
+        assert(t.opacidad === '1', `a ${ancho}px la tarjeta de ${t.destino} se ve a medias sin scrollear (opacidad ${t.opacidad})`);
+      }
+      const destinos = tarjetas.map(t => t.destino).sort().join(',');
+      assert(destinos === 'bodega.html,inventario.html', `las tarjetas deben llevar a cada módulo, llevan a ${destinos}`);
+    }
     await context.close();
   }
 
