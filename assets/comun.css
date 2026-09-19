@@ -28,6 +28,7 @@ img{max-width:100%;}
 .ia{color:var(--amber);}
 .nav-links{display:flex;align-items:center;gap:30px;font-size:14px;font-weight:500;color:var(--text-dim);}
 .nav-links a:hover{color:var(--text);}
+.nav-links a[aria-current="page"]{color:var(--text);font-weight:600;}
 .nav-cta{padding:9px 20px;border-radius:100px;background:var(--text);color:var(--bg);font-size:13.5px;font-weight:700;}
 .nav-toggle{display:none;width:40px;height:40px;border-radius:10px;align-items:center;justify-content:center;background:none;flex-shrink:0;}
 .nav-toggle:hover{background:rgba(36,26,16,.06);}
