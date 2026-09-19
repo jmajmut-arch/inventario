@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>InventIA · Revisión de seguridad</title>
+<link rel="stylesheet" href="estilo.css">
+<style>
+  .item{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:9.4pt;page-break-inside:avoid;}
+  .item .head{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+  .item .num{width:22px;height:22px;border-radius:50%;background:var(--text);color:#fff;font-weight:700;font-size:9pt;display:flex;align-items:center;justify-content:center;flex:none;}
+  .item .h{font-weight:700;font-size:10.4pt;flex:1;}
+  .amb{display:inline-block;font-size:7.4pt;letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding:2px 7px;border-radius:100px;flex:none;}
+  .amb.datos{background:var(--new-soft);color:var(--new);}
+  .amb.seguridad{background:var(--amber-soft);color:var(--amber);}
+  .amb.producto{background:var(--ok-soft);color:var(--ok);}
+  .amb.operacion{background:var(--warn-soft);color:var(--warn);}
+  .amb.documentacion{background:#EEE9E0;color:var(--dim);}
+  .item p{margin:0 0 5px;}
+  .item .meta{display:flex;gap:14px;flex-wrap:wrap;font-size:8.3pt;color:var(--dim);border-top:1px dotted var(--line);padding-top:5px;margin-top:6px;}
+  .item .meta b{color:var(--text);}
+  .legend{display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:10mm;}
+  .legend h2{font-size:9pt;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 8px;}
+  .legend .row{display:flex;gap:8px;align-items:baseline;font-size:9.4pt;margin-bottom:5px;}
+  .legend .k{font-weight:700;min-width:44mm;}
+  .est{display:inline-block;font-size:7.4pt;letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding:2px 8px;border-radius:100px;flex:none;}
+  .est.critico{background:var(--amber);color:#fff;} .est.importante{background:var(--warn-soft);color:var(--warn);} .est.bien{background:var(--ok-soft);color:var(--ok);} .est.evidencia{background:#EEE9E0;color:var(--dim);}
+  .ok-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;}
+  .ok-grid .item{margin:0;}
+  .ok-grid .item .h{font-size:9.8pt;}
+</style></head>
+<body>
+
+<!-- PORTADA -->
+<section class="page cover">
+  <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
+  <div class="doc-kind">Revisión de seguridad · 19 de septiembre de 2026</div>
+  <h1>Qué está bien, qué falta y qué pide una certificación.</h1>
+  <p class="lead">Revisión integral hecha con datos reales: políticas y funciones de la base, buckets de fotos, MFA de las cuentas, librerías y cabeceras de la app, secretos en el repositorio y protección de la rama de producción. La base está bien protegida. Lo que falta para certificar no es tanto código como <b>controles y evidencia</b>: quién puede qué, cómo se prueba y dónde queda escrito.</p>
+  <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
+
+  <div class="legend">
+    <div>
+      <h2>Estado</h2>
+      <div class="row"><span class="k"><span class="est bien">Bien</span></span><span>Verificado. Sirve como evidencia para un cuestionario de seguridad.</span></div>
+      <div class="row"><span class="k"><span class="est critico">Crítico</span></span><span>Hueco real o requisito básico de cualquier certificación. Primero.</span></div>
+      <div class="row"><span class="k"><span class="est importante">Importante</span></span><span>Defensa que falta o control débil. No expone datos hoy, pero un escáner lo marca.</span></div>
+      <div class="row"><span class="k"><span class="est evidencia">Evidencia</span></span><span>No es técnico: política escrita, prueba hecha o documento del proveedor.</span></div>
+    </div>
+    <div>
+      <h2>Ámbito</h2>
+      <div class="row"><span class="k"><span class="amb seguridad">Seguridad</span></span><span>Quién ve qué, y qué puede suplantarse o inyectarse.</span></div>
+      <div class="row"><span class="k"><span class="amb datos">Datos</span></span><span>Pérdida, integridad, respaldo y retención de la información.</span></div>
+      <div class="row"><span class="k"><span class="amb operacion">Operación</span></span><span>Rutinas, revisiones y fechas que hay que cumplir.</span></div>
+      <div class="row"><span class="k"><span class="amb documentacion">Documentación</span></span><span>Políticas y registros que una auditoría pide ver.</span></div>
+    </div>
+  </div>
+
+  <div class="toc">
+    <h2>Contenido</h2>
+    <div class="toc-grid">
+      <div class="toc-row"><span><span class="n">01</span>Lo que ya está bien</span><span class="p">pág. 2</span></div>
+      <div class="toc-row"><span><span class="n">03</span>Qué pide una certificación</span><span class="p">pág. 5</span></div>
+      <div class="toc-row"><span><span class="n">02</span>Hallazgos: críticos e importantes</span><span class="p">pág. 3-4</span></div>
+      <div class="toc-row"><span><span class="n">04</span>Orden propuesto</span><span class="p">pág. 6</span></div>
+    </div>
+  </div>
+
+  <div class="note">Si hay que elegir uno solo para esta semana: activar MFA en las tres cuentas de administrador. Cero cuentas la usan hoy, y es lo primero que pregunta cualquier cliente.</div>
+</section>
+
+<!-- 01 LO QUE ESTÁ BIEN -->
+<section class="page">
+  <div class="kicker">01 · Lo que ya está bien</div>
+  <h2 class="title">Verificado el 19 de septiembre</h2>
+  <p class="intro">Cada punto se comprobó contra la base o el repositorio, no contra lo que dice la documentación. Sirven tal cual como respuesta a un cuestionario de seguridad de un cliente.</p>
+
+  <div class="ok-grid">
+    <div class="item"><div class="head"><span class="h">Aislamiento entre empresas (RLS)</span><span class="est bien">Bien</span></div><p>Las 40 tablas tienen RLS activo y políticas. Cada empresa ve solo lo suyo; un usuario normal no ve nada ajeno en ninguna. Verificado en agosto con barrido completo y de nuevo hoy.</p></div>
+    <div class="item"><div class="head"><span class="h">Vistas y funciones</span><span class="est bien">Bien</span></div><p>Todas las vistas usan <code>security_invoker</code>. Las 17 funciones con privilegios elevados tienen <code>search_path</code> fijo y no las puede ejecutar el rol anónimo (salvo un trigger interno conocido). Después de cada migración se revisa el advisor y los parámetros inválidos.</p></div>
+    <div class="item"><div class="head"><span class="h">Fotos privadas por empresa</span><span class="est bien">Bien</span></div><p>El bucket de fotos no es público; solo se sube, lee y actualiza dentro de la carpeta de la propia empresa, con URL firmadas temporales. Límite de 20 MB y solo imágenes.</p></div>
+    <div class="item"><div class="head"><span class="h">Sin secretos en el repositorio</span><span class="est bien">Bien</span></div><p>La clave de servicio y la de Flow viven solo en variables de entorno de Supabase y en secretos de GitHub. En el código público va únicamente la clave anónima, que es pública por diseño. El archivo de respaldo está en <code>.gitignore</code>.</p></div>
+    <div class="item"><div class="head"><span class="h">Cobros y registro</span><span class="est bien">Bien</span></div><p>Los avisos de Flow no se creen: la función consulta a Flow con firma HMAC antes de tocar una suscripción. El registro de empresas va por una función con permisos acotados.</p></div>
+    <div class="item"><div class="head"><span class="h">Auditoría y trazabilidad</span><span class="est bien">Bien</span></div><p>Cada cambio en conteos, materiales, movimientos y documentos queda con antes, después, quién y cuándo. Correcciones y anulaciones exigen motivo y no borran nada.</p></div>
+    <div class="item"><div class="head"><span class="h">Pruebas antes de publicar</span><span class="est bien">Bien</span></div><p>Cada PR corre pruebas unitarias, de esquema y de navegador real en CI. Ningún cambio se publica en rojo. Sentry avisa de errores en producción.</p></div>
+    <div class="item"><div class="head"><span class="h">Correo y dominio</span><span class="est bien">Bien</span></div><p>SPF y DKIM configurados; el remitente es contacto@inventiapp.cl. DMARC existe, aunque todavía en modo observación (ver hallazgo 10). Una sola sesión activa por cuenta.</p></div>
+    <div class="item"><div class="head"><span class="h">Respaldo y recuperación</span><span class="est bien">Bien</span></div><p>Supabase guarda copias diarias siete días. Existe un script propio de respaldo completo (base, roles, fotos, funciones) y un runbook de recuperación paso a paso. Falta ejecutarlo (ver evidencia).</p></div>
+    <div class="item"><div class="head"><span class="h">Infraestructura</span><span class="est bien">Bien</span></div><p>Postgres 17.6 al día, región São Paulo, cifrado en reposo y en tránsito por Supabase. App servida por GitHub Pages solo por HTTPS. Sentry no recibe datos personales.</p></div>
+  </div>
+</section>
+
+<!-- 02 HALLAZGOS -->
+<section class="page">
+  <div class="kicker">02 · Hallazgos</div>
+  <h2 class="title">Críticos: huecos reales o requisitos básicos</h2>
+  <p class="intro">Los tres se resuelven en días, no en semanas. Ninguno expone datos de clientes hoy, pero los tres son lo primero que revisa un auditor.</p>
+
+  <div class="item">
+    <div class="head"><span class="num">1</span><span class="h">Ninguna cuenta usa MFA, incluidos los tres administradores</span><span class="est critico">Crítico</span><span class="amb seguridad">Seguridad</span></div>
+    <p>La app ya permite activar el segundo factor, pero cero cuentas lo tienen. Una contraseña filtrada de un admin da acceso a todo el maestro y los conteos de su empresa. Propuesta: activar MFA en las tres cuentas admin esta semana y, en la app, hacerla obligatoria para el rol admin (aviso al entrar, bloqueo tras un plazo).</p>
+    <div class="meta"><span><b>Quién:</b> Joel, Victoria y Claudio hoy; desarrollo para hacerla obligatoria</span><span><b>Esfuerzo:</b> 5 minutos por cuenta; media sesión para obligarla</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">2</span><span class="h">La rama de producción no está protegida</span><span class="est critico">Crítico</span><span class="amb operacion">Operación</span></div>
+    <p>Cualquiera con acceso al repositorio puede subir directo a <code>main</code>, sin PR ni pruebas, y GitHub Pages lo publica al instante. Hay además 42 ramas viejas sin borrar. Propuesta: exigir PR con CI en verde para <code>main</code>, sin subida directa, y borrar las ramas ya fusionadas.</p>
+    <div class="meta"><span><b>Quién:</b> Joel, en la configuración del repositorio</span><span><b>Esfuerzo:</b> 10 minutos</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">3</span><span class="h">La librería de Excel tiene vulnerabilidades conocidas</span><span class="est critico">Crítico</span><span class="amb seguridad">Seguridad</span></div>
+    <p>La app carga xlsx 0.18.5 desde un CDN. Tiene dos CVE publicados (2023-30533 y 2024-22363, corregidos en 0.19.3 y 0.20.2, que el autor ya no publica en npm). Solo la usan administradores con sus propios archivos, así que el riesgo real es bajo, pero cualquier escáner la marca. Propuesta: servirla desde el repositorio en la versión corregida, como ya se hace con pdf-lib.</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> una sesión, con pruebas de carga de Excel</span></div>
+  </div>
+
+  <h2 class="title" style="font-size:16pt;margin-top:8mm">Importantes: defensas que faltan</h2>
+  <div class="item">
+    <div class="head"><span class="num">4</span><span class="h">Sin Content Security Policy ni integridad en los scripts externos</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
+    <p>La app carga tres scripts desde CDN (lector de códigos, Excel y Sentry) sin hash de integridad. Si alguien compromete el CDN, ejecuta código dentro de tu app con la sesión del usuario. GitHub Pages no permite cabeceras, pero sí una etiqueta CSP en el HTML y SRI con versiones fijas.</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> media sesión</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">5</span><span class="h">Políticas declaradas para "public" y permisos de tabla al rol anónimo</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
+    <p>34 políticas RLS aplican a cualquier rol y el rol anónimo tiene permisos sobre 30 tablas. Hoy no filtra nada porque las funciones de empresa devuelven vacío sin sesión, pero es defensa por accidente. Propuesta: políticas solo para <code>authenticated</code> y revocar al anónimo todo salvo lo que necesita (dejar un lead desde la landing).</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> una sesión, con barrido de verificación como usuario anónimo</span></div>
+  </div>
+</section>
+
+<section class="page">
+  <div class="kicker">02 · Hallazgos (continuación)</div>
+  <div class="item">
+    <div class="head"><span class="num">6</span><span class="h">Sesiones que no caducan</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
+    <p>385 sesiones vivas para 11 usuarios; la más antigua es del 12 de agosto. Un iPad perdido sigue entrando indefinidamente. Propuesta: tope de duración y cierre por inactividad en Supabase Auth (plan Pro), más "cerrar las otras sesiones" en Configuración.</p>
+    <div class="meta"><span><b>Quién:</b> Joel en Supabase; desarrollo para el botón</span><span><b>Esfuerzo:</b> chico</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">7</span><span class="h">Política de contraseñas dispareja</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
+    <p>Los formularios de creación exigen 10 caracteres; el de inicio de sesión acepta 6. Falta fijar el mínimo del lado de Supabase (que es el que manda) y activar la protección contra contraseñas filtradas.</p>
+    <div class="meta"><span><b>Quién:</b> Joel en Supabase Auth; desarrollo para el formulario</span><span><b>Esfuerzo:</b> 15 minutos</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">8</span><span class="h">Auditoría con retención de 14 días y visible entre empresas para el súper admin</span><span class="est importante">Importante</span><span class="amb datos">Datos</span></div>
+    <p>El registro de auditoría se purga a los 14 días; una certificación pide entre 90 días y un año. Y el súper admin lee la auditoría de todos los clientes: es deliberado, pero hay que poder explicarlo por escrito, o cerrarlo. Propuesta: retención de 180 días y una frase en la política de acceso.</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo (una migración) y Joel (la decisión)</span><span><b>Esfuerzo:</b> chico</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">9</span><span class="h">Registro de empresas sin CAPTCHA ni límite de intentos</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
+    <p>La función pública que crea empresas de prueba no tiene freno contra scripts. Ya está en la lista de pendientes. Propuesta: Turnstile de Cloudflare (gratis) y un límite por IP y por hora.</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> una sesión</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">10</span><span class="h">Cabos menores</span><span class="est importante">Importante</span><span class="amb operacion">Operación</span></div>
+    <p>DMARC sigue en <code>p=none</code> (pasar a cuarentena en octubre, como estaba planeado). Un usuario activo no entra hace más de 90 días. La extensión <code>pg_net</code> vive en el esquema público. Dependabot no está activado, así que nadie avisa cuando una librería tiene un CVE nuevo.</p>
+    <div class="meta"><span><b>Quién:</b> Joel</span><span><b>Esfuerzo:</b> 30 minutos en total</span></div>
+  </div>
+</section>
+
+<!-- 03 CERTIFICACIÓN -->
+<section class="page">
+  <div class="kicker">03 · Qué pide una certificación</div>
+  <h2 class="title">Evidencia, más que código</h2>
+  <p class="intro">Para vender a una minera suele bastar un <b>cuestionario de seguridad</b> más un <b>pentest externo</b>. Una certificación formal (ISO 27001 o SOC 2) pide lo mismo y, además, que todo esté escrito, vigente y con responsable. Esto es lo que hoy no existe o no está probado.</p>
+
+  <div class="item"><div class="head"><span class="num">A</span><span class="h">Políticas escritas</span><span class="est evidencia">Evidencia</span><span class="amb documentacion">Documentación</span></div><p>Seguridad de la información, control de acceso (roles, altas y bajas, súper admin), gestión de cambios (lo que ya se hace con PR y CI, escrito), respuesta a incidentes, respaldo y recuperación, retención de datos. Una o dos páginas cada una, en el estilo de los manuales actuales.</p></div>
+  <div class="item"><div class="head"><span class="num">B</span><span class="h">Respaldo ejecutado y restauración probada</span><span class="est evidencia">Evidencia</span><span class="amb datos">Datos</span></div><p>El script y el runbook existen, pero nunca se corrieron. Correr el respaldo, guardarlo fuera del computador y hacer una restauración de prueba en un proyecto aparte. Con fecha y resultado anotados: eso es lo que pide un auditor.</p></div>
+  <div class="item"><div class="head"><span class="num">C</span><span class="h">Revisión de accesos periódica</span><span class="est evidencia">Evidencia</span><span class="amb operacion">Operación</span></div><p>Cada tres meses: quién tiene cuenta, con qué rol, último ingreso, y desactivar lo que no se usa. La app ya muestra todo eso en Mi equipo; falta hacerlo rutina y dejar constancia.</p></div>
+  <div class="item"><div class="head"><span class="num">D</span><span class="h">Gestión de vulnerabilidades</span><span class="est evidencia">Evidencia</span><span class="amb seguridad">Seguridad</span></div><p>Dependabot activo en el repositorio, el advisor de Supabase revisado tras cada migración (ya se hace) y un pentest externo anual con su informe y el cierre de hallazgos.</p></div>
+  <div class="item"><div class="head"><span class="num">E</span><span class="h">Proveedores y contratos</span><span class="est evidencia">Evidencia</span><span class="amb documentacion">Documentación</span></div><p>Guardar los informes SOC 2 de Supabase, GitHub, Cloudflare y Brevo, y tener un acuerdo de tratamiento de datos para firmar con cada cliente: qué datos se guardan, dónde (São Paulo), quién accede y cuánto tiempo.</p></div>
+  <div class="item"><div class="head"><span class="num">F</span><span class="h">Privacidad: Ley 21.719</span><span class="est evidencia">Evidencia</span><span class="amb documentacion">Documentación</span></div><p>La nueva ley chilena de protección de datos entra en vigencia en diciembre de 2026 y aplica a los datos de las personas que usan la app (nombre, correo, quién contó qué). Hace falta una política de privacidad publicada y un procedimiento para eliminar los datos de un usuario que lo pida.</p></div>
+  <div class="item"><div class="head"><span class="num">G</span><span class="h">Incidentes y canal de reporte</span><span class="est evidencia">Evidencia</span><span class="amb operacion">Operación</span></div><p>Un registro de incidentes (aunque esté vacío), con qué pasó, cuándo se detectó y qué se hizo. Y un <code>security.txt</code> en el sitio para que alguien que encuentre un problema sepa a quién escribir.</p></div>
+</section>
+
+<!-- 04 ORDEN -->
+<section class="page">
+  <div class="kicker">04 · Orden propuesto</div>
+  <h2 class="title">Tres etapas</h2>
+  <p class="intro">La primera cierra huecos reales con poco esfuerzo. La segunda deja la app lista para responder bien un cuestionario de seguridad. La tercera es la certificación formal, que conviene empezar cuando haya un cliente que la exija.</p>
+
+  <div class="item">
+    <div class="head"><span class="num">1</span><span class="h">Esta semana: lo que cierra huecos y cuesta poco</span><span class="amb seguridad">Seguridad</span></div>
+    <p>MFA en las tres cuentas admin (1). Proteger <code>main</code> y borrar ramas viejas (2). Mínimo de contraseña y protección contra filtradas en Supabase (7). Caducidad de sesión (6). Dependabot y los cabos menores (10). Todo lo hace Joel en configuraciones, salvo obligar la MFA en la app.</p>
+    <div class="meta"><span><b>Esfuerzo:</b> una tarde de Joel, media sesión de desarrollo</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">2</span><span class="h">Próximas dos semanas: lista para un cuestionario</span><span class="amb datos">Datos</span></div>
+    <p>SRI y CSP (4). Políticas RLS solo para usuarios autenticados (5). xlsx en versión corregida y servido desde el repositorio (3). Retención de auditoría a 180 días (8). CAPTCHA en el registro (9). Correr el respaldo y probar la restauración (B). Escribir las políticas cortas (A) y la de privacidad (F).</p>
+    <div class="meta"><span><b>Esfuerzo:</b> cuatro sesiones de desarrollo, dos tardes de Joel para las políticas</span></div>
+  </div>
+  <div class="item">
+    <div class="head"><span class="num">3</span><span class="h">Cuando un cliente lo exija: certificación formal</span><span class="amb documentacion">Documentación</span></div>
+    <p>Pentest externo (D), informes de proveedores y acuerdo de tratamiento de datos (E), revisión de accesos como rutina con constancia (C), registro de incidentes y <code>security.txt</code> (G). Con eso se puede entrar a SOC 2 tipo 1 o a ISO 27001 con un consultor; el tiempo típico para una empresa de este tamaño es de tres a seis meses.</p>
+    <div class="meta"><span><b>Esfuerzo:</b> el pentest y el consultor tienen costo; el resto es rutina</span></div>
+  </div>
+
+  <div class="note">Lo que hoy ya se puede afirmar a un cliente, con evidencia: aislamiento por empresa en todas las tablas, fotos privadas, cifrado en reposo y en tránsito, auditoría de cambios, pruebas automáticas antes de cada publicación y respaldo diario. Lo que todavía no: MFA obligatoria, políticas escritas y una restauración probada.</div>
+</section>
+
+</body></html>
