@@ -337,6 +337,38 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: las dos tarjetas del selector se ven sin scrollear =====
+  // La regresión concreta: las tarjetas llevaban la clase .reveal, que las deja en opacity 0
+  // hasta que el IntersectionObserver ve el 15% de ellas. Al compactar la portada quedaron
+  // arriba del pliegue pero con solo un 9% dentro, así que el observador no disparaba: se veía
+  // el título de la sección y debajo un hueco en blanco, peor que tenerlas más abajo. Son la
+  // acción principal de la portada y tienen que estar visibles desde que la página carga.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-selector: '+err.message));
+    await bloquearSentry(page);
+    for(const [ancho, alto] of [[1280,800], [420,860]]){
+      await page.setViewportSize({ width: ancho, height: alto });
+      await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+      await page.waitForTimeout(400);   // sin scrollear: así la ve quien llega
+      const tarjetas = await page.evaluate(() => Array.from(document.querySelectorAll('.path')).map(function(e){
+        const r = e.getBoundingClientRect();
+        return { destino:(e.getAttribute('href')||''), arriba:Math.round(r.top), opacidad:getComputedStyle(e).opacity };
+      }));
+      assert(tarjetas.length === 2, `la portada debe tener las dos tarjetas del selector, tiene ${tarjetas.length}`);
+      // En celular las dos se apilan y la segunda no cabe: lo exigible es que la primera
+      // asome, para que se entienda que hay que elegir, y que ninguna dependa del observador.
+      assert(tarjetas[0].arriba < alto, `a ${ancho}px la primera tarjeta empieza en ${tarjetas[0].arriba}px, bajo el borde de ${alto}px`);
+      for(const t of tarjetas){
+        assert(t.opacidad === '1', `a ${ancho}px la tarjeta de ${t.destino} se ve a medias sin scrollear (opacidad ${t.opacidad})`);
+      }
+      const destinos = tarjetas.map(t => t.destino).sort().join(',');
+      assert(destinos === 'bodega.html,inventario.html', `las tarjetas deben llevar a cada módulo, llevan a ${destinos}`);
+    }
+    await context.close();
+  }
+
   // ===== Landing: ninguna captura sale deformada =====
   // La regresión concreta: un <img> con atributo height dentro de .phone-frame. El CSS fija
   // width:100% pero no el alto, así que el atributo se aplicaba como alto CSS y estiraba la
