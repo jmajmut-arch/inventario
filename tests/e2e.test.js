@@ -344,6 +344,86 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: lo que el buscador lee =====
+  // Los datos estructurados de preguntas frecuentes solo sirven si dicen exactamente lo mismo
+  // que la página muestra: si se editan las preguntas y el JSON-LD queda atrás, Google trata la
+  // diferencia como marcado engañoso y puede sacar el sitio de los resultados enriquecidos. No
+  // hay forma de notarlo mirando la página, así que lo revisa esta prueba.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-seo: '+err.message));
+    await bloquearSentry(page);
+
+    for(const archivo of ['index.html','bodega.html','inventario.html']){
+      await page.goto(`http://localhost:${PORT}/${archivo}`, { waitUntil:'domcontentloaded' });
+      const d = await page.evaluate(() => {
+        const bloques = [...document.querySelectorAll('script[type="application/ld+json"]')];
+        const datos = [];
+        const rotos = [];
+        bloques.forEach(function(b, i){
+          try { datos.push(JSON.parse(b.textContent)); } catch(e){ rotos.push(i + ': ' + e.message); }
+        });
+        const meta = function(sel){ const e = document.querySelector(sel); return e ? e.getAttribute('content') : null; };
+        const canon = document.querySelector('link[rel="canonical"]');
+        return {
+          titulo: document.title,
+          descripcion: meta('meta[name="description"]'),
+          ogTitulo: meta('meta[property="og:title"]'),
+          canonica: canon ? canon.getAttribute('href') : null,
+          h1: document.querySelectorAll('h1').length,
+          rotos: rotos,
+          datos: datos,
+          visibles: [...document.querySelectorAll('.faq-item summary')].map(e => e.textContent.replace(/\s+/g,' ').trim())
+        };
+      });
+
+      assert(d.rotos.length === 0, `${archivo}: hay datos estructurados que no son JSON válido: ${d.rotos.join(' | ')}`);
+      assert(d.titulo && d.titulo.length <= 65, `${archivo}: el título debe existir y no pasar de 65 caracteres (Google lo corta), tiene ${d.titulo.length}: "${d.titulo}"`);
+      assert(d.descripcion && d.descripcion.length >= 70 && d.descripcion.length <= 165,
+        `${archivo}: la meta descripción debe medir entre 70 y 165 caracteres, tiene ${d.descripcion ? d.descripcion.length : 0}`);
+      assert(d.ogTitulo === d.titulo, `${archivo}: og:title debe decir lo mismo que el título, dice "${d.ogTitulo}"`);
+      assert(d.canonica === `https://inventiapp.cl/${archivo}` || d.canonica === 'https://inventiapp.cl/',
+        `${archivo}: falta la canónica o apunta a otra página, apunta a ${d.canonica}`);
+      assert(d.h1 === 1, `${archivo}: debe tener exactamente un h1, tiene ${d.h1}`);
+
+      const faq = d.datos.filter(x => x['@type'] === 'FAQPage');
+      assert(faq.length === 1, `${archivo}: debe declarar exactamente un FAQPage, declara ${faq.length}`);
+      if(faq.length === 1){
+        const marcadas = (faq[0].mainEntity || []).map(q => (q.name||'').replace(/\s+/g,' ').trim());
+        assert(marcadas.length === d.visibles.length,
+          `${archivo}: el FAQPage declara ${marcadas.length} preguntas y la página muestra ${d.visibles.length}`);
+        for(let i = 0; i < Math.min(marcadas.length, d.visibles.length); i++){
+          assert(marcadas[i] === d.visibles[i],
+            `${archivo}: la pregunta ${i+1} del FAQPage no coincide con la visible.\n    marcada: ${marcadas[i]}\n    visible: ${d.visibles[i]}`);
+        }
+        const sinRespuesta = (faq[0].mainEntity || []).filter(q => !(q.acceptedAnswer && q.acceptedAnswer.text)).length;
+        assert(sinRespuesta === 0, `${archivo}: ${sinRespuesta} pregunta(s) del FAQPage no traen respuesta`);
+      }
+    }
+    await context.close();
+  }
+
+  // ===== Landing: el sitemap no promete páginas que no existen =====
+  {
+    const sitemap = fs.readFileSync(path.join(ROOT, 'sitemap.xml'), 'utf8');
+    const urls = [...sitemap.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/g)].map(m => m[1]);
+    assert(urls.length > 0, 'el sitemap no declara ninguna URL');
+    for(const url of urls){
+      const relativa = url.replace('https://inventiapp.cl/', '') || 'index.html';
+      assert(fs.existsSync(path.join(ROOT, relativa)),
+        `el sitemap declara ${url} pero ${relativa} no existe en el repo`);
+    }
+    for(const obligatoria of ['https://inventiapp.cl/', 'https://inventiapp.cl/bodega.html', 'https://inventiapp.cl/inventario.html']){
+      assert(urls.includes(obligatoria), `el sitemap debe incluir ${obligatoria}`);
+    }
+    // Y al revés: una página pública nueva que nadie agregó al sitemap no se indexa.
+    for(const publica of fs.readdirSync(ROOT).filter(f => f.endsWith('.html'))){
+      const esperada = publica === 'index.html' ? 'https://inventiapp.cl/' : 'https://inventiapp.cl/' + publica;
+      assert(urls.includes(esperada), `${publica} es una página pública y no está en el sitemap: el buscador no la va a indexar`);
+    }
+  }
+
   // ===== Landing: las dos tarjetas del selector se ven sin scrollear =====
   // La regresión concreta: las tarjetas llevaban la clase .reveal, que las deja en opacity 0
   // hasta que el IntersectionObserver ve el 15% de ellas. Al compactar la portada quedaron

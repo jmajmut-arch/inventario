@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bodega: entradas, salidas y stock al día — InventIA</title>
-<meta name="description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock en mano al día. Desde el celular, sin instalar nada.">
+<meta name="description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock al día, desde el celular.">
 <link rel="canonical" href="https://inventiapp.cl/bodega.html">
 <link rel="icon" href="icons/icon-192.png">
 
@@ -13,13 +13,13 @@
 <meta property="og:locale" content="es_CL">
 <meta property="og:url" content="https://inventiapp.cl/bodega.html">
 <meta property="og:title" content="Bodega: entradas, salidas y stock al día — InventIA">
-<meta property="og:description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock en mano al día. Desde el celular, sin instalar nada.">
+<meta property="og:description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock al día, desde el celular.">
 <meta property="og:image" content="https://inventiapp.cl/img/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Bodega: entradas, salidas y stock al día — InventIA">
-<meta name="twitter:description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock en mano al día. Desde el celular, sin instalar nada.">
+<meta name="twitter:description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock al día, desde el celular.">
 <meta name="twitter:image" content="https://inventiapp.cl/img/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -39,6 +39,59 @@
 <script src="assets/sentry-config.js"></script>
 <script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
 <script src="assets/comun.js" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Inicio",
+      "item": "https://inventiapp.cl/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Módulo Bodega",
+      "item": "https://inventiapp.cl/bodega.html"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "es-CL",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "¿Puedo usar solo Bodega, sin hacer conteo cíclico?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Sí. Los módulos se activan por separado: hay bodegas que parten ordenando las entradas y salidas, y recién meses después empiezan a contar. También al revés. Como comparten la misma base, cuando actives el segundo no hay que volver a cargar nada."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Qué queda registrado cuando se entrega un material?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Quién retira, quién despacha, para qué trabajo o destino, la cantidad, la fecha y la hora. Con eso se emite un comprobante que se imprime o se manda en PDF, y el stock queda descontado al instante."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Se puede anular una recepción o un despacho mal hecho?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Sí, y sin borrar nada. La anulación exige un motivo, revierte el stock y queda registrada con quién la hizo y cuándo. El movimiento original sigue visible: un documento emitido no desaparece del historial."
+      }
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <!-- Google Tag Manager (noscript) -->
