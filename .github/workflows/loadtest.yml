@@ -28,7 +28,7 @@ jobs:
       EMPRESA_IDS: "a17b1c6a-6eea-4dd0-b5c2-0b1a7dc10aec,02f44561-fe33-43c7-83b5-519df6147a0d,cff8adb7-b0b4-4842-92ad-b77e84e1759e,924719d0-3a08-4385-a37c-7f4c50737ac4,4a2390b4-e01c-4aad-a735-672eb1b461d2"
       MAX_VUS: ${{ inputs.max_vus }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Instalar k6
         run: |
