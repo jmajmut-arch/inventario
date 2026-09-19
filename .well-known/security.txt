@@ -1,0 +1,5 @@
+Contact: mailto:contacto@inventiapp.cl
+Expires: 2027-09-19T00:00:00.000Z
+Preferred-Languages: es, en
+Canonical: https://inventiapp.cl/.well-known/security.txt
+Policy: https://inventiapp.cl/.well-known/security.txt

@@ -14,9 +14,9 @@
 // siguiente apertura. Por eso, cuando la descarga de fondo trae un HTML distinto al guardado, se
 // le avisa a la pestaña abierta y aparece la barra "Hay una versión nueva. Recarga para usarla"
 // que ya existía. Nunca se recarga sola: la persona puede estar a mitad de un conteo.
-const CACHE_NAME = 'inventia-shell-v2';
+const CACHE_NAME = 'inventia-shell-v3';
 const APP_SHELL = [
-  './', './index.html', './inventario.html', './manifest.json', './lib/pdf-lib.min.js',
+  './', './index.html', './inventario.html', './manifest.json', './lib/pdf-lib.min.js', './lib/xlsx.full.min.js', './lib/html5-qrcode.min.js',
   '../icons/icon-192.png', '../icons/icon-512.png', '../icons/icon-maskable-512.png', '../icons/apple-touch-icon.png',
 ];
 

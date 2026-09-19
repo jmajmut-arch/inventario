@@ -10677,13 +10677,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // lo respete; si no, cada pérdida de señal abría un issue en GitHub (Sentry #278, #371).
   {
     const iOnLoad = html.indexOf('window.sentryOnLoad');
-    const iLoader = html.indexOf('js.sentry-cdn.com');
+    const iLoader = html.indexOf('src="https://js.sentry-cdn.com/'); // la etiqueta del Loader (la CSP también nombra ese host, más arriba)
     assert(iOnLoad>0 && iLoader>0 && iOnLoad<iLoader, 'window.sentryOnLoad debe definirse antes del Loader Script de Sentry en <head>');
     const bloque = html.slice(iOnLoad, iLoader);
     assert(bloque.includes('ignoreErrors') && bloque.includes("'Tu sesión terminó'") && bloque.includes("'No se pudo conectar. Revisa tu conexión'"), 'sentryOnLoad debe ignorar los mensajes de sesión terminada y sin conexión, obtuvo: '+bloque);
     assert(vm.runInContext('MENSAJE_SESION_TERMINADA', ctx).startsWith('Tu sesión terminó') && vm.runInContext('MENSAJE_SIN_CONEXION', ctx).startsWith('No se pudo conectar. Revisa tu conexión'), 'los patrones de ignoreErrors deben seguir calzando con los mensajes reales de la app');
   }
 
+
+  // Revisión de seguridad (19/09/2026): CSP en el HTML y librerías servidas desde app/lib, sin CDN.
+  // Si alguien vuelve a poner un script externo o borra la CSP, esto lo detecta.
+  {
+    const iCsp = html.indexOf('<meta http-equiv="Content-Security-Policy"');
+    assert(iCsp > 0 && iCsp < html.indexOf('<script data-sentry-config>'), 'la CSP debe ir en <head>, antes del primer script');
+    const csp = html.slice(iCsp, html.indexOf('>', iCsp));
+    for(const d of ["default-src 'self'", "object-src 'none'", "frame-src 'none'", "base-uri 'self'", "connect-src 'self' https://ncvwgsbcvklhbyvurxzz.supabase.co", "script-src 'self' 'unsafe-inline' https://js.sentry-cdn.com https://browser.sentry-cdn.com"]){
+      assert(csp.includes(d), 'la CSP debe incluir "'+d+'", obtuvo: '+csp);
+    }
+    const externos = [...html.matchAll(/<script[^>]*\ssrc="(https?:[^"]+)"/g)].map(m=>m[1]);
+    assert(externos.length===1 && externos[0].startsWith('https://js.sentry-cdn.com/'), 'el único script externo permitido es el Loader de Sentry (xlsx y html5-qrcode van en app/lib), obtuvo: '+JSON.stringify(externos));
+    assert(html.includes('src="lib/xlsx.full.min.js"') && html.includes('src="lib/html5-qrcode.min.js"'), 'xlsx y html5-qrcode deben cargarse desde app/lib');
+    for(const f of ['xlsx.full.min.js','xlsx.LICENSE','html5-qrcode.min.js','html5-qrcode.LICENSE','pdf-lib.min.js']){
+      assert(fs.existsSync(path.join(__dirname, '..', 'app', 'lib', f)), 'falta app/lib/'+f);
+    }
+    const sw = fs.readFileSync(path.join(__dirname, '..', 'app', 'sw.js'), 'utf8');
+    assert(sw.includes("'./lib/xlsx.full.min.js'") && sw.includes("'./lib/html5-qrcode.min.js'"), 'el service worker debe precachear las librerías locales para que Carga y el escáner funcionen sin señal');
+  }
 
   // Plan B: si Supabase rechaza el transform (función no habilitada o cuota restringida), se
   // reduce en el navegador con canvas (recorte cuadrado al centro, 400 px, JPEG 0.7). El canvas
