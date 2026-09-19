@@ -474,7 +474,7 @@
     <tr><td>Sentry</td><td>Producción</td><td>Monitoreo de errores: captura sola los errores de JavaScript del navegador, con stack trace, empresa y usuario afectado.</td></tr>
     <tr><td>GitHub</td><td>Producción</td><td>Control de versiones, integración continua (1.630 asserts unitarios y tests end-to-end con navegador real en cada cambio) y hosting del sitio bajo inventiapp.cl.</td></tr>
     <tr><td>Google Fonts</td><td>Producción</td><td>Sirve las tipografías de la interfaz (Barlow Condensed, Inter, IBM Plex Mono).</td></tr>
-    <tr><td>jsDelivr (CDN)</td><td>Producción</td><td>Sirve SheetJS/xlsx (lee Excel/CSV) y html5-qrcode (cámara para el escáner).</td></tr>
+    <tr><td>Librerías locales (app/lib)</td><td>Producción</td><td>SheetJS/xlsx (lee Excel/CSV), html5-qrcode (cámara para el escáner) y pdf-lib se sirven desde el propio repositorio, sin CDN: quedan en la caché del service worker y bajo la CSP de la app.</td></tr>
     <tr><td>Google Analytics</td><td>Producción</td><td>Visitas y eventos del sitio (clics en demo, contacto y Suscribirme). No se usa dentro de la app.</td></tr>
     <tr><td>Playwright</td><td>Desarrollo</td><td>No corre en producción: tests automatizados con navegador real antes de publicar cada cambio.</td></tr>
   </table>

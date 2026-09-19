@@ -1,0 +1,13 @@
+# Avisa con un PR cuando una dependencia tiene una versión nueva o un CVE (revisión de seguridad
+# del 19/09/2026). Las librerías de app/lib (xlsx, html5-qrcode, pdf-lib) no pasan por npm: se
+# revisan a mano con cada actualización.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

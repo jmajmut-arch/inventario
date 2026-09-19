@@ -2,6 +2,18 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- Content Security Policy (revisión de seguridad del 19/09/2026). GitHub Pages no permite
+     cabeceras HTTP, así que va como meta. Qué permite y por qué:
+     - script-src: la propia app y el Loader Script de Sentry (que a su vez baja el SDK desde
+       browser.sentry-cdn.com). 'unsafe-inline' es inevitable: la app es un solo HTML con su
+       script adentro. xlsx y html5-qrcode se sirven desde app/lib, ya no desde jsDelivr.
+     - connect-src: Supabase (REST, Auth, Storage, Realtime) y los servidores de Sentry.
+     - img-src: fotos firmadas de Storage, logos en data: y blob: para vistas previas y PDF.
+     - style/font: Google Fonts (las tres familias del diseño).
+     - object/frame: nada. base-uri y form-action: solo la app.
+     Si algo nuevo necesita otro origen, hay que agregarlo acá; el navegador lo bloquea y lo
+     muestra en la consola como "Refused to ...". -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://js.sentry-cdn.com https://browser.sentry-cdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://ncvwgsbcvklhbyvurxzz.supabase.co; media-src 'self' blob:; connect-src 'self' https://ncvwgsbcvklhbyvurxzz.supabase.co wss://ncvwgsbcvklhbyvurxzz.supabase.co https://*.sentry.io https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'">
 <script data-sentry-config>
   // Sentry solo debe avisar de errores de verdad, y solo de producción.
   //
@@ -46,8 +58,8 @@
 <meta name="apple-mobile-web-app-title" content="InventIA">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script defer src="lib/xlsx.full.min.js"></script>
+<script defer src="lib/html5-qrcode.min.js"></script>
 <style>
 :root{
   --bg:#161a20;
