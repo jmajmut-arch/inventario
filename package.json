@@ -6,6 +6,6 @@
     "test:e2e": "node tests/e2e.test.js"
   },
   "devDependencies": {
-    "playwright": "^1.48.0"
+    "playwright": "^1.63.0"
   }
 }
