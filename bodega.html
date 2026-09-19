@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bodega: entradas, salidas y stock al día — InventIA</title>
+<meta name="description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock en mano al día. Desde el celular, sin instalar nada.">
+<link rel="canonical" href="https://inventiapp.cl/bodega.html">
+<link rel="icon" href="icons/icon-192.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="InventIA">
+<meta property="og:locale" content="es_CL">
+<meta property="og:url" content="https://inventiapp.cl/bodega.html">
+<meta property="og:title" content="Bodega: entradas, salidas y stock al día — InventIA">
+<meta property="og:description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock en mano al día. Desde el celular, sin instalar nada.">
+<meta property="og:image" content="https://inventiapp.cl/img/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Bodega: entradas, salidas y stock al día — InventIA">
+<meta name="twitter:description" content="Controla lo que entra y sale de tu bodega: orden de compra, recepción con guía y fotos, despacho con responsable y stock en mano al día. Desde el celular, sin instalar nada.">
+<meta name="twitter:image" content="https://inventiapp.cl/img/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/comun.css">
+<style>
+  /* ---- flujo de cuatro momentos (bodega) ---- */
+  .flujo{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:60px;}
+  @media (max-width:860px){ .flujo{grid-template-columns:1fr 1fr;} }
+  @media (max-width:520px){ .flujo{grid-template-columns:1fr;} }
+  .flujo-item{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:24px 22px;}
+  .flujo-item .n{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--amber);}
+  .flujo-item h4{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;letter-spacing:-0.01em;margin:7px 0 8px;}
+  .flujo-item p{font-size:13.5px;line-height:1.55;color:var(--text-dim);margin:0;}
+</style>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-G5WNMGTXSH"></script>
+<script src="assets/analitica.js"></script>
+<script src="assets/sentry-config.js"></script>
+<script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
+<script src="assets/comun.js" defer></script>
+</head>
+<body>
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-5RH88HLL"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+  <div class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html" aria-label="Ir a la portada de InventIA">
+        <div class="brand-badge">IA</div>
+        <div class="brand-name">Invent<span class="ia">IA</span></div>
+      </a>
+      <div class="nav-links" id="nav-links">
+        <a href="bodega.html">Bodega</a>
+        <a href="inventario.html">Inventario</a>
+        <a href="index.html#planes">Planes</a>
+        <a href="index.html#faq">Preguntas</a>
+        <a href="#" data-abrir-contacto>Contacto</a>
+      </div>
+      <a class="nav-cta" href="app/index.html">Ingresar</a>
+      <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Abrir menú" aria-expanded="false" aria-controls="nav-links">
+        <svg class="icon-menu" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="hero wrap">
+    <div class="kicker">Módulo Bodega</div>
+    <h1><span>Lo que entra, lo que sale</span> y lo que queda.</h1>
+    <p class="hero-sub">Ordena el movimiento de todos los días: lo que se le pide al proveedor, lo que llega, lo que sale y lo que queda en el estante. Cada movimiento con su documento, su responsable y su respaldo.</p>
+
+    <div>
+      <a class="cta" href="#" data-abrir-contacto data-mensaje="Quiero ver una demostración del módulo Bodega.">Pedir una demostración →</a>
+      <a class="cta-ghost" href="inventario.html">Ver el módulo Inventario <span>→</span></a>
+    </div>
+    <div class="cta-sub">Si alguien pregunta por un material, la respuesta está en una pantalla.</div>
+  </div>
+
+  <section id="bodega">
+    <div class="wrap">
+      <div class="vista-grid">
+        <div class="vista-text reveal">
+          <h3 class="section-title">El cuaderno de la bodega, pero que no se pierde</h3>
+          <p>Hoy el ingreso se anota en un cuaderno o en un Excel que vive en un solo computador, y la salida muchas veces en ninguna parte. Cuando falta un material, nadie puede afirmar si llegó, si salió o quién lo retiró.</p>
+          <ul class="vista-points">
+            <li><b>Todo movimiento queda con responsable</b>, fecha y hora, y nada se borra: anular exige motivo y deja rastro.</li>
+            <li><b>Comprobante para imprimir o mandar</b> en cada recepción y cada despacho.</li>
+            <li><b>Reservas y cambios de ubicación</b>, para que el material comprometido no se despache por error.</li>
+            <li><b>Reportes de movimientos</b> por material, por persona y por período.</li>
+          </ul>
+        </div>
+        <div class="reveal">
+          <div class="phone-frame ancho">
+            <img src="img/bodega-demo.png" alt="Pantalla de inicio del módulo Bodega de InventIA con los accesos a orden de compra, recepción, despacho, inventario y dashboard" loading="lazy" width="780" height="1300">
+            <div class="phone-frame-fade"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flujo">
+        <div class="flujo-item reveal">
+          <div class="n mono">01 · PEDIR</div>
+          <h4>Orden de compra</h4>
+          <p>Eliges el proveedor y los materiales, con el precio y la fecha de la última compra a la vista. La orden sale lista para mandar.</p>
+        </div>
+        <div class="flujo-item reveal">
+          <div class="n mono">02 · RECIBIR</div>
+          <h4>Recepción</h4>
+          <p>Recibes contra la orden: cantidad real, número de guía y fotos de lo que llegó. Si viene incompleto, queda pendiente.</p>
+        </div>
+        <div class="flujo-item reveal">
+          <div class="n mono">03 · ENTREGAR</div>
+          <h4>Despacho</h4>
+          <p>Registras quién retira, para qué trabajo y quién entrega. El comprobante se imprime o se manda al instante.</p>
+        </div>
+        <div class="flujo-item reveal">
+          <div class="n mono">04 · SABER</div>
+          <h4>Stock en mano</h4>
+          <p>Cada movimiento actualiza el stock solo. Lo que ves en pantalla es lo que debería haber en el estante.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2 class="section-title">Preguntas sobre Bodega</h2>
+      </div>
+      <div class="faq-list">
+        <details class="faq-item reveal">
+          <summary>¿Puedo usar solo Bodega, sin hacer conteo cíclico?</summary>
+          <p>Sí. Los módulos se activan por separado: hay bodegas que parten ordenando las entradas y salidas, y recién meses después empiezan a contar. También al revés. Como comparten la misma base, cuando actives el segundo no hay que volver a cargar nada.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Qué queda registrado cuando se entrega un material?</summary>
+          <p>Quién retira, quién despacha, para qué trabajo o destino, la cantidad, la fecha y la hora. Con eso se emite un comprobante que se imprime o se manda en PDF, y el stock queda descontado al instante.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Se puede anular una recepción o un despacho mal hecho?</summary>
+          <p>Sí, y sin borrar nada. La anulación exige un motivo, revierte el stock y queda registrada con quién la hizo y cuándo. El movimiento original sigue visible: un documento emitido no desaparece del historial.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+  <div class="closing reveal">
+    <h2>¿Listo para saber quién se llevó qué?</h2>
+    <p>Te mostramos el módulo en vivo con datos de ejemplo, o cargamos tu propio catálogo para un piloto sin costo.</p>
+    <a class="cta" href="#" data-abrir-contacto data-mensaje="Quiero ver una demostración del módulo Bodega.">Pedir una demostración</a>
+    <span class="cta-sub-link">¿Prefieres ver los planes? <a href="index.html#planes">Míralos acá</a></span>
+  </div>
+
+  <footer>
+    <div class="brand">
+      <div class="brand-badge">IA</div>
+      <div class="brand-name">Invent<span class="ia">IA</span></div>
+    </div>
+    <span>Invent<span class="ia">IA</span> · Control de inventario</span>
+    <div class="footer-links" style="margin-top:6px">
+      <a href="terminos.html">Términos y condiciones</a> · <a href="privacidad.html">Política de privacidad</a> · <a href="reembolsos.html">Política de reembolsos</a>
+    </div>
+    <div class="footer-credit">Desarrollado por
+      <a href="https://www.linkedin.com/in/jmajmut" target="_blank" rel="noopener noreferrer">
+        Joel Majmut
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+      </a>
+    </div>
+  </footer>
+
+</body>
+</html>
