@@ -647,6 +647,7 @@ let state = {
   mfaFactores: [],         // factores TOTP de la cuenta (ver cargarMfaFactores), tal como los devuelve /auth/v1/user
   mfaFactoresCargado: false,
   mfaEnrolando: null,      // null | {factorId, qr, secret, guardando, error, cargando} durante el enrolamiento
+  mfaObligatoriaDesde: '2026-10-01', // MFA obligatoria para admins desde esta fecha (ver adminSinMfa/mfaObligatoriaVigente)
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo', skus:'SKU' };
@@ -1917,6 +1918,8 @@ async function cargarTodo(){
   // cargarPlanSemanal() no va acá: la primera carga la hace la pestaña Plan al mostrarse (ver
   // refrescarPlanSiCorresponde); cargarCiclos() solo fija el período preseleccionado.
   const tareas = [cargarSkus(), cargarCiclos(), sincronizarColaOffline(), asegurarDatosDeVista(state.view)];
+  // Admin: saber de entrada si tiene segundo factor, para avisar o bloquear (ver adminSinMfa).
+  if(state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin) && !state.mfaFactoresCargado) tareas.push(cargarMfaFactores());
   await Promise.all(tareas);
 }
 
@@ -12097,6 +12100,37 @@ function renderCalendario(){
   `;
 }
 
+// MFA obligatoria para administradores (revisión de seguridad del 19/09/2026, hallazgo 1: cero
+// cuentas la usaban, incluidos los tres admins). Hasta mfaObligatoriaDesde la app solo avisa al
+// entrar; desde esa fecha no deja pasar a un admin sin segundo factor: en vez de la pestaña,
+// muestra el enrolamiento, y en cuanto confirma el código la app sigue normal. Un operador no se
+// ve afectado. Mientras no se sepa si tiene factores (cargarMfaFactores en curso), ni se avisa ni
+// se bloquea: nunca por una falla de red.
+function adminSinMfa(){
+  if(!state.perfil || !(state.perfil.rol==='admin' || state.perfil.es_super_admin)) return false;
+  if(!state.mfaFactoresCargado) return false;
+  return !(state.mfaFactores||[]).some(f=>f.status==='verified');
+}
+function mfaObligatoriaVigente(){
+  return fechaISO(new Date()) >= state.mfaObligatoriaDesde;
+}
+function renderBannerMfa(){
+  if(!adminSinMfa() || mfaObligatoriaVigente() || state.view==='config') return '';
+  return `
+    <div id="banner-mfa" style="background:var(--amber-soft, rgba(224,178,60,.15));color:var(--text);border-bottom:1px solid var(--amber);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
+      <span>Tu cuenta administra la empresa y no tiene verificación en dos pasos. Desde el ${fmtFecha(state.mfaObligatoriaDesde)} será obligatoria para entrar.</span>
+      <button id="btn-banner-mfa" class="btn btn-primary" style="width:auto;padding:6px 12px">Activarla ahora</button>
+    </div>`;
+}
+function renderBloqueoMfa(){
+  return `
+    <div class="section-head"><div><span class="eyebrow">Seguridad</span><h2>Activa la verificación en dos pasos</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:12px">Desde el ${fmtFecha(state.mfaObligatoriaDesde)} las cuentas de administrador necesitan un código de app autenticadora además de la contraseña. Es un paso de un minuto y protege el maestro y los conteos de tu empresa si la contraseña se filtra. Actívala para seguir.</div>
+      ${renderSeccionMfa()}
+    </div>`;
+}
+
 // Estado de la verificación en dos pasos dentro de Configuraciones (ver cargarMfaFactores/
 // iniciarEnrolamientoMfa/confirmarEnrolamientoMfa/desactivarMfa). Tres estados posibles: todavía
 // cargando, enrolando (QR + código de confirmación), o el resumen (activada/no activada).
@@ -13235,7 +13269,7 @@ function viewTitle(v){
 }
 
 function renderShell(){
-  const content = {
+  const vistas = {
     dashboard: renderDashboard,
     skus: renderSkus,
     carga: renderCargaMasiva,
@@ -13256,7 +13290,9 @@ function renderShell(){
     ordenes: renderOrdenesCompra,
     reservas: renderReservas,
     mover: renderMover,
-  }[state.view]();
+  };
+  const bloqueadoPorMfa = adminSinMfa() && mfaObligatoriaVigente();
+  const content = bloqueadoPorMfa ? renderBloqueoMfa() : vistas[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
 
@@ -13294,6 +13330,7 @@ function renderShell(){
       </div>
     </div>
     ` : ''}
+    ${renderBannerMfa()}
     <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
     ${(VISTAS_BODEGA.includes(state.view) || (state.view==='mover' && moduloBodegaActivo())) ? `<nav class="tabbar">
       ${tabBtn('inicio','Inicio')}
@@ -13429,7 +13466,26 @@ function renderRegistroAutoservicio(){
   </div>`;
 }
 
+// Botones de la sección de verificación en dos pasos. Se ata desde Configuraciones y, cuando la
+// MFA es obligatoria y el admin no la tiene, desde la pantalla de bloqueo (ver renderBloqueoMfa).
+function bindSeccionMfa(){
+  const btnMfaActivar = document.getElementById('btn-mfa-activar');
+  if(btnMfaActivar) btnMfaActivar.addEventListener('click', iniciarEnrolamientoMfa);
+  const btnMfaDesactivar = document.getElementById('btn-mfa-desactivar');
+  if(btnMfaDesactivar) btnMfaDesactivar.addEventListener('click', ()=> desactivarMfa(btnMfaDesactivar.dataset.factorId));
+  const btnCancelarMfaEnrolar = document.getElementById('btn-cancelar-mfa-enrolar');
+  if(btnCancelarMfaEnrolar) btnCancelarMfaEnrolar.addEventListener('click', cancelarEnrolamientoMfa);
+  const formMfaConfirmar = document.getElementById('form-mfa-confirmar');
+  if(formMfaConfirmar) formMfaConfirmar.addEventListener('submit', e=>{
+    e.preventDefault();
+    confirmarEnrolamientoMfa(document.getElementById('mfa-confirmar-codigo').value.trim());
+  });
+}
+
 function bind(){
+  const btnBannerMfa = document.getElementById('btn-banner-mfa');
+  if(btnBannerMfa) btnBannerMfa.addEventListener('click', ()=> setState({view:'config'}));
+  if(adminSinMfa() && mfaObligatoriaVigente() && state.view!=='config') bindSeccionMfa();
   if(!(state.view==='conteo' && !state.skuSeleccionado)) conteoBuscadorFueEnfocado = false;
   if(state.fotoModal){
     document.getElementById('foto-modal-close').addEventListener('click', ()=> setState({fotoModal:null}));
@@ -13930,17 +13986,7 @@ function bind(){
     if(!state.equipo.cargado && !state.equipo.cargando) cargarEquipo();
     const esAdminOSuperAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
     if(esAdminOSuperAdmin && !state.mfaFactoresCargado && !state.mfaEnrolando) cargarMfaFactores();
-    const btnMfaActivar = document.getElementById('btn-mfa-activar');
-    if(btnMfaActivar) btnMfaActivar.addEventListener('click', iniciarEnrolamientoMfa);
-    const btnMfaDesactivar = document.getElementById('btn-mfa-desactivar');
-    if(btnMfaDesactivar) btnMfaDesactivar.addEventListener('click', ()=> desactivarMfa(btnMfaDesactivar.dataset.factorId));
-    const btnCancelarMfaEnrolar = document.getElementById('btn-cancelar-mfa-enrolar');
-    if(btnCancelarMfaEnrolar) btnCancelarMfaEnrolar.addEventListener('click', cancelarEnrolamientoMfa);
-    const formMfaConfirmar = document.getElementById('form-mfa-confirmar');
-    if(formMfaConfirmar) formMfaConfirmar.addEventListener('submit', e=>{
-      e.preventDefault();
-      confirmarEnrolamientoMfa(document.getElementById('mfa-confirmar-codigo').value.trim());
-    });
+    bindSeccionMfa();
     const formEmpresaNombre = document.getElementById('form-empresa-nombre');
     if(formEmpresaNombre) formEmpresaNombre.addEventListener('submit', e=>{
       e.preventDefault();
