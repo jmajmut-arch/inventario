@@ -3791,6 +3791,59 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlConfigSuperAdmin.includes('id="form-crear-ciclo"'), 'Configuraciones ya no debe incluir el formulario de crear ciclo (se movió a su propia pestaña), obtuvo: '+htmlConfigSuperAdmin);
   assert(ctx.renderCiclos().includes('id="form-crear-ciclo"'), 'renderCiclos() debe mostrar el formulario para crear ciclos, obtuvo: '+ctx.renderCiclos());
 
+  // ===== MFA obligatoria para administradores (revisión de seguridad 19/09/2026) =====
+  {
+    const perfilAntesMfa = ctx.__appstate.perfil;
+    const viewAntesMfa = ctx.__appstate.view;
+    const ADMIN_MFA = { id:'adm-mfa', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    const OPER_MFA = { id:'op-mfa', nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.view = 'dashboard';
+    // Antes de la fecha: aviso al entrar, solo para admin sin factor y solo cuando ya se sabe.
+    ctx.__appstate.mfaObligatoriaDesde = '2099-01-01';
+    ctx.__appstate.perfil = ADMIN_MFA; ctx.__appstate.mfaFactoresCargado = false; ctx.__appstate.mfaFactores = [];
+    assert(ctx.adminSinMfa()===false && !ctx.renderShell().includes('id="banner-mfa"'), 'mientras no se sepa si tiene factores, no se avisa ni se bloquea');
+    ctx.__appstate.mfaFactoresCargado = true;
+    let shellMfa = ctx.renderShell();
+    assert(ctx.adminSinMfa()===true && shellMfa.includes('id="banner-mfa"') && shellMfa.includes('id="btn-banner-mfa"') && shellMfa.includes('será obligatoria'), 'un admin sin MFA ve el aviso con la fecha, obtuvo: '+shellMfa.slice(0,400));
+    assert(!shellMfa.includes('Activa la verificación en dos pasos</h2>'), 'antes de la fecha no se bloquea');
+    ctx.__appstate.mfaFactores = [{id:'f1', status:'verified', factor_type:'totp'}];
+    assert(ctx.adminSinMfa()===false && !ctx.renderShell().includes('id="banner-mfa"'), 'con factor verificado no hay aviso');
+    ctx.__appstate.mfaFactores = [{id:'f1', status:'unverified', factor_type:'totp'}];
+    assert(ctx.adminSinMfa()===true, 'un factor sin verificar no cuenta');
+    ctx.__appstate.perfil = OPER_MFA; ctx.__appstate.mfaFactores = [];
+    assert(ctx.adminSinMfa()===false && !ctx.renderShell().includes('id="banner-mfa"'), 'un operador no ve el aviso');
+    // El botón del aviso lleva a Configuraciones.
+    ctx.__appstate.perfil = ADMIN_MFA;
+    ctx.bind();
+    elements['btn-banner-mfa'].dispatch('click');
+    assert(ctx.__appstate.view==='config', 'el botón del aviso debe llevar a Configuraciones, obtuvo: '+ctx.__appstate.view);
+    ctx.__appstate.view = 'dashboard';
+    // Desde la fecha: la app no deja pasar; en vez de la pestaña muestra el enrolamiento, con sus botones atados.
+    ctx.__appstate.mfaObligatoriaDesde = '2020-01-01';
+    shellMfa = ctx.renderShell();
+    assert(ctx.mfaObligatoriaVigente()===true && shellMfa.includes('Activa la verificación en dos pasos</h2>') && shellMfa.includes('id="btn-mfa-activar"') && !shellMfa.includes('id="banner-mfa"'), 'desde la fecha, un admin sin MFA ve el bloqueo con el botón de activar, obtuvo: '+shellMfa.slice(0,600));
+    assert(!shellMfa.includes('Estado general de SKU') && !shellMfa.includes('renderDashboard'), 'bloqueado no se muestra el dashboard');
+    delete elements['btn-mfa-activar'];
+    ctx.bind();
+    assert(!!elements['btn-mfa-activar'] && (elements['btn-mfa-activar'].listeners.click||[]).length>0, 'en la pantalla de bloqueo el botón Activar debe quedar atado aunque no estemos en Configuraciones');
+    ctx.__appstate.mfaFactores = [{id:'f1', status:'verified', factor_type:'totp'}];
+    assert(!ctx.renderShell().includes('Activa la verificación en dos pasos</h2>'), 'al activar la MFA la app sigue normal');
+    ctx.__appstate.perfil = OPER_MFA; ctx.__appstate.mfaFactores = [];
+    assert(!ctx.renderShell().includes('Activa la verificación en dos pasos</h2>'), 'un operador nunca se bloquea');
+    // Al entrar, un admin pide sus factores de inmediato (no solo al abrir Configuraciones).
+    ctx.__appstate.perfil = ADMIN_MFA; ctx.__appstate.mfaFactoresCargado = false; ctx.__appstate.mfaFactores = [];
+    calls.length = 0;
+    await ctx.cargarTodo();
+    assert(calls.some(c=>c.url.includes('/auth/v1/user')) && ctx.__appstate.mfaFactoresCargado===true, 'cargarTodo de un admin debe pedir /auth/v1/user para saber si tiene MFA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.perfil = OPER_MFA; ctx.__appstate.mfaFactoresCargado = false;
+    calls.length = 0;
+    await ctx.cargarTodo();
+    assert(!calls.some(c=>c.url.includes('/auth/v1/user')), 'un operador no pide factores al entrar');
+    ctx.__appstate.mfaObligatoriaDesde = '2026-10-01';
+    ctx.__appstate.mfaFactoresCargado = false; ctx.__appstate.mfaFactores = [];
+    ctx.__appstate.perfil = perfilAntesMfa; ctx.__appstate.view = viewAntesMfa;
+  }
+
   // ===== Verificación en dos pasos (MFA/TOTP) en Configuraciones =====
   ctx.__appstate.session = { access_token:'tok-antes', refresh_token:'ref-antes', user:{id:'user-1', email:'ana@test.com'} };
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
