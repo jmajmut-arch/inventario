@@ -7868,6 +7868,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       const vmSentry = require('vm');
       const leerConfigSentry = (archivo) => {
         const fuente = fs.readFileSync(path.join(__dirname, '..', archivo), 'utf8');
+        // La app la lleva inline; el sitio público la tiene en assets/sentry-config.js desde que
+        // se separó en tres páginas y lo compartido pasó a vivir en un solo lugar.
+        if(archivo.endsWith('.js')) return fuente;
         const bloque = fuente.match(/<script data-sentry-config>([\s\S]*?)<\/script>/);
         assert(!!bloque, `${archivo} debe traer el bloque <script data-sentry-config>; sin él el Loader arranca con la configuración por defecto y reporta desde cualquier host`);
         return bloque ? bloque[1] : '';
@@ -7888,7 +7891,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
         return opciones || {};
       };
 
-      ['app/index.html', 'app/inventario.html', 'index.html'].forEach(archivo => {
+      ['app/index.html', 'app/inventario.html', 'assets/sentry-config.js'].forEach(archivo => {
         const fuente = leerConfigSentry(archivo);
 
         // Producción: reporta, y etiquetado como producción.

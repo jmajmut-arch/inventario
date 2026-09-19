@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inventario: conteo cíclico en terreno — InventIA</title>
+<meta name="description" content="Conteo cíclico planificado por clase ABC y ubicación, con escáner, fotos y modo sin señal. Diferencias automáticas, reconteo dirigido y dashboard ejecutivo.">
+<link rel="canonical" href="https://inventiapp.cl/inventario.html">
+<link rel="icon" href="icons/icon-192.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="InventIA">
+<meta property="og:locale" content="es_CL">
+<meta property="og:url" content="https://inventiapp.cl/inventario.html">
+<meta property="og:title" content="Inventario: conteo cíclico en terreno — InventIA">
+<meta property="og:description" content="Conteo cíclico planificado por clase ABC y ubicación, con escáner, fotos y modo sin señal. Diferencias automáticas, reconteo dirigido y dashboard ejecutivo.">
+<meta property="og:image" content="https://inventiapp.cl/img/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Inventario: conteo cíclico en terreno — InventIA">
+<meta name="twitter:description" content="Conteo cíclico planificado por clase ABC y ubicación, con escáner, fotos y modo sin señal. Diferencias automáticas, reconteo dirigido y dashboard ejecutivo.">
+<meta name="twitter:image" content="https://inventiapp.cl/img/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/comun.css">
+<style>
+  .comparativa-img{width:100%;display:block;border-radius:20px;box-shadow:0 30px 60px -30px rgba(36,26,16,.4);}
+  .carousel .section-title{font-weight:700;}
+  .carousel{position:relative;}
+  .carousel-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+  .carousel-track::-webkit-scrollbar{display:none;}
+  .carousel-slide{flex:0 0 100%;min-width:100%;scroll-snap-align:start;display:flex;flex-direction:column;justify-content:center;}
+  .carousel-nav{display:flex;align-items:center;justify-content:center;gap:20px;margin-top:36px;}
+  .carousel-arrow{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0;}
+  .carousel-arrow:hover{border-color:var(--amber);color:var(--amber);}
+  .carousel-dots{display:flex;align-items:center;gap:9px;}
+  .carousel-dot{width:8px;height:8px;border-radius:50%;border:none;background:var(--line);padding:0;cursor:pointer;transition:background .2s ease,transform .2s ease;}
+  .carousel-dot.active{background:var(--amber);transform:scale(1.35);}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:36px;}
+  @media (max-width:720px){ .steps{grid-template-columns:1fr;gap:44px;} }
+  .step{position:relative;padding-top:8px;}
+  .step .ghost-num{position:absolute;top:-38px;left:-6px;font-family:'Barlow Condensed';font-weight:800;font-size:72px;color:var(--surface-2);z-index:0;line-height:1;user-select:none;}
+  .step h3,.step p{position:relative;z-index:1;}
+  .step h3{font-size:18px;letter-spacing:-0.01em;margin:20px 0 8px;}
+  .step p{font-size:14.5px;color:var(--text-dim);line-height:1.6;margin:0;}
+  /* ---- checklist: ¿tu inventario está bajo control? ---- */
+  .checklist-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
+  @media (max-width:720px){ .checklist-grid{grid-template-columns:1fr;} }
+  .checklist-item{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:30px 32px;}
+  .checklist-q{font-size:15.5px;color:var(--text-dim);margin-bottom:12px;}
+  .checklist-a{font-size:19px;font-weight:700;color:var(--text);display:flex;align-items:baseline;gap:10px;line-height:1.4;}
+  .checklist-a .arrow{color:var(--amber);flex-shrink:0;}
+</style>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-G5WNMGTXSH"></script>
+<script src="assets/analitica.js"></script>
+<script src="assets/sentry-config.js"></script>
+<script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
+<script src="assets/comun.js" defer></script>
+</head>
+<body>
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-5RH88HLL"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+  <div class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html" aria-label="Ir a la portada de InventIA">
+        <div class="brand-badge">IA</div>
+        <div class="brand-name">Invent<span class="ia">IA</span></div>
+      </a>
+      <div class="nav-links" id="nav-links">
+        <a href="bodega.html">Bodega</a>
+        <a href="inventario.html">Inventario</a>
+        <a href="index.html#planes">Planes</a>
+        <a href="index.html#faq">Preguntas</a>
+        <a href="#" data-abrir-contacto>Contacto</a>
+      </div>
+      <a class="nav-cta" href="app/index.html">Ingresar</a>
+      <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Abrir menú" aria-expanded="false" aria-controls="nav-links">
+        <svg class="icon-menu" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="hero wrap">
+    <div class="kicker">Módulo Inventario</div>
+    <h1><span>Cuánto hay de verdad,</span> y quién lo contó.</h1>
+    <p class="hero-sub">Conteo cíclico planificado: el equipo cuenta en terreno desde el celular, las diferencias aparecen solas y cada conteo queda con nombre y hora.</p>
+
+    <div>
+      <button type="button" class="cta" data-abrir-demo data-plan="inventario">Ver Invent<span class="ia">IA</span> en acción →</button>
+      <a class="cta-ghost" href="bodega.html">Ver el módulo Bodega <span>→</span></a>
+    </div>
+    <div class="cta-sub">Funciona desde cualquier dispositivo móvil o computador, con o sin señal.</div>
+  </div>
+
+  <section id="inventario">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2 class="section-title">¿Tu inventario está realmente bajo control?</h2>
+      </div>
+
+      <img class="comparativa-img reveal" style="margin-bottom:40px" src="img/dashboard-sala-control.jpg" alt="Equipo de una faena minera revisando el dashboard de InventIA en pantalla, con avance, diferencias y ranking por ubicación">
+
+      <div class="checklist-grid">
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Sabes cuánto has avanzado?</div>
+          <div class="checklist-a"><span class="arrow">→</span><span>Con Invent<span class="ia">IA</span> el avance es en tiempo real.</span></div>
+        </div>
+
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Sabes dónde están las diferencias?</div>
+          <div class="checklist-a"><span class="arrow">→</span><span>Con Invent<span class="ia">IA</span> entrega las diferencias identificadas automáticamente.</span></div>
+        </div>
+
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Sabes quién realizó cada conteo?</div>
+          <div class="checklist-a"><span class="arrow">→</span><span>Con Invent<span class="ia">IA</span> la trazabilidad es por usuario, bodega y periodos.</span></div>
+        </div>
+
+        <div class="checklist-item reveal">
+          <div class="checklist-q">¿Puedes respaldar el resultado?</div>
+          <div class="checklist-a"><span class="arrow">→</span><span>Con Invent<span class="ia">IA</span> tienes evidencia fotográfica y registros históricos.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="resuelve">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2 class="section-title">¿Qué resuelve?</h2>
+        <div class="section-sub">Está pensado para el conteo físico real: se adapta a bodegas de cualquier tamaño, funciona sin depender de internet, y permite que varios responsables cuenten al mismo tiempo, de forma organizada. El resultado: control real de tu inventario y datos confiables para decidir.</div>
+
+      </div>
+      <div class="carousel reveal">
+        <div class="carousel-track" id="vista-track">
+
+          <div class="carousel-slide">
+            <div class="section-head reveal" style="margin-bottom:28px;">
+              <h3 class="section-title">La diferencia en un vistazo</h3>
+              <div class="section-sub">El mismo inventario, dos formas muy distintas de hacerlo.</div>
+            </div>
+            <img class="comparativa-img reveal" src="img/comparacion-tradicional-vs-inventia.png" alt="Comparación entre el inventario tradicional (Excel, conteo manual, papel, consolidación, cruces, diferencias y reconteo: más tiempo, más costos, más errores, menos visibilidad) y el proceso con InventIA (planificar, contar desde el dispositivo móvil, datos en tiempo real, diferencia automática, reconteo dirigido e informe: menos tiempo, menos costos, más precisión, visibilidad total)">
+          </div>
+
+          <div class="carousel-slide">
+            <div class="vista-grid">
+              <div class="vista-text">
+                <h3 class="section-title">Todo tu avance,<br>en un solo lugar</h3>
+                <p>Mientras tu equipo cuenta en terreno, el dashboard se arma solo: avance en tiempo real y proyección de término, sin trabajo administrativo extra.</p>
+                <ul class="vista-points">
+                  <li><b>Avance en tiempo real</b>, por bodega y ubicación.</li>
+                  <li><b>Fecha de término estimada</b>, según el ritmo real del equipo.</li>
+                  <li><b>Dónde falta contar</b>, con el avance desglosado por ubicación general.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="phone-frame">
+                  <img src="img/dashboard-demo.png" alt="Dashboard ejecutivo de InventIA: 91,7% de avance, proyección de término y conteos por día">
+                  <div class="phone-frame-fade"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="carousel-slide">
+            <div class="vista-grid">
+              <div class="vista-text">
+                <h3 class="section-title">Proyección de término<br>y ranking</h3>
+                <p>El sistema calcula solo cuándo se va a terminar el inventario, al ritmo real con que está contando el equipo.</p>
+                <ul class="vista-points">
+                  <li><b>Fecha estimada de término</b>, recalculada según el ritmo de los últimos 14 días.</li>
+                  <li><b>Conteos por día y diferencias</b> para ver la tendencia real.</li>
+                  <li><b>Ranking por responsable</b>, para saber quién está contando qué.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="phone-frame">
+                  <img src="img/proyeccion-demo.jpg" alt="Proyección de término y ranking por responsable en el dashboard de InventIA">
+                  <div class="phone-frame-fade"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="carousel-slide">
+            <div class="vista-grid">
+              <div class="vista-text">
+                <h3 class="section-title">Cuenta en terreno,<br>hasta con el código de barras</h3>
+                <p>Busca el SKU o apunta la cámara al código de barras: el sistema lo reconoce solo, incluso sin señal.</p>
+                <ul class="vista-points">
+                  <li><b>Escaneo de código de barras o QR</b>, con reconocimiento al instante.</li>
+                  <li><b>Funciona sin conexión</b>: se sincroniza solo al volver la señal.</li>
+                  <li><b>Respaldo fotográfico</b> en cada conteo.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="phone-frame">
+                  <img src="img/contar-demo.png" alt="Pantalla de Tomar inventario de InventIA con buscador de SKU y botón de escáner de código de barras">
+                  <div class="phone-frame-fade"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="carousel-slide">
+            <div class="vista-grid">
+              <div class="vista-text">
+                <h3 class="section-title">Respaldo fotográfico<br>por cada conteo</h3>
+                <p>Cada cantidad contada puede quedar con foto, y si hace falta más de una, también.</p>
+                <ul class="vista-points">
+                  <li><b>Una o varias fotos</b> por conteo, con navegación entre ellas.</li>
+                  <li><b>Ubicación, responsable y hora</b> quedan siempre registrados junto a la foto.</li>
+                  <li><b>Trazabilidad completa</b> para auditar cualquier diferencia.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="phone-frame">
+                  <img src="img/fotos-demo.png" alt="Pantalla de Tomar inventario de InventIA con dos fotos de respaldo adjuntas a un conteo">
+                  <div class="phone-frame-fade"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="carousel-slide">
+            <div class="vista-grid">
+              <div class="vista-text">
+                <h3 class="section-title">Encuentra las diferencias<br>antes de cerrar el inventario</h3>
+                <p>El sistema calcula solo qué no cuadra contra el stock del sistema, sin cruzar planillas para encontrarlo.</p>
+                <ul class="vista-points">
+                  <li><b>Diferencia calculada</b> automáticamente en cada conteo.</li>
+                  <li><b>Reconteo con un toque</b>, sin perder el historial.</li>
+                  <li><b>Trazable</b>: quién, cuándo y con qué diferencia.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="phone-frame">
+                  <img src="img/reconteo-demo.png" alt="Pantalla de Reconteo de InventIA mostrando materiales con diferencia contra el stock del sistema">
+                  <div class="phone-frame-fade"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="carousel-nav">
+          <button type="button" class="carousel-arrow" id="vista-prev" aria-label="Diapositiva anterior">‹</button>
+          <div class="carousel-dots" id="vista-dots">
+            <button type="button" class="carousel-dot active" data-slide="0" aria-label="Ir a: La diferencia en un vistazo"></button>
+            <button type="button" class="carousel-dot" data-slide="1" aria-label="Ir a: Dashboard"></button>
+            <button type="button" class="carousel-dot" data-slide="2" aria-label="Ir a: Proyección y ranking"></button>
+            <button type="button" class="carousel-dot" data-slide="3" aria-label="Ir a: Contar en terreno"></button>
+            <button type="button" class="carousel-dot" data-slide="4" aria-label="Ir a: Respaldo fotográfico"></button>
+            <button type="button" class="carousel-dot" data-slide="5" aria-label="Ir a: Diferencias y reconteo"></button>
+          </div>
+          <button type="button" class="carousel-arrow" id="vista-next" aria-label="Siguiente diapositiva">›</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <section id="funciona">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2 class="section-title">¿Cómo funciona?</h2>
+        <div class="section-sub">Tres pasos, sin curva de aprendizaje para el equipo en terreno.</div>
+      </div>
+      <div class="steps">
+        <div class="step reveal">
+          <div class="ghost-num mono">01</div>
+          <h3>Carga tu maestro de SKU</h3>
+          <p>Carga tu maestro desde Excel/CSV, incluyendo archivos exportados desde SAP, y arma el plan de conteo por bodega y ubicación.</p>
+        </div>
+        <div class="step reveal">
+          <div class="ghost-num mono">02</div>
+          <h3>Planifica por responsable</h3>
+          <p>El equipo trabaja con una planificación por responsable, bodega y ubicación, como guía y no como bloqueo: cualquiera puede buscar y contar otro material si hace falta.</p>
+        </div>
+        <div class="step reveal">
+          <div class="ghost-num mono">03</div>
+          <h3>Cuenta en terreno</h3>
+          <p>Busca el SKU, ingresa la cantidad y saca una o más fotografías de respaldo, incluso sin señal. El dashboard se actualiza solo.</p>
+        </div>
+      </div>
+      <img class="comparativa-img reveal" style="margin-top:48px" src="img/terreno-tablet-conteo.jpg" alt="Trabajador con casco contando materiales en bodega usando InventIA en una tablet">
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2 class="section-title">Preguntas sobre Inventario</h2>
+      </div>
+      <div class="faq-list">
+        <details class="faq-item reveal">
+          <summary>¿Funciona sin señal dentro de la bodega o la mina?</summary>
+          <p>Sí. Si no hay conexión, el conteo (y las fotos) se guardan en el dispositivo y se suben solas cuando se restablece la señal. Nadie pierde un conteo por trabajar en una zona sin cobertura.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Cómo funciona el conteo con código de barras?</summary>
+          <p>Apuntas la cámara del dispositivo móvil al código de barras o QR del material. Si el sistema ya lo conoce, reconoce el SKU al instante. Si es la primera vez que lo ve, te pide elegir el SKU correcto una sola vez. Desde ahí queda asociado para siempre.</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>¿Mi equipo necesita ser técnico para usarla?</summary>
+          <p>No. La pantalla de conteo en terreno tiene tres campos: buscar o escanear el SKU, ingresar la cantidad y una foto opcional. Se aprende a usar en minutos.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+  <div class="closing reveal">
+    <h2>Prueba el conteo con tu propia bodega</h2>
+    <p>Deja tus datos y entra a la demo al instante, sin instalar nada, en el dispositivo móvil que ya tienes.</p>
+    <button type="button" class="cta" data-abrir-demo data-plan="inventario-cierre">Explorar la demo</button>
+    <span class="cta-sub-link">¿Prefieres ver los planes? <a href="index.html#planes">Míralos acá</a></span>
+  </div>
+
+  <footer>
+    <div class="brand">
+      <div class="brand-badge">IA</div>
+      <div class="brand-name">Invent<span class="ia">IA</span></div>
+    </div>
+    <span>Invent<span class="ia">IA</span> · Control de inventario</span>
+    <div class="footer-links" style="margin-top:6px">
+      <a href="terminos.html">Términos y condiciones</a> · <a href="privacidad.html">Política de privacidad</a> · <a href="reembolsos.html">Política de reembolsos</a>
+    </div>
+    <div class="footer-credit">Desarrollado por
+      <a href="https://www.linkedin.com/in/jmajmut" target="_blank" rel="noopener noreferrer">
+        Joel Majmut
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+      </a>
+    </div>
+  </footer>
+
+</body>
+</html>

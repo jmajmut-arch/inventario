@@ -284,55 +284,106 @@ async function loguear(page, perfil){
     await context.close();
   }
 
-  // ===== Landing: los dos módulos tienen su sección, y ninguna captura sale deformada =====
-  // La regresión concreta: un <img> con atributo height dentro de .phone-frame. El CSS fija
-  // width:100% pero no el alto, así que el atributo se aplicaba como alto CSS y estiraba la
-  // captura de Bodega a 1584 px (tres veces lo que le tocaba) sin que nada fallara.
+  // ===== Landing: las tres páginas del sitio público =====
+  // Desde que el sitio se separó en portada + bodega.html + inventario.html, lo compartido
+  // (estilos, menú, los dos formularios de captación y su envío) vive en assets/. Si un archivo
+  // no carga o el JS se cae, las páginas se ven pero dejan de captar: por eso se comprueba en
+  // las tres que el CSS aplicó, que los modales existen y que no hay errores de JavaScript.
   {
     const context = await browser.newContext();
     const page = await context.newPage();
-    page.on('pageerror', err => erroresPagina.push('landing-modulos: '+err.message));
+    const erroresJs = [];
+    page.on('pageerror', err => erroresJs.push(err.message));
     await bloquearSentry(page);
-    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
 
-    for(const id of ['bodega','inventario']){
-      assert(await page.$('#'+id) !== null, `la landing debe tener la sección #${id}`);
-      assert(await page.$(`.nav-links a[href="#${id}"]`) !== null, `el menú debe enlazar a #${id}`);
+    for(const archivo of ['index.html','bodega.html','inventario.html']){
+      erroresJs.length = 0;
+      await page.goto(`http://localhost:${PORT}/${archivo}`, { waitUntil:'networkidle' });
+      const estado = await page.evaluate(() => ({
+        fondo: getComputedStyle(document.body).backgroundColor,
+        modales: !!document.getElementById('demo-modal-backdrop') && !!document.getElementById('contacto-modal-backdrop'),
+        whatsapp: !!document.getElementById('whatsapp-float-link'),
+        nav: [...document.querySelectorAll('.nav-links a')].map(a => a.getAttribute('href')),
+        desbordeH: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      }));
+      assert(estado.fondo === 'rgb(250, 246, 238)', `${archivo}: assets/comun.css no aplicó, el fondo quedó en ${estado.fondo}`);
+      assert(estado.modales, `${archivo}: assets/comun.js no inyectó los modales de demo y contacto`);
+      assert(estado.whatsapp, `${archivo}: falta el botón flotante de WhatsApp`);
+      assert(estado.nav.includes('bodega.html') && estado.nav.includes('inventario.html'),
+        `${archivo}: el menú debe enlazar a las dos páginas de módulo, obtuvo ${JSON.stringify(estado.nav)}`);
+      assert(!estado.desbordeH, `${archivo}: la página no debe tener barra horizontal`);
+      assert(erroresJs.length === 0, `${archivo}: sin errores de JavaScript, obtuvo: ${erroresJs.join(' | ')}`);
     }
+    await context.close();
+  }
 
-    // Las capturas son de carga diferida: sin recorrer la página primero, naturalWidth es 0,
-    // se saltan todas y la prueba pasaría sin haber medido nada.
-    await page.evaluate(async () => {
-      for(let y = 0; y <= document.body.scrollHeight; y += 600){
-        window.scrollTo(0, y);
-        await new Promise(r => setTimeout(r, 60));
-      }
-      window.scrollTo(0, 0);
-      const imgs = [...document.querySelectorAll('.phone-frame img, .comparativa-img')];
-      await Promise.all(imgs.map(i => i.complete ? null : new Promise(r => {
-        i.addEventListener('load', r, {once:true}); i.addEventListener('error', r, {once:true});
-      })));
-    });
+  // ===== Landing: los enlaces viejos con ancla siguen llegando a destino =====
+  // El sitio era una sola página; cualquier enlace ya enviado a /#bodega o /#inventario tiene
+  // que terminar en la página nueva y no en una portada que ignora el ancla.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-anclas: '+err.message));
+    await bloquearSentry(page);
+    for(const [ancla, destino] of [['#bodega','bodega.html'], ['#inventario','inventario.html'], ['#resuelve','inventario.html'], ['#funciona','inventario.html']]){
+      await page.goto(`http://localhost:${PORT}/index.html${ancla}`, { waitUntil:'networkidle' });
+      await page.waitForTimeout(250);
+      assert(page.url().endsWith(destino), `/index.html${ancla} debe terminar en ${destino}, terminó en ${page.url()}`);
+    }
+    // y dentro de su propia página, el ancla no debe redirigir en círculo
+    await page.goto(`http://localhost:${PORT}/bodega.html#bodega`, { waitUntil:'networkidle' });
+    await page.waitForTimeout(250);
+    assert(page.url().endsWith('bodega.html#bodega'), 'el ancla propia de la página no debe redirigir, quedó en '+page.url());
+    await context.close();
+  }
 
-    const medidas = await page.evaluate(() => {
-      const revisadas = [], malas = [];
-      document.querySelectorAll('.phone-frame img, .comparativa-img').forEach(img => {
-        const archivo = img.getAttribute('src').split('/').pop();
-        if(!img.naturalWidth || !img.naturalHeight) return;
-        const r = img.getBoundingClientRect();
-        if(!r.width || !r.height) return;
-        revisadas.push(archivo);
-        const esperado = img.naturalHeight / img.naturalWidth;
-        const real = r.height / r.width;
-        if(Math.abs(real - esperado) / esperado > 0.02)
-          malas.push(archivo + ': ' + real.toFixed(2) + ' en vez de ' + esperado.toFixed(2));
+  // ===== Landing: ninguna captura sale deformada =====
+  // La regresión concreta: un <img> con atributo height dentro de .phone-frame. El CSS fija
+  // width:100% pero no el alto, así que el atributo se aplicaba como alto CSS y estiraba la
+  // captura de Bodega a tres veces lo que le tocaba sin que nada fallara.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-capturas: '+err.message));
+    await bloquearSentry(page);
+
+    for(const [archivo, esperada] of [['bodega.html','bodega-demo.png'], ['inventario.html','dashboard-demo.png']]){
+      await page.goto(`http://localhost:${PORT}/${archivo}`, { waitUntil:'networkidle' });
+
+      // Las capturas son de carga diferida: sin recorrer la página primero, naturalWidth es 0,
+      // se saltan todas y la prueba pasaría sin haber medido nada.
+      await page.evaluate(async () => {
+        for(let y = 0; y <= document.body.scrollHeight; y += 600){
+          window.scrollTo(0, y);
+          await new Promise(r => setTimeout(r, 60));
+        }
+        window.scrollTo(0, 0);
+        const imgs = [...document.querySelectorAll('.phone-frame img, .comparativa-img')];
+        await Promise.all(imgs.map(i => i.complete ? null : new Promise(r => {
+          i.addEventListener('load', r, {once:true}); i.addEventListener('error', r, {once:true});
+        })));
       });
-      return { revisadas, malas };
-    });
-    assert(medidas.revisadas.includes('bodega-demo.png'),
-      'la prueba tiene que alcanzar a medir la captura de Bodega; si no, pasa sin comprobar nada. Midió: '+medidas.revisadas.join(', '));
-    assert(medidas.malas.length === 0,
-      'ninguna captura de la landing debe renderizarse con otra proporción que la suya, obtuvo: '+medidas.malas.join(' | '));
+
+      const medidas = await page.evaluate(() => {
+        const revisadas = [], malas = [];
+        document.querySelectorAll('.phone-frame img, .comparativa-img').forEach(img => {
+          const nombre = img.getAttribute('src').split('/').pop();
+          if(!img.naturalWidth || !img.naturalHeight) return;
+          const r = img.getBoundingClientRect();
+          if(!r.width || !r.height) return;
+          revisadas.push(nombre);
+          const esperado = img.naturalHeight / img.naturalWidth;
+          const real = r.height / r.width;
+          if(Math.abs(real - esperado) / esperado > 0.02)
+            malas.push(nombre + ': ' + real.toFixed(2) + ' en vez de ' + esperado.toFixed(2));
+        });
+        return { revisadas, malas };
+      });
+      assert(medidas.revisadas.includes(esperada),
+        `${archivo}: la prueba tiene que alcanzar a medir ${esperada}; si no, pasa sin comprobar nada. Midió: ${medidas.revisadas.join(', ')}`);
+      assert(medidas.malas.length === 0,
+        `${archivo}: ninguna captura debe renderizarse con otra proporción que la suya, obtuvo: ${medidas.malas.join(' | ')}`);
+    }
     await context.close();
   }
 
@@ -668,7 +719,7 @@ async function loguear(page, perfil){
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('landing-carousel: '+err.message));
     await bloquearSentry(page);
-    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/inventario.html`, { waitUntil:'networkidle' });
     await page.addStyleTag({ content:'html{scroll-behavior:auto !important}' });
     await page.click('#vista-dots .carousel-dot:nth-child(2)');
     await page.waitForTimeout(600);
