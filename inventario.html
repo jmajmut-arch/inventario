@@ -57,6 +57,59 @@
 <script src="assets/sentry-config.js"></script>
 <script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
 <script src="assets/comun.js" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Inicio",
+      "item": "https://inventiapp.cl/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Módulo Inventario",
+      "item": "https://inventiapp.cl/inventario.html"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "es-CL",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "¿Funciona sin señal dentro de la bodega o la mina?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Sí. Si no hay conexión, el conteo (y las fotos) se guardan en el dispositivo y se suben solas cuando se restablece la señal. Nadie pierde un conteo por trabajar en una zona sin cobertura."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Cómo funciona el conteo con código de barras?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Apuntas la cámara del dispositivo móvil al código de barras o QR del material. Si el sistema ya lo conoce, reconoce el SKU al instante. Si es la primera vez que lo ve, te pide elegir el SKU correcto una sola vez. Desde ahí queda asociado para siempre."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Mi equipo necesita ser técnico para usarla?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. La pantalla de conteo en terreno tiene tres campos: buscar o escanear el SKU, ingresar la cantidad y una foto opcional. Se aprende a usar en minutos."
+      }
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <!-- Google Tag Manager (noscript) -->
