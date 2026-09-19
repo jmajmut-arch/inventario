@@ -20,7 +20,7 @@
   .legend .row{display:flex;gap:8px;align-items:baseline;font-size:9.4pt;margin-bottom:5px;}
   .legend .k{font-weight:700;min-width:44mm;}
   .est{display:inline-block;font-size:7.4pt;letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding:2px 8px;border-radius:100px;flex:none;}
-  .est.critico{background:var(--amber);color:#fff;} .est.importante{background:var(--warn-soft);color:var(--warn);} .est.bien{background:var(--ok-soft);color:var(--ok);} .est.evidencia{background:#EEE9E0;color:var(--dim);}
+  .est.critico{background:var(--amber);color:#fff;} .est.hecho{background:var(--ok);color:#fff;} .est.importante{background:var(--warn-soft);color:var(--warn);} .est.bien{background:var(--ok-soft);color:var(--ok);} .est.evidencia{background:#EEE9E0;color:var(--dim);}
   .ok-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;}
   .ok-grid .item{margin:0;}
   .ok-grid .item .h{font-size:9.8pt;}
@@ -30,7 +30,7 @@
 <!-- PORTADA -->
 <section class="page cover">
   <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
-  <div class="doc-kind">Revisión de seguridad · 19 de septiembre de 2026</div>
+  <div class="doc-kind">Revisión de seguridad · 19 de septiembre de 2026 · actualizada tras la primera tanda de correcciones</div>
   <h1>Qué está bien, qué falta y qué pide una certificación.</h1>
   <p class="lead">Revisión integral hecha con datos reales: políticas y funciones de la base, buckets de fotos, MFA de las cuentas, librerías y cabeceras de la app, secretos en el repositorio y protección de la rama de producción. La base está bien protegida. Lo que falta para certificar no es tanto código como <b>controles y evidencia</b>: quién puede qué, cómo se prueba y dónde queda escrito.</p>
   <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
@@ -39,6 +39,7 @@
     <div>
       <h2>Estado</h2>
       <div class="row"><span class="k"><span class="est bien">Bien</span></span><span>Verificado. Sirve como evidencia para un cuestionario de seguridad.</span></div>
+      <div class="row"><span class="k"><span class="est hecho">Hecho</span></span><span>Corregido el 19 de septiembre, después de la revisión.</span></div>
       <div class="row"><span class="k"><span class="est critico">Crítico</span></span><span>Hueco real o requisito básico de cualquier certificación. Primero.</span></div>
       <div class="row"><span class="k"><span class="est importante">Importante</span></span><span>Defensa que falta o control débil. No expone datos hoy, pero un escáner lo marca.</span></div>
       <div class="row"><span class="k"><span class="est evidencia">Evidencia</span></span><span>No es técnico: política escrita, prueba hecha o documento del proveedor.</span></div>
@@ -62,7 +63,7 @@
     </div>
   </div>
 
-  <div class="note">Si hay que elegir uno solo para esta semana: activar MFA en las tres cuentas de administrador. Cero cuentas la usan hoy, y es lo primero que pregunta cualquier cliente.</div>
+  <div class="note">El mismo día de la revisión se corrigieron los puntos 1 (en la app), 4, 5, 8 y parte del 10. Lo que queda depende de configuraciones que solo puede tocar Joel: activar la MFA en las tres cuentas admin, proteger la rama, sesiones y contraseñas en Supabase.</div>
 </section>
 
 <!-- 01 LO QUE ESTÁ BIEN -->
@@ -92,9 +93,9 @@
   <p class="intro">Los tres se resuelven en días, no en semanas. Ninguno expone datos de clientes hoy, pero los tres son lo primero que revisa un auditor.</p>
 
   <div class="item">
-    <div class="head"><span class="num">1</span><span class="h">Ninguna cuenta usa MFA, incluidos los tres administradores</span><span class="est critico">Crítico</span><span class="amb seguridad">Seguridad</span></div>
-    <p>La app ya permite activar el segundo factor, pero cero cuentas lo tienen. Una contraseña filtrada de un admin da acceso a todo el maestro y los conteos de su empresa. Propuesta: activar MFA en las tres cuentas admin esta semana y, en la app, hacerla obligatoria para el rol admin (aviso al entrar, bloqueo tras un plazo).</p>
-    <div class="meta"><span><b>Quién:</b> Joel, Victoria y Claudio hoy; desarrollo para hacerla obligatoria</span><span><b>Esfuerzo:</b> 5 minutos por cuenta; media sesión para obligarla</span></div>
+    <div class="head"><span class="num">1</span><span class="h">Ninguna cuenta usa MFA, incluidos los tres administradores</span><span class="est hecho">Hecho en la app</span><span class="amb seguridad">Seguridad</span></div>
+    <p>La app ya permitía activar el segundo factor, pero cero cuentas lo tenían. <b>Hecho (19/09):</b> la app avisa a cada admin al entrar y, desde el 1 de octubre de 2026, no lo deja pasar hasta activarla; un operador no se ve afectado. <b>Falta:</b> que Joel, Victoria y Claudio la activen en Configuraciones (un minuto por cuenta) antes de esa fecha.</p>
+    <div class="meta"><span><b>Quién:</b> Joel, Victoria y Claudio</span><span><b>Esfuerzo:</b> un minuto por cuenta</span></div>
   </div>
   <div class="item">
     <div class="head"><span class="num">2</span><span class="h">La rama de producción no está protegida</span><span class="est critico">Crítico</span><span class="amb operacion">Operación</span></div>
@@ -103,20 +104,20 @@
   </div>
   <div class="item">
     <div class="head"><span class="num">3</span><span class="h">La librería de Excel tiene vulnerabilidades conocidas</span><span class="est critico">Crítico</span><span class="amb seguridad">Seguridad</span></div>
-    <p>La app carga xlsx 0.18.5 desde un CDN. Tiene dos CVE publicados (2023-30533 y 2024-22363, corregidos en 0.19.3 y 0.20.2, que el autor ya no publica en npm). Solo la usan administradores con sus propios archivos, así que el riesgo real es bajo, pero cualquier escáner la marca. Propuesta: servirla desde el repositorio en la versión corregida, como ya se hace con pdf-lib.</p>
-    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> una sesión, con pruebas de carga de Excel</span></div>
+    <p>La app carga xlsx 0.18.5 desde un CDN. Tiene dos CVE publicados (2023-30533 y 2024-22363, corregidos en 0.19.3 y 0.20.2, que el autor ya no publica en npm). Solo la usan administradores con sus propios archivos, así que el riesgo real es bajo, pero cualquier escáner la marca. Desde el 19/09 se sirve desde el repositorio (ya no desde el CDN), pero sigue siendo la 0.18.5: la versión corregida solo se distribuye desde cdn.sheetjs.com, que el entorno de desarrollo no alcanza. <b>Falta:</b> que Joel baje xlsx.full.min.js 0.20.3 de ahí y lo deje en app/lib; después se prueban las cargas de Excel.</p>
+    <div class="meta"><span><b>Quién:</b> Joel baja el archivo; desarrollo lo prueba</span><span><b>Esfuerzo:</b> 10 minutos más una sesión de pruebas</span></div>
   </div>
 
   <h2 class="title" style="font-size:16pt;margin-top:8mm">Importantes: defensas que faltan</h2>
   <div class="item">
-    <div class="head"><span class="num">4</span><span class="h">Sin Content Security Policy ni integridad en los scripts externos</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
-    <p>La app carga tres scripts desde CDN (lector de códigos, Excel y Sentry) sin hash de integridad. Si alguien compromete el CDN, ejecuta código dentro de tu app con la sesión del usuario. GitHub Pages no permite cabeceras, pero sí una etiqueta CSP en el HTML y SRI con versiones fijas.</p>
-    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> media sesión</span></div>
+    <div class="head"><span class="num">4</span><span class="h">Sin Content Security Policy ni integridad en los scripts externos</span><span class="est hecho">Hecho</span><span class="amb seguridad">Seguridad</span></div>
+    <p>La app carga tres scripts desde CDN (lector de códigos, Excel y Sentry) sin hash de integridad. Si alguien compromete el CDN, ejecuta código dentro de tu app con la sesión del usuario. <b>Hecho (19/09, PR #469):</b> xlsx y html5-qrcode se sirven desde el repositorio (sin CDN, y disponibles sin señal), y la app lleva una CSP que solo permite scripts propios y de Sentry, conexiones a Supabase y Sentry, y nada de frames ni objetos.</p>
+    <div class="meta"><span><b>Verificado:</b> sin violaciones en Chromium y con las pruebas e2e completas</span></div>
   </div>
   <div class="item">
-    <div class="head"><span class="num">5</span><span class="h">Políticas declaradas para "public" y permisos de tabla al rol anónimo</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
-    <p>34 políticas RLS aplican a cualquier rol y el rol anónimo tiene permisos sobre 30 tablas. Hoy no filtra nada porque las funciones de empresa devuelven vacío sin sesión, pero es defensa por accidente. Propuesta: políticas solo para <code>authenticated</code> y revocar al anónimo todo salvo lo que necesita (dejar un lead desde la landing).</p>
-    <div class="meta"><span><b>Quién:</b> desarrollo</span><span><b>Esfuerzo:</b> una sesión, con barrido de verificación como usuario anónimo</span></div>
+    <div class="head"><span class="num">5</span><span class="h">Políticas declaradas para "public" y permisos de tabla al rol anónimo</span><span class="est hecho">Hecho</span><span class="amb seguridad">Seguridad</span></div>
+    <p>34 políticas RLS aplican a cualquier rol y el rol anónimo tiene permisos sobre 30 tablas. Hoy no filtra nada porque las funciones de empresa devuelven vacío sin sesión, pero es defensa por accidente. <b>Hecho (19/09):</b> las 33 políticas pasaron a <code>authenticated</code>, el anónimo quedó solo con insertar leads, y las tablas que se creen en adelante tampoco se le otorgan. Verificado: como anónimo, "permission denied" en todas las tablas; como usuario, todo igual que antes.</p>
+    <div class="meta"><span><b>Verificado:</b> barrido como anónimo y como usuario de Escondida; advisor sin el hallazgo del trigger</span></div>
   </div>
 </section>
 
@@ -133,9 +134,9 @@
     <div class="meta"><span><b>Quién:</b> Joel en Supabase Auth; desarrollo para el formulario</span><span><b>Esfuerzo:</b> 15 minutos</span></div>
   </div>
   <div class="item">
-    <div class="head"><span class="num">8</span><span class="h">Auditoría con retención de 14 días y visible entre empresas para el súper admin</span><span class="est importante">Importante</span><span class="amb datos">Datos</span></div>
-    <p>El registro de auditoría se purga a los 14 días; una certificación pide entre 90 días y un año. Y el súper admin lee la auditoría de todos los clientes: es deliberado, pero hay que poder explicarlo por escrito, o cerrarlo. Propuesta: retención de 180 días y una frase en la política de acceso.</p>
-    <div class="meta"><span><b>Quién:</b> desarrollo (una migración) y Joel (la decisión)</span><span><b>Esfuerzo:</b> chico</span></div>
+    <div class="head"><span class="num">8</span><span class="h">Auditoría con retención de 14 días y visible entre empresas para el súper admin</span><span class="est hecho">Hecho a medias</span><span class="amb datos">Datos</span></div>
+    <p>El registro de auditoría se purga a los 14 días; una certificación pide entre 90 días y un año. Y el súper admin lee la auditoría de todos los clientes: es deliberado, pero hay que poder explicarlo por escrito, o cerrarlo. <b>Hecho (19/09):</b> la retención pasó a 180 días. <b>Falta:</b> la decisión sobre la visibilidad del súper admin y la frase en la política de acceso.</p>
+    <div class="meta"><span><b>Quién:</b> Joel (la decisión)</span><span><b>Esfuerzo:</b> una frase</span></div>
   </div>
   <div class="item">
     <div class="head"><span class="num">9</span><span class="h">Registro de empresas sin CAPTCHA ni límite de intentos</span><span class="est importante">Importante</span><span class="amb seguridad">Seguridad</span></div>
@@ -144,8 +145,8 @@
   </div>
   <div class="item">
     <div class="head"><span class="num">10</span><span class="h">Cabos menores</span><span class="est importante">Importante</span><span class="amb operacion">Operación</span></div>
-    <p>DMARC sigue en <code>p=none</code> (pasar a cuarentena en octubre, como estaba planeado). Un usuario activo no entra hace más de 90 días. La extensión <code>pg_net</code> vive en el esquema público. Dependabot no está activado, así que nadie avisa cuando una librería tiene un CVE nuevo.</p>
-    <div class="meta"><span><b>Quién:</b> Joel</span><span><b>Esfuerzo:</b> 30 minutos en total</span></div>
+    <p>DMARC sigue en <code>p=none</code> (pasar a cuarentena en octubre, como estaba planeado). Un usuario activo no entra hace más de 90 días. La extensión <code>pg_net</code> vive en el esquema público. <b>Hecho (19/09):</b> Dependabot activado y <code>security.txt</code> publicado. <b>Falta:</b> DMARC, el usuario inactivo y <code>pg_net</code>.</p>
+    <div class="meta"><span><b>Quién:</b> Joel</span><span><b>Esfuerzo:</b> 20 minutos en total</span></div>
   </div>
 </section>
 
@@ -161,7 +162,7 @@
   <div class="item"><div class="head"><span class="num">D</span><span class="h">Gestión de vulnerabilidades</span><span class="est evidencia">Evidencia</span><span class="amb seguridad">Seguridad</span></div><p>Dependabot activo en el repositorio, el advisor de Supabase revisado tras cada migración (ya se hace) y un pentest externo anual con su informe y el cierre de hallazgos.</p></div>
   <div class="item"><div class="head"><span class="num">E</span><span class="h">Proveedores y contratos</span><span class="est evidencia">Evidencia</span><span class="amb documentacion">Documentación</span></div><p>Guardar los informes SOC 2 de Supabase, GitHub, Cloudflare y Brevo, y tener un acuerdo de tratamiento de datos para firmar con cada cliente: qué datos se guardan, dónde (São Paulo), quién accede y cuánto tiempo.</p></div>
   <div class="item"><div class="head"><span class="num">F</span><span class="h">Privacidad: Ley 21.719</span><span class="est evidencia">Evidencia</span><span class="amb documentacion">Documentación</span></div><p>La nueva ley chilena de protección de datos entra en vigencia en diciembre de 2026 y aplica a los datos de las personas que usan la app (nombre, correo, quién contó qué). Hace falta una política de privacidad publicada y un procedimiento para eliminar los datos de un usuario que lo pida.</p></div>
-  <div class="item"><div class="head"><span class="num">G</span><span class="h">Incidentes y canal de reporte</span><span class="est evidencia">Evidencia</span><span class="amb operacion">Operación</span></div><p>Un registro de incidentes (aunque esté vacío), con qué pasó, cuándo se detectó y qué se hizo. Y un <code>security.txt</code> en el sitio para que alguien que encuentre un problema sepa a quién escribir.</p></div>
+  <div class="item"><div class="head"><span class="num">G</span><span class="h">Incidentes y canal de reporte</span><span class="est evidencia">Evidencia</span><span class="amb operacion">Operación</span></div><p>Un registro de incidentes (aunque esté vacío), con qué pasó, cuándo se detectó y qué se hizo. El <code>security.txt</code> ya está publicado (19/09) con contacto y vigencia.</p></div>
 </section>
 
 <!-- 04 ORDEN -->
@@ -172,13 +173,13 @@
 
   <div class="item">
     <div class="head"><span class="num">1</span><span class="h">Esta semana: lo que cierra huecos y cuesta poco</span><span class="amb seguridad">Seguridad</span></div>
-    <p>MFA en las tres cuentas admin (1). Proteger <code>main</code> y borrar ramas viejas (2). Mínimo de contraseña y protección contra filtradas en Supabase (7). Caducidad de sesión (6). Dependabot y los cabos menores (10). Todo lo hace Joel en configuraciones, salvo obligar la MFA en la app.</p>
-    <div class="meta"><span><b>Esfuerzo:</b> una tarde de Joel, media sesión de desarrollo</span></div>
+    <p>Lo de desarrollo ya está: MFA obligatoria en la app (1), Dependabot (10). Queda lo que se hace en configuraciones: activar la MFA en las tres cuentas (1), proteger <code>main</code> y borrar ramas viejas (2), mínimo de contraseña y protección contra filtradas en Supabase (7), caducidad de sesión (6), DMARC, usuario inactivo y pg_net (10).</p>
+    <div class="meta"><span><b>Esfuerzo:</b> una tarde de Joel</span></div>
   </div>
   <div class="item">
     <div class="head"><span class="num">2</span><span class="h">Próximas dos semanas: lista para un cuestionario</span><span class="amb datos">Datos</span></div>
-    <p>SRI y CSP (4). Políticas RLS solo para usuarios autenticados (5). xlsx en versión corregida y servido desde el repositorio (3). Retención de auditoría a 180 días (8). CAPTCHA en el registro (9). Correr el respaldo y probar la restauración (B). Escribir las políticas cortas (A) y la de privacidad (F).</p>
-    <div class="meta"><span><b>Esfuerzo:</b> cuatro sesiones de desarrollo, dos tardes de Joel para las políticas</span></div>
+    <p>Hechos el 19/09: CSP y librerías locales (4), políticas solo para autenticados (5), retención de auditoría (8). Quedan: xlsx en versión corregida (3, necesita el archivo que baja Joel), CAPTCHA en el registro (9), correr el respaldo y probar la restauración (B), escribir las políticas cortas (A) y la de privacidad (F).</p>
+    <div class="meta"><span><b>Esfuerzo:</b> dos sesiones de desarrollo, dos tardes de Joel para las políticas y el respaldo</span></div>
   </div>
   <div class="item">
     <div class="head"><span class="num">3</span><span class="h">Cuando un cliente lo exija: certificación formal</span><span class="amb documentacion">Documentación</span></div>
@@ -186,7 +187,7 @@
     <div class="meta"><span><b>Esfuerzo:</b> el pentest y el consultor tienen costo; el resto es rutina</span></div>
   </div>
 
-  <div class="note">Lo que hoy ya se puede afirmar a un cliente, con evidencia: aislamiento por empresa en todas las tablas, fotos privadas, cifrado en reposo y en tránsito, auditoría de cambios, pruebas automáticas antes de cada publicación y respaldo diario. Lo que todavía no: MFA obligatoria, políticas escritas y una restauración probada.</div>
+  <div class="note">Lo que hoy ya se puede afirmar a un cliente, con evidencia: aislamiento por empresa en todas las tablas, fotos privadas, cifrado en reposo y en tránsito, auditoría de cambios, pruebas automáticas antes de cada publicación y respaldo diario. Lo que todavía no: MFA activa en las cuentas admin, políticas escritas y una restauración probada.</div>
 </section>
 
 </body></html>
