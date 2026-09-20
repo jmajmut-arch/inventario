@@ -299,12 +299,25 @@ async function loguear(page, perfil){
     for(const archivo of ['index.html','bodega.html','inventario.html']){
       erroresJs.length = 0;
       await page.goto(`http://localhost:${PORT}/${archivo}`, { waitUntil:'networkidle' });
+      // El sello del pie carga perezoso (loading="lazy"): hay que llegar hasta el pie, como un
+      // visitante, para que el navegador lo pida; si no, mide 0×0 aunque el archivo esté bien.
+      await page.evaluate(() => document.querySelector('footer')?.scrollIntoView());
+      await page.waitForFunction(() => {
+        const img = document.querySelector('footer .footer-star img');
+        return !img || (img.complete && img.naturalWidth > 0);
+      }, null, { timeout: 5000 }).catch(() => {});
       const estado = await page.evaluate(() => ({
         fondo: getComputedStyle(document.body).backgroundColor,
         modales: !!document.getElementById('demo-modal-backdrop') && !!document.getElementById('contacto-modal-backdrop'),
         whatsapp: !!document.getElementById('whatsapp-float-link'),
         nav: [...document.querySelectorAll('.nav-links a')].map(a => a.getAttribute('href')),
         star: [...document.querySelectorAll('footer a')].some(a => a.getAttribute('href') === 'https://cloudsecurityalliance.org/star/registry/inventia' && a.getAttribute('rel') === 'noopener noreferrer'),
+        sello: (() => {
+          const img = document.querySelector('footer a[href="https://cloudsecurityalliance.org/star/registry/inventia"][rel="noopener noreferrer"] img');
+          if (!img) return null;
+          const r = img.getBoundingClientRect();
+          return { alt: img.getAttribute('alt') || '', cargado: img.complete && img.naturalWidth, natural: [img.naturalWidth, img.naturalHeight], visible: r.width > 40 && r.height > 40 && Math.abs(r.width - r.height) < 1 };
+        })(),
         inicio: [...document.querySelectorAll('.nav-links a')].some(a => a.getAttribute('href') === 'index.html' && /inicio/i.test(a.textContent)),
         actual: [...document.querySelectorAll('.nav-links a[aria-current="page"]')].map(a => a.getAttribute('href')),
         desbordeH: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
@@ -322,6 +335,19 @@ async function loguear(page, perfil){
       // exactamente lo que se olvida al agregar una página nueva), con rel="noopener noreferrer"
       // porque abre en otra pestaña hacia un dominio ajeno.
       assert(estado.star, `${archivo}: el pie debe enlazar al registro CSA STAR con rel="noopener noreferrer"`);
+      // El sello STAR Level One es marca de la CSA y sus condiciones de uso son dos: usarlo sin
+      // modificar y enlazado a la entrada del registro. La imagen tiene que cargar de verdad
+      // (un src roto pasa desapercibido en un pie), mantener el archivo original de 800×800 y
+      // verse cuadrada, dentro del mismo enlace que el texto.
+      assert(estado.sello, `${archivo}: el sello STAR debe ir como imagen dentro del enlace al registro`);
+      if (estado.sello) {
+        assert(estado.sello.cargado, `${archivo}: la imagen del sello STAR no cargó (¿falta img/csa-star-level-one.png?)`);
+        assert(estado.sello.natural[0] === 800 && estado.sello.natural[1] === 800,
+          `${archivo}: el sello STAR debe ser el archivo original de 800×800, obtuvo ${estado.sello.natural.join('×')}`);
+        assert(estado.sello.visible, `${archivo}: el sello STAR debe verse cuadrado y de tamaño legible`);
+        assert(/STAR/.test(estado.sello.alt) && /Cloud Security Alliance/.test(estado.sello.alt),
+          `${archivo}: el alt del sello debe decir qué es y de quién, obtuvo "${estado.sello.alt}"`);
+      }
       assert(estado.actual.length === 1 && estado.actual[0] === archivo,
         `${archivo}: el menú debe marcar la página actual con aria-current, obtuvo ${JSON.stringify(estado.actual)}`);
       assert(!estado.desbordeH, `${archivo}: la página no debe tener barra horizontal`);
