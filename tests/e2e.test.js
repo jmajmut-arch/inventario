@@ -304,6 +304,7 @@ async function loguear(page, perfil){
         modales: !!document.getElementById('demo-modal-backdrop') && !!document.getElementById('contacto-modal-backdrop'),
         whatsapp: !!document.getElementById('whatsapp-float-link'),
         nav: [...document.querySelectorAll('.nav-links a')].map(a => a.getAttribute('href')),
+        star: [...document.querySelectorAll('footer a')].some(a => a.getAttribute('href') === 'https://cloudsecurityalliance.org/star/registry/inventia' && a.getAttribute('rel') === 'noopener noreferrer'),
         inicio: [...document.querySelectorAll('.nav-links a')].some(a => a.getAttribute('href') === 'index.html' && /inicio/i.test(a.textContent)),
         actual: [...document.querySelectorAll('.nav-links a[aria-current="page"]')].map(a => a.getAttribute('href')),
         desbordeH: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
@@ -316,6 +317,11 @@ async function loguear(page, perfil){
       // Desde una página de módulo, la única vuelta a la portada era el logo. Con tres páginas
       // el menú tiene que ofrecerla como tal, y decir en cuál está parado el visitante.
       assert(estado.inicio, `${archivo}: el menú debe ofrecer "Inicio" hacia index.html, obtuvo ${JSON.stringify(estado.nav)}`);
+      // El registro CSA STAR es la prueba pública de seguridad que se le muestra a un comprador:
+      // tiene que estar en el pie de las tres páginas (el pie vive repetido en cada archivo, y es
+      // exactamente lo que se olvida al agregar una página nueva), con rel="noopener noreferrer"
+      // porque abre en otra pestaña hacia un dominio ajeno.
+      assert(estado.star, `${archivo}: el pie debe enlazar al registro CSA STAR con rel="noopener noreferrer"`);
       assert(estado.actual.length === 1 && estado.actual[0] === archivo,
         `${archivo}: el menú debe marcar la página actual con aria-current, obtuvo ${JSON.stringify(estado.actual)}`);
       assert(!estado.desbordeH, `${archivo}: la página no debe tener barra horizontal`);

@@ -30,7 +30,7 @@
 <!-- PORTADA -->
 <section class="page cover">
   <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
-  <div class="doc-kind">Revisión de seguridad · 19 de septiembre de 2026 · actualizada tras la primera tanda de correcciones</div>
+  <div class="doc-kind">Revisión de seguridad · 19 de septiembre de 2026 · actualizada el 20 con el registro CSA STAR publicado</div>
   <h1>Qué está bien, qué falta y qué pide una certificación.</h1>
   <p class="lead">Revisión integral hecha con datos reales: políticas y funciones de la base, buckets de fotos, MFA de las cuentas, librerías y cabeceras de la app, secretos en el repositorio y protección de la rama de producción. La base está bien protegida. Lo que falta para certificar no es tanto código como <b>controles y evidencia</b>: quién puede qué, cómo se prueba y dónde queda escrito.</p>
   <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
@@ -83,6 +83,7 @@
     <div class="item"><div class="head"><span class="h">Correo y dominio</span><span class="est bien">Bien</span></div><p>SPF, DKIM y DMARC en cuarentena (19/09): un correo que suplante a inventiapp.cl va a spam. Remitente contacto@inventiapp.cl. Una sesión por cuenta, con caducidad.</p></div>
     <div class="item"><div class="head"><span class="h">Respaldo y recuperación</span><span class="est bien">Bien</span></div><p>Supabase guarda copias diarias siete días. Hay un script propio de respaldo completo (base, roles, fotos, funciones) y un runbook de recuperación. Falta ejecutarlo (ver evidencia).</p></div>
     <div class="item"><div class="head"><span class="h">Infraestructura</span><span class="est bien">Bien</span></div><p>Postgres 17.6 al día, región São Paulo, cifrado en reposo y en tránsito por Supabase. App servida por GitHub Pages solo por HTTPS. Sentry no recibe datos personales.</p></div>
+    <div class="item"><div class="head"><span class="h">Cuestionario de seguridad publicado</span><span class="est hecho">Hecho</span></div><p>Las 197 respuestas del CAIQ v4 están en el registro público CSA STAR (Level 1, autoevaluación; no es una auditoría): <code>cloudsecurityalliance.org/star/registry/inventia</code>. Es lo que se le manda a un comprador en vez de un PDF. Vence al año: renovar antes del 20/09/2027.</p></div>
   </div>
 </section>
 
@@ -154,7 +155,7 @@
 <section class="page">
   <div class="kicker">03 · Qué pide una certificación</div>
   <h2 class="title">Evidencia, más que código</h2>
-  <p class="intro">Para vender a una minera suele bastar un <b>cuestionario de seguridad</b> más un <b>pentest externo</b>. Una certificación formal (ISO 27001 o SOC 2) pide lo mismo y, además, que todo esté escrito, vigente y con responsable. Esto es lo que hoy no existe o no está probado.</p>
+  <p class="intro">Para vender a una minera suele bastar un <b>cuestionario de seguridad</b> más un <b>pentest externo</b>. El cuestionario ya está: el CAIQ publicado en el registro CSA STAR (20/09). Una certificación formal (ISO 27001 o SOC 2) pide lo mismo y, además, que todo esté escrito, vigente y con responsable. Esto es lo que hoy no existe o no está probado.</p>
 
   <div class="item"><div class="head"><span class="num">A</span><span class="h">Políticas escritas</span><span class="est evidencia">Evidencia</span><span class="amb documentacion">Documentación</span></div><p>Seguridad de la información, control de acceso (roles, altas y bajas, súper admin), gestión de cambios (lo que ya se hace con PR y CI, escrito), respuesta a incidentes, respaldo y recuperación, retención de datos. Una o dos páginas cada una, en el estilo de los manuales actuales.</p></div>
   <div class="item"><div class="head"><span class="num">B</span><span class="h">Respaldo ejecutado y restauración probada</span><span class="est evidencia">Evidencia</span><span class="amb datos">Datos</span></div><p>El script y el runbook existen, pero nunca se corrieron. Correr el respaldo, guardarlo fuera del computador y hacer una restauración de prueba en un proyecto aparte. Con fecha y resultado anotados: eso es lo que pide un auditor.</p></div>
