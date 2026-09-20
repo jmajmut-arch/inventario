@@ -344,6 +344,51 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: el formulario avisa la conversión =====
+  // De este evento cuelga toda la medición de la publicidad: si deja de mandarse, Google Ads
+  // sigue cobrando clics y deja de poder decir cuáles sirvieron, sin que nada se vea roto en
+  // la pantalla. El formulario puede guardar perfecto y el evento no salir: pasó de verdad.
+  // Se comprueba leyendo dataLayer, que es donde gtag empuja, porque assets/analitica.js
+  // redefine window.gtag al cargar y un espía puesto antes queda pisado.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-conversion: '+err.message));
+    await bloquearSentry(page);
+    // El alta responde como PostgREST con Prefer: return=minimal: 201 y cuerpo vacío.
+    await page.route('**/rest/v1/leads_demo**', r => r.fulfill({ status:201, body:'', headers:{'Content-Type':'application/json'} }));
+
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'domcontentloaded' });
+    await page.waitForTimeout(600);
+    await page.click('[data-abrir-demo]');
+    // El antispam descarta lo enviado en menos de 2 s, así que hay que esperarlos de verdad.
+    await page.waitForTimeout(2400);
+    await page.fill('#demo-nombre', 'Prueba e2e');
+    await page.fill('#demo-email', 'prueba@example.com');
+    await page.fill('#demo-telefono', '+56 9 1234 5678');
+    await page.fill('#demo-empresa', 'Minera de prueba');
+    await page.click('#demo-submit-btn');
+    await page.waitForSelector('#demo-modal-ok.open', { timeout: ESPERA });
+
+    const r = await page.evaluate(() => {
+      const capas = (window.dataLayer || []).map(a => Array.from(a));
+      const eventos = capas.filter(a => a[0] === 'event');
+      const lead = eventos.filter(a => a[1] === 'generate_lead');
+      return {
+        nombres: eventos.map(a => a[1]),
+        veces: lead.length,
+        tipo: lead.length ? (lead[0][2] || {}).lead_type : null,
+        error: (document.getElementById('demo-error') || {}).textContent || ''
+      };
+    });
+
+    assert(r.veces === 1, `el envío correcto debe mandar generate_lead exactamente una vez, mandó ${r.veces}. Eventos: ${JSON.stringify(r.nombres)}`);
+    assert(r.tipo === 'demo', `generate_lead debe traer lead_type para distinguir demo de contacto, trajo ${JSON.stringify(r.tipo)}`);
+    assert(r.nombres.includes('demo_modal_open'), `también debe registrarse la apertura, para poder comparar aperturas contra envíos. Eventos: ${JSON.stringify(r.nombres)}`);
+    assert(!r.error, `el envío correcto no debe mostrar error, mostró: ${r.error}`);
+    await context.close();
+  }
+
   // ===== Landing: lo que el buscador lee =====
   // Los datos estructurados de preguntas frecuentes solo sirven si dicen exactamente lo mismo
   // que la página muestra: si se editan las preguntas y el JSON-LD queda atrás, Google trata la
