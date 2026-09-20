@@ -10166,24 +10166,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(pathBuscarFueraPlan.includes('fuera_de_plan=eq.true'), 'con "Solo fuera de plan" marcado, la búsqueda debe filtrar por fuera_de_plan=eq.true, obtuvo: '+pathBuscarFueraPlan);
   const htmlBuscarFueraPlan = ctx.renderBuscar();
   assert(htmlBuscarFueraPlan.includes('id="b-solo-fuera-plan"') && htmlBuscarFueraPlan.includes('Fuera de plan'), 'debe mostrar el checkbox del filtro y el badge "Fuera de plan" en el resultado, obtuvo: '+htmlBuscarFueraPlan);
-  // Pedido de Joel: con cualquiera de los checkboxes (fotos/fuera de plan/contado hoy) activo,
-  // mostrar un gráfico resumen por estado sobre los resultados ya filtrados.
+  // El gráfico "Resumen por estado" (torta, como "Quién contó") acompaña a los resultados cargados
+  // y su alcance dice sobre qué es: aquí, sin más por cargar, sobre todo lo filtrado.
   assert(htmlBuscarFueraPlan.includes('Resumen por estado') && htmlBuscarFueraPlan.includes('<svg'), 'con "Solo fuera de plan" marcado y resultados cargados, debe verse el gráfico resumen, obtuvo: '+htmlBuscarFueraPlan);
-  assert(htmlBuscarFueraPlan.includes('Resultados filtrados'), 'sin más resultados por cargar, el gráfico debe indicar que es sobre todos los resultados filtrados, obtuvo: '+htmlBuscarFueraPlan);
-  // Reportado: en el eje x no se leían bien los textos -- "No contado" se cortaba porque las
-  // columnas del gráfico eran muy angostas. Con etiquetasLargas=true, las etiquetas de dos
-  // palabras se parten en dos líneas (<tspan>) y las columnas se ensanchan según la palabra
-  // más larga, así ninguna etiqueta queda amontonada ni superpuesta con la de al lado.
-  assert(htmlBuscarFueraPlan.includes('<tspan') && htmlBuscarFueraPlan.includes('>No<') && htmlBuscarFueraPlan.includes('>contado<'), 'la etiqueta "No contado" debe partirse en dos líneas para que se lea bien en el eje x, obtuvo: '+htmlBuscarFueraPlan);
-  // Reportado: las 4 barras se veían del mismo color. Cada estado tiene su propio color
-  // (mismo verde/ámbar que ya usan los badges "Cuadrado"/"Diferencia" en la tabla), para
-  // distinguirlas a simple vista sin tener que leer el eje x.
-  assert(htmlBuscarFueraPlan.includes('rx="4" fill="var(--ok)"') && htmlBuscarFueraPlan.includes('rx="4" fill="var(--warn)"') && htmlBuscarFueraPlan.includes('rx="4" fill="var(--steel)"') && htmlBuscarFueraPlan.includes('rx="4" fill="var(--text-faint)"'), 'cada barra del resumen debe tener un color de relleno distinto (gris/verde/ámbar/azul), obtuvo: '+htmlBuscarFueraPlan);
+  assert(htmlBuscarFueraPlan.includes('Resultados cargados'), 'el gráfico debe decir sobre qué resultados es (mismo alcance que "Quién contó"), obtuvo: '+htmlBuscarFueraPlan);
+  // La leyenda nombra cada estado con su cuenta, así no hay eje x que se corte ni etiquetas
+  // amontonadas (lo que se reportó con las barras); y la lectura bajo el gráfico dice cuántos
+  // cuadraron.
+  assert(htmlBuscarFueraPlan.includes('Cuadrado (1)') && htmlBuscarFueraPlan.includes('1 cuadró (100%)'), 'la leyenda debe nombrar el estado con su cuenta y la lectura decir cuántos cuadraron, obtuvo: '+htmlBuscarFueraPlan);
+  // Cada estado conserva su propio color (el mismo verde/ámbar/rojo que los badges de la tabla).
+  assert(htmlBuscarFueraPlan.includes('fill="var(--ok)"'), 'la porción de "Cuadrado" debe ir en el verde de su badge, obtuvo: '+htmlBuscarFueraPlan);
 
-  // Sin ningún checkbox activo, no debe verse el gráfico aunque haya resultados.
+  // Pedido de Joel: el gráfico se ve siempre que haya resultados, sin depender de ningún
+  // checkbox. Antes solo salía con fotos/fuera de plan/clase/fecha/grupo, y al filtrar por
+  // persona --que es lo que más se usa para revisar el trabajo de alguien-- no aparecía. Pasó
+  // de verdad: Joel filtró por Enrique Astudillo y no tuvo cómo ver cómo salieron sus conteos.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloFueraDePlan:false};
   const htmlBuscarSinFlags = ctx.renderBuscar();
-  assert(!htmlBuscarSinFlags.includes('Resumen por estado'), 'sin ningún checkbox activo, no debe mostrarse el gráfico resumen, obtuvo: '+htmlBuscarSinFlags);
+  assert(htmlBuscarSinFlags.includes('Resumen por estado') && htmlBuscarSinFlags.includes('<svg'), 'sin ningún checkbox activo pero con resultados, el gráfico resumen debe verse igual, obtuvo: '+htmlBuscarSinFlags);
 
   // Con un checkbox activo pero sin resultados, tampoco debe verse (no hay nada que resumir).
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloFueraDePlan:true, resultados:[]};
@@ -10224,6 +10224,67 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ]);
   const porGrupo = Object.fromEntries(resumenMixto.map(g=>[g.dia, g.n]));
   assert(porGrupo['No contado']===1 && porGrupo['Cuadrado']===1 && porGrupo['Diferencia']===1 && porGrupo['Pendiente']===1, 'resumenEstadoBusqueda debe agrupar cada resultado en el grupo correcto, obtuvo: '+JSON.stringify(porGrupo));
+
+  // Con separarSigno (todos menos el operador en conteo ciego), la diferencia se abre en
+  // negativa (faltante) y positiva (sobrante), y el grupo "Diferencia" a secas desaparece.
+  const resumenSigno = ctx.resumenEstadoBusqueda([
+    {conteo_id:null, estado:null, diferencia:null},
+    {conteo_id:'c-1', estado:'aprobado', diferencia:0},
+    {conteo_id:'c-2', estado:'aprobado', diferencia:-3},
+    {conteo_id:'c-3', estado:'aprobado', diferencia:5},
+    {conteo_id:'c-4', estado:'pendiente_revision', diferencia:0},
+  ], true);
+  const porGrupoSigno = Object.fromEntries(resumenSigno.map(g=>[g.dia, g.n]));
+  assert(porGrupoSigno['Diferencia negativa']===1 && porGrupoSigno['Diferencia positiva']===1 && porGrupoSigno['Cuadrado']===1 && porGrupoSigno['No contado']===1 && porGrupoSigno['Pendiente']===1 && !('Diferencia' in porGrupoSigno), 'con separarSigno debe abrir la diferencia en negativa y positiva, obtuvo: '+JSON.stringify(porGrupoSigno));
+  assert(ctx.grupoEstadoBusqueda({conteo_id:'c', estado:'aprobado', diferencia:-1}, true)==='Diferencia negativa' && ctx.grupoEstadoBusqueda({conteo_id:'c', estado:'aprobado', diferencia:-1}, false)==='Diferencia', 'grupoEstadoBusqueda debe respetar separarSigno fila por fila');
+  // La frase bajo el gráfico: cuenta filas, nunca suma diferencias.
+  const lecturaEstado = ctx.lecturaResumenEstadoBusqueda(resumenSigno, true);
+  assert(lecturaEstado.includes('De 4 contados') && lecturaEstado.includes('1 cuadró (25%)') && lecturaEstado.includes('1 con faltante · 1 con sobrante') && lecturaEstado.includes('1 pendiente de revisión'), 'la lectura debe resumir contados, cuadrados, faltantes, sobrantes y pendientes, obtuvo: '+lecturaEstado);
+  assert(ctx.lecturaResumenEstadoBusqueda(ctx.resumenEstadoBusqueda([{conteo_id:null}], true), true)==='', 'sin nada contado no hay frase que mostrar');
+
+  // renderBuscar: el gráfico "Resumen por estado" se muestra siempre que haya resultados (antes
+  // solo aparecía con ciertos filtros, y al filtrar por persona no salía: pasó de verdad), sus
+  // porciones filtran la tabla, los dos filtros se combinan, y en conteo ciego un operador no ve
+  // el signo de la diferencia.
+  const perfilAntesEstado = ctx.__appstate.perfil;
+  const busquedaAntesEstado = ctx.__appstate.busqueda;
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+  const filasEstado = [
+    {sku_id:'s1', sku_code:'A-1', descripcion:'Uno', bodega:'B1', conteo_id:'c-1', cantidad_contada:10, estado:'aprobado', diferencia:0, fuera_de_plan:false, fecha_conteo:'2026-09-20T10:00:00Z', capturado_en:'2026-09-20T10:00:00Z', ciclo_nombre:'Sept', fotos:[], clase_abc:'A', contado_por:'Ana'},
+    {sku_id:'s2', sku_code:'A-2', descripcion:'Dos', bodega:'B1', conteo_id:'c-2', cantidad_contada:7, estado:'aprobado', diferencia:-3, fuera_de_plan:false, fecha_conteo:'2026-09-20T10:00:00Z', capturado_en:'2026-09-20T10:00:00Z', ciclo_nombre:'Sept', fotos:[], clase_abc:'A', contado_por:'Ana'},
+    {sku_id:'s3', sku_code:'A-3', descripcion:'Tres', bodega:'B1', conteo_id:'c-3', cantidad_contada:12, estado:'aprobado', diferencia:2, fuera_de_plan:false, fecha_conteo:'2026-09-20T10:00:00Z', capturado_en:'2026-09-20T10:00:00Z', ciclo_nombre:'Sept', fotos:[], clase_abc:'B', contado_por:'Beto'},
+    {sku_id:'s4', sku_code:'A-4', descripcion:'Cuatro', bodega:'B1', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fuera_de_plan:false, fecha_conteo:null, ciclo_nombre:null, fotos:[], clase_abc:'C', contado_por:null},
+  ];
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: filasEstado, yaBuscado:true, filtroContadoPor:null, filtroEstado:null, busquedaPagina:0, hayMas:false, soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', grupoId:'', seleccionados:[], usuarioId:null, usuarioNombre:null};
+  const htmlEstadoSinFiltro = ctx.renderBuscar();
+  const recorteEstado = h => h.slice(Math.max(0, h.indexOf('Resumen por estado')-50), h.indexOf('Resumen por estado')+900);
+  assert(htmlEstadoSinFiltro.includes('Resumen por estado') && htmlEstadoSinFiltro.includes('data-estado-clave="Diferencia negativa"') && htmlEstadoSinFiltro.includes('data-estado-clave="Diferencia positiva"'), 'sin ningún filtro, Buscar debe mostrar "Resumen por estado" con las porciones de diferencia negativa y positiva, obtuvo: '+recorteEstado(htmlEstadoSinFiltro));
+  assert(htmlEstadoSinFiltro.includes('De 3 contados') && htmlEstadoSinFiltro.includes('1 con faltante · 1 con sobrante'), 'bajo el gráfico debe verse cuántos cuadraron y cuántos salieron con faltante o sobrante, obtuvo: '+recorteEstado(htmlEstadoSinFiltro));
+  assert((htmlEstadoSinFiltro.match(/<tr>\s*<td/g)||[]).length===4, 'sin filtro la tabla debe mostrar las 4 filas, obtuvo: '+((htmlEstadoSinFiltro.match(/<tr>\s*<td/g)||[]).length));
+
+  ctx.toggleFiltroEstado('Diferencia negativa');
+  assert(ctx.__appstate.busqueda.filtroEstado==='Diferencia negativa', 'un clic en una porción debe fijar el filtro por estado, obtuvo: '+ctx.__appstate.busqueda.filtroEstado);
+  const htmlEstadoFiltrado = ctx.renderBuscar();
+  assert((htmlEstadoFiltrado.match(/<tr>\s*<td/g)||[]).length===1 && htmlEstadoFiltrado.includes('>A-2<') && !htmlEstadoFiltrado.includes('>A-3<'), 'filtrando por "Diferencia negativa" la tabla debe mostrar solo el faltante (A-2), obtuvo '+((htmlEstadoFiltrado.match(/<tr>\s*<td/g)||[]).length)+' filas');
+  assert(htmlEstadoFiltrado.includes('id="btn-quitar-filtro-estado"') && htmlEstadoFiltrado.includes('Filtrando por estado'), 'con el filtro por estado activo debe verse el chip con su botón para quitarlo');
+  ctx.toggleFiltroEstado('Diferencia negativa');
+  assert(ctx.__appstate.busqueda.filtroEstado===null, 'un segundo clic sobre el mismo estado debe quitar el filtro, obtuvo: '+ctx.__appstate.busqueda.filtroEstado);
+
+  // Los dos filtros se combinan (persona Y estado): Ana tiene un cuadrado y un faltante; con
+  // Ana + Cuadrado solo queda A-1.
+  ctx.__appstate.busqueda.filtroContadoPor = 'Ana';
+  ctx.__appstate.busqueda.filtroEstado = 'Cuadrado';
+  const htmlDosFiltros = ctx.renderBuscar();
+  assert((htmlDosFiltros.match(/<tr>\s*<td/g)||[]).length===1 && htmlDosFiltros.includes('>A-1<'), 'persona y estado deben filtrar juntos (Ana + Cuadrado = solo A-1), obtuvo '+((htmlDosFiltros.match(/<tr>\s*<td/g)||[]).length)+' filas');
+  ctx.__appstate.busqueda.filtroContadoPor = null;
+  ctx.__appstate.busqueda.filtroEstado = null;
+
+  // Conteo ciego + operador: el badge no muestra el signo, y el gráfico tampoco puede delatarlo.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  const htmlEstadoCiego = ctx.renderBuscar();
+  assert(htmlEstadoCiego.includes('data-estado-clave="Diferencia"') && !htmlEstadoCiego.includes('Diferencia negativa') && !htmlEstadoCiego.includes('Diferencia positiva') && htmlEstadoCiego.includes('2 con diferencia'), 'en conteo ciego el operador debe ver un solo grupo "Diferencia", sin signo, obtuvo: '+recorteEstado(htmlEstadoCiego));
+  ctx.__appstate.perfil = perfilAntesEstado;
+  ctx.__appstate.busqueda = busquedaAntesEstado;
 
   // Buscar: filtro por rango de fecha de conteo (reemplaza al viejo "Contado hoy" fijo -- a
   // pedido de Joel, ahora se elige el rango con "Contado desde"/"Contado hasta"), mismo patrón
