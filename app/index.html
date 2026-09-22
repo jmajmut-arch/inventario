@@ -4906,6 +4906,13 @@ function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
   // "Pendiente de reconteo" (pedido de Joel): los mismos materiales que lista la pestaña Reconteo
   // (último conteo del período con diferencia y no descartado), como columna de skus_busqueda.
   else if(state.busqueda.estado === 'reconteo_pendiente') path += `&reconteo_pendiente=eq.true`;
+  // "Diferencia positiva" / "Diferencia negativa": las dos mitades de "Con diferencia", con el
+  // mismo criterio que el gráfico "Resumen por estado" (grupoEstadoBusqueda): negativa es
+  // faltante (se contó menos que el sistema), positiva es sobrante. Se filtra por estado Y por
+  // signo para que positiva + negativa sea exactamente "Con diferencia". El RPC del total
+  // (contar_busqueda_skus) entiende los mismos dos valores.
+  else if(state.busqueda.estado === 'diferencia_positiva') path += `&estado=eq.con_diferencia&diferencia=gt.0`;
+  else if(state.busqueda.estado === 'diferencia_negativa') path += `&estado=eq.con_diferencia&diferencia=lt.0`;
   else if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
   if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null&conteo_id=not.is.null`;
   else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
@@ -10818,6 +10825,9 @@ function renderBuscar(){
               <option value="no_contado" ${b.estado==='no_contado'?'selected':''}>No contado</option>
               <option value="aprobado" ${b.estado==='aprobado'?'selected':''}>Cuadrado</option>
               <option value="con_diferencia" ${b.estado==='con_diferencia'?'selected':''}>Con diferencia</option>
+              ${ocultarStockOperador() ? '' : `
+              <option value="diferencia_positiva" ${b.estado==='diferencia_positiva'?'selected':''}>&nbsp;&nbsp;Diferencia positiva (sobrante)</option>
+              <option value="diferencia_negativa" ${b.estado==='diferencia_negativa'?'selected':''}>&nbsp;&nbsp;Diferencia negativa (faltante)</option>`}
               <option value="pendiente_revision" ${b.estado==='pendiente_revision'?'selected':''}>Pendiente</option>
               <option value="reconteo_pendiente" ${b.estado==='reconteo_pendiente'?'selected':''}>Pendiente de reconteo</option>
             </select>

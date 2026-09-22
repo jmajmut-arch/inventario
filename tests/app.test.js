@@ -10320,6 +10320,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(pathBuscarNoContado.includes('conteo_id=is.null') && !pathBuscarNoContado.includes('estado=eq.'), 'el estado "No contado" debe filtrar por conteo_id=is.null, no por la columna estado, obtuvo: '+pathBuscarNoContado);
   ctx.__appstate.busqueda.estado = '';
 
+  // Pedido de Joel: el desplegable Estado tiene que ofrecer los mismos grupos que el gráfico
+  // "Resumen por estado", que abre "Con diferencia" en positiva (sobrante) y negativa (faltante).
+  // Las dos mitades filtran por estado Y por signo (así positiva + negativa = "Con diferencia"),
+  // tanto en el pedido de filas como en el RPC del total: si el RPC no entendiera el valor, el
+  // título diría "0 resultados" con la tabla llena.
+  const htmlSelectEstado = ctx.renderBuscar();
+  assert(htmlSelectEstado.includes('<option value="diferencia_positiva"') && htmlSelectEstado.includes('<option value="diferencia_negativa"') && htmlSelectEstado.includes('<option value="con_diferencia"'), 'el desplegable Estado debe ofrecer "Con diferencia" y sus dos mitades, positiva y negativa, obtuvo: '+htmlSelectEstado.slice(htmlSelectEstado.indexOf('id="b-estado"'), htmlSelectEstado.indexOf('id="b-estado"')+900));
+  ctx.__appstate.busqueda.estado = 'diferencia_negativa';
+  const pathBuscarNegativa = ctx.construirPathBusqueda(0);
+  assert(pathBuscarNegativa.includes('estado=eq.con_diferencia') && pathBuscarNegativa.includes('diferencia=lt.0') && !pathBuscarNegativa.includes('estado=eq.diferencia_negativa'), '"Diferencia negativa" debe pedir estado con_diferencia y diferencia < 0, obtuvo: '+pathBuscarNegativa);
+  assert(ctx.construirParametrosBusquedaRpc().p_estado==='diferencia_negativa', 'el RPC del total debe recibir p_estado=diferencia_negativa, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
+  ctx.__appstate.busqueda.estado = 'diferencia_positiva';
+  const pathBuscarPositiva = ctx.construirPathBusqueda(0);
+  assert(pathBuscarPositiva.includes('estado=eq.con_diferencia') && pathBuscarPositiva.includes('diferencia=gt.0'), '"Diferencia positiva" debe pedir estado con_diferencia y diferencia > 0, obtuvo: '+pathBuscarPositiva);
+  ctx.__appstate.busqueda.estado = 'con_diferencia';
+  const pathBuscarConDif = ctx.construirPathBusqueda(0);
+  assert(pathBuscarConDif.includes('estado=eq.con_diferencia') && !pathBuscarConDif.includes('diferencia=gt.') && !pathBuscarConDif.includes('diferencia=lt.'), '"Con diferencia" sigue trayendo las dos mitades juntas, obtuvo: '+pathBuscarConDif);
+  ctx.__appstate.busqueda.estado = '';
+  // Conteo ciego + operador: no puede ver el signo (el badge y el gráfico tampoco lo muestran),
+  // así que el desplegable no le ofrece las mitades.
+  const perfilAntesSelectEstado = ctx.__appstate.perfil;
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  const htmlSelectEstadoCiego = ctx.renderBuscar();
+  assert(!htmlSelectEstadoCiego.includes('value="diferencia_positiva"') && !htmlSelectEstadoCiego.includes('value="diferencia_negativa"') && htmlSelectEstadoCiego.includes('<option value="con_diferencia"'), 'en conteo ciego el operador solo debe ver "Con diferencia", sin las mitades por signo');
+  ctx.__appstate.perfil = perfilAntesSelectEstado;
+
   ctx.__appstate.busqueda.ciclo = '__sin_ciclo__';
   const pathBuscarSinCiclo = ctx.construirPathBusqueda(0);
   assert(pathBuscarSinCiclo.includes('ciclo_id=is.null') && pathBuscarSinCiclo.includes('conteo_id=not.is.null'), '"Sin ciclo asignado" debe exigir que sí haya un conteo (si no, mostraría todos los SKU nunca contados como si fueran de ese grupo), obtuvo: '+pathBuscarSinCiclo);
