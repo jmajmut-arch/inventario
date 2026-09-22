@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Software de control de inventario para bodegas | InventIA</title>
+<meta name="description" content="Planifica el conteo, cuenta desde el celular o la tablet y ve las diferencias al instante. Desde $160 USD al mes. Pide una demo de 15 minutos.">
+<!-- Página de destino de la campaña de Google Ads. Repite lo esencial de inventario.html en una
+     sola pantalla, así que no se indexa (evita competir con la página principal en el buscador)
+     y no va en el sitemap. Los enlaces sí se siguen. -->
+<meta name="robots" content="noindex, follow">
+<link rel="icon" href="icons/icon-192.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="InventIA">
+<meta property="og:locale" content="es_CL">
+<meta property="og:title" content="Software de control de inventario para bodegas | InventIA">
+<meta property="og:description" content="Planifica el conteo, cuenta desde el celular o la tablet y ve las diferencias al instante. Desde $160 USD al mes.">
+<meta property="og:image" content="https://inventiapp.cl/img/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/comun.css">
+<style>
+  /* Una sola idea por pantalla: quien llega desde un anuncio decide en segundos. */
+  section{padding:72px 0;}
+  @media (max-width:680px){ section{padding:56px 0;} }
+  .nav-cta.demo{background:var(--amber);color:var(--on-amber);}
+  /* ---- héroe en dos columnas: texto y botón a la izquierda, la app a la derecha ---- */
+  .hero{padding:64px 0 24px;text-align:left;}
+  @media (max-width:680px){ .hero{padding:36px 0 16px;} }
+  .hero-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:48px;align-items:center;}
+  @media (max-width:820px){ .hero-grid{grid-template-columns:1fr;gap:36px;} }
+  .hero h1{font-size:clamp(2.35rem,5vw,3.9rem);margin:0 0 18px;max-width:none;}
+  .hero-sub{margin:0 0 22px;max-width:560px;}
+  .hero-price{display:inline-flex;align-items:baseline;gap:8px;font-family:'Barlow Condensed';font-weight:800;font-size:28px;letter-spacing:-0.01em;margin:0 0 26px;}
+  .hero-price small{font-family:'Inter';font-weight:500;font-size:13.5px;color:var(--text-dim);letter-spacing:0;}
+  .hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px 8px;}
+  .hero .cta{padding:18px 40px;font-size:17px;}
+  .hero .cta-sub{margin-top:14px;max-width:520px;line-height:1.5;}
+  .hero-shot{display:flex;flex-direction:column;align-items:center;}
+  .hero-shot .phone-frame{width:min(250px,64vw);}
+  .hero-shot figcaption{margin-top:14px;font-size:12.5px;color:var(--text-faint);text-align:center;}
+  /* ---- qué hace: tres pasos, sin adornos ---- */
+  .pasos{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+  @media (max-width:820px){ .pasos{grid-template-columns:1fr;} }
+  .paso{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:26px 26px 24px;}
+  .paso .num{display:inline-block;font-family:'IBM Plex Mono';font-weight:600;font-size:12px;color:var(--amber);letter-spacing:.06em;margin-bottom:12px;}
+  .paso h3{font-size:22px;margin:0 0 8px;}
+  .paso p{font-size:15px;line-height:1.6;color:var(--text-dim);margin:0;}
+  /* ---- confianza: hechos, no adjetivos ---- */
+  .confianza{background:var(--surface);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:40px 0;}
+  .confianza-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;align-items:center;}
+  @media (max-width:820px){ .confianza-grid{grid-template-columns:1fr;gap:22px;text-align:center;} }
+  .hecho{display:flex;align-items:center;gap:16px;}
+  @media (max-width:820px){ .hecho{justify-content:center;} }
+  .hecho .cifra{font-family:'Barlow Condensed';font-weight:800;font-size:38px;line-height:1;letter-spacing:-0.01em;color:var(--amber);flex-shrink:0;}
+  .hecho p{margin:0;font-size:14.5px;line-height:1.5;color:var(--text-dim);}
+  .hecho p b{color:var(--text);}
+  .hecho img{width:64px;height:64px;flex-shrink:0;}
+  /* ---- precios: dos planes, lo justo para no tener que ir a otra página ---- */
+  .planes{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;max-width:760px;margin:0 auto;}
+  @media (max-width:680px){ .planes{grid-template-columns:1fr;} }
+  .plan{background:var(--surface);border-radius:22px;padding:30px 28px;box-shadow:0 18px 40px -26px rgba(36,26,16,.28);display:flex;flex-direction:column;}
+  .plan.destacado{outline:2px solid var(--amber);}
+  .plan h3{font-size:24px;margin:0 0 4px;}
+  .plan .para{font-size:14px;color:var(--text-dim);margin:0 0 18px;line-height:1.5;}
+  .plan .monto{font-family:'Barlow Condensed';font-weight:800;font-size:36px;line-height:1;letter-spacing:-0.01em;}
+  .plan .monto small{font-family:'Inter';font-weight:500;font-size:13px;color:var(--text-dim);}
+  .plan .clp{font-size:12.5px;color:var(--text-faint);margin:6px 0 18px;}
+  .plan ul{list-style:none;margin:0 0 22px;padding:0;display:grid;gap:9px;font-size:14px;color:var(--text-dim);}
+  .plan li{padding-left:20px;position:relative;line-height:1.45;}
+  .plan li::before{content:'';position:absolute;left:0;top:8px;width:7px;height:7px;border-radius:50%;background:var(--amber);}
+  .plan .cta{margin-top:auto;text-align:center;padding:14px 20px;font-size:15px;}
+  .planes-nota{text-align:center;font-size:13px;color:var(--text-faint);margin-top:22px;line-height:1.6;}
+  .planes-nota a{text-decoration:underline;text-underline-offset:2px;}
+  /* ---- cierre ---- */
+  .cierre{text-align:center;padding:64px 0 88px;}
+  .cierre .section-title{margin-bottom:10px;}
+  .cierre .section-sub{margin:0 auto 28px;max-width:520px;}
+</style>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-G5WNMGTXSH"></script>
+<script src="assets/analitica.js"></script>
+<script src="assets/sentry-config.js"></script>
+<script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
+<script src="assets/comun.js" defer></script>
+</head>
+<body>
+
+  <div class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html" aria-label="InventIA, inicio">
+        <div class="brand-badge">IA</div>
+        <div class="brand-name">Invent<span class="ia">IA</span></div>
+      </a>
+      <button type="button" class="nav-cta demo" data-abrir-demo data-plan="ads-inventario">Ver una demo</button>
+    </div>
+  </div>
+
+  <div class="hero wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="kicker">Software de control de inventario</div>
+        <h1>Control de inventario para tu bodega, <span>desde el celular o la tablet.</span></h1>
+        <p class="hero-sub">Planificas el conteo, tu equipo cuenta en terreno y las diferencias aparecen al instante. Sin instalar nada. Sin planillas.</p>
+        <div class="hero-price">Desde $160 USD <small>al mes · $187.000 CLP con IVA</small></div>
+        <div class="hero-actions">
+          <button type="button" class="cta" id="cta-principal" data-abrir-demo data-plan="ads-inventario">Ver una demo →</button>
+        </div>
+        <div class="cta-sub">Te mostramos la app en 15 minutos. Si quieres, con el catálogo de tu propia bodega, sin costo.</div>
+      </div>
+      <figure class="hero-shot" style="margin:0">
+        <div class="phone-frame"><img src="img/contar-demo.png" alt="Pantalla de conteo de InventIA en un celular: material, cantidad contada y diferencia" width="780" height="1180" fetchpriority="high"></div>
+        <figcaption>La pantalla de conteo, tal como la ve el operador.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <div class="pasos">
+        <div class="paso">
+          <span class="num">01</span>
+          <h3>Planificas</h3>
+          <p>Cargas tu maestro desde Excel y armas el plan de conteo por clase ABC, ubicación o grupo. Cada persona sabe qué contar y cuándo.</p>
+        </div>
+        <div class="paso">
+          <span class="num">02</span>
+          <h3>Cuentan en terreno</h3>
+          <p>Desde el celular o la tablet, con escáner de códigos y foto de respaldo. Funciona sin señal y sincroniza solo al volver.</p>
+        </div>
+        <div class="paso">
+          <span class="num">03</span>
+          <h3>Ves las diferencias</h3>
+          <p>Cuadrados, faltantes y sobrantes al instante, reconteo dirigido a lo que no cuadró y un dashboard con el avance real.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="confianza">
+    <div class="wrap confianza-grid">
+      <div class="hecho">
+        <span class="cifra">63.000</span>
+        <p><b>materiales</b> en uso diario en una operación minera en Chile.</p>
+      </div>
+      <div class="hecho">
+        <span class="cifra">0</span>
+        <p><b>instalaciones.</b> Abre en el navegador de cualquier celular, tablet o computador.</p>
+      </div>
+      <div class="hecho">
+        <a href="https://cloudsecurityalliance.org/star/registry/inventia" target="_blank" rel="noopener noreferrer" title="Ver nuestra entrada en el registro CSA STAR"><img src="img/csa-star-level-one.png" alt="Sello STAR Level One: Self-Assessment de la Cloud Security Alliance" width="64" height="64" loading="lazy" decoding="async"></a>
+        <p><b>Seguridad publicada.</b> Nuestro cuestionario está en el registro CSA STAR.</p>
+      </div>
+    </div>
+  </div>
+
+  <section id="planes">
+    <div class="wrap">
+      <div class="section-head" style="margin-bottom:36px">
+        <h2 class="section-title">Lo que cuesta</h2>
+        <p class="section-sub">Mes a mes, cancelas cuando quieras. Y antes de pagar, un piloto gratuito con tus propios datos.</p>
+      </div>
+      <div class="planes">
+        <div class="plan">
+          <h3>Básico</h3>
+          <p class="para">Una bodega y un equipo chico partiendo con el conteo digital.</p>
+          <div class="monto">$160 <small>USD/mes</small></div>
+          <div class="clp">$187.000 CLP/mes, IVA incluido</div>
+          <ul>
+            <li>1 bodega</li>
+            <li>Un administrador + hasta 1 operador</li>
+            <li>Conteo con foto y modo sin señal</li>
+            <li>Dashboard de avance</li>
+          </ul>
+          <button type="button" class="cta" data-abrir-demo data-plan="ads-basico">Ver una demo</button>
+        </div>
+        <div class="plan destacado">
+          <h3>Profesional</h3>
+          <p class="para">Varias bodegas y equipos en terreno.</p>
+          <div class="monto">$300 <small>USD/mes</small></div>
+          <div class="clp">$350.000 CLP/mes, IVA incluido</div>
+          <ul>
+            <li>Hasta 2 bodegas</li>
+            <li>Un administrador + hasta 2 operadores</li>
+            <li>Dashboard ejecutivo: proyección y ranking</li>
+            <li>Auditoría de cambios y soporte prioritario</li>
+          </ul>
+          <button type="button" class="cta" data-abrir-demo data-plan="ads-profesional">Ver una demo</button>
+        </div>
+      </div>
+      <p class="planes-nota">¿Más bodegas o más gente? Hay un plan a medida. <a href="index.html#planes">Ver todos los planes y lo que incluye cada uno.</a></p>
+    </div>
+  </section>
+
+  <div class="cierre wrap">
+    <h2 class="section-title">Míralo funcionando con tu propio catálogo.</h2>
+    <p class="section-sub">Una llamada de 15 minutos. Cargamos tu Excel y cuentas un pasillo de verdad.</p>
+    <button type="button" class="cta" data-abrir-demo data-plan="ads-inventario-cierre">Ver una demo →</button>
+  </div>
+
+  <footer>
+    <div class="brand">
+      <div class="brand-badge">IA</div>
+      <div class="brand-name">Invent<span class="ia">IA</span></div>
+    </div>
+    <span>Invent<span class="ia">IA</span> · Control de inventario</span>
+    <div class="footer-links" style="margin-top:6px">
+      <a href="terminos.html">Términos y condiciones</a> · <a href="privacidad.html">Política de privacidad</a> · <a href="reembolsos.html">Política de reembolsos</a> · <a href="https://cloudsecurityalliance.org/star/registry/inventia" target="_blank" rel="noopener noreferrer">Seguridad · Registro CSA STAR</a>
+    </div>
+    <a class="footer-star" href="https://cloudsecurityalliance.org/star/registry/inventia" target="_blank" rel="noopener noreferrer" title="Ver nuestra entrada en el registro CSA STAR">
+      <img src="img/csa-star-level-one.png" alt="Sello STAR Level One: Self-Assessment de la Cloud Security Alliance" width="96" height="96" loading="lazy" decoding="async">
+    </a>
+    <div class="footer-credit">Desarrollado por
+      <a href="https://www.linkedin.com/in/jmajmut" target="_blank" rel="noopener noreferrer">
+        Joel Majmut
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+      </a>
+    </div>
+  </footer>
+
+</body>
+</html>

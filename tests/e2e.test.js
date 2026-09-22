@@ -494,10 +494,66 @@ async function loguear(page, perfil){
     for(const obligatoria of ['https://inventiapp.cl/', 'https://inventiapp.cl/bodega.html', 'https://inventiapp.cl/inventario.html']){
       assert(urls.includes(obligatoria), `el sitemap debe incluir ${obligatoria}`);
     }
-    // Y al revés: una página pública nueva que nadie agregó al sitemap no se indexa.
+    // Y al revés: una página pública nueva que nadie agregó al sitemap no se indexa. La excepción
+    // es una página que pide explícitamente no indexarse (meta robots noindex, como la de destino
+    // de la campaña de Ads): esa no debe ir en el sitemap, sería contradictorio.
     for(const publica of fs.readdirSync(ROOT).filter(f => f.endsWith('.html'))){
       const esperada = publica === 'index.html' ? 'https://inventiapp.cl/' : 'https://inventiapp.cl/' + publica;
-      assert(urls.includes(esperada), `${publica} es una página pública y no está en el sitemap: el buscador no la va a indexar`);
+      const html = fs.readFileSync(path.join(ROOT, publica), 'utf8');
+      const noindex = /<meta\s+name="robots"\s+content="[^"]*noindex[^"]*"/i.test(html);
+      if(noindex) assert(!urls.includes(esperada), `${publica} pide noindex y a la vez está en el sitemap: una de las dos sobra`);
+      else assert(urls.includes(esperada), `${publica} es una página pública y no está en el sitemap: el buscador no la va a indexar`);
+    }
+  }
+
+  // ===== Landing de la campaña de Ads (software-inventario.html) =====
+  // Diagnóstico del 22/09: 28 sesiones pagadas, 0 aperturas del formulario, 19 s de lectura.
+  // Esta página existe para que quien llega desde un anuncio vea qué es, cuánto cuesta y el
+  // botón de demo sin scrollear, en celular y en escritorio. Lo que se comprueba es exactamente
+  // eso, más lo que la haría fallar en silencio: que no se indexe (compite con inventario.html),
+  // que use el mismo formulario de demo y avise su origen a Analytics, y que cargue sin errores.
+  {
+    for(const [ancho, alto] of [[420, 860], [1280, 800]]){
+      const context = await browser.newContext({ viewport:{ width:ancho, height:alto } });
+      const page = await context.newPage();
+      const erroresJs = [];
+      page.on('pageerror', e => erroresJs.push(e.message));
+      await page.goto(`http://localhost:${PORT}/software-inventario.html`, { waitUntil:'networkidle' });
+      const estado = await page.evaluate(() => {
+        const cta = document.getElementById('cta-principal');
+        const r = cta ? cta.getBoundingClientRect() : null;
+        const foto = document.querySelector('.hero-shot img');
+        return {
+          fondo: getComputedStyle(document.body).backgroundColor,
+          robots: (document.querySelector('meta[name="robots"]') || {}).content || '',
+          modales: !!document.getElementById('demo-modal-backdrop') && !!document.getElementById('contacto-modal-backdrop'),
+          whatsapp: !!document.getElementById('whatsapp-float-link'),
+          ctaVisible: !!r && r.top >= 0 && r.bottom <= window.innerHeight && r.width > 100,
+          precio: /\$160 USD/.test((document.querySelector('.hero-price') || {}).textContent || ''),
+          fotoCargada: !!foto && foto.complete && foto.naturalWidth > 0,
+          star: !!document.querySelector('footer a[href="https://cloudsecurityalliance.org/star/registry/inventia"][rel="noopener noreferrer"] img'),
+          desbordeH: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+        };
+      });
+      assert(estado.fondo === 'rgb(250, 246, 238)', `landing Ads ${ancho}px: assets/comun.css no aplicó`);
+      assert(/noindex/.test(estado.robots), `landing Ads ${ancho}px: debe pedir noindex, obtuvo "${estado.robots}"`);
+      assert(estado.modales && estado.whatsapp, `landing Ads ${ancho}px: assets/comun.js no inyectó los modales o el WhatsApp`);
+      assert(estado.ctaVisible, `landing Ads ${ancho}px: el botón "Ver una demo" tiene que verse sin scrollear`);
+      assert(estado.precio, `landing Ads ${ancho}px: el precio desde $160 USD tiene que estar en la primera pantalla`);
+      assert(estado.fotoCargada, `landing Ads ${ancho}px: la captura de la app no cargó`);
+      assert(estado.star, `landing Ads ${ancho}px: el pie debe llevar el sello STAR enlazado al registro`);
+      assert(!estado.desbordeH, `landing Ads ${ancho}px: la página no debe tener barra horizontal`);
+      // El botón abre el mismo formulario de demo del resto del sitio y avisa de dónde viene.
+      await page.click('#cta-principal');
+      await page.waitForTimeout(200);
+      const modal = await page.evaluate(() => ({
+        abierto: document.getElementById('demo-modal-backdrop').classList.contains('open'),
+        aperturas: (window.dataLayer || []).filter(x => x[0] === 'event' && x[1] === 'demo_modal_open').map(x => x[2] && x[2].plan),
+      }));
+      assert(modal.abierto, `landing Ads ${ancho}px: el botón principal debe abrir el formulario de demo`);
+      assert(modal.aperturas.length === 1 && modal.aperturas[0] === 'ads-inventario', `landing Ads ${ancho}px: la apertura debe llegar a Analytics con plan "ads-inventario", obtuvo ${JSON.stringify(modal.aperturas)}`);
+      assert(erroresJs.length === 0, `landing Ads ${ancho}px: sin errores de JavaScript, obtuvo: ${erroresJs.join(' | ')}`);
+      await context.close();
     }
   }
 
