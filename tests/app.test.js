@@ -3696,6 +3696,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Conteo ciego: un admin de empresa debe ver el toggle en Configuraciones, reflejando el
   // estado actual de su empresa.
   assert(htmlConfigAdmin.includes('id="chk-conteo-ciego"') && !htmlConfigAdmin.includes('id="chk-conteo-ciego" checked'), 'un admin debe ver el toggle de conteo ciego, sin marcar si la empresa no lo tiene activo, obtuvo: '+htmlConfigAdmin);
+  // Foto obligatoria (pedido de Joel): mismo lugar y misma mecánica que el conteo ciego.
+  assert(htmlConfigAdmin.includes('id="chk-foto-obligatoria"') && !htmlConfigAdmin.includes('id="chk-foto-obligatoria" checked'), 'un admin debe ver el interruptor de foto obligatoria, sin marcar si la empresa no lo tiene activo, obtuvo: '+htmlConfigAdmin);
+  ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = true;
+  assert(ctx.renderConfiguraciones().includes('id="chk-foto-obligatoria" checked'), 'con la llave activa en la empresa, el interruptor de foto obligatoria debe verse marcado');
+  ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = false;
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = true;
   const htmlConfigAdminCiegoActivo = ctx.renderConfiguraciones();
   assert(htmlConfigAdminCiegoActivo.includes('id="chk-conteo-ciego" checked'), 'con el flag activo en la empresa, el toggle debe verse marcado, obtuvo: '+htmlConfigAdminCiegoActivo);
@@ -3727,6 +3732,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlConfigOperador.includes('id="form-empresa-nombre"'), 'un operador (no admin) no debe poder editar el nombre de la empresa, obtuvo: '+htmlConfigOperador);
   assert(!htmlConfigOperador.includes('id="form-invitar-equipo"'), 'un operador (no admin) no debe poder invitar gente a la empresa, obtuvo: '+htmlConfigOperador);
   assert(!htmlConfigOperador.includes('id="chk-conteo-ciego"'), 'un operador no debe poder cambiar el conteo ciego, solo el admin, obtuvo: '+htmlConfigOperador);
+  assert(!htmlConfigOperador.includes('id="chk-foto-obligatoria"'), 'un operador no debe poder cambiar la foto obligatoria, solo el admin');
 
   // invitarPersona desde un admin de empresa (no super-admin): debe llamar a invite-user igual, pero
   // sin disparar el resumen del super-admin (no le corresponde a un admin normal).
@@ -4351,6 +4357,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!patchConteoCiegoOff && JSON.parse(patchConteoCiegoOff.opts.body).conteo_ciego_habilitado===false, 'el admin debe poder apagarlo de nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.perfil.empresas.conteo_ciego_habilitado===false, 'debe reflejarlo en el estado local, obtuvo: '+ctx.__appstate.perfil.empresas.conteo_ciego_habilitado);
 
+  // actualizarFotoObligatoria: mismo patrón que el conteo ciego (PATCH a /empresas + estado local).
+  calls.length = 0;
+  await ctx.actualizarFotoObligatoria(true);
+  const patchFotoOn = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/empresas?id=eq.emp-1'));
+  assert(!!patchFotoOn && JSON.parse(patchFotoOn.opts.body).foto_obligatoria_conteo===true, 'debe hacer PATCH activando foto_obligatoria_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.__appstate.perfil.empresas.foto_obligatoria_conteo===true, 'debe reflejarlo en el estado local');
+  calls.length = 0;
+  await ctx.actualizarFotoObligatoria(false);
+  const patchFotoOff = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/empresas?id=eq.emp-1'));
+  assert(!!patchFotoOff && JSON.parse(patchFotoOff.opts.body).foto_obligatoria_conteo===false, 'el admin debe poder apagar la foto obligatoria de nuevo');
+  assert(ctx.__appstate.perfil.empresas.foto_obligatoria_conteo===false, 'debe reflejarlo en el estado local al apagarla');
+
   // ===== Interruptor: incluir en el plan los materiales con stock 0 =====
   // El ERP manda el mismo material dos veces, una con su bin y su stock real y otra sin ubicación
   // y con stock 0. En el plan del 14-09 de Escondida eran 490 de 595 y la hoja parecía rota.
@@ -4866,6 +4884,46 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   calls.length = 0;
   await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
   assert(calls.some(c=>c.url.includes('/storage/v1/object/fotos-inventario/emp-1/SKU-999/')), 'guardarConteo debe subir la foto bajo una ruta que empiece con el empresa_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+  // ===== Foto obligatoria al guardar (pedido de Joel, 22/09/2026) =====
+  // Con el interruptor activo, un conteo (o reconteo: usan el mismo formulario y el mismo
+  // guardarConteo) sin foto no se guarda y avisa por qué; contar 0 es la única excepción. Con el
+  // interruptor apagado todo sigue como hoy. La regla se prueba en guardarConteo y no solo en el
+  // formulario porque es el único camino de guardado, con o sin señal.
+  {
+    const toastRootFoto = elements['toast-root'];
+    const ultimoToast = ()=> { const h = toastRootFoto ? toastRootFoto.hijos : []; return h.length ? h[h.length-1].textContent : ''; };
+    ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = true;
+    ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };
+    const htmlConteoFotoObligatoria = ctx.renderConteo();
+    assert(htmlConteoFotoObligatoria.includes('Respaldo fotográfico *') && htmlConteoFotoObligatoria.includes('Solo se puede omitir cuando la cantidad contada es 0'), 'con la llave activa el formulario debe marcar la foto como obligatoria y explicar la excepción, obtuvo: '+htmlConteoFotoObligatoria.slice(htmlConteoFotoObligatoria.indexOf('Respaldo'), htmlConteoFotoObligatoria.indexOf('Respaldo')+300));
+    // Sin foto y cantidad distinta de 0: no se guarda, y se dice por qué.
+    ctx.__appstate.conteoFotos = [];
+    calls.length = 0;
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
+    assert(!calls.some(c=>c.url.includes('/conteos')), 'con foto obligatoria y sin foto, guardarConteo no debe tocar /conteos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(/foto/i.test(ultimoToast()) && /0/.test(ultimoToast()), 'debe avisar que falta la foto y que la excepción es contar 0, obtuvo: "'+ultimoToast()+'"');
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-1', 'el formulario debe quedar tal cual para agregar la foto, no limpiarse');
+    // Cantidad 0 sin foto: se guarda (no hay nada que fotografiar).
+    calls.length = 0;
+    await ctx.guardarConteo({cantidad:0, ubicacion:'', bodega:''});
+    assert(calls.some(c=>c.url.includes('/conteos?on_conflict=idempotency_key')), 'contar 0 sin foto debe guardarse igual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Con foto: se guarda.
+    ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };
+    ctx.__appstate.conteoFotos = [{ file: { name:'foto.jpg', type:'image/jpeg' } }];
+    calls.length = 0;
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
+    assert(calls.some(c=>c.url.includes('/conteos?on_conflict=idempotency_key')) && calls.some(c=>c.url.includes('/conteo_fotos')), 'con foto obligatoria y una foto adjunta, debe guardar el conteo y su foto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Interruptor apagado (el default): sin foto se guarda, como siempre.
+    ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = false;
+    ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };
+    ctx.__appstate.conteoFotos = [];
+    const htmlConteoFotoOpcional = ctx.renderConteo();
+    assert(htmlConteoFotoOpcional.includes('Respaldo fotográfico (puedes agregar varias)'), 'con la llave apagada el formulario debe seguir diciendo que la foto es opcional');
+    calls.length = 0;
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
+    assert(calls.some(c=>c.url.includes('/conteos?on_conflict=idempotency_key')), 'con la llave apagada, un conteo sin foto debe guardarse como hoy, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  }
 
   // ===== capturado_en: fecha real de captura, para auditoría (no la confunde con fecha_conteo/created_at) =====
 
