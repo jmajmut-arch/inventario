@@ -124,6 +124,7 @@ function crearCanvasFalso(){
   return c;
 }
 let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
+let cerrarAjusteErpError = null; // ídem para cerrar_reconteo_ajuste_erp
 let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesCiclo); null = sin mockear (usa default vacío)
 // Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
 // hace Postgres ante ON CONFLICT DO NOTHING) y la búsqueda de respaldo por idempotency_key
@@ -182,6 +183,17 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/descartar_reconteo')){
     if(descartarReconteoError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:descartarReconteoError}) };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  if(path.startsWith('/rest/v1/rpc/cerrar_reconteo_ajuste_erp')){
+    if(cerrarAjusteErpError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:cerrarAjusteErpError}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  // Cerrados sin recontar (ver cargarReconteosCerrados): los últimos cierres con su tipo.
+  if(path.startsWith('/rest/v1/conteos?select=id,cantidad_contada,diferencia,fecha_conteo,reconteo_descartado_en')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+      {id:'conteo-c1', cantidad_contada:5, diferencia:-3, fecha_conteo:'2026-09-20T10:00:00Z', reconteo_descartado_en:'2026-09-22T15:00:00Z', reconteo_descartado_motivo:'Ajustado en el ERP', reconteo_cierre_tipo:'ajuste_erp', ajuste_erp_referencia:'4500123', skus:{sku_code:'SKU-C1', descripcion:'Cerrado por ERP', bodega:'Nave', costo_unitario:1000}, cerrado_por:{nombre:'Ana'}},
+      {id:'conteo-c2', cantidad_contada:8, diferencia:2, fecha_conteo:'2026-09-19T10:00:00Z', reconteo_descartado_en:'2026-09-21T15:00:00Z', reconteo_descartado_motivo:'Error de tipeo', reconteo_cierre_tipo:'dato_maestro', ajuste_erp_referencia:null, skus:{sku_code:'SKU-C2', descripcion:'Descartado', bodega:'Nave', costo_unitario:null}, cerrado_por:{nombre:'Ana'}},
+    ]) };
   }
   if(path.startsWith('/functions/v1/flow-cancelar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'{"ok":true}', json: async()=>({ok:true}) };
@@ -535,6 +547,7 @@ const fakeFetchImpl = async (url, opts) => {
         {ciclo_id:'ciclo-viejo', bodega:'Nave Mina', total_planificados:10, contados:5},
       ],
       diferenciasRecientes: [ {sin_diferencia:9, con_diferencia:1} ],
+      cierresAjusteErp: {n:2, valor:45000},
       resumenAbc: [
         {clase_abc:'A', cantidad_sku:3, pct_sku:10.0, valor_total:8000000, pct_valor:80.0, skus_contados:1, pct_avance:33.3},
         {clase_abc:'B', cantidad_sku:7, pct_sku:23.3, valor_total:1500000, pct_valor:15.0, skus_contados:2, pct_avance:28.6},
@@ -9054,6 +9067,103 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlModalDescartar.includes('SKU-DESCARTAR') && htmlModalDescartar.includes('Ya escrito antes'), 'el modal debe mostrar el SKU y precargar el motivo ya escrito, obtuvo: '+htmlModalDescartar);
   ctx.__appstate.descartarReconteoModal = null;
   assert(ctx.renderDescartarReconteoModal()==='', 'sin modal abierto, renderDescartarReconteoModal debe devolver vacío, obtuvo: '+JSON.stringify(ctx.renderDescartarReconteoModal()));
+
+  // ===== Reconteo: "Ajustado en ERP" (pedido de Joel, 22/09/2026) =====
+  // Segundo cierre sin recontar, distinto de Descartar: la diferencia era real, se verificó
+  // recontando y se corrigió en el ERP. Exige referencia, exige que el material se haya contado con
+  // diferencia al menos dos veces (nadie cierra por el ERP lo que no verificó en terreno), llama al
+  // RPC que además pone el stock del sistema en lo contado, y recarga la lista. La app anticipa las
+  // dos validaciones para no hacer un viaje que va a fallar; el servidor las repite igual.
+  {
+    const toastRootErp = elements['toast-root'];
+    const ultimoToastErp = ()=> { const h = toastRootErp ? toastRootErp.hijos : []; return h.length ? h[h.length-1].textContent : ''; };
+    const filaRecontada = { id:'sku-e1', conteo_id:'conteo-e1', sku_code:'SKU-ERP', descripcion:'Verificado dos veces', stock_sistema:10, ultima_cantidad_contada:7, ultima_diferencia:-3, veces_con_diferencia:2, ultimo_conteo_fecha:'2026-09-20', causa_probable:'Diferencia recurrente', fotos:[] };
+    const filaUnaVez = { ...filaRecontada, id:'sku-e2', conteo_id:'conteo-e2', sku_code:'SKU-UNA', veces_con_diferencia:1 };
+    ctx.__appstate.reconteos = [filaRecontada, filaUnaVez];
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    const htmlErpAdmin = ctx.renderReconteo();
+    assert(htmlErpAdmin.includes('data-cerrar-ajuste-erp="conteo-e1"') && htmlErpAdmin.includes('Ajustado en ERP'), 'un admin debe ver el botón "Ajustado en ERP" con el id del conteo, obtuvo: '+htmlErpAdmin.slice(0,400));
+    assert(htmlErpAdmin.includes('id="btn-reconteos-cerrados"') && htmlErpAdmin.includes('Cerrados sin recontar'), 'Reconteo debe ofrecer la sección de cerrados sin recontar');
+    ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    assert(!ctx.renderReconteo().includes('data-cerrar-ajuste-erp='), 'un operador NO debe ver el botón "Ajustado en ERP" (acción solo de admin)');
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+
+    // El modal toma los datos de la fila (contado, sistema, veces con diferencia).
+    ctx.abrirCerrarAjusteErp(filaRecontada);
+    const mErp = ctx.__appstate.cerrarAjusteErpModal;
+    assert(mErp && mErp.conteoId==='conteo-e1' && mErp.contado===7 && mErp.sistema===10 && mErp.vecesConDiferencia===2, 'abrirCerrarAjusteErp debe cargar el modal con los datos de la fila, obtuvo: '+JSON.stringify(mErp));
+    const htmlModalErp = ctx.renderCerrarAjusteErpModal();
+    assert(htmlModalErp.includes('id="cerrar-ajuste-erp-referencia"') && htmlModalErp.includes('required') && htmlModalErp.includes('queda en <strong>7</strong>'), 'el modal debe pedir la referencia y decir en cuánto queda el stock del sistema, obtuvo: '+htmlModalErp);
+
+    // Sin referencia: no llama al RPC y el modal sigue abierto.
+    calls.length = 0;
+    ctx.__appstate.cerrarAjusteErpModal = {...mErp, referencia:'   ', motivo:''};
+    await ctx.cerrarReconteoAjusteErp();
+    assert(!calls.some(c=>c.url.includes('/rpc/cerrar_reconteo_ajuste_erp')), 'sin referencia no debe llamarse al RPC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.cerrarAjusteErpModal !== null && /referencia/i.test(ultimoToastErp()), 'sin referencia debe avisar y dejar el modal abierto, obtuvo: "'+ultimoToastErp()+'"');
+
+    // Contado con diferencia una sola vez: el modal lo dice, deshabilita el envío y no llama al RPC.
+    ctx.abrirCerrarAjusteErp(filaUnaVez);
+    const htmlModalUnaVez = ctx.renderCerrarAjusteErpModal();
+    assert(htmlModalUnaVez.includes('una sola vez') && /id="cerrar-ajuste-erp-referencia"[^>]*disabled/.test(htmlModalUnaVez), 'con una sola diferencia el modal debe pedir recontar primero y bloquear el formulario, obtuvo: '+htmlModalUnaVez);
+    calls.length = 0;
+    ctx.__appstate.cerrarAjusteErpModal = {...ctx.__appstate.cerrarAjusteErpModal, referencia:'4500123'};
+    await ctx.cerrarReconteoAjusteErp();
+    assert(!calls.some(c=>c.url.includes('/rpc/cerrar_reconteo_ajuste_erp')) && /recu[ée]ntalo/i.test(ultimoToastErp()), 'con una sola diferencia no debe llamarse al RPC y debe pedir recontar, obtuvo: "'+ultimoToastErp()+'"');
+
+    // Con referencia y dos diferencias: llama al RPC con conteo, referencia y comentario, cierra
+    // el modal y recarga la lista de pendientes.
+    calls.length = 0;
+    cerrarAjusteErpError = null;
+    ctx.abrirCerrarAjusteErp(filaRecontada);
+    ctx.__appstate.cerrarAjusteErpModal = {...ctx.__appstate.cerrarAjusteErpModal, referencia:' 4500123 ', motivo:'Faltaban 3 en el rack'};
+    await ctx.cerrarReconteoAjusteErp();
+    const cerrarCall = calls.find(c=>c.url.includes('/rpc/cerrar_reconteo_ajuste_erp'));
+    assert(!!cerrarCall, 'debe llamar al RPC cerrar_reconteo_ajuste_erp, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const cerrarBody = cerrarCall && JSON.parse(cerrarCall.opts.body);
+    assert(cerrarBody && cerrarBody.p_conteo_id==='conteo-e1' && cerrarBody.p_referencia==='4500123' && cerrarBody.p_motivo==='Faltaban 3 en el rack', 'debe enviar p_conteo_id, p_referencia (recortada) y p_motivo, obtuvo: '+JSON.stringify(cerrarBody));
+    assert(ctx.__appstate.cerrarAjusteErpModal === null, 'al cerrar con éxito el modal debe cerrarse');
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=')), 'al cerrar con éxito debe recargar la lista de reconteos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(/stock del sistema actualizado a 7/.test(ultimoToastErp()), 'el aviso debe decir en cuánto quedó el stock del sistema, obtuvo: "'+ultimoToastErp()+'"');
+
+    // Si el servidor rechaza (ej. otra persona ya lo cerró), el modal sigue abierto y conserva lo escrito.
+    calls.length = 0;
+    cerrarAjusteErpError = 'Este reconteo ya está cerrado';
+    ctx.abrirCerrarAjusteErp(filaRecontada);
+    ctx.__appstate.cerrarAjusteErpModal = {...ctx.__appstate.cerrarAjusteErpModal, referencia:'4500124'};
+    await ctx.cerrarReconteoAjusteErp();
+    assert(ctx.__appstate.cerrarAjusteErpModal && ctx.__appstate.cerrarAjusteErpModal.guardando===false && ctx.__appstate.cerrarAjusteErpModal.referencia==='4500124', 'si el servidor rechaza, el modal sigue abierto sin "guardando" y con la referencia escrita, obtuvo: '+JSON.stringify(ctx.__appstate.cerrarAjusteErpModal));
+    assert(ultimoToastErp()==='Este reconteo ya está cerrado', 'el error del servidor debe verse tal cual, obtuvo: "'+ultimoToastErp()+'"');
+    cerrarAjusteErpError = null;
+    ctx.__appstate.cerrarAjusteErpModal = null;
+
+    // Cerrados sin recontar: se piden recién al abrir la sección, y se distinguen los dos tipos.
+    calls.length = 0;
+    ctx.__appstate.reconteosCerrados = {abierto:false, cargado:false, cargando:false, filas:[], error:null};
+    ctx.toggleReconteosCerrados();
+    await new Promise(r=>setTimeout(r, 20));
+    assert(calls.some(c=>c.url.includes('/conteos?select=id,cantidad_contada,diferencia,fecha_conteo,reconteo_descartado_en') && c.url.includes('reconteo_descartado_en=not.is.null')), 'abrir la sección debe pedir los conteos cerrados, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const htmlCerrados = ctx.renderReconteo();
+    assert(htmlCerrados.includes('Ajustado en ERP · 4500123') && htmlCerrados.includes('>Descartado<') && htmlCerrados.includes('SKU-C1') && htmlCerrados.includes('SKU-C2'), 'la lista de cerrados debe mostrar los dos tipos con su referencia, obtuvo: '+htmlCerrados.slice(htmlCerrados.indexOf('Cerrados sin recontar'), htmlCerrados.indexOf('Cerrados sin recontar')+1500));
+    assert(htmlCerrados.includes('Ajustados en el ERP entre estos: <b>1</b>') && htmlCerrados.includes('$3.000'), 'debe resumir cuántos fueron ajustes ERP y cuánto valían (|−3| × $1.000), obtuvo: '+htmlCerrados.slice(htmlCerrados.indexOf('Ajustados en el ERP'), htmlCerrados.indexOf('Ajustados en el ERP')+200));
+    ctx.__appstate.reconteosCerrados = {abierto:false, cargado:false, cargando:false, filas:[], error:null};
+
+    // Buscar: el material cerrado muestra cómo se cerró, al lado de su estado.
+    const busquedaAntesErp = ctx.__appstate.busqueda;
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, yaBuscado:true, busquedaPagina:0, hayMas:false, filtroContadoPor:null, filtroEstado:null, seleccionados:[], resultados:[
+      {sku_id:'sb1', sku_code:'SKU-ERP', descripcion:'Cerrado', bodega:'Nave', conteo_id:'c-1', cantidad_contada:7, estado:'con_diferencia', diferencia:-3, fuera_de_plan:false, fecha_conteo:'2026-09-20T10:00:00Z', capturado_en:'2026-09-20T10:00:00Z', ciclo_nombre:null, fotos:[], clase_abc:'A', contado_por:'Ana', reconteo_cierre_tipo:'ajuste_erp', ajuste_erp_referencia:'4500123'},
+    ]};
+    const htmlBuscarErp = ctx.renderBuscar();
+    assert(htmlBuscarErp.includes('Ajustado en ERP · 4500123'), 'Buscar debe mostrar el badge "Ajustado en ERP" con la referencia en el material cerrado, obtuvo: '+htmlBuscarErp.slice(htmlBuscarErp.indexOf('>SKU-ERP<')-50, htmlBuscarErp.indexOf('>SKU-ERP<')+600));
+    ctx.__appstate.busqueda = busquedaAntesErp;
+
+    // Informe de ciclo: el KPI de cierres con ajuste ERP viene en el JSON del dashboard.
+    ctx.__appstate.dash = {...ctx.__appstate.dash, cierresAjusteErp:{n:2, valor:45000}};
+    const htmlInformeErp = ctx.renderInformeEjecutivo();
+    assert(htmlInformeErp.includes('Diferencias cerradas con ajuste en el ERP en este ciclo: <b>2</b>') && htmlInformeErp.includes('$45.000'), 'el informe de ciclo debe mostrar cuántas diferencias se cerraron por el ERP y su valor, obtuvo: '+htmlInformeErp.slice(htmlInformeErp.indexOf('Diferencias cerradas')-20, htmlInformeErp.indexOf('Diferencias cerradas')+160));
+    ctx.__appstate.dash = {...ctx.__appstate.dash, cierresAjusteErp:{n:0, valor:0}};
+    assert(!ctx.renderInformeEjecutivo().includes('Diferencias cerradas con ajuste'), 'sin cierres el informe no agrega la línea');
+  }
 
   // ===== Conteo ciego: ocultarStockOperador() decide según rol + el flag de la empresa. Un
   // admin siempre ve el stock; un operador solo lo ve si su empresa NO tiene el flag activo. =====

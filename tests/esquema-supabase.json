@@ -62,6 +62,8 @@
       "reconteo_descartado_en",
       "reconteo_descartado_motivo",
       "reconteo_descartado_por",
+      "reconteo_cierre_tipo",
+      "ajuste_erp_referencia",
       "sku_id",
       "ubicacion_contada",
       "ubicacion_distinta",
