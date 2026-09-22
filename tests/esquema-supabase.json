@@ -96,6 +96,7 @@
       "bodega_funciones",
       "codigo_invitacion",
       "conteo_ciego_habilitado",
+      "foto_obligatoria_conteo",
       "created_at",
       "flow_customer_id",
       "flow_subscription_id",

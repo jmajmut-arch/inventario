@@ -1497,7 +1497,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,foto_obligatoria_conteo,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -3676,6 +3676,28 @@ function ocultarStockOperador(){
 // plan. En la base lo aplica skus_planificables vía plan_incluye_stock_cero(), así que el contador
 // de pendientes que se ve al planificar dice lo mismo que después trae la entrada.
 // Parte encendido en todas las empresas: publicar esto no cambia ningún plan ya creado.
+// Foto obligatoria (pedido de Joel, 22/09/2026): con el interruptor activo, un conteo o reconteo
+// no se guarda sin al menos una foto del material. La única excepción es contar 0: no hay nada
+// que fotografiar. Se valida en guardarConteo, que es el único camino de guardado (Contar y
+// Reconteo usan el mismo formulario, con o sin señal), así ningún atajo se lo salta. Es por
+// empresa y apagado por defecto: lo que hoy guarda sin foto sigue igual hasta que un admin lo
+// prenda desde Configuraciones.
+function fotoObligatoriaConteo(){
+  const e = state.perfil && state.perfil.empresas;
+  return !!(e && e.foto_obligatoria_conteo);
+}
+function faltaFotoObligatoria(cantidad, fotos){
+  return fotoObligatoriaConteo() && Number(cantidad) !== 0 && !(fotos && fotos.length);
+}
+async function actualizarFotoObligatoria(activo){
+  if(!state.perfil || !state.perfil.empresa_id) return;
+  try{
+    await rest(`/empresas?id=eq.${state.perfil.empresa_id}`, {method:'PATCH', body:{foto_obligatoria_conteo:activo}, prefer:'return=minimal'});
+    state.perfil.empresas.foto_obligatoria_conteo = activo;
+    toast(activo? 'Desde ahora cada conteo lleva al menos una foto' : 'La foto vuelve a ser opcional');
+    render();
+  }catch(e){ toast(e.message,'err'); }
+}
 function planIncluyeStockCero(){
   const e = state.perfil && state.perfil.empresas;
   return !(e && e.plan_incluye_stock_cero === false);
@@ -8213,6 +8235,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad)) || Number(cantidad) < 0){ toast('Ingresa una cantidad contada válida','err'); return; }
   if(!perfilCargado()) return;
   await esperarFotosEnProceso(); // ver comprimirFoto: una foto recién tomada puede seguir comprimiéndose
+  if(faltaFotoObligatoria(cantidad, state.conteoFotos)){ toast('Falta el respaldo fotográfico: toma al menos una foto del material (solo se puede omitir al contar 0)','err'); return; }
   // Con conteo ciego, la persona no ve el stock del sistema -- este es el reemplazo del chequeo
   // de cordura que antes hacía ella misma al ver un número muy distinto al que tenía en pantalla.
   // Nunca revela cuál es el valor esperado, solo que el ingresado se aleja mucho de lo habitual.
@@ -10623,7 +10646,8 @@ function renderConteo(){
           <label for="c-obs">Observación</label>
           <textarea id="c-obs" placeholder="Notas del conteo (opcional)"></textarea>
 
-          <label>Respaldo fotográfico (puedes agregar varias)</label>
+          <label>Respaldo fotográfico ${fotoObligatoriaConteo() ? '*' : '(puedes agregar varias)'}</label>
+          ${fotoObligatoriaConteo() ? `<div class="hint" style="margin:-4px 0 8px">Obligatorio: al menos una foto del material. Solo se puede omitir cuando la cantidad contada es 0.</div>` : ''}
           <div class="file-input">
             <input type="file" id="c-foto" accept="image/*" capture="environment" multiple>
             ${ICONS.camera.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
@@ -12282,6 +12306,15 @@ function renderConfiguraciones(){
       <label style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
         <input type="checkbox" id="chk-conteo-ciego" ${empresa.conteo_ciego_habilitado?'checked':''}>
         <span>Ocultar el stock del sistema a los operadores mientras cuentan</span>
+      </label>
+    </div>
+    ` : ''}
+    ${esAdmin? `
+    <div class="section-head"><div><span class="eyebrow">Respaldo</span><h2 style="font-size:15px">Foto obligatoria ${campoConInfo('Mientras está activo, ningún conteo ni reconteo se puede guardar sin al menos una foto del material, con o sin señal. La única excepción es contar 0: no hay nada que fotografiar. No cambia los conteos ya guardados.')}</h2></div></div>
+    <div class="card">
+      <label style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
+        <input type="checkbox" id="chk-foto-obligatoria" ${empresa.foto_obligatoria_conteo?'checked':''}>
+        <span>Exigir al menos una foto en cada conteo y reconteo (salvo cantidad 0)</span>
       </label>
     </div>
     ` : ''}
@@ -14078,6 +14111,8 @@ function bind(){
     });
     const chkConteoCiego = document.getElementById('chk-conteo-ciego');
     if(chkConteoCiego) chkConteoCiego.addEventListener('change', e=> actualizarConteoCiego(e.target.checked));
+    const chkFotoObligatoria = document.getElementById('chk-foto-obligatoria');
+    if(chkFotoObligatoria) chkFotoObligatoria.addEventListener('change', e=> actualizarFotoObligatoria(e.target.checked));
     const chkStockCeroPlan = document.getElementById('chk-stock-cero-plan');
     if(chkStockCeroPlan) chkStockCeroPlan.addEventListener('change', e=> actualizarStockCeroEnPlan(e.target.checked));
     document.querySelectorAll('[data-suscribir-flow]').forEach(btn=>{
