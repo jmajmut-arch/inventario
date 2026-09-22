@@ -5762,18 +5762,22 @@ async function descartarReconteo(){
 // se verificó recontando y la resolución fue ajustar el ERP. A diferencia de Descartar, deja la
 // referencia del ajuste y pone el stock del sistema en la cantidad contada, para que app y ERP
 // digan lo mismo hasta la próxima carga del maestro. El RPC cerrar_reconteo_ajuste_erp valida en
-// el servidor: solo admin, referencia obligatoria, y al menos dos conteos con diferencia en el
-// ciclo (nadie cierra por el ERP lo que no verificó en terreno). Acá se anticipa lo mismo para no
-// hacer un viaje que va a fallar.
+// el servidor: solo admin, referencia obligatoria, y si es una merma (se contó menos que el
+// sistema) al menos dos conteos con diferencia en el ciclo: nadie cierra por el ERP un faltante
+// que no verificó en terreno. Un excedente se cierra con un solo conteo (pedido de Joel). Acá se
+// anticipa lo mismo para no hacer un viaje que va a fallar.
 function abrirCerrarAjusteErp(r){
-  setState({cerrarAjusteErpModal:{conteoId:r.conteo_id, skuCode:r.sku_code, contado:r.ultima_cantidad_contada, sistema:r.stock_sistema, vecesConDiferencia:Number(r.veces_con_diferencia)||0, referencia:'', motivo:'', guardando:false}});
+  setState({cerrarAjusteErpModal:{conteoId:r.conteo_id, skuCode:r.sku_code, contado:r.ultima_cantidad_contada, sistema:r.stock_sistema, diferencia:r.ultima_diferencia, vecesConDiferencia:Number(r.veces_con_diferencia)||0, referencia:'', motivo:'', guardando:false}});
+}
+function faltaReconteoParaCerrarErp(m){
+  return Number(m.diferencia) < 0 && (Number(m.vecesConDiferencia)||0) < 2;
 }
 async function cerrarReconteoAjusteErp(){
   const m = state.cerrarAjusteErpModal;
   if(!m || m.guardando) return;
   const referencia = (m.referencia||'').trim();
   if(!referencia){ toast('Indica la referencia del ajuste en el ERP (folio o documento)','err'); return; }
-  if(m.vecesConDiferencia < 2){ toast('Este material se contó con diferencia una sola vez: recuéntalo antes de cerrarlo por el ERP','err'); return; }
+  if(faltaReconteoParaCerrarErp(m)){ toast('Esta merma se contó una sola vez: recuéntala antes de cerrarla por el ERP','err'); return; }
   setState({cerrarAjusteErpModal:{...m, guardando:true}});
   try{
     await rest('/rpc/cerrar_reconteo_ajuste_erp', {method:'POST', body:{p_conteo_id: m.conteoId, p_referencia: referencia, p_motivo: (m.motivo||'').trim() || null}});
@@ -9295,7 +9299,7 @@ function renderCorregirConteoModal(){
 function renderCerrarAjusteErpModal(){
   const m = state.cerrarAjusteErpModal;
   if(!m) return '';
-  const puede = m.vecesConDiferencia >= 2;
+  const puede = !faltaReconteoParaCerrarErp(m);
   return `<div class="foto-modal-backdrop" id="cerrar-ajuste-erp-modal-backdrop">
     <div class="card" style="width:min(92vw,460px);margin-bottom:0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -9304,7 +9308,7 @@ function renderCerrarAjusteErpModal(){
       </div>
       <div class="hint" style="margin-bottom:10px"><span class="mono">${esc(m.skuCode)}</span>: se contó <strong>${esc(String(m.contado==null?'—':m.contado))}</strong>${m.sistema!=null? ` y el sistema decía <strong>${esc(String(m.sistema))}</strong>` : ''}. ${puede
         ? `Al cerrar, el stock del sistema en la app queda en <strong>${esc(String(m.contado==null?'—':m.contado))}</strong> y el material sale de la lista de reconteo. Úsalo solo cuando el ajuste ya está hecho en el ERP.`
-        : `<span style="color:var(--danger)">Se contó con diferencia una sola vez.</span> Recuéntalo antes de cerrarlo por el ERP: primero se verifica en terreno, después se ajusta.`}</div>
+        : `<span style="color:var(--danger)">Esta merma se contó una sola vez.</span> Recuéntala antes de cerrarla por el ERP: un faltante primero se verifica en terreno, después se ajusta.`}</div>
       <form id="form-cerrar-ajuste-erp">
         <label for="cerrar-ajuste-erp-referencia">Referencia del ajuste en el ERP *</label>
         <input type="text" id="cerrar-ajuste-erp-referencia" required placeholder="Ej: folio 4500123 / doc. MB1A 2026-09-22" value="${esc(m.referencia||'')}" ${puede?'':'disabled'}>
