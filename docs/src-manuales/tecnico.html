@@ -62,8 +62,8 @@
       <li>Todo lo del inventariador, más: cargar/editar SKU manual y masivo; eliminar SKU sin conteos</li>
       <li>Planificar por ventanas, administrar Grupos, crear períodos y ver informes de cierre</li>
       <li>Invitar, editar y desactivar personas de su empresa; vincular operadores a responsables del plan</li>
-      <li>Descartar reconteos con motivo; ver Auditoría si el plan la incluye</li>
-      <li>Activar Conteo ciego para toda su empresa; activar MFA para su propia cuenta; gestionar suscripción y pago</li>
+      <li>Descartar reconteos con motivo, o cerrarlos como ajustados en el ERP con la referencia del ajuste; ver Auditoría si el plan la incluye</li>
+      <li>Activar Conteo ciego y Foto obligatoria para toda su empresa; activar MFA para su propia cuenta; gestionar suscripción y pago</li>
     </ul>
     <ul class="checks no">
       <li>Ver ni tocar SKU, conteos o personas de otra empresa (RLS a nivel de base de datos)</li>
@@ -197,9 +197,11 @@
       <li>Guardar sin conexión: el conteo y sus fotos quedan en el dispositivo y se sincronizan solos; guardado idempotente (<code>idempotency_key</code>) con reintento si la señal está lenta</li>
       <li>Avisar (sin bloquear) si la cantidad se ve atípica (RPC <code>verificar_conteo_atipico</code>, sin revelar el stock en conteo ciego); avisar si ya fue contado en el período (<code>veces_contado_periodo</code>)</li>
       <li>Detectar materiales que una carga posterior movió de bin o ubicación desde que se planificaron (foto en <code>plan_semanal_skus</code>) y mostrarlos igual, marcados</li>
+      <li>Exigir al menos una foto por conteo y reconteo si la empresa lo activó (<code>empresas.foto_obligatoria_conteo</code>, apagado por defecto), salvo cantidad 0; se valida en el guardado, con y sin señal</li>
     </ul>
     <ul class="checks no">
       <li>Contar un material sin elegirlo primero de la búsqueda, el escáner o el plan</li>
+      <li>Guardar sin foto, con Foto obligatoria activa y cantidad distinta de 0</li>
       <li>Editar un conteo ya guardado desde esta pantalla (para eso existe Reconteo)</li>
       <li>Ver el stock de sistema ni el stock por tipo con Conteo ciego activo</li>
     </ul>
@@ -230,6 +232,7 @@
       </div>
       <div class="box new"><div class="tag">Nuevo · Pendientes por semana</div>RPC <code>reconteo_pendiente_por_semana(p_tz)</code> agrupa los pendientes por semana ISO de la fecha del último conteo, en la zona horaria del dispositivo. La app muestra un gráfico de barras ("36S") y al tocar una barra filtra la lista con <code>ultimo_conteo_fecha</code> entre el lunes y el domingo de esa semana. Al descartar el último pendiente de una semana, la vista se queda en esa semana con un aviso, no salta sola.</div>
       <div class="box new"><div class="tag">Nuevo · Descartar reconteo (solo admin)</div>RPC <code>descartar_reconteo(p_conteo_id, p_motivo)</code>, <code>SECURITY DEFINER</code> con verificación de rol admin de la misma empresa: marca <code>reconteo_descartado_en</code> y <code>reconteo_descartado_por</code> en el conteo y deja el motivo en Auditoría. El material sale de pendientes sin nuevo conteo. Uso previsto: errores del dato maestro, no diferencias físicas.</div>
+      <div class="box new"><div class="tag">Nuevo · Cerrar con ajuste en el ERP (solo admin)</div>RPC <code>cerrar_reconteo_ajuste_erp(p_conteo_id, p_referencia, p_motivo)</code>, <code>SECURITY DEFINER</code> con verificación de rol admin: para diferencias reales corregidas en el ERP. Exige la referencia del ajuste y, si es merma, dos conteos con diferencia en el ciclo (un excedente se cierra con uno). Marca <code>reconteo_cierre_tipo = 'ajuste_erp'</code> y <code>ajuste_erp_referencia</code>, y pone <code>skus.stock_sistema</code> en lo contado (el trigger guarda el anterior; queda en Auditoría). Los descartes llevan tipo <code>dato_maestro</code>. "Cerrados sin recontar" lista los últimos 50; Buscar muestra el tipo y el informe de ciclo suma los ajustes y su valor.</div>
     </div>
     <div class="shot"><img src="img/reconteo.png" alt="Reconteo"><div class="cap">Reconteo → pendientes, con huella de SOH anterior/nuevo</div></div>
   </div>
@@ -342,7 +345,7 @@
   <div class="cols">
     <div>
       <ul class="checks">
-        <li>Buscar por código, descripción, batch o storage bin; filtrar por bodega, estado, período, crítico, Clase ABC, "solo con fotos" y "solo fuera de plan"; ordenar por cualquier columna</li>
+        <li>Buscar por código, descripción, batch o storage bin; filtrar por bodega, estado (con diferencia positiva y negativa por separado, igual que el gráfico), período, crítico, Clase ABC, "solo con fotos" y "solo fuera de plan"; ordenar por cualquier columna</li>
         <li>El título y los gráficos muestran el total real que cumple los filtros (RPC <code>contar_busqueda_skus</code>), no solo las filas traídas al navegador</li>
         <li>Columna Origen: "Plan" o "Fuera de plan", coherente con la regla del mismo día de Contar</li>
         <li>Exportar a Excel los resultados filtrados, o un rango de fechas completo (un renglón por conteo) para un ERP; exportar seleccionados a PDF con foto, observación y detalle</li>
@@ -412,9 +415,9 @@
   <h2 class="title">Lo que protege cada capa</h2>
   <div class="two">
     <ul class="checks">
-      <li>RLS activo en las 27 tablas del esquema, 71 políticas, todas por <code>empresa_id</code> o rol; las 29 vistas con <code>security_invoker = true</code></li>
-      <li>Ninguna de las 68 funciones es ejecutable por <code>anon</code> ni por <code>PUBLIC</code>: EXECUTE revocado también en los privilegios por defecto. Con sesión se ejecutan 45; las 23 restantes (triggers, cron, mantenimiento, reset de la demo) solo <code>service_role</code></li>
-      <li>Funciones <code>SECURITY DEFINER</code> expuestas a usuarios con sesión: 13, todas con verificación interna de empresa y rol (ej. <code>descartar_reconteo</code>, <code>renombrar_ubicacion_general</code>)</li>
+      <li>RLS activo en las 31 tablas del esquema, 85 políticas, todas por <code>empresa_id</code> o rol; las 37 vistas con <code>security_invoker = true</code> (medido el 22/09/2026)</li>
+      <li>Ninguna de las 96 funciones es ejecutable por <code>anon</code> ni por <code>PUBLIC</code>: EXECUTE revocado también en los privilegios por defecto. Con sesión se ejecutan 72; las 24 restantes (triggers, cron, mantenimiento, reset de la demo) solo <code>service_role</code></li>
+      <li>Funciones <code>SECURITY DEFINER</code> expuestas a usuarios con sesión: 18, todas con verificación interna de empresa y rol (ej. <code>descartar_reconteo</code>, <code>cerrar_reconteo_ajuste_erp</code>, <code>renombrar_ubicacion_general</code>)</li>
       <li>Trigger <code>validar_responsable_misma_empresa</code>: rechaza un responsable de otra empresa en <code>plan_semanal</code></li>
       <li>Fotos en bucket privado con enlaces firmados y temporales; hasta 20 MB, solo imágenes, rutas por empresa. Cada foto se comprime en el dispositivo antes de subirse (máximo 1600 px, JPEG 0,82)</li>
       <li>Contraseñas verificadas contra bases filtradas; límite de intentos de inicio de sesión; código de acceso de 6 dígitos como alternativa al link; MFA TOTP opcional (aal2); una sola sesión activa por usuario</li>
