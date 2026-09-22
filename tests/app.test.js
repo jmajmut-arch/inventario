@@ -9070,16 +9070,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // ===== Reconteo: "Ajustado en ERP" (pedido de Joel, 22/09/2026) =====
   // Segundo cierre sin recontar, distinto de Descartar: la diferencia era real, se verificó
-  // recontando y se corrigió en el ERP. Exige referencia, exige que el material se haya contado con
-  // diferencia al menos dos veces (nadie cierra por el ERP lo que no verificó en terreno), llama al
-  // RPC que además pone el stock del sistema en lo contado, y recarga la lista. La app anticipa las
-  // dos validaciones para no hacer un viaje que va a fallar; el servidor las repite igual.
+  // recontando y se corrigió en el ERP. Exige referencia; y si es una merma (diferencia negativa)
+  // exige que el material se haya contado con diferencia al menos dos veces (nadie cierra por el
+  // ERP un faltante que no verificó en terreno). Un excedente se cierra con un solo conteo (pedido
+  // de Joel). Llama al RPC que además pone el stock del sistema en lo contado, y recarga la lista.
+  // La app anticipa las validaciones para no hacer un viaje que va a fallar; el servidor las repite.
   {
     const toastRootErp = elements['toast-root'];
     const ultimoToastErp = ()=> { const h = toastRootErp ? toastRootErp.hijos : []; return h.length ? h[h.length-1].textContent : ''; };
     const filaRecontada = { id:'sku-e1', conteo_id:'conteo-e1', sku_code:'SKU-ERP', descripcion:'Verificado dos veces', stock_sistema:10, ultima_cantidad_contada:7, ultima_diferencia:-3, veces_con_diferencia:2, ultimo_conteo_fecha:'2026-09-20', causa_probable:'Diferencia recurrente', fotos:[] };
     const filaUnaVez = { ...filaRecontada, id:'sku-e2', conteo_id:'conteo-e2', sku_code:'SKU-UNA', veces_con_diferencia:1 };
-    ctx.__appstate.reconteos = [filaRecontada, filaUnaVez];
+    const filaExcedenteUnaVez = { ...filaRecontada, id:'sku-e3', conteo_id:'conteo-e3', sku_code:'SKU-SOBRA', ultima_cantidad_contada:12, ultima_diferencia:2, veces_con_diferencia:1 };
+    ctx.__appstate.reconteos = [filaRecontada, filaUnaVez, filaExcedenteUnaVez];
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
     const htmlErpAdmin = ctx.renderReconteo();
     assert(htmlErpAdmin.includes('data-cerrar-ajuste-erp="conteo-e1"') && htmlErpAdmin.includes('Ajustado en ERP'), 'un admin debe ver el botón "Ajustado en ERP" con el id del conteo, obtuvo: '+htmlErpAdmin.slice(0,400));
@@ -9102,14 +9104,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(!calls.some(c=>c.url.includes('/rpc/cerrar_reconteo_ajuste_erp')), 'sin referencia no debe llamarse al RPC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(ctx.__appstate.cerrarAjusteErpModal !== null && /referencia/i.test(ultimoToastErp()), 'sin referencia debe avisar y dejar el modal abierto, obtuvo: "'+ultimoToastErp()+'"');
 
-    // Contado con diferencia una sola vez: el modal lo dice, deshabilita el envío y no llama al RPC.
+    // Merma contada con diferencia una sola vez: el modal lo dice, deshabilita el envío y no llama al RPC.
     ctx.abrirCerrarAjusteErp(filaUnaVez);
     const htmlModalUnaVez = ctx.renderCerrarAjusteErpModal();
-    assert(htmlModalUnaVez.includes('una sola vez') && /id="cerrar-ajuste-erp-referencia"[^>]*disabled/.test(htmlModalUnaVez), 'con una sola diferencia el modal debe pedir recontar primero y bloquear el formulario, obtuvo: '+htmlModalUnaVez);
+    assert(htmlModalUnaVez.includes('una sola vez') && /id="cerrar-ajuste-erp-referencia"[^>]*disabled/.test(htmlModalUnaVez), 'una merma con una sola diferencia debe pedir recontar primero y bloquear el formulario, obtuvo: '+htmlModalUnaVez);
     calls.length = 0;
     ctx.__appstate.cerrarAjusteErpModal = {...ctx.__appstate.cerrarAjusteErpModal, referencia:'4500123'};
     await ctx.cerrarReconteoAjusteErp();
-    assert(!calls.some(c=>c.url.includes('/rpc/cerrar_reconteo_ajuste_erp')) && /recu[ée]ntalo/i.test(ultimoToastErp()), 'con una sola diferencia no debe llamarse al RPC y debe pedir recontar, obtuvo: "'+ultimoToastErp()+'"');
+    assert(!calls.some(c=>c.url.includes('/rpc/cerrar_reconteo_ajuste_erp')) && /recu[ée]ntala/i.test(ultimoToastErp()), 'una merma con una sola diferencia no debe llamar al RPC y debe pedir recontar, obtuvo: "'+ultimoToastErp()+'"');
+    // Excedente contado una sola vez: se puede cerrar de inmediato (pedido de Joel: el reconteo
+    // previo es solo para mermas).
+    ctx.abrirCerrarAjusteErp(filaExcedenteUnaVez);
+    const htmlModalExcedente = ctx.renderCerrarAjusteErpModal();
+    assert(!htmlModalExcedente.includes('una sola vez') && !/id="cerrar-ajuste-erp-referencia"[^>]*disabled/.test(htmlModalExcedente) && htmlModalExcedente.includes('queda en <strong>12</strong>'), 'un excedente con un solo conteo debe poder cerrarse, obtuvo: '+htmlModalExcedente);
+    calls.length = 0;
+    cerrarAjusteErpError = null;
+    ctx.__appstate.cerrarAjusteErpModal = {...ctx.__appstate.cerrarAjusteErpModal, referencia:'4500200'};
+    await ctx.cerrarReconteoAjusteErp();
+    const cerrarExcedente = calls.find(c=>c.url.includes('/rpc/cerrar_reconteo_ajuste_erp'));
+    assert(!!cerrarExcedente && JSON.parse(cerrarExcedente.opts.body).p_conteo_id==='conteo-e3', 'el excedente con un solo conteo debe llamar al RPC, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
     // Con referencia y dos diferencias: llama al RPC con conteo, referencia y comentario, cierra
     // el modal y recarga la lista de pendientes.
