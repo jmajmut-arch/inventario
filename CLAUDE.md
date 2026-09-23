@@ -75,15 +75,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
 - **RLS siempre**: cada empresa ve solo lo suyo. Las vistas nuevas llevan `security_invoker=true`;
   las funciones nuevas evitan `SECURITY DEFINER` salvo que haya una razón explícita, y en ese caso
   se les revoca `EXECUTE` a `public` y `anon` y se les fija `search_path`.
-- **Qué ve un súper admin, exactamente.** Medido el 12/09/2026 barriendo las 40 relaciones con
-  `empresa_id` como súper admin: ve filas de **otras** empresas en tres, y solo tres —`auditoria`,
-  `usuarios` y `flow_eventos`—. En las otras 37 (materiales, conteos, movimientos, órdenes,
-  reservas, planes, stock) ve únicamente lo de su propia empresa, igual que cualquiera. Es
-  deliberado: el panel de súper admin administra empresas, usuarios y cobros, y para eso los
-  necesita. Pero significa que quien tenga esa cuenta **lee el registro de auditoría de todos los
-  clientes** —quién tocó qué dato y cuándo—. Antes de vender hay que poder responder esto por
-  escrito, y si se decide cerrarlo, el candidato es `auditoria`: es el más sensible y el que menos
-  hace falta para administrar. Un usuario normal no ve nada ajeno en ninguna de las 40.
+- **Qué ve un súper admin, exactamente.** Ve filas de **otras** empresas en dos relaciones, y solo
+  dos: `usuarios` y `flow_eventos`, que necesita para administrar cuentas y cobros. En todas las
+  demás (materiales, conteos, movimientos, órdenes, reservas, planes, stock y auditoría) ve
+  únicamente lo de su propia empresa, igual que cualquiera. Hasta el 23/09/2026 también leía la
+  `auditoria` de todos los clientes (4.090 filas ajenas medidas ese día); Joel decidió cerrarlo y
+  la política `auditoria_select` quedó solo por `empresa_actual()`. Si alguna vez hace falta ver la
+  auditoría de un cliente para soporte, se hace con su permiso y desde su propia cuenta, no
+  abriendo la política. Un usuario normal no ve nada ajeno en ninguna relación.
 - **Nunca borrar ni purgar datos sin preguntar antes.**
 
 ## Manejo de errores en la app
