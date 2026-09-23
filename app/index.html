@@ -195,6 +195,9 @@ main.ancho{max-width:1180px;}
 .tag-card .kpi-sub{font-size:12px;color:var(--text-dim);margin-top:4px;}
 
 .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+/* Aviso "Instala InventIA": una invitación, no una alerta -- fondo de tarjeta, sin ámbar. */
+.banner-instalar{background:var(--surface);color:var(--text);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px;}
+.pasos-instalar{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:10px;font-size:14px;line-height:1.45;color:var(--text);}
 
 /* Dashboard (renderDashboard y el informe impreso, ambos dentro de .dash). Pedido de Joel: "no me
    gustan". Lo que se corrigió: la franja de cinta de peligro se repetía en más de veinte tarjetas
@@ -679,7 +682,11 @@ let state = {
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
-  versionNueva: false,     // hay una versión de la app publicada más nueva que la que corre esta pestaña (ver verificarVersionNueva)
+  versionNueva: false,
+  // Instalar la app (ver formaInstalarApp): hayEvento = el navegador ofreció instalarla directo
+  // (beforeinstallprompt, Chrome/Edge/Samsung); instalada = corre desde el ícono; bannerOculto =
+  // la persona tocó "Ahora no" en este dispositivo; guiaAbierta = pasos para iPhone/iPad o Android.
+  instalarApp: { hayEvento:false, instalada: appCorriendoInstalada(), bannerOculto: leerBannerInstalarOculto(), guiaAbierta:false },     // hay una versión de la app publicada más nueva que la que corre esta pestaña (ver verificarVersionNueva)
   offlineModal: false,
   exportarModal: false,
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
@@ -12421,6 +12428,130 @@ function renderBannerMfa(){
       <button id="btn-banner-mfa" class="btn btn-primary" style="width:auto;padding:6px 12px">Activarla ahora</button>
     </div>`;
 }
+// ---------- Instalar la app ----------
+// InventIA ya es instalable (manifest.json + sw.js), pero casi nadie sabe que se puede: en iPhone
+// Safari no ofrece nada y hay que encontrar "Agregar a pantalla de inicio" en Compartir. Pedido de
+// Joel: un botón para instalarla. Donde el navegador lo permite (beforeinstallprompt: Chrome, Edge,
+// Samsung Internet) el botón abre el diálogo de instalación del propio navegador; en iPhone/iPad
+// y en un Android sin ese evento muestra los pasos. Si ya corre instalada no aparece nada, y en un
+// computador sin el evento tampoco (ahí no hay un camino que valga la pena explicar).
+let eventoInstalacion = null;
+// Función y no constante: el estado inicial la lee antes de llegar a esta línea del script (una
+// const todavía no existiría ahí, y el try de abajo lo convertiría en "nunca oculto" en silencio).
+function claveBannerInstalarOculto(){ return 'instalar_app_oculto'; }
+function leerBannerInstalarOculto(){
+  try{ return localStorage.getItem(claveBannerInstalarOculto())==='1'; }catch(e){ return false; }
+}
+function appCorriendoInstalada(){
+  try{
+    if(typeof navigator!=='undefined' && navigator.standalone===true) return true; // iOS
+    return typeof window!=='undefined' && typeof window.matchMedia==='function' && window.matchMedia('(display-mode: standalone)').matches;
+  }catch(e){ return false; }
+}
+// El iPad con iPadOS 13+ se presenta como un Mac ("MacIntel"); lo que lo delata es la pantalla táctil.
+function esDispositivoApple(nav){
+  const ua = (nav && nav.userAgent) || '';
+  return /iPhone|iPad|iPod/.test(ua) || (!!nav && nav.platform==='MacIntel' && Number(nav.maxTouchPoints)>1);
+}
+function esAndroid(nav){ return /Android/i.test((nav && nav.userAgent) || ''); }
+// 'directa' (el navegador la instala con su propio diálogo), 'ios', 'android' o null (no mostrar).
+function formaInstalarApp(nav){
+  const i = state.instalarApp;
+  if(!i || i.instalada) return null;
+  if(i.hayEvento) return 'directa';
+  nav = nav || (typeof navigator!=='undefined' ? navigator : {});
+  if(esDispositivoApple(nav)) return 'ios';
+  if(esAndroid(nav)) return 'android';
+  return null;
+}
+function capturarEventoInstalacion(ev){
+  if(ev && typeof ev.preventDefault==='function') ev.preventDefault(); // el botón propio reemplaza la barrita del navegador
+  eventoInstalacion = ev;
+  setState({instalarApp:{...state.instalarApp, hayEvento:true}});
+}
+function marcarAppInstalada(){
+  eventoInstalacion = null;
+  setState({instalarApp:{...state.instalarApp, hayEvento:false, instalada:true, guiaAbierta:false}});
+}
+async function instalarApp(){
+  if(!eventoInstalacion){ setState({instalarApp:{...state.instalarApp, guiaAbierta:true}}); return; }
+  const ev = eventoInstalacion;
+  try{
+    ev.prompt();
+    const eleccion = await ev.userChoice;
+    // El evento sirve una sola vez: aceptado o no, hay que esperar a que el navegador ofrezca otro.
+    eventoInstalacion = null;
+    if(eleccion && eleccion.outcome==='accepted'){
+      toast('Listo: InventIA quedó instalada. Ábrela desde su ícono.','ok');
+      marcarAppInstalada();
+    }else{
+      setState({instalarApp:{...state.instalarApp, hayEvento:false}});
+    }
+  }catch(e){
+    eventoInstalacion = null;
+    setState({instalarApp:{...state.instalarApp, hayEvento:false, guiaAbierta:true}});
+  }
+}
+function ocultarBannerInstalar(){
+  try{ localStorage.setItem(claveBannerInstalarOculto(),'1'); }catch(e){ /* sin almacenamiento: se oculta solo en esta sesión */ }
+  setState({instalarApp:{...state.instalarApp, bannerOculto:true}});
+}
+function renderBannerInstalarApp(){
+  if(!formaInstalarApp() || state.instalarApp.bannerOculto || state.view==='config') return '';
+  if(renderBannerMfa()) return ''; // el aviso de seguridad va primero; este aparece después
+  return `
+    <div id="banner-instalar-app" class="banner-instalar">
+      <span>Instala InventIA en este dispositivo: queda con su ícono y se abre a pantalla completa, como cualquier app.</span>
+      <div style="display:flex;gap:8px">
+        <button id="btn-banner-instalar-no" class="btn btn-secondary" style="width:auto;padding:6px 12px">Ahora no</button>
+        <button id="btn-banner-instalar" class="btn btn-primary" style="width:auto;padding:6px 12px">Instalar</button>
+      </div>
+    </div>`;
+}
+function renderSeccionInstalarApp(){
+  const i = state.instalarApp;
+  const forma = formaInstalarApp();
+  const cuerpo = i.instalada
+    ? `<div class="hint" style="margin:0">InventIA ya está instalada en este dispositivo.</div>`
+    : forma
+    ? `<div class="hint" style="margin:0 0 12px">Queda con su ícono en la pantalla de inicio y se abre a pantalla completa. Es la misma InventIA, con los mismos datos.</div>
+       <button type="button" id="btn-config-instalar" class="btn btn-primary" style="width:auto;padding:8px 14px">Instalar InventIA</button>`
+    : `<div class="hint" style="margin:0">Para instalarla en un teléfono o tablet, entra a inventiapp.cl desde su navegador y vuelve a esta sección. En el computador, Chrome y Edge muestran el botón de instalar en la barra de direcciones.</div>`;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Este dispositivo</span><h2 style="font-size:15px">Instalar la app</h2></div></div>
+    <div class="card">${cuerpo}</div>`;
+}
+const ICONO_COMPARTIR_IOS = '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;vertical-align:-3px;stroke:var(--steel);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M12 3v12"/><polyline points="8 7 12 3 16 7"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
+function renderInstalarAppModal(){
+  if(!state.instalarApp || !state.instalarApp.guiaAbierta) return '';
+  const nav = typeof navigator!=='undefined' ? navigator : {};
+  const ios = esDispositivoApple(nav);
+  const noSafari = ios && /CriOS|FxiOS|EdgiOS/.test(nav.userAgent||'');
+  const pasos = ios ? [
+    `Toca el botón Compartir ${ICONO_COMPARTIR_IOS} (en el iPhone está abajo, en el iPad arriba a la derecha).`,
+    `Baja en la lista y elige <strong>Agregar a pantalla de inicio</strong>.`,
+    `Toca <strong>Agregar</strong>. El ícono de InventIA queda en tu pantalla de inicio.`,
+  ] : [
+    `Toca el menú del navegador (los tres puntos <strong>⋮</strong>, arriba a la derecha).`,
+    `Elige <strong>Instalar app</strong> o <strong>Agregar a pantalla principal</strong>.`,
+    `Confirma. El ícono de InventIA queda con tus otras apps.`,
+  ];
+  const pendientes = (state.colaOffline||[]).length;
+  return `<div class="foto-modal-backdrop" id="instalar-app-modal-backdrop">
+    <div class="card" style="width:min(92vw,440px);margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">Instalar InventIA</h2>
+        <button id="instalar-app-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      ${noSafari? `<div class="hint" style="margin-bottom:10px">Si no ves la opción, abre esta página en <strong>Safari</strong> y repite los pasos.</div>` : ''}
+      <ol class="pasos-instalar">${pasos.map(p=>`<li>${p}</li>`).join('')}</ol>
+      ${ios? `<div class="hint" style="margin:12px 0 0">Ábrela desde el ícono e inicia sesión una vez más: el ${/iPad/.test(nav.userAgent||'') || nav.platform==='MacIntel' ? 'iPad' : 'iPhone'} guarda la app aparte de Safari.</div>` : ''}
+      ${ios && pendientes? `<div class="hint" style="margin:10px 0 0;color:var(--warn)">Antes de cambiarte, sincroniza ${pendientes===1?'el cambio guardado':`los ${pendientes} cambios guardados`} sin conexión: la app instalada no ve lo que quedó pendiente en Safari.</div>` : ''}
+      <div style="margin-top:14px"><button type="button" class="btn btn-secondary" id="instalar-app-modal-listo">Entendido</button></div>
+    </div>
+  </div>`;
+}
+
 function renderBloqueoMfa(){
   return `
     <div class="section-head"><div><span class="eyebrow">Seguridad</span><h2>Activa la verificación en dos pasos</h2></div></div>
@@ -12500,6 +12631,7 @@ function renderConfiguraciones(){
       </div>
       ` : ''}
     </div>
+    ${renderSeccionInstalarApp()}
     ${esAdmin? renderUbicacionesConfig() : ''}
     ${esAdmin && moduloBodegaActivo() ? renderListasBodegaConfig() : ''}
     ${esAdmin? `
@@ -13639,6 +13771,7 @@ function renderShell(){
     </div>
     ` : ''}
     ${renderBannerMfa()}
+    ${renderBannerInstalarApp()}
     <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
     ${(VISTAS_BODEGA.includes(state.view) || (state.view==='mover' && moduloBodegaActivo())) ? `<nav class="tabbar">
       ${tabBtn('inicio','Inicio')}
@@ -13712,7 +13845,7 @@ function renderDom(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -13791,6 +13924,20 @@ function bindSeccionMfa(){
 }
 
 function bind(){
+  const btnBannerInstalar = document.getElementById('btn-banner-instalar');
+  if(btnBannerInstalar) btnBannerInstalar.addEventListener('click', instalarApp);
+  const btnBannerInstalarNo = document.getElementById('btn-banner-instalar-no');
+  if(btnBannerInstalarNo) btnBannerInstalarNo.addEventListener('click', ocultarBannerInstalar);
+  const btnConfigInstalar = document.getElementById('btn-config-instalar');
+  if(btnConfigInstalar) btnConfigInstalar.addEventListener('click', instalarApp);
+  if(state.instalarApp && state.instalarApp.guiaAbierta){
+    const cerrarGuia = ()=> setState({instalarApp:{...state.instalarApp, guiaAbierta:false}});
+    document.getElementById('instalar-app-modal-close').addEventListener('click', cerrarGuia);
+    document.getElementById('instalar-app-modal-listo').addEventListener('click', cerrarGuia);
+    document.getElementById('instalar-app-modal-backdrop').addEventListener('click', e=>{
+      if(e.target.id === 'instalar-app-modal-backdrop') cerrarGuia();
+    });
+  }
   const btnBannerMfa = document.getElementById('btn-banner-mfa');
   if(btnBannerMfa) btnBannerMfa.addEventListener('click', ()=> setState({view:'config'}));
   if(adminSinMfa() && mfaObligatoriaVigente() && state.view!=='config') bindSeccionMfa();
@@ -15573,6 +15720,12 @@ function bind(){
 }
 
 async function iniciarApp(){
+  // Hay que escuchar desde el arranque: Chrome dispara beforeinstallprompt una sola vez, apenas
+  // decide que la app es instalable, y si nadie lo guarda se pierde hasta la próxima visita.
+  if(typeof window!=='undefined' && typeof window.addEventListener==='function'){
+    window.addEventListener('beforeinstallprompt', capturarEventoInstalacion);
+    window.addEventListener('appinstalled', marcarAppInstalada);
+  }
   // Service Worker: entrega la copia guardada al instante (ver sw.js) y baja la nueva atrás.
   if('serviceWorker' in navigator){
     window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
