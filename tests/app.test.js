@@ -2829,6 +2829,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.dash.topDiferenciasNegativas.length===1 && ctx.__appstate.dash.topDiferenciasNegativas[0].sku_code==='SKU-TOP-NEG', 'cargarDashboard debe dejar el top de pérdidas en state.dash.topDiferenciasNegativas, obtuvo: '+JSON.stringify(ctx.__appstate.dash.topDiferenciasNegativas));
   assert(ctx.__appstate.dash.valorizacion.length===2 && ctx.__appstate.dash.valorizacion[0].bodega==='Nave Mina', 'cargarDashboard debe dejar la valorización por bodega en state.dash.valorizacion, obtuvo: '+JSON.stringify(ctx.__appstate.dash.valorizacion));
   assert(ctx.__appstate.dash.avancePlanPorCiclo.length===3 && ctx.__appstate.dash.avancePlanPorCiclo[0].bodega==='Nave Mina', 'cargarDashboard debe dejar el avance del plan por ciclo/bodega en state.dash.avancePlanPorCiclo, obtuvo: '+JSON.stringify(ctx.__appstate.dash.avancePlanPorCiclo));
+  // Bug real: el RPC ya devolvía cierresAjusteErp, pero cargarDashboard no lo copiaba al estado y
+  // la línea "Diferencias cerradas con ajuste en el ERP" nunca aparecía en el panel ni en el informe.
+  assert(ctx.__appstate.dash.cierresAjusteErp && ctx.__appstate.dash.cierresAjusteErp.n===2 && ctx.__appstate.dash.cierresAjusteErp.valor===45000, 'cargarDashboard debe dejar los cierres con ajuste en el ERP en state.dash.cierresAjusteErp, obtuvo: '+JSON.stringify(ctx.__appstate.dash.cierresAjusteErp));
+  assert(ctx.renderInformeEjecutivo().includes('Diferencias cerradas con ajuste en el ERP en este ciclo: <b>2</b>'), 'con los datos recién cargados del RPC, el panel debe mostrar la línea de cierres con ajuste en el ERP');
 
   // El estado del maestro (recuadro "Estado general") viaja en la misma respuesta: por eso el
   // panel ya no necesita una segunda llamada a resumen_general_skus al abrirse.
