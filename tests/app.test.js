@@ -12047,6 +12047,75 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.URL = URLAntes;
   }
 
+  // ===== Instalar la app (pedido de Joel: "el botón de instalar la app") =====
+  {
+    const iPhone = { userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', platform:'iPhone', maxTouchPoints:5 };
+    const iPadComoMac = { userAgent:'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15', platform:'MacIntel', maxTouchPoints:5 };
+    const mac = { userAgent:iPadComoMac.userAgent, platform:'MacIntel', maxTouchPoints:0 };
+    const android = { userAgent:'Mozilla/5.0 (Linux; Android 14; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/128.0', platform:'Linux armv8l', maxTouchPoints:5 };
+    const pc = { userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36', platform:'Win32', maxTouchPoints:0 };
+    assert(ctx.esDispositivoApple(iPhone) && ctx.esDispositivoApple(iPadComoMac), 'iPhone y el iPad (que se presenta como Mac con pantalla táctil) deben reconocerse como Apple');
+    assert(!ctx.esDispositivoApple(mac) && !ctx.esDispositivoApple(pc), 'un Mac sin pantalla táctil o un PC no son iPhone/iPad');
+    assert(ctx.esAndroid(android) && !ctx.esAndroid(iPhone), 'debe reconocer Android por su user agent');
+
+    const instalarAntes = ctx.__appstate.instalarApp;
+    const viewAntes = ctx.__appstate.view;
+    ctx.__appstate.instalarApp = { hayEvento:false, instalada:false, bannerOculto:false, guiaAbierta:false };
+    assert(ctx.formaInstalarApp(iPhone)==='ios' && ctx.formaInstalarApp(android)==='android' && ctx.formaInstalarApp(pc)===null, 'sin evento del navegador: guía en iPhone/Android, nada en un computador, obtuvo: '+[ctx.formaInstalarApp(iPhone), ctx.formaInstalarApp(android), ctx.formaInstalarApp(pc)].join(','));
+    ctx.__appstate.instalarApp = { ...ctx.__appstate.instalarApp, hayEvento:true };
+    assert(ctx.formaInstalarApp(pc)==='directa', 'con beforeinstallprompt (Chrome/Edge) debe instalarse con el diálogo del navegador, incluso en computador');
+    ctx.__appstate.instalarApp = { ...ctx.__appstate.instalarApp, instalada:true };
+    assert(ctx.formaInstalarApp(iPhone)===null, 'si ya corre instalada no se ofrece instalar');
+
+    // El evento del navegador: se guarda, el botón lo usa una vez y, aceptado, la app queda instalada.
+    ctx.__appstate.instalarApp = { hayEvento:false, instalada:false, bannerOculto:false, guiaAbierta:false };
+    ctx.__appstate.view = 'conteo';
+    let prevenido = false, mostrado = 0;
+    ctx.capturarEventoInstalacion({ preventDefault:()=>{ prevenido = true; }, prompt:()=>{ mostrado++; }, userChoice: Promise.resolve({outcome:'accepted'}) });
+    assert(prevenido && ctx.__appstate.instalarApp.hayEvento, 'debe guardar el evento (y evitar la barrita propia del navegador), obtuvo: '+JSON.stringify(ctx.__appstate.instalarApp));
+    const htmlShellInstalar = ctx.renderBannerInstalarApp();
+    assert(htmlShellInstalar.includes('id="btn-banner-instalar"') && htmlShellInstalar.includes('Ahora no'), 'con el evento disponible debe mostrarse el aviso con Instalar y Ahora no, obtuvo: '+htmlShellInstalar);
+    await ctx.instalarApp();
+    assert(mostrado===1 && ctx.__appstate.instalarApp.instalada && !ctx.__appstate.instalarApp.hayEvento, 'Instalar debe abrir el diálogo del navegador y, aceptado, dejar la app como instalada, obtuvo: '+JSON.stringify(ctx.__appstate.instalarApp));
+    assert(ctx.renderBannerInstalarApp()==='', 'una vez instalada no debe quedar el aviso');
+    assert(ctx.renderSeccionInstalarApp().includes('ya está instalada'), 'Configuraciones debe decir que ya está instalada');
+
+    // Rechazado: no se instala, y el evento no se reutiliza (el navegador no deja llamarlo dos veces).
+    ctx.__appstate.instalarApp = { hayEvento:false, instalada:false, bannerOculto:false, guiaAbierta:false };
+    ctx.capturarEventoInstalacion({ preventDefault:()=>{}, prompt:()=>{}, userChoice: Promise.resolve({outcome:'dismissed'}) });
+    await ctx.instalarApp();
+    assert(!ctx.__appstate.instalarApp.instalada && !ctx.__appstate.instalarApp.hayEvento, 'si la persona cancela, no queda instalada ni con un evento ya gastado, obtuvo: '+JSON.stringify(ctx.__appstate.instalarApp));
+
+    // Sin evento (iPhone): el botón abre la guía de pasos.
+    await ctx.instalarApp();
+    assert(ctx.__appstate.instalarApp.guiaAbierta, 'sin evento del navegador, Instalar debe abrir la guía de pasos');
+    ctx.__appstate.instalarApp = { ...ctx.__appstate.instalarApp, guiaAbierta:false };
+
+    // El aviso de seguridad (MFA) tiene prioridad: no se apilan dos avisos arriba.
+    ctx.__appstate.instalarApp = { hayEvento:true, instalada:false, bannerOculto:false, guiaAbierta:false };
+    const mfaAntes = [ctx.__appstate.perfil, ctx.__appstate.mfaFactoresCargado, ctx.__appstate.mfaFactores, ctx.__appstate.mfaObligatoriaDesde];
+    ctx.__appstate.perfil = { ...ctx.__appstate.perfil, rol:'admin' };
+    ctx.__appstate.mfaFactoresCargado = true; ctx.__appstate.mfaFactores = []; ctx.__appstate.mfaObligatoriaDesde = '2999-01-01';
+    assert(ctx.renderBannerMfa()!=='' && ctx.renderBannerInstalarApp()==='', 'con el aviso de MFA visible, el de instalar no debe mostrarse encima');
+    [ctx.__appstate.perfil, ctx.__appstate.mfaFactoresCargado, ctx.__appstate.mfaFactores, ctx.__appstate.mfaObligatoriaDesde] = mfaAntes;
+
+    // "Ahora no" se recuerda en este dispositivo.
+    ctx.ocultarBannerInstalar();
+    assert(ctx.__appstate.instalarApp.bannerOculto && ctx.localStorage.getItem('instalar_app_oculto')==='1', '"Ahora no" debe ocultar el aviso y recordarlo en este dispositivo');
+    assert(ctx.renderBannerInstalarApp()==='', 'oculto, el aviso no debe volver a mostrarse');
+    assert(ctx.renderSeccionInstalarApp().includes('id="btn-config-instalar"'), 'aunque se oculte el aviso, Configuraciones debe seguir ofreciendo instalarla');
+    ctx.__appstate.instalarApp = instalarAntes;
+    ctx.__appstate.view = viewAntes;
+
+    // Bug real encontrado al escribir esto: el estado inicial leía la clave desde una const declarada
+    // más abajo en el script; el try/catch convertía el ReferenceError en "nunca oculto" y el
+    // "Ahora no" se olvidaba al recargar. Se prueba cargando la app de nuevo con la marca ya guardada.
+    const almacen = new Map([['instalar_app_oculto','1']]);
+    const ctxRecarga = vm.createContext({ ...sandbox, localStorage:{ getItem:k=> almacen.has(k)? almacen.get(k) : null, setItem:(k,v)=>almacen.set(k,String(v)), removeItem:k=>almacen.delete(k) } });
+    vm.runInContext(script, ctxRecarga, {filename:'index-inline-recarga.js'});
+    assert(ctxRecarga.__appstate.instalarApp.bannerOculto===true, 'al abrir la app, el "Ahora no" guardado debe respetarse, obtuvo: '+JSON.stringify(ctxRecarga.__appstate.instalarApp));
+  }
+
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);
     process.exit(1);

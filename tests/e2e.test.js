@@ -1125,6 +1125,59 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== App: instalar InventIA (aviso, guía para iPhone y diálogo del navegador) =====
+  {
+    const OPERADOR = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    OPERADOR.rol = 'operador'; OPERADOR.nombre = 'Beto Rojas';
+    // iPhone en Safari: no hay diálogo del navegador, así que el botón abre los pasos.
+    const ctxIphone = await browser.newContext({ viewport:{ width:420, height:900 }, isMobile:true, hasTouch:true,
+      userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' });
+    const pIphone = await ctxIphone.newPage();
+    pIphone.on('pageerror', err => erroresPagina.push('instalar-iphone: '+err.message));
+    await loguear(pIphone, OPERADOR);
+    assert(await pIphone.isVisible('#banner-instalar-app'), 'en un iPhone sin instalar debe verse el aviso para instalar InventIA');
+    const desbordeIphone = await pIphone.evaluate(()=> document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeIphone <= 0, `el aviso no debe desbordar a 420 px, desborda ${desbordeIphone}px`);
+    await pIphone.click('#btn-banner-instalar');
+    await pIphone.waitForSelector('#instalar-app-modal-backdrop', { timeout:ESPERA });
+    const guia = await pIphone.textContent('#instalar-app-modal-backdrop');
+    assert(guia.includes('Agregar a pantalla de inicio') && guia.includes('Compartir') && guia.includes('iPhone'), 'la guía de iPhone debe explicar Compartir → Agregar a pantalla de inicio, obtuvo: '+guia);
+    await pIphone.click('#instalar-app-modal-listo');
+    assert(!(await pIphone.isVisible('#instalar-app-modal-backdrop')), '"Entendido" debe cerrar la guía');
+    await pIphone.click('#btn-banner-instalar-no');
+    assert(!(await pIphone.isVisible('#banner-instalar-app')), '"Ahora no" debe ocultar el aviso');
+    await pIphone.reload({ waitUntil:'networkidle' });
+    await pIphone.waitForSelector('.tabbar', { timeout:ESPERA }).catch(async ()=>{
+      await pIphone.fill('#f-email', 'ana@minera-andes.cl'); await pIphone.fill('#f-pass', '123456');
+      await pIphone.click('#auth-form button[type="submit"]'); await pIphone.waitForSelector('.tabbar', { timeout:ESPERA });
+    });
+    assert(!(await pIphone.isVisible('#banner-instalar-app')), 'después de recargar, el "Ahora no" debe seguir respetándose');
+    await pIphone.click('#btn-config');
+    await pIphone.waitForSelector('#btn-config-instalar', { timeout:ESPERA });
+    assert(await pIphone.isVisible('#btn-config-instalar'), 'Configuraciones debe seguir ofreciendo instalarla aunque se haya ocultado el aviso');
+    await ctxIphone.close();
+
+    // Chrome/Edge: el navegador ofrece instalarla (beforeinstallprompt) y el botón abre su diálogo.
+    const ctxChrome = await browser.newContext({ viewport:{ width:1024, height:900 } });
+    const pChrome = await ctxChrome.newPage();
+    pChrome.on('pageerror', err => erroresPagina.push('instalar-chrome: '+err.message));
+    await loguear(pChrome, OPERADOR);
+    assert(!(await pChrome.isVisible('#banner-instalar-app')), 'en un computador, sin que el navegador ofrezca instalarla, no debe aparecer el aviso');
+    await pChrome.evaluate(()=>{
+      const ev = new Event('beforeinstallprompt', { cancelable:true });
+      ev.prompt = ()=>{ window.__dialogosInstalar = (window.__dialogosInstalar||0) + 1; };
+      ev.userChoice = Promise.resolve({ outcome:'accepted' });
+      window.dispatchEvent(ev);
+      window.__prevenido = ev.defaultPrevented;
+    });
+    await pChrome.waitForSelector('#banner-instalar-app', { timeout:ESPERA });
+    assert(await pChrome.evaluate(()=> window.__prevenido), 'la app debe tomar el evento (preventDefault) para ofrecerlo con su propio botón');
+    await pChrome.click('#btn-banner-instalar');
+    await pChrome.waitForFunction(()=> !document.getElementById('banner-instalar-app'), null, { timeout:ESPERA });
+    assert(await pChrome.evaluate(()=> window.__dialogosInstalar)===1, 'Instalar debe abrir el diálogo de instalación del navegador una vez');
+    await ctxChrome.close();
+  }
+
   assert(erroresPagina.length===0, 'no debe haber errores de JS no capturados en ninguna página, obtuvo: '+JSON.stringify(erroresPagina));
 
   await browser.close();
