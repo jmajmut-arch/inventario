@@ -125,7 +125,7 @@ input,select,textarea{font-family:inherit;}
 .topbar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px 0;}
 .topbar-row{display:flex;flex-wrap:wrap;row-gap:8px;align-items:center;padding-bottom:10px;}
 .brand{display:flex;align-items:center;gap:10px;}
-.brand-badge{width:34px;height:34px;border-radius:8px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:13px;letter-spacing:-0.03em;color:#1a1204;flex-shrink:0;}
+.brand-badge{width:34px;height:34px;border-radius:8px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;letter-spacing:-0.03em;color:#1a1204;flex-shrink:0;}
 /* Con logo propio la insignia deja de ser el degradado ámbar con "IA": pasa a ser una caja
    blanca con borde, que es lo único que hace lucir bien tanto un logo oscuro como uno claro,
    con o sin transparencia. Sin logo, todo queda exactamente como estaba. */
@@ -191,16 +191,72 @@ main.ancho{max-width:1180px;}
 .tag-card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);padding:14px 14px 12px;overflow:hidden;}
 .tag-card::before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:repeating-linear-gradient(-55deg,var(--amber) 0 6px,transparent 6px 12px);opacity:0.85;}
 .tag-card .kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-faint);margin-bottom:6px;}
-.tag-card .kpi-value{font-family:'Barlow Condensed';font-weight:800;font-size:30px;line-height:1;}
+.tag-card .kpi-value{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;line-height:1;}
 .tag-card .kpi-sub{font-size:12px;color:var(--text-dim);margin-top:4px;}
 
 .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+/* Dashboard (renderDashboard y el informe impreso, ambos dentro de .dash). Pedido de Joel: "no me
+   gustan". Lo que se corrigió: la franja de cinta de peligro se repetía en más de veinte tarjetas
+   y ya no distinguía nada -- queda solo en el avance global, que es la cifra que manda; el rótulo
+   ámbar en mayúsculas sobre cada título competía con el título, y pasa a ser una aclaración
+   discreta debajo; en iPad todo iba en una columna de tarjetas angostas, y ahora las cifras se
+   reparten en fila y las secciones cortas van de a dos; los gráficos quedaban chicos a la
+   izquierda de tarjetas anchas y ahora ocupan el ancho. Todo acotado a .dash: Contar, Buscar y el
+   resto de la app no cambian. */
+.dash .section-head{margin:30px 0 10px;align-items:flex-end;gap:12px;}
+.dash>.section-head:first-child{margin-top:0;}
+.dash .section-head>div{display:flex;flex-direction:column-reverse;}
+.dash .segmented + .section-head{margin-top:6px;}
+.dash .section-head .eyebrow{color:var(--text-faint);text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:500;margin:3px 0 0;}
+.dash .kpi-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+.dash .tag-card{border-radius:var(--radius);padding:14px 16px;}
+.dash .tag-card::before{display:none;}
+.dash .tag-card .kpi-label{color:var(--text-dim);font-weight:600;}
+.dash .tag-card .kpi-value{font-size:34px;letter-spacing:-0.01em;}
+.dash .kpi-value,.dash .mono,.dash td.num{font-variant-numeric:tabular-nums;}
+.dash .progress-track{height:6px;border-radius:3px;}
+.dash .progress-fill{background:var(--amber);border-radius:3px;}
+.dash th.num{font-family:inherit;}
+.dash table.dash-periodos td:first-child{white-space:nowrap;}
+/* Avance global: la cifra que manda en el panel, con la franja de marca (la misma "etiqueta de
+   bin" de siempre, ahora en un solo lugar) y una barra gruesa que se lee de lejos. */
+.dash-avance{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px 18px 16px;overflow:hidden;}
+.dash-avance::before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:repeating-linear-gradient(-55deg,var(--amber) 0 6px,transparent 6px 12px);opacity:0.85;}
+.dash-avance .kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);font-weight:600;}
+.dash-avance-cifra{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;margin-top:4px;}
+.dash-avance-cifra .kpi-value{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:52px;line-height:1;letter-spacing:-0.01em;}
+.dash-avance-cifra .kpi-sub{font-size:13.5px;color:var(--text-dim);}
+.dash-avance .progress-track{height:12px;border-radius:6px;margin-top:14px;}
+.dash-avance .progress-fill{border-radius:6px;}
+/* Avance por ubicación general: una grilla de fichas en vez de una tarjeta de ancho completo por
+   bodega (con 5 bodegas eran 5 pantallas de celular de números sueltos). */
+.dash-bodegas{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+.dash-bodegas .tag-card .kpi-value{font-size:28px;margin-top:2px;}
+.dash-bodega-nombre{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dash-bodegas .kpi-sub{font-size:11.5px;margin-top:8px;}
+/* Estado general de SKU: filtro y gráfico en una sola tarjeta; en pantalla ancha la leyenda (con
+   las cifras) va al lado del gráfico, en columna, para que se lea como una lista. */
+.dash-estado-controles{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line);}
+.dash-estado-controles label{margin-top:0;}
+.dash-estado-controles .segmented{margin-bottom:0;}
+@media (min-width:640px){
+  .dash-estado-cuerpo{display:grid;grid-template-columns:auto auto;justify-content:center;gap:24px 56px;align-items:center;}
+  .dash-estado-leyenda>div{flex-direction:column;gap:10px !important;margin-top:0 !important;}
+}
+.dash-tendencia-linea{display:flex;align-items:flex-start;gap:8px;font-size:13px;margin:0 0 6px;}
+.dash-tendencia-linea svg{width:16px;height:16px;flex-shrink:0;margin-top:1px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+/* Secciones cortas de a dos en iPad y computador. Con una sola presente (ej. sin ranking todavía),
+   esa ocupa el ancho completo. */
+@media (min-width:900px){
+  .dash-par{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0 16px;align-items:start;}
+}
 
 /* Calendario mensual (ver renderCalendario): grilla de 7 columnas (lunes a domingo, igual que
    inicioSemana en Planificación), celdas angostas a propósito para caber en un celular -- el
    detalle completo del día elegido va aparte, debajo de la grilla (.cal-detalle). */
 .cal-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
-.cal-nav h3{font-size:17px;margin:0;text-transform:capitalize;font-family:'Barlow Condensed';font-weight:700;letter-spacing:.01em;}
+.cal-nav h3{font-size:17px;margin:0;text-transform:capitalize;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.01em;}
 button.cal-nav-btn{width:auto;padding:8px 12px;flex:none;}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
 .cal-dow{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);text-align:center;padding-bottom:4px;font-weight:600;}
@@ -210,13 +266,13 @@ button.cal-nav-btn{width:auto;padding:8px 12px;flex:none;}
 .cal-dia.seleccionado{background:var(--amber);}
 .cal-dia.seleccionado .cal-dia-num,.cal-dia.seleccionado .cal-dia-fila{color:#1a1204;}
 .cal-dia-num{font-size:12px;font-weight:700;color:var(--text-dim);}
-.cal-dia-fila{font-size:9.5px;line-height:1.35;font-family:'IBM Plex Mono';font-variant-numeric:tabular-nums;}
+.cal-dia-fila{font-size:9.5px;line-height:1.35;font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
 .cal-dia-fila.c-plan{color:var(--text-faint);}
 .cal-dia-fila.c-contado{color:var(--ok);}
 .cal-dia-fila.c-recontado{color:var(--steel);}
 .cal-detalle-fila{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);}
 .cal-detalle-fila:last-child{border-bottom:none;}
-.cal-detalle-num{font-family:'Barlow Condensed';font-weight:800;font-size:22px;}
+.cal-detalle-num{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;}
 
 .segmented{display:flex;background:var(--surface-2);border-radius:10px;padding:3px;margin-bottom:16px;gap:2px;}
 .segmented-btn{flex:1;border:none;background:none;padding:9px 4px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--text-dim);}
@@ -234,7 +290,7 @@ table{width:100%;border-collapse:collapse;font-size:13px;}
 th{text-align:left;color:var(--text-faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;padding:6px 8px;border-bottom:1px solid var(--line);}
 td{padding:8px;border-bottom:1px solid var(--line);color:var(--text-dim);}
 tr:last-child td{border-bottom:none;}
-td.num,th.num{text-align:right;font-family:'IBM Plex Mono';}
+td.num,th.num{text-align:right;font-family:'IBM Plex Mono',ui-monospace,monospace;}
 .table-wrap{overflow-x:auto;}
 
 label{display:block;font-size:12px;color:var(--text-dim);margin:12px 0 5px;font-weight:500;}
@@ -323,7 +379,7 @@ textarea{resize:vertical;min-height:60px;}
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
 .login-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:30px 26px;position:relative;overflow:hidden;}
 .login-card::before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:repeating-linear-gradient(-55deg,var(--amber) 0 6px,transparent 6px 12px);}
-.login-logo{width:52px;height:52px;border-radius:12px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:19px;letter-spacing:-0.03em;color:#1a1204;margin:6px auto 14px;}
+.login-logo{width:52px;height:52px;border-radius:12px;background:linear-gradient(155deg,var(--amber),#c97a1c);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:19px;letter-spacing:-0.03em;color:#1a1204;margin:6px auto 14px;}
 .login-title{text-align:center;font-size:22px;margin:0 0 4px;}
 .login-sub{text-align:center;font-size:12.5px;color:var(--text-faint);margin-bottom:22px;}
 .login-toggle{display:flex;font-size:12.5px;color:var(--text-dim);justify-content:center;margin-top:16px;gap:5px;}
@@ -337,11 +393,11 @@ textarea{resize:vertical;min-height:60px;}
 .hint{font-size:11.5px;color:var(--text-faint);margin-top:6px;line-height:1.5;}
 .sku-pick{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:var(--surface-2);}
 .sku-pick div span{display:block;}
-.sku-pick .code{font-family:'IBM Plex Mono';font-weight:600;font-size:13.5px;}
+.sku-pick .code{font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:600;font-size:13.5px;}
 .sku-pick .desc{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
 .sku-pick button{background:var(--amber);color:#1a1204;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;}
 .selected-sku{background:var(--surface-2);border:1px solid var(--amber-dim);border-radius:8px;padding:12px;margin-bottom:6px;}
-.selected-sku .code{font-family:'IBM Plex Mono';font-weight:700;font-size:15px;color:var(--amber);}
+.selected-sku .code{font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:700;font-size:15px;color:var(--amber);}
 
 .link-btn{background:none;border:none;padding:0;color:var(--amber);font:inherit;font-family:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer;}
 .icon-btn{background:none;border:none;padding:4px;color:var(--amber);display:inline-flex;align-items:center;justify-content:center;line-height:0;}
@@ -445,7 +501,8 @@ textarea{resize:vertical;min-height:60px;}
   #print-informe h1{font-size:19px;margin:0 0 2px;}
   #print-informe .print-meta{font-size:11px;color:var(--text-dim);margin-bottom:16px;}
   #print-informe .segmented{display:none;}
-  #print-informe .section-head,#print-informe .card,#print-informe .tag-card{page-break-inside:avoid;}
+  #print-informe .section-head,#print-informe .card,#print-informe .tag-card,#print-informe .dash-avance{page-break-inside:avoid;}
+  #print-informe .section-head{page-break-after:avoid;}
 
   #print-buscar{display:block;padding:0;color:#000;background:#fff;}
   #print-buscar h1{font-size:17px;margin:0 0 2px;}
@@ -4851,7 +4908,7 @@ async function cargarDashboard(){
       ranking: d.ranking||[], exactitudBodega: d.exactitudBodega||[], exactitudMensual: d.exactitudMensual||[],
       topDiferenciasPositivas: d.topDiferenciasPositivas||[], topDiferenciasNegativas: d.topDiferenciasNegativas||[],
       valorizacion: d.valorizacion||[], avancePlanPorCiclo: d.avancePlanPorCiclo||[], diferenciasRecientes: d.diferenciasRecientes||[],
-      resumenAbc: d.resumenAbc||[],
+      resumenAbc: d.resumenAbc||[], cierresAjusteErp: d.cierresAjusteErp||null,
     }, dashDiarioPagina: 0,
       // El estado del maestro viene en la misma respuesta, ya filtrado por la criticidad que esté
       // puesta; cargarResumenGeneralSkus queda solo para cuando la persona cambia ese filtro.
@@ -8872,20 +8929,29 @@ function renderBarChart(datos, valueKey, color, labelFn=fmtDiaCorto, mostrarValo
       ${textoEje}
     </g>`;
   }).join('');
-  return `<div class="table-wrap"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block">
+  return `<div class="table-wrap"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="${estiloSvgGrafico(w, opts && opts.fluido)}">
     <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"/>
     ${bars}
   </svg></div>`;
+}
+
+// fluido (solo el Dashboard): el gráfico nunca queda más angosto que su ancho natural -- en el
+// celular se desplaza de lado, igual que antes -- y en iPad o computador crece hasta 1,6 veces y se
+// centra, en vez de quedar chico a la izquierda de una tarjeta ancha. Sin fluido, como siempre.
+function estiloSvgGrafico(w, fluido){
+  return fluido ? `display:block;width:100%;min-width:${w}px;max-width:${Math.round(w*1.6)}px;height:auto;margin:0 auto` : 'display:block';
 }
 
 // Igual que renderBarChart, pero cada barra se parte en dos segmentos apilados: la base
 // (colorBase) con los conteos originales y, arriba, un segmento con colorExtra para los
 // reconteos del día — a pedido de Joel, para distinguir a simple vista cuánto del trabajo
 // diario fue contar SKU nuevos vs. resolver diferencias ya detectadas.
-function renderBarChartApilado(datos, valueKey, extraKey, colorBase, colorExtra, labelExtra, labelFn=fmtDiaCorto){
+// Las fechas "06-sept" no caben bajo una barra de 24 px y se montaban unas con otras ("06-sept07-sept"):
+// van en dos líneas, el día arriba y el mes abajo.
+function renderBarChartApilado(datos, valueKey, extraKey, colorBase, colorExtra, labelExtra, labelFn=fmtDiaCorto, fluido=false){
   if(!datos.length) return `<div class="empty">Sin datos todavía.</div>`;
   const max = Math.max(1, ...datos.map(d=>d[valueKey]||0));
-  const barW = 24, gap = 12, padTop = 26, padBottom = 20;
+  const barW = 24, gap = 12, padTop = 26, padBottom = 32;
   const plotH = 90;
   const w = datos.length*(barW+gap)+gap;
   const h = plotH + padTop + padBottom;
@@ -8905,13 +8971,19 @@ function renderBarChartApilado(datos, valueKey, extraKey, colorBase, colorExtra,
       ${baseH>0? `<rect x="${x}" y="${yBase}" width="${barW}" height="${baseH}" fill="${colorBase}"><title>${esc(labelFn(d.dia))}: ${base} conteos</title></rect>` : ''}
       ${extraH>0? `<rect x="${x}" y="${yExtra}" width="${barW}" height="${extraH}" rx="${baseH>0?0:4}" fill="${colorExtra}"><title>${esc(labelFn(d.dia))}: ${extra} ${labelExtra}</title></rect>` : ''}
       ${val>0? `<text x="${x+barW/2}" y="${topeY-5}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-dim)">${val}</text>` : ''}
-      <text x="${x+barW/2}" y="${baseline+13}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">${esc(labelFn(d.dia))}</text>
+      ${etiquetaEjeDosLineas(labelFn(d.dia), x+barW/2, baseline+13)}
     </g>`;
   }).join('');
-  return `<div class="table-wrap"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block">
+  return `<div class="table-wrap"><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="${estiloSvgGrafico(w, fluido)}">
     <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"/>
     ${bars}
   </svg></div>`;
+}
+
+function etiquetaEjeDosLineas(texto, x, y){
+  const partes = String(texto).split('-');
+  if(partes.length<2) return `<text x="${x}" y="${y}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)">${esc(texto)}</text>`;
+  return `<text x="${x}" y="${y}" text-anchor="middle" font-size="9.5" fill="var(--text-faint)"><tspan x="${x}" dy="0" font-weight="600" fill="var(--text-dim)">${esc(partes[0])}</tspan><tspan x="${x}" dy="11">${esc(partes.slice(1).join('-'))}</tspan></text>`;
 }
 
 // Un color por barra en el gráfico de resumen de Buscar (ver renderBarChart) -- verde/ámbar
@@ -9107,7 +9179,7 @@ function renderRankedBarList(filas){
     return `<div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <span style="font-size:12.5px;color:var(--text-dim)">${esc(f.nombre)}</span>
-        <span class="mono" style="font-size:12.5px;color:var(--text)">${f.cantidad} SKU</span>
+        <span class="mono" style="font-size:12.5px;color:var(--text)">${(Number(f.cantidad)||0).toLocaleString('es-CL')} SKU</span>
       </div>
       <div class="progress-track"><div class="progress-fill" style="width:${p}%"></div></div>
     </div>`;
@@ -9134,7 +9206,7 @@ function tablaTopDiferencias(rows){
   return `<div class="table-wrap"><table>
     <thead><tr><th>SKU</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th class="num">Valor</th><th>Causa probable</th></tr></thead>
     <tbody>${rows.map(r=>`<tr>
-      <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
+      <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div></td>
       <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
       <td class="num">${r.ultima_cantidad_contada}</td>
       <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
@@ -9177,6 +9249,11 @@ function proyeccionTermino(totUniverso, totContados, diarioAgg){
     detalle: `${diasRestantes} día${diasRestantes===1?'':'s'} más, a un ritmo de ${ritmoDiario.toFixed(1)} SKU/día (${pendientes.toLocaleString('es-CL')} pendientes, ${contadosEnVentana} contados en los últimos ${diasTranscurridos} día${diasTranscurridos===1?'':'s'})`,
   };
 }
+
+// Flechas de tendencia de la exactitud mensual (reemplazan a los emoji 📈/📉, que cada sistema
+// dibuja distinto y no toman el color del tema).
+const ICONO_TENDENCIA_SUBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg>';
+const ICONO_TENDENCIA_BAJA = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 7 9 13 13 9 21 17"/><polyline points="15 17 21 17 21 11"/></svg>';
 
 function renderDiffChart(sinDif, conDif){
   const total = sinDif + conDif;
@@ -9459,7 +9536,7 @@ function renderDevolucionModal(){
     : `<div class="table-wrap"><table>
         <thead><tr><th>Material</th><th class="num">Salió</th><th class="num">Por devolver</th><th class="num">Devuelve</th></tr></thead>
         <tbody>${d.lineas.map(l=>`<tr>
-          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}</div></td>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}</div></td>
           <td class="num">${l.cantidad_salida}</td>
           <td class="num">${l.pendiente}</td>
           <td class="num"><input type="number" inputmode="decimal" min="0" max="${l.pendiente}" step="any" data-devolver-sku="${esc(l.sku_id)}" value="${esc(d.cantidades[l.sku_id]||'')}" placeholder="0" style="width:76px;margin:0;text-align:right"></td>
@@ -9627,16 +9704,14 @@ function renderInformeEjecutivo(){
 
   const pendientesBodega = resumenPendientesPorBodega(t);
 
-  const filasBodega = t.map(r=>`
-    <div class="tag-card" style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span class="kpi-label">${esc(r.bodega||'Sin ubicación general')}</span>
-        <span class="mono" style="font-size:12px;color:var(--text-dim)">${r.skus_contados||0} / ${r.skus_universo||0} SKU</span>
-      </div>
+  const filasBodega = t.length? `<div class="dash-bodegas">${t.map(r=>`
+    <div class="tag-card">
+      <div class="kpi-label dash-bodega-nombre" title="${esc(r.bodega||'Sin ubicación general')}">${esc(r.bodega||'Sin ubicación general')}</div>
       <div class="kpi-value">${pct(r.porcentaje_avance)}%</div>
       <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100,r.porcentaje_avance||0)}%"></div></div>
+      <div class="kpi-sub mono">${(Number(r.skus_contados)||0).toLocaleString('es-CL')} / ${(Number(r.skus_universo)||0).toLocaleString('es-CL')} SKU</div>
     </div>
-  `).join('') || `<div class="empty"><div class="glyph">◧</div>Aún no hay SKUs cargados para calcular avance.</div>`;
+  `).join('')}</div>` : `<div class="empty"><div class="glyph">◧</div>Aún no hay SKUs cargados para calcular avance.</div>`;
 
   const diarioAgg = agregarPorDia(state.dash.diario, VENTANA_PROYECCION_DIAS);
   // "Diferencias" NO se calcula sumando con_diferencia/sin_diferencia de cada conteo del
@@ -9745,12 +9820,13 @@ function renderInformeEjecutivo(){
   // de la vista Operativo se sacaron a pedido de Joel: no agregaban valor (Buscar ya lista los
   // conteos con todos sus filtros).
   return `
-    <div class="kpi-grid">
-      <div class="tag-card">
-        <div class="kpi-label">Avance global ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos en todas las bodegas.')}</div>
-        <div class="kpi-value">${pct(avanceGlobal)}%</div>
-        <div class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</div>
+    <div class="dash-avance">
+      <div class="kpi-label">Avance global ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos en todas las bodegas.')}</div>
+      <div class="dash-avance-cifra">
+        <span class="kpi-value">${pct(avanceGlobal)}%</span>
+        <span class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</span>
       </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100,avanceGlobal)}%${totContados>0?';min-width:4px':''}"></div></div>
     </div>
 
     <div class="section-head"><div><span class="eyebrow">Sobre el último conteo de cada SKU</span><h2 style="font-size:17px">Exactitud ${campoConInfo('Sobre el último conteo de cada SKU, no cada conteo histórico — un reconteo que corrigió una diferencia no cuenta como error.')}</h2></div></div>
@@ -9825,10 +9901,10 @@ function renderInformeEjecutivo(){
       ` : mesesDisponibles.length===1? `
         <div class="empty"><div class="glyph">◧</div>Por ahora solo hay conteos de ${esc(fmtMesTruncado(primerMes))}. La tendencia aparece cuando haya conteos de más de un mes.</div>
       ` : `
-        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--steel)', fmtMesTruncado, true)}
+        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--steel)', fmtMesTruncado, true, false, {fluido:true})}
         <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
-          ${mejorBodega? `<p style="font-size:13px;margin:0 0 4px">📈 <strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</p>` : ''}
-          ${peorBodega && peorBodega.delta<0? `<p style="font-size:13px;margin:0;color:var(--text-dim)">📉 <strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</p>` : ''}
+          ${mejorBodega? `<p class="dash-tendencia-linea" style="color:${mejorBodega.delta>=0?'var(--ok)':'var(--danger)'}">${mejorBodega.delta>=0?ICONO_TENDENCIA_SUBE:ICONO_TENDENCIA_BAJA}<span style="color:var(--text)"><strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</span></p>` : ''}
+          ${peorBodega && peorBodega.delta<0? `<p class="dash-tendencia-linea" style="color:var(--danger);margin:0">${ICONO_TENDENCIA_BAJA}<span style="color:var(--text-dim)"><strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</span></p>` : ''}
         </div>
         ${comparacionBodegas.length>1? `
           <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
@@ -9860,18 +9936,21 @@ function renderInformeEjecutivo(){
 
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día ${campoConInfo('Últimos 14 días. Incluye conteos y reconteos, diferenciados por color.')}</h2></div></div>
     <div class="card">
-      ${renderBarChartApilado(diarioAgg, 'contados', 'reconteos', 'var(--amber)', 'var(--steel)', 'reconteos', fmtDiaCorto)}
+      ${renderBarChartApilado(diarioAgg, 'contados', 'reconteos', 'var(--amber)', 'var(--steel)', 'reconteos', fmtDiaCorto, true)}
       ${diarioAgg.length? renderLeyendaColores([['var(--amber)','Conteos'], ['var(--steel)','Reconteos']]) : ''}
     </div>
 
+    <div class="dash-par"><section>
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias ${campoConInfo('Últimos 14 días, sobre el último conteo de cada SKU — un reconteo que corrigió una diferencia no se cuenta dos veces.')}</h2></div></div>
     <div class="card">${renderDiffChart(totSinDif, totConDif)}${cierresAjuste.n? `<div class="hint" style="margin-top:10px">Diferencias cerradas con ajuste en el ERP en este ciclo: <b>${cierresAjuste.n}</b>${cierresAjuste.valor? ` · por <b>$${Math.round(cierresAjuste.valor).toLocaleString('es-CL')}</b>` : ''}</div>` : ''}</div>
-
+    </section>
     ${rankingResponsables.length? `
+      <section>
       <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Ranking por responsable ${campoConInfo('Conteos de los últimos 14 días, por responsable.')}</h2></div></div>
       <div class="card">${renderRankedBarList(rankingResponsables)}</div>
+      </section>
     ` : ''}
-
+    </div>
     ${pendientesBodega.length? `
       <div class="section-head"><div><span class="eyebrow">Dónde falta contar</span><h2 style="font-size:17px">SKU pendientes por ubicación general ${campoConInfo('SKU activos que todavía no tienen ningún conteo registrado.')}</h2></div></div>
       <div class="card">${renderRankedBarList(pendientesBodega)}</div>
@@ -10006,7 +10085,7 @@ function renderDashboard(){
     // por período, en vez de una columna vacía sin aportar nada.
     const hayBodega = rows.some(r=>r.bodega);
     // Pedido de Joel: cuántos SKU se recontaron en cada período, junto al resto de columnas.
-    return `<div class="table-wrap"><table>
+    return `<div class="table-wrap"><table class="dash-periodos">
       <thead><tr><th>${keyLabel}</th>${hayBodega?'<th>Ubic. general</th>':''}<th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Reconteos</th><th class="num">Unid. contadas</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td class="mono">${formatKey(r[keyField])}</td>
@@ -10049,7 +10128,7 @@ function renderDashboard(){
 
   `;
 
-  return `
+  return `<div class="dash">
     <div class="section-head">
       <div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div>
       <button class="btn btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${ejecutivoIncluido?'':'disabled title="Disponible en el plan Profesional"'}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
@@ -10062,7 +10141,7 @@ function renderDashboard(){
     ${renderResumenGeneralSkus()}
     ${modo==='operativo'? renderAdherenciaPlan() : ''}
     ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
-  `;
+  </div>`;
 }
 
 // Estado general del maestro completo de SKU activo (ver cargarResumenGeneralSkus) -- a
@@ -10083,9 +10162,9 @@ function renderResumenGeneralSkus(){
     : 'SKU activos';
 
   return `
-    <div class="section-head" style="margin:18px 0 8px"><div><span class="eyebrow">Todo el maestro</span><h2 style="font-size:17px">Estado general de SKU ${campoConInfo('Sobre TODOS los SKU activos, sin importar el ciclo o período (a diferencia del resumen de avance por plan, más abajo, que solo mira lo elegido), según el último conteo de cada uno.')}</h2></div></div>
-    <div class="card" style="margin-bottom:14px">
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+    <div class="section-head"><div><span class="eyebrow">Todo el maestro</span><h2 style="font-size:17px">Estado general de SKU ${campoConInfo('Sobre TODOS los SKU activos, sin importar el ciclo o período (a diferencia del resumen de avance por plan, más abajo, que solo mira lo elegido), según el último conteo de cada uno.')}</h2></div></div>
+    <div class="card">
+      <div class="dash-estado-controles">
         <div style="flex:1;min-width:150px">
           <label for="rg-criticidad">Criticidad</label>
           <select id="rg-criticidad">
@@ -10099,15 +10178,15 @@ function renderResumenGeneralSkus(){
           <button type="button" class="segmented-btn ${g.tipoGrafico==='barras'?'active':''}" data-resumen-grafico="barras">Barras</button>
         </div>
       </div>
-    </div>
-    <div class="card">
       ${g.cargando? `<div class="empty"><span class="spinner"></span> Cargando…</div>` :
         !d? `<div class="empty">Sin datos todavía.</div>` : `
         <div class="hint" style="margin-bottom:10px">De tus <strong style="color:var(--text)">${d.total_activo.toLocaleString('es-CL')}</strong> ${etiquetaGrupo}.</div>
-        ${g.tipoGrafico==='torta'
-          ? renderPieChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2.dia)
-          : renderBarChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2, true, true)}
-        ${renderLeyendaColores(datosGrafico.map(d2=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', `${d2.dia} (${d2.n.toLocaleString('es-CL')})`]))}
+        <div class="dash-estado-cuerpo">
+          <div>${g.tipoGrafico==='torta'
+            ? renderPieChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2.dia)
+            : renderBarChart(datosGrafico, 'n', d2=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', d2=>d2, true, true)}</div>
+          <div class="dash-estado-leyenda">${renderLeyendaColores(datosGrafico.map(d2=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d2.dia]||'var(--steel)', `${d2.dia} (${d2.n.toLocaleString('es-CL')})`]))}</div>
+        </div>
       `}
     </div>
   `;
@@ -10838,7 +10917,7 @@ function renderReconteo(){
       ${rows.length? `<div class="table-wrap"><table>
         <thead><tr><th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
-          <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td>
+          <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div></td>
           ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}${r.stock_sistema_anterior!=null?`<div class="hint" style="font-size:10.5px;margin-top:2px;white-space:nowrap">antes: ${r.stock_sistema_anterior}${r.stock_sistema_actualizado_en?` · ${fmtFechaHora(r.stock_sistema_actualizado_en)}`:''}</div>`:''}${infoStockPorTipo(r)}</td>`}
           <td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>
           <td class="num">${ocultarSistema
@@ -10881,7 +10960,7 @@ function renderReconteosCerrados(){
         <div class="table-wrap" style="margin-top:10px"><table>
           <thead><tr><th>SKU</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Cierre</th><th>Motivo</th><th>Quién</th><th>Cuándo</th></tr></thead>
           <tbody>${c.filas.map(f=>`<tr>
-            <td class="mono">${esc((f.skus&&f.skus.sku_code)||'')}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc((f.skus&&f.skus.descripcion)||'')}</div></td>
+            <td class="mono">${esc((f.skus&&f.skus.sku_code)||'')}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc((f.skus&&f.skus.descripcion)||'')}</div></td>
             <td class="num">${f.cantidad_contada!=null? f.cantidad_contada : '—'}</td>
             <td class="num">${f.diferencia!=null? `${Number(f.diferencia)>0?'+':''}${f.diferencia}` : '—'}</td>
             <td>${badgeCierreReconteo(f.reconteo_cierre_tipo, f.ajuste_erp_referencia)}</td>
@@ -11083,7 +11162,7 @@ function renderBuscar(){
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>
             <td class="mono" style="font-size:11.5px">
               ${contado? fmtFechaHora(r.fecha_conteo) : '—'}
-              ${contado && fueCapturadoOffline(r.capturado_en, r.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter'">Capturado ${fmtFechaHora(r.capturado_en)} · sin conexión</div>` : ''}
+              ${contado && fueCapturadoOffline(r.capturado_en, r.fecha_conteo)? `<div class="hint" style="font-size:10px;color:var(--warn);font-family:'Inter',sans-serif">Capturado ${fmtFechaHora(r.capturado_en)} · sin conexión</div>` : ''}
             </td>
             <td style="font-size:12px;color:var(--text-dim)">${esc(r.ciclo_nombre || '—')}</td>
             <td class="num" style="white-space:nowrap">${fotos.length
@@ -11276,7 +11355,7 @@ function imprimirInformeCiclo(){
     ${encabezadoLogoImpresion()}
     <h1>Informe de ciclo de conteo</h1>
     <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
-    ${renderInformeEjecutivo()}
+    <div class="dash">${renderInformeEjecutivo()}</div>
   `;
   window.print();
 }
@@ -12579,7 +12658,7 @@ function renderReservas(){
       ${filas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Reserva</th><th>Para</th><th>Estado</th><th class="num">Apartado</th><th class="num">Pendiente</th><th></th></tr></thead>
         <tbody>${filas.map(f=>`<tr>
-          <td class="mono" style="white-space:nowrap">${esc(f.numero)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${fmtFecha(f.created_at)}${f.fecha_necesaria?` · para ${fmtFecha(f.fecha_necesaria)}`:''}</div></td>
+          <td class="mono" style="white-space:nowrap">${esc(f.numero)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${fmtFecha(f.created_at)}${f.fecha_necesaria?` · para ${fmtFecha(f.fecha_necesaria)}`:''}</div></td>
           <td style="font-size:12px">${esc(f.persona_nombre||'—')}${f.destino?`<div class="hint" style="margin:0">${esc(f.destino)}</div>`:''}</td>
           <td><span class="${CLASE_ESTADO_RESERVA[f.estado]||'badge'}">${esc(ESTADOS_RESERVA[f.estado]||f.estado)}</span></td>
           <td class="num">${f.cantidad_reservada}</td>
@@ -12621,7 +12700,7 @@ function renderReservaForm(){
       ${f.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Material</th><th class="num">En bodega</th><th class="num">Apartar</th><th></th></tr></thead>
         <tbody>${f.lineas.map(l=>`<tr>
-          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}</div></td>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(l.descripcion||'')}</div></td>
           <td class="num">${l.stock==null?'—':l.stock}</td>
           <td class="num"><input type="number" inputmode="decimal" min="0" step="any" data-res-cantidad="${esc(l.sku_id)}" value="${esc(l.cantidad)}" placeholder="0" style="width:80px;margin:0;text-align:right"></td>
           <td class="num"><button type="button" class="btn btn-secondary" data-res-quitar="${esc(l.sku_id)}" style="width:auto;padding:5px 10px;font-size:12px">Quitar</button></td>
@@ -12676,7 +12755,7 @@ function renderReservaDetalle(){
       : `<div class="table-wrap" style="margin-top:8px"><table>
         <thead><tr><th>Material</th><th class="num">Apartado</th><th class="num">Entregado</th><th class="num">Pendiente</th><th class="num">En bodega</th></tr></thead>
         <tbody>${d.lineas.map(l=>`<tr>
-          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}</div></td>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(l.descripcion||'')}</div></td>
           <td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>
           <td class="num">${l.entregado}</td>
           <td class="num">${Number(l.pendiente)>0?`<strong>${l.pendiente}</strong>`:'—'}</td>
@@ -12749,7 +12828,7 @@ function renderOrdenesCompra(){
       ${filas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Orden</th><th>Proveedor</th><th>Estado</th><th class="num">Pedido</th><th class="num">Recibido</th><th class="num">Total</th><th></th></tr></thead>
         <tbody>${filas.map(f=>`<tr>
-          <td class="mono" style="white-space:nowrap">${esc(f.numero)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${fmtFecha(f.fecha)}${f.fecha_esperada?` · llega ${fmtFecha(f.fecha_esperada)}`:''}</div></td>
+          <td class="mono" style="white-space:nowrap">${esc(f.numero)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${fmtFecha(f.fecha)}${f.fecha_esperada?` · llega ${fmtFecha(f.fecha_esperada)}`:''}</div></td>
           <td style="font-size:12px">${esc(f.proveedor_nombre||'')}</td>
           <td><span class="${CLASE_ESTADO_ORDEN[f.estado]||'badge'}">${esc(ESTADOS_ORDEN_COMPRA[f.estado]||f.estado)}</span></td>
           <td class="num">${f.cantidad_pedida}</td>
@@ -12806,7 +12885,7 @@ function renderOrdenCompraForm(){
       ${f.lineas.length ? `<div class="table-wrap" style="margin-top:12px"><table>
         <thead><tr><th>Material</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Total</th><th></th></tr></thead>
         <tbody>${f.lineas.map(l=>`<tr>
-          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}</div></td>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(l.descripcion||'')}</div></td>
           <td class="num"><input type="number" inputmode="decimal" min="0" step="any" data-oc-cantidad="${esc(l.sku_id)}" value="${esc(l.cantidad)}" placeholder="0" style="width:76px;margin:0;text-align:right"></td>
           <td class="num"><input type="number" inputmode="decimal" min="0" step="any" data-oc-costo="${esc(l.sku_id)}" value="${esc(l.costo_unitario)}" placeholder="—" style="width:92px;margin:0;text-align:right"></td>
           <td class="num">${money((Number(l.cantidad)||0)*(Number(l.costo_unitario)||0))}</td>
@@ -12873,7 +12952,7 @@ function renderOrdenCompraDetalle(){
       : `<div class="table-wrap" style="margin-top:8px"><table>
         <thead><tr><th>Material</th><th class="num">Pedido</th><th class="num">Recibido</th><th class="num">Pendiente</th><th class="num">Precio unit.</th><th class="num">Total</th></tr></thead>
         <tbody>${d.lineas.map(l=>`<tr>
-          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}</div></td>
+          <td class="mono" style="font-size:12px">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(l.descripcion||'')}</div></td>
           <td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>
           <td class="num">${l.recibido}${Number(l.exceso)>0?`<div style="font-size:11px;color:var(--danger)">+${l.exceso} de más</div>`:''}</td>
           <td class="num">${Number(l.pendiente)>0?`<strong>${l.pendiente}</strong>`:'—'}</td>
@@ -12997,10 +13076,10 @@ function tablaLineasDocumentoBodega(d, esIngreso, totalLineas, totalMonto, linea
       const deOc = esIngreso && l.desdeOc;
       const queda = deOc ? Number(l.pendiente) - (cant>0?cant:0) : null;
       return `<tr${noLlega?' style="opacity:.55"':''}>
-      <td class="mono">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}${l.batch?` · ${esc(l.batch)}`:''}</div>
-        ${deOc ? `<div style="font-size:11px;color:var(--text-dim);font-family:'Inter'">Pedido ${l.pedido} · pendiente ${l.pendiente}</div>` : ''}
-        ${deOc && queda!==null && queda>0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Quedan ${queda} por llegar</div>` : ''}
-        ${deOc && queda!==null && queda<0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter'">Llegan ${-queda} de más</div>` : ''}</td>
+      <td class="mono">${esc(l.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(l.descripcion||'')}${l.storage_bin?` · ${esc(l.storage_bin)}`:''}${l.batch?` · ${esc(l.batch)}`:''}</div>
+        ${deOc ? `<div style="font-size:11px;color:var(--text-dim);font-family:'Inter',sans-serif">Pedido ${l.pedido} · pendiente ${l.pendiente}</div>` : ''}
+        ${deOc && queda!==null && queda>0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter',sans-serif">Quedan ${queda} por llegar</div>` : ''}
+        ${deOc && queda!==null && queda<0 ? `<div style="font-size:11px;color:var(--warn);font-family:'Inter',sans-serif">Llegan ${-queda} de más</div>` : ''}</td>
       ${esIngreso
         ? `<td class="num"><input type="number" class="bd-cantidad-linea" data-cantidad-sku="${esc(l.sku_id)}" min="0" step="any" value="${l.cantidad}" style="width:84px;margin:0;text-align:right"> <span class="hint" style="display:inline;margin:0">${esc(l.unidad_medida||'')}</span></td>`
         : `<td class="num">${l.cantidad} ${esc(l.unidad_medida||'')}</td>`}
@@ -13164,7 +13243,7 @@ function renderMovimientosBodega(){
         <tbody>${rows.map(m=>{ const fotos = b.fotosPorDocumento[m.documento_id]||[]; return `<tr>
           <td class="mono" style="font-size:11.5px">${esc(m.numero)}</td>
           <td>${etiquetaTipoMovimiento(m.tipo)}</td>
-          <td class="mono">${esc(m.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(m.descripcion||'')}${m.storage_bin?` · ${esc(m.storage_bin)}`:''}</div></td>
+          <td class="mono">${esc(m.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(m.descripcion||'')}${m.storage_bin?` · ${esc(m.storage_bin)}`:''}</div></td>
           <td class="num">${m.tipo==='ajuste' && m.cantidad>0 ? '+' : ''}${m.cantidad} ${esc(m.unidad_medida||'')}</td>
           <td style="font-size:12px">${m.tipo==='ingreso' ? `${esc(m.proveedor_nombre||'')}${m.numero_guia?` · GD ${esc(m.numero_guia)}`:''}${m.numero_oc?` · OC ${esc(m.numero_oc)}`:''}` : m.tipo==='salida' ? `Retira ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">Despacha ${esc(m.despachado_por_nombre||m.usuario_nombre||'')}</div>` : m.tipo==='devolucion' ? `Devuelve ${esc(m.retirado_por_nombre||'—')}${m.destino?` · ${esc(m.destino)}`:''}<div class="hint" style="margin:0">${esc(m.motivo||'')}</div>` : esc(m.motivo||'')}${m.anulado_motivo?`<div class="hint" style="margin:0">Anulado: ${esc(m.anulado_motivo)}</div>`:''}</td>
           <td class="mono" style="font-size:11.5px">${fmtFecha(m.fecha)}</td>
@@ -13191,7 +13270,7 @@ function renderStockBodega(){
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${b.stockTotalConocido ? `${b.stockTotal.toLocaleString('es-CL')} SKU` : `${rows.length} SKU en esta página`}${totalValor?` · valor de esta página $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th>${funcionBodegaActiva('reservas')?'<th class="num">Disponible</th>':''}<th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter'">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:11px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button>`:''}</td></tr>`).join('')}</tbody></table></div>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:11.5px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:11px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button>`:''}</td></tr>`).join('')}</tbody></table></div>
         ${(b.stockPagina > 0 || rows.length >= STOCK_POR_PAGINA) ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
           <button type="button" class="btn btn-secondary" id="stock-pag-prev" style="width:auto;flex:none;padding:8px 14px" ${b.stockPagina<=0?'disabled':''}>Anterior</button>
           <span class="hint" style="margin:0">${(b.stockPagina*STOCK_POR_PAGINA+1).toLocaleString('es-CL')}–${(b.stockPagina*STOCK_POR_PAGINA+rows.length).toLocaleString('es-CL')}${b.stockTotalConocido?` de ${b.stockTotal.toLocaleString('es-CL')}`:''}</span>
