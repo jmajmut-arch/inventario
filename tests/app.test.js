@@ -3862,7 +3862,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.cargarTodo();
     assert(!calls.some(c=>c.url.includes('/auth/v1/user')), 'un operador no pide factores al entrar');
-    ctx.__appstate.mfaObligatoriaDesde = '2026-10-01';
+    ctx.__appstate.mfaObligatoriaDesde = '2026-12-01';
     ctx.__appstate.mfaFactoresCargado = false; ctx.__appstate.mfaFactores = [];
     ctx.__appstate.perfil = perfilAntesMfa; ctx.__appstate.view = viewAntesMfa;
   }

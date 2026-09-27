@@ -713,7 +713,7 @@ let state = {
   mfaFactores: [],         // factores TOTP de la cuenta (ver cargarMfaFactores), tal como los devuelve /auth/v1/user
   mfaFactoresCargado: false,
   mfaEnrolando: null,      // null | {factorId, qr, secret, guardando, error, cargando} durante el enrolamiento
-  mfaObligatoriaDesde: '2026-10-01', // MFA obligatoria para admins desde esta fecha (ver adminSinMfa/mfaObligatoriaVigente)
+  mfaObligatoriaDesde: '2026-12-01', // MFA obligatoria para admins desde esta fecha (ver adminSinMfa/mfaObligatoriaVigente)
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo', skus:'SKU' };
