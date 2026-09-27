@@ -4715,6 +4715,66 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(JSON.parse(postSinUbic.opts.body).length===2, 'con stock 0 y sin columnas de ubicación, la fila se carga igual, obtuvo: '+postSinUbic.opts.body);
   await new Promise(r=>setTimeout(r, 0));
 
+  // ===== Consignación (Special Stock Type = K): se suma a la línea propia del mismo bin =====
+  // SAP exporta el stock en consignación del proveedor como otra línea del mismo bin, idéntica
+  // en los cinco campos de identidad. El upsert se quedaba con la última (la K): en Escondida,
+  // Materials (13).xlsx trae 128 pares así y 21 bines quedaron con 0 donde hay stock propio.
+  // Decisión de Joel (27/09/2026): el stock sistema de la fila es lo que debe haber en el bin
+  // (propio + consignado) y el consignado se muestra aparte, consolidado por material.
+  const mapeoConsig = ctx.detectarMapeo(['Material','Unrestricted Stock','Storage Bin','Special Stock Type','Blocked Stock'], ctx.__CAMPOS_SKU);
+  assert(mapeoConsig.tipo_stock_especial==='Special Stock Type' && mapeoConsig.stock_sistema==='Unrestricted Stock' && mapeoConsig.stock_bloqueado==='Blocked Stock', '"Special Stock Type" debe mapear a tipo_stock_especial sin robarle columnas al stock, obtuvo: '+JSON.stringify(mapeoConsig));
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', ubicacion:'Ubic', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo', stock_bloqueado:'Bloq', tipo_stock_especial:'Tipo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}],
+    headers: ['Codigo','Bodega','Ubic','Bin','Stock','Costo','Bloq','Tipo'],
+    confirmaReemplazo: false,
+    data: [
+      { Codigo:'11518173', Bodega:'B521', Ubic:'0100', Bin:'N1E-090-F3', Stock:'128', Costo:'1', Bloq:'', Tipo:'' },    // propia
+      { Codigo:'11518173', Bodega:'B521', Ubic:'0100', Bin:'N1E-090-F3', Stock:'0', Costo:'1', Bloq:'288', Tipo:'K' },  // K después: su libre (0) se suma, su bloqueado también
+      { Codigo:'11578839', Bodega:'B501', Ubic:'0103', Bin:'N1E-2B-A1', Stock:'25', Costo:'1', Bloq:'', Tipo:'K' },    // K antes...
+      { Codigo:'11578839', Bodega:'B501', Ubic:'0103', Bin:'N1E-2B-A1', Stock:'5', Costo:'1', Bloq:'', Tipo:'' },      // ...propia después: el orden no importa
+      { Codigo:'11599340', Bodega:'B501', Ubic:'0100', Bin:'N1E-2017-A', Stock:'30', Costo:'1', Bloq:'', Tipo:'k' },   // K sola (y en minúscula): todo consignado
+      { Codigo:'30001', Bodega:'B501', Ubic:'0100', Bin:'Z-1', Stock:'4', Costo:'1', Bloq:'', Tipo:'' },               // sin consignación: se manda null para limpiar
+      { Codigo:'11518173', Bodega:'B521', Ubic:'', Bin:'', Stock:'7', Costo:'1', Bloq:'', Tipo:'O' },                  // O con hermana ubicada: va a "En prov." de esa fila
+      { Codigo:'30002', Bodega:'B501', Ubic:'', Bin:'', Stock:'2', Costo:'1', Bloq:'', Tipo:'O' },                     // O sola: queda su fila con stock 0 y En prov. 2
+      { Codigo:'30003', Bodega:'B501', Ubic:'', Bin:'', Stock:'1', Costo:'1', Bloq:'', Tipo:'' },                      // propia sin sitio...
+      { Codigo:'30003', Bodega:'B501', Ubic:'', Bin:'', Stock:'6', Costo:'1', Bloq:'', Tipo:'O' },                     // ...y su O con la misma identidad: no la pisa, se suma como En prov.
+    ],
+  };
+  assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'las líneas K y O no "comparten identidad" con la propia: se suman, nada se pisa');
+  assert(ctx.renderCargaPreview().includes('3 fila(s) de stock en consignación') && ctx.renderCargaPreview().includes('3 fila(s) en poder del proveedor'), 'el preview dice cuántas líneas K y O trae el archivo y qué pasa con ellas, obtuvo: '+ctx.renderCargaPreview());
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postConsig = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filasConsig = JSON.parse(postConsig.opts.body);
+  const porCodigoConsig = Object.fromEntries(filasConsig.map(f=>[f.sku_code, f]));
+  assert(filasConsig.length===6, 'las 10 filas se convierten en 6 SKU (dos pares K+propia se funden, las O no son fila salvo la sola), obtuvo: '+JSON.stringify(filasConsig.map(f=>[f.sku_code,f.storage_bin,f.stock_sistema,f.stock_consignado,f.stock_en_proveedor])));
+  assert(porCodigoConsig['11518173'].stock_sistema===128 && porCodigoConsig['11518173'].stock_consignado===0 && porCodigoConsig['11518173'].stock_bloqueado===288, 'K después de la propia: el stock propio no se pierde y el bloqueado de la K se suma, obtuvo: '+JSON.stringify(porCodigoConsig['11518173']));
+  assert(porCodigoConsig['11518173'].storage_bin==='N1E-090-F3' && porCodigoConsig['11518173'].stock_en_proveedor===7, 'la línea O va a "En prov." de la fila ubicada del material, no a una fila propia, obtuvo: '+JSON.stringify(porCodigoConsig['11518173']));
+  assert(porCodigoConsig['30003'].stock_sistema===1 && porCodigoConsig['30003'].stock_en_proveedor===6 && filasConsig.filter(f=>f.sku_code==='30003').length===1, 'una línea O con la misma identidad que la propia no la pisa: se suma como En prov., obtuvo: '+JSON.stringify(porCodigoConsig['30003']));
+  assert(porCodigoConsig['11578839'].stock_sistema===30 && porCodigoConsig['11578839'].stock_consignado===25, 'K antes de la propia: stock sistema = propio + consignado, obtuvo: '+JSON.stringify(porCodigoConsig['11578839']));
+  assert(porCodigoConsig['11599340'].stock_sistema===30 && porCodigoConsig['11599340'].stock_consignado===30, 'un bin con solo línea K queda con todo su stock como consignado, obtuvo: '+JSON.stringify(porCodigoConsig['11599340']));
+  assert(porCodigoConsig['30001'].stock_consignado===null && porCodigoConsig['30001'].stock_en_proveedor===null && porCodigoConsig['30001'].stock_sistema===4, 'sin línea K ni O se mandan ambos campos en null para limpiar lo anterior, obtuvo: '+JSON.stringify(porCodigoConsig['30001']));
+  assert(porCodigoConsig['30002'].stock_sistema===0 && porCodigoConsig['30002'].stock_en_proveedor===2 && porCodigoConsig['30002'].stock_consignado===null, 'una línea O sin otra fila del material queda como fila con stock 0 y En prov. 2 (no está en la bodega), obtuvo: '+JSON.stringify(porCodigoConsig['30002']));
+  const regConsig = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
+  assert(JSON.parse(regConsig.opts.body)[0].filas_ok===10 && JSON.parse(regConsig.opts.body)[0].filas_error===0, 'las líneas K y O cuentan como filas cargadas, no como error, obtuvo: '+regConsig.opts.body);
+  await new Promise(r=>setTimeout(r, 0));
+
+  // Sin la columna de tipo especial no se manda stock_consignado: no se toca lo que el SKU ya tenía.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'sin-tipo.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock', costo_unitario:'Costo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}], headers: ['Codigo','Bodega','Stock','Costo'], confirmaReemplazo: false,
+    data: [ { Codigo:'A', Bodega:'B501', Stock:'1', Costo:'1' } ],
+  };
+  assert(!ctx.renderCargaPreview().includes('stock en consignación'), 'sin líneas K no se muestra el aviso');
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postSinTipo = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  assert(!('stock_consignado' in JSON.parse(postSinTipo.opts.body)[0]) && !('stock_en_proveedor' in JSON.parse(postSinTipo.opts.body)[0]), 'sin columna de tipo especial ni stock_consignado ni stock_en_proveedor viajan, obtuvo: '+postSinTipo.opts.body);
+  await new Promise(r=>setTimeout(r, 0));
+
   // Un archivo grande (ej. 64.000 filas de un maestro SAP) se parte en bloques de 2.000 antes
   // de mandarlo — un solo POST con todo el archivo superaba el statement_timeout de la base
   // (ver comentario en confirmarCargaMasiva). Con 2.500 filas únicas deben salir 2 POST: uno
@@ -9313,6 +9373,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     total_bloqueado:0, total_transito_1:7, total_transito_2:0, total_transferencia:4};
   const htmlContarTotales = ctx.renderConteo();
   assert(htmlContarTotales.includes('Todo el material · Trán. 1: 7 · Transf: 4'), 'Contar debe mostrar el total del material aunque la fila del bin traiga 0, obtuvo: '+htmlContarTotales);
+  // Consignado consolidado por material, delante de los demás (pedido de Joel, caso 4 de la carga).
+  ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuSeleccionado, stock_sistema:30, stock_consignado:25, total_consignado:288, total_en_proveedor:7};
+  const htmlContarConsig = ctx.renderConteo();
+  assert(htmlContarConsig.includes('Todo el material · Consig.: 288 · En prov.: 7 · Trán. 1: 7 · Transf: 4'), 'Contar debe mostrar el consignado y lo que está en el proveedor del material completo junto al tránsito, obtuvo: '+htmlContarConsig);
+  // Y en la fila, el desglose que pidió Joel: "SOH x + SOH consignado y" (stock_sistema ya incluye el consignado).
+  assert(htmlContarConsig.includes('Stock sistema (este batch): 30 UN · SOH 5 + SOH consignado 25'), 'la tarjeta desglosa el stock de la fila en propio y consignado, obtuvo: '+htmlContarConsig);
+  ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuSeleccionado, stock_consignado:0};
+  assert(!ctx.renderConteo().includes('SOH consignado'), 'sin consignado en la fila no se muestra el desglose');
+  ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuSeleccionado, stock_sistema:20, stock_consignado:undefined, total_consignado:undefined, total_en_proveedor:undefined};
   // Y el total sigue detrás del mismo gate de conteo ciego que el stock.
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = true;
   assert(!ctx.renderConteo().includes('Todo el material'), 'con conteo ciego activo, el operador tampoco ve los totales del material');
