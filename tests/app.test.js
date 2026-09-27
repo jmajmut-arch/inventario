@@ -3841,6 +3841,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     elements['btn-banner-mfa'].dispatch('click');
     assert(ctx.__appstate.view==='config', 'el botón del aviso debe llevar a Configuraciones, obtuvo: '+ctx.__appstate.view);
     ctx.__appstate.view = 'dashboard';
+    // Pedido de Joel (27/09): el aviso dura 15 segundos y se oculta solo; vuelve al ingresar de nuevo.
+    assert(html.includes('const BANNER_MFA_MS = 15000;'), 'el aviso de MFA se oculta a los 15 segundos');
+    assert(ctx.renderShell().includes('id="banner-mfa"'), 'antes de vencer el tiempo el aviso se ve');
+    ctx.ocultarBannerMfaPorTiempo();
+    assert(!ctx.renderShell().includes('id="banner-mfa"'), 'vencido el tiempo, el aviso desaparece aunque la cuenta siga sin MFA');
+    ctx.__appstate = ctx.__resyncAppState ? ctx.__resyncAppState() : ctx.__appstate;
+    ctx.estadoTrasCerrarSesion();
+    assert(ctx.renderShell().includes('id="banner-mfa"'), 'tras cerrar sesión, el próximo ingreso vuelve a mostrar el aviso');
+    ctx.reiniciarBannerMfa();
     // Desde la fecha: la app no deja pasar; en vez de la pestaña muestra el enrolamiento, con sus botones atados.
     ctx.__appstate.mfaObligatoriaDesde = '2020-01-01';
     shellMfa = ctx.renderShell();
