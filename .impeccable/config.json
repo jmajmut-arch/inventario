@@ -26,6 +26,11 @@
         "value": "inter",
         "createdAt": "2026-09-22T17:41:27.728Z",
         "reason": "misma fuente del sistema de diseño del sitio, en minúsculas dentro de la URL de Google Fonts"
+      },
+      {
+        "rule": "overused-font",
+        "value": "arial",
+        "createdAt": "2026-09-27T13:26:15.702Z"
       }
     ]
   }

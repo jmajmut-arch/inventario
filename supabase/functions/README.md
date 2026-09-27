@@ -10,7 +10,7 @@ despliega desde acá. Si se edita en el dashboard de Supabase, hay que traer el 
 repo en el mismo momento (`get_edge_function` por MCP, o *Edge Functions → la función →
 Code* en el dashboard).
 
-## Las ocho funciones
+## Las nueve funciones
 
 | Función | `verify_jwt` | Quién la llama | Variables de entorno propias |
 |---|---|---|---|
@@ -22,8 +22,13 @@ Code* en el dashboard).
 | `flow-cancelar-suscripcion` | sí | Frontend (admin) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `flow-cambiar-plan` | sí | Frontend (admin con suscripción activa) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `flow-sincronizar-suscripcion` | sí | Frontend (cualquier usuario activo, al iniciar sesión) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
+| `notificar-lead` | sí (basta el anon key) | Trigger `trg_notificar_lead_demo` de la base, por pg_net, al insertarse un lead del sitio | `BREVO_API_KEY`; opcional `NOTIFICAR_LEADS_A` (destino, por omisión contacto@inventiapp.cl) |
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` las inyecta Supabase sola.
+`BREVO_API_KEY` es una API key de la misma cuenta de Brevo que manda las invitaciones de Auth
+(Brevo → SMTP & API → API keys); `notificar-lead` manda el aviso de cada lead desde
+`contacto@inventiapp.cl` con la API transaccional de Brevo. El trigger que la llama está en
+`supabase/migrations/20260927_notificar_lead_demo.sql`.
 Las de Flow se ponen una vez en *Edge Functions → Secrets* (o `supabase secrets set`), con
 `FLOW_ENV=production`; **nunca en el repo**.
 
@@ -40,6 +45,7 @@ Con la CLI de Supabase (`npm i -g supabase` o `brew install supabase/tap/supabas
 ```sh
 # Las que validan el JWT (por omisión):
 supabase functions deploy invite-user --project-ref ncvwgsbcvklhbyvurxzz
+supabase functions deploy notificar-lead --project-ref ncvwgsbcvklhbyvurxzz
 # Las tres que reciben llamadas sin sesión (landing y Flow) van sin verificación:
 supabase functions deploy crear-empresa-autoservicio --project-ref ncvwgsbcvklhbyvurxzz --no-verify-jwt
 supabase functions deploy flow-registro-callback    --project-ref ncvwgsbcvklhbyvurxzz --no-verify-jwt
