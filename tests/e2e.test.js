@@ -198,6 +198,28 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: un teléfono sin número no se envía (bug real: llegó un lead con "+") =====
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-telefono: '+err.message));
+    await bloquearSentry(page);
+    let llamoRed = false;
+    await page.route('**/rest/v1/leads_demo', route => { llamoRed = true; route.abort(); });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+    await page.click('[data-abrir-demo]');
+    await page.fill('#demo-nombre', 'Fabiola');
+    await page.fill('#demo-email', 'fabiola@example.com');
+    await page.fill('#demo-telefono', '+');
+    await page.waitForTimeout(2100); // pasar el umbral anti-bot de 2 s
+    await page.click('#demo-submit-btn');
+    await page.waitForTimeout(300);
+    assert(!llamoRed, 'con un teléfono sin dígitos no debe guardarse el lead');
+    assert(await page.isVisible('#demo-error') && (await page.textContent('#demo-error')).includes('teléfono'), 'debe explicar que falta un teléfono válido');
+    assert(!(await page.isVisible('#demo-modal-ok.open')), 'no debe mostrar la pantalla de éxito');
+    await context.close();
+  }
+
   // ===== Landing: un envío humano normal sí llama a la red y muestra las credenciales =====
   {
     const context = await browser.newContext();

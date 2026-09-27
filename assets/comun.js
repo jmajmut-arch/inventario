@@ -161,6 +161,11 @@
       var esBot = $(cfg.prefijo + '-web').value.trim() !== '' || (Date.now() - abiertoEn) < 2000;
       if (esBot) { formWrap.style.display = 'none'; ok.classList.add('open'); return; }
 
+      // Pasó de verdad: un lead real llegó con teléfono "+" (el campo era obligatorio, pero
+      // cualquier carácter lo cumplía) y no hubo cómo llamarlo. Se exige un número de verdad.
+      var faltante = cfg.validar ? cfg.validar() : null;
+      if (faltante) { error.textContent = faltante; error.style.display = 'block'; return; }
+
       btn.disabled = true;
       btn.textContent = 'Enviando…';
 
@@ -198,6 +203,11 @@
     paramsApertura: function (plan) { return { plan: plan || 'general' }; },
     tipoLead: 'demo',
     textoBoton: 'Ver la demo',
+    validar: function () {
+      var digitos = $('demo-telefono').value.replace(/\D/g, '');
+      if (digitos.length < 8) return 'Escribe un teléfono al que podamos llamarte (por ejemplo +56 9 1234 5678).';
+      return null;
+    },
     errorGenerico: 'No pudimos guardar tus datos. Intenta de nuevo.',
     cuerpo: function () {
       return {
