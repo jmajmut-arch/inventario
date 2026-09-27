@@ -654,6 +654,7 @@ let state = {
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
   // Sobrantes de la última carga: materiales que siguen activos pero que el archivo ya no trajo.
   cargaSobrantes: null,
+  cargaResultado: null, // tarjeta con el resultado de la última carga de esta sesión (ver renderResultadoDeCarga)
   // Buscar: los desplegables de Ubicación general/específica salen de ubicaciones_lista (ver cargarUbicacionesLista).
   ubicacionesLista: { cargado:false, cargando:false, filas:[], error:null },
   // Buscar: desplegable "Contado por" (ver cargarPersonasBuscar).
@@ -1931,7 +1932,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -4970,7 +4971,7 @@ function sanearTextoFiltro(s){
 // Columnas de skus_busqueda por las que se puede ordenar la tabla (clic en el encabezado) --
 // "Fotos" queda afuera porque es un arreglo agregado, PostgREST no puede ordenar por su tamaño
 // con un simple "order=".
-const ORDEN_COLUMNAS_BUSQUEDA = new Set(['sku_code','batch','descripcion','bodega','cantidad_contada','estado','fuera_de_plan','fecha_conteo','ciclo_nombre','clase_abc']);
+const ORDEN_COLUMNAS_BUSQUEDA = new Set(['sku_code','batch','descripcion','bodega','storage_bin','cantidad_contada','estado','fuera_de_plan','fecha_conteo','ciclo_nombre','clase_abc']);
 function construirOrdenBusqueda(){
   const o = state.busqueda.orden;
   if(o && o.campo && ORDEN_COLUMNAS_BUSQUEDA.has(o.campo)){
@@ -7753,6 +7754,56 @@ function filasSinUbicacionNiStock(data, mapeo){
   return resultado;
 }
 
+// Resumen de qué va a pasar con el archivo, con las mismas reglas que confirmarCargaMasiva
+// (pedido de Joel: "ser más claro en los mensajes cuando se cargan los datos"). Antes de
+// confirmar, la persona veía cuatro tarjetas sueltas y ningún total; ahora ve cuántas filas
+// trae el archivo y en cuántos materiales se convierten. tests/app.test.js verifica que
+// `materiales` coincide con las filas que de verdad llegan al upsert.
+let cacheResumenArchivoCarga = null;
+function resumenArchivoCarga(data, mapeo){
+  const firma = JSON.stringify(mapeo) + '|' + data.length;
+  if(cacheResumenArchivoCarga && cacheResumenArchivoCarga.firma === firma) return cacheResumenArchivoCarga.resultado;
+  const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
+  const conSitio = materialesConSitioEnArchivo(data, valor);
+  const propias = new Set(), consignacion = new Set(), enProveedor = new Set();
+  let sinCodigo = 0, omitidas = 0, filasK = 0, filasO = 0, repetidas = 0;
+  data.forEach(row=>{
+    const sku_code = valor(row,'sku_code');
+    if(!sku_code){ sinCodigo++; return; }
+    if(esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio)){ omitidas++; return; }
+    const identidad = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null, valor(row,'ubicacion')||null, valor(row,'storage_bin')||null]);
+    if(esFilaEnProveedor(valor, row, mapeo)){ filasO++; enProveedor.add(claveMaterialCarga(valor, row)); return; }
+    if(esFilaConsignacion(valor, row, mapeo)){ filasK++; consignacion.add(identidad); return; }
+    if(propias.has(identidad)) repetidas++;
+    propias.add(identidad);
+  });
+  let materiales = propias.size;
+  consignacion.forEach(id=>{ if(!propias.has(id)) materiales++; });
+  const materialesConFila = new Set();
+  [...propias, ...consignacion].forEach(id=>{ const [c, b] = JSON.parse(id); materialesConFila.add(c + '|' + (b||'')); });
+  enProveedor.forEach(k=>{ if(!materialesConFila.has(k)) materiales++; });
+  const resultado = {filas: data.length, sinCodigo, omitidas, consignacion: filasK, enProveedor: filasO, repetidas, materiales};
+  cacheResumenArchivoCarga = {firma, resultado};
+  return resultado;
+}
+function renderResumenArchivoCarga(data, mapeo){
+  if(!mapeo.sku_code) return '';
+  const r = resumenArchivoCarga(data, mapeo);
+  const n = x => x.toLocaleString('es-CL');
+  const puntos = [
+    r.omitidas ? `${n(r.omitidas)} fila(s) de tránsito (sin ubicación, sin bin, stock 0) pasan a la fila del bin de su material` : '',
+    r.consignacion ? `${n(r.consignacion)} línea(s) de consignación (K) se suman al stock de su bin` : '',
+    r.enProveedor ? `${n(r.enProveedor)} línea(s) en poder del proveedor (O) se muestran como "En prov."` : '',
+    r.repetidas ? `${n(r.repetidas)} fila(s) idénticas a otra se pisan: queda la última` : '',
+    r.sinCodigo ? `${n(r.sinCodigo)} fila(s) sin código no se cargan` : '',
+  ].filter(Boolean);
+  return `<div class="card" style="margin-top:14px;border-color:var(--amber)">
+    <h3 style="margin:0 0 6px;font-size:15px">Qué va a pasar con este archivo</h3>
+    <div style="font-size:15px;font-weight:600">${n(r.filas)} filas → ${n(r.materiales)} materiales en tu maestro</div>
+    ${puntos.length ? `<ul class="hint" style="margin:6px 0 0;padding-left:18px">${puntos.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>` : `<div class="hint" style="margin-top:4px">Todas las filas entran tal cual: una fila, un material.</div>`}
+  </div>`;
+}
+
 let cacheIdentidadesRepetidas = null;
 function identidadesRepetidas(data, mapeo){
   const firma = JSON.stringify(mapeo) + '|' + data.length;
@@ -7837,6 +7888,7 @@ async function confirmarCargaMasiva(){
   setState({loading:true});
 
   const marcaTiempo = new Date().toISOString();
+  const inicioCarga = Date.now();
   let ok=0, error=0, omitidas=0;
   // Se agrupan por motivo, no fila por fila: un archivo grande puede tener miles de filas con
   // el mismo problema (ej. "1.306 con costo negativo"), y una lista fila por fila no es legible
@@ -8005,14 +8057,15 @@ async function confirmarCargaMasiva(){
   // sin tocar los triggers ni la configuración de la base: cada POST individual es chico y rápido.
   const TAM_LOTE_CARGA = 2000;
   let insertados = 0;
-  setState({cargaMasivaProgreso: {actual:0, total:lote.length}});
+  setState({cargaMasivaProgreso: {actual:0, total:lote.length, etapa:'guardando'}});
   try{
     for(let i=0; i<lote.length; i+=TAM_LOTE_CARGA){
       const bloque = lote.slice(i, i+TAM_LOTE_CARGA);
       await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
       insertados += bloque.length;
-      setState({cargaMasivaProgreso: {actual:insertados, total:lote.length}});
+      setState({cargaMasivaProgreso: {actual:insertados, total:lote.length, etapa:'guardando'}});
     }
+    setState({cargaMasivaProgreso: {actual:insertados, total:lote.length, etapa:'finalizando'}});
     if(bodegaActiva && !aperturaYaHecha) await registrarAperturaBodega({silencioso:true});
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
@@ -8026,9 +8079,14 @@ async function confirmarCargaMasiva(){
       try{ await rest('/rpc/refrescar_clasificacion_abc', {method:'POST'}); }catch(e){ /* el cron nocturno lo cubre */ }
     }
     const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, detalleCarga(), marcaTiempo);
+    const nuevos = await contarSkusNuevosDeCarga(marcaTiempo);
     toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}${omitidas?`, ${omitidas} omitidas (sin ubicación ni bin y stock 0; su tránsito pasó a la fila del bin)`:''}`);
     refrescarListaSkus();
-    setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null});
+    setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null, cargaResultado: {
+      cargaId, archivo: file.name, fecha: new Date().toISOString(), segundos: Math.round((Date.now()-inicioCarga)/1000), modo,
+      materiales: insertados, nuevos, actualizados: nuevos==null ? null : Math.max(0, insertados - nuevos), error,
+      resumen: resumenArchivoCarga(data, mapeo), fallo: null,
+    }});
     // "Reemplazar completo" ya desactivó lo que no vino; solo el modo de todos los días acumula.
     if(modo!=='reemplazar') revisarSobrantesDeCarga(cargaId);
   }catch(e){
@@ -8037,9 +8095,30 @@ async function confirmarCargaMasiva(){
     const filasFallidas = lote.length - insertados;
     if(filasFallidas>0) resumenErrores.set(e.message, filasFallidas);
     await registrarCarga(file.name, 'skus', data.length, insertados, error + filasFallidas, detalleCarga());
-    setState({loading:false, cargaMasivaProgreso:null});
+    // La vista previa se cierra y queda la tarjeta roja con la instrucción: volver a cargar el
+    // mismo archivo es seguro (upsert), los que ya entraron se actualizan y no se duplican.
+    setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null, cargaResultado: {
+      archivo: file.name, fecha: new Date().toISOString(), segundos: Math.round((Date.now()-inicioCarga)/1000), modo,
+      materiales: insertados, nuevos: null, actualizados: null, error,
+      resumen: resumenArchivoCarga(data, mapeo), fallo: {mensaje: e.message, insertados, total: lote.length},
+    }});
     toast(insertados ? `Se cargaron ${insertados} de ${lote.length} SKU antes de fallar: ${e.message}` : e.message, 'err');
   }
+}
+
+// Cuántos de los materiales que tocó esta carga son nuevos (no existían antes). capturado_en
+// lo pone la carga con su propio sello; created_at lo pone la base. Se deja un margen de 10
+// minutos por si el reloj del dispositivo va adelantado respecto del servidor. Solo informa la
+// tarjeta de resultado: si falla, la línea no se muestra y la carga igual quedó bien.
+async function contarSkusNuevosDeCarga(marcaTiempo){
+  try{
+    const desde = new Date(new Date(marcaTiempo).getTime() - 10*60*1000).toISOString();
+    const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/skus?select=id&capturado_en=eq.${encodeURIComponent(marcaTiempo)}&created_at=gte.${encodeURIComponent(desde)}`, {
+      headers:{ 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`, 'Range-Unit': 'items', 'Range': '0-0', 'Prefer': 'count=exact' }
+    });
+    const range = res && res.headers && res.headers.get ? res.headers.get('content-range') : null;
+    return range && range.includes('/') && range.split('/')[1] !== '*' ? Number(range.split('/')[1]) : null;
+  }catch(e){ return null; }
 }
 
 async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores, marcaTiempo){
@@ -8077,7 +8156,10 @@ async function revisarSobrantesDeCarga(cargaId, archivo){
     // Los ya contados en el ciclo no se ofrecen (ver desactivar_skus_no_traidos): si solo quedan
     // esos, no hay nada que decidir y no se muestra la tarjeta.
     if(!r.total || (Number(r.total) - (Number(r.contados)||0)) <= 0) return;
-    setState({cargaSobrantes:{cargaId, archivo: archivo||null, ...r, limpiando:false, progreso:null, plegado:false}});
+    // Con la tarjeta de resultado en pantalla, el aviso arranca plegado: la línea y el botón
+    // "Revisar sobrantes" van dentro de esa tarjeta, para no mostrar dos avisos seguidos.
+    const enTarjetaResultado = !!(state.cargaResultado && state.cargaResultado.cargaId && state.cargaResultado.cargaId === cargaId);
+    setState({cargaSobrantes:{cargaId, archivo: archivo||null, ...r, limpiando:false, progreso:null, plegado: enTarjetaResultado}});
   }catch(e){ /* informativo: si falla, la carga igual quedó bien */ }
 }
 
@@ -10614,11 +10696,51 @@ function renderTablaSkus(){
 /* =======================================================================
    RENDER — Carga masiva
    ======================================================================= */
+function formatoDuracionCarga(segundos){
+  if(segundos == null) return '';
+  if(segundos < 60) return `${segundos} s`;
+  return `${Math.floor(segundos/60)} min ${segundos%60} s`;
+}
+// Resultado de la última carga de la sesión. Antes salía en un aviso flotante de 2,6 segundos con
+// una sola frase, y desaparecía: quien cargaba 60.000 filas no alcanzaba a leer qué pasó. Esta
+// tarjeta se queda hasta que se cierra, y en un fallo a medias dice qué hacer.
+function renderResultadoDeCarga(){
+  const r = state.cargaResultado;
+  if(!r) return '';
+  const n = x => Number(x).toLocaleString('es-CL');
+  const res = r.resumen || {};
+  const partes = [
+    res.omitidas ? `${n(res.omitidas)} de tránsito` : '',
+    res.consignacion ? `${n(res.consignacion)} de consignación` : '',
+    res.enProveedor ? `${n(res.enProveedor)} en poder del proveedor` : '',
+  ].filter(Boolean);
+  const sob = state.cargaSobrantes;
+  const sobrantes = sob && sob.total ? Number(sob.total) - (Number(sob.contados)||0) : 0;
+  const cabecera = `<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap">
+      <h3 style="margin:0;font-size:16px">${r.fallo ? '✕' : '✓'} ${esc(r.archivo)} ${r.fallo ? 'no terminó de cargarse' : 'cargado'} · ${esc(fmtFechaHora(r.fecha))}</h3>
+      <button type="button" class="btn btn-secondary" id="btn-cerrar-resultado-carga" style="width:auto;padding:5px 10px;font-size:12px">Cerrar</button>
+    </div>`;
+  if(r.fallo){
+    return `<div class="card" style="border-color:var(--danger)">${cabecera}
+      <div style="margin-top:6px;font-size:14px">Se guardaron los primeros <b>${n(r.fallo.insertados)}</b> de ${n(r.fallo.total)} materiales${r.segundos!=null?` en ${formatoDuracionCarga(r.segundos)}`:''}.</div>
+      <div class="hint" style="margin-top:4px">Vuelve a cargar el mismo archivo: los que ya entraron se actualizan, no se duplican.</div>
+      <div class="hint" style="margin-top:6px;color:var(--danger)">Motivo: ${esc(r.fallo.mensaje)}</div>
+    </div>`;
+  }
+  return `<div class="card" style="border-color:var(--ok)">${cabecera}
+    <div style="margin-top:6px;font-size:14px"><b>${n(r.materiales)}</b> materiales ${r.modo==='reemplazar' ? 'cargados (reemplazo completo)' : 'actualizados'}${r.segundos!=null?` en ${formatoDuracionCarga(r.segundos)}`:''}.</div>
+    ${r.nuevos!=null ? `<div class="hint">Nuevos: <b>${n(r.nuevos)}</b> · Actualizados: <b>${n(r.actualizados)}</b> · Con error: <b>${n(r.error||0)}</b></div>` : (r.error ? `<div class="hint">Con error: <b>${n(r.error)}</b> (el motivo está en el historial, abajo)</div>` : '')}
+    ${partes.length ? `<div class="hint">${esc(partes.join(', '))}: esas filas quedaron en la tarjeta de su material, no como filas aparte.</div>` : ''}
+    ${sobrantes>0 ? `<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px"><span><b>${n(sobrantes)}</b> materiales activos ya no vienen en este archivo.</span><button type="button" class="btn btn-secondary" id="btn-revisar-sobrantes-resultado" style="width:auto;padding:6px 12px;font-size:12px">Revisar sobrantes</button></div>` : ''}
+  </div>`;
+}
+
 function renderCargaMasiva(){
   if(state.cargaPreview) return renderCargaPreview();
   const h = state.cargasHistorial;
   return `
     <div class="section-head"><div><span class="eyebrow">Datos masivos</span><h2>Carga masiva</h2></div></div>
+    ${renderResultadoDeCarga()}
     ${renderSobrantesDeCarga()}
 
     <div class="card">
@@ -10680,6 +10802,8 @@ function renderSobrantesDeCarga(){
   const p = s.progreso;
   // "Ahora no" pliega el aviso en vez de borrarlo: queda una línea con el número y "Revisar", y al
   // volver a entrar a Carga en otra sesión vuelve completo (ver cargarHistorialCargas).
+  // Plegado y con la tarjeta de resultado de ESTA carga en pantalla: esa tarjeta ya trae la línea y el botón.
+  if(s.plegado && state.cargaResultado && state.cargaResultado.cargaId && state.cargaResultado.cargaId === s.cargaId) return '';
   if(s.plegado) return `<div class="card" style="border-color:var(--warn);display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px">
     <div style="flex:1;font-size:13px"><b>${s.total} materiales</b> que el último archivo no trajo siguen activos.</div>
     <button class="btn btn-secondary" id="btn-revisar-sobrantes" style="width:auto;padding:6px 12px;font-size:12px">Revisar</button>
@@ -10725,7 +10849,8 @@ function renderCargaPreview(){
   const bloqueaReemplazo = modo==='reemplazar' && !confirmaReemplazo;
   const bloqueaAvisoBodega = !!avisoBodega && !avisoBodega.confirmado;
   const pg = state.cargaMasivaProgreso;
-  const progresoCarga = pg && pg.total ? { actual:pg.actual, total:pg.total, pct:Math.round(pg.actual/pg.total*100) } : null;
+  const progresoCarga = pg && pg.total ? { actual:pg.actual, total:pg.total, pct:Math.round(pg.actual/pg.total*100), etapa: pg.etapa||'guardando' } : null;
+  const resumenArchivo = mapeo.sku_code ? resumenArchivoCarga(data, mapeo) : null;
   return `
     <div class="section-head"><div><span class="eyebrow">Carga de SKU</span><h2>Revisa las columnas detectadas</h2></div></div>
     <div class="hint" style="margin-bottom:12px">${data.length} filas encontradas. La app adivinó qué columna corresponde a cada campo — revísalo y corrige lo que haga falta antes de confirmar.</div>
@@ -10789,12 +10914,17 @@ function renderCargaPreview(){
 
     ${camposFaltantes.length? `<div class="hint" style="color:var(--danger)">Falta asignar: ${camposFaltantes.map(c=>esc(c.etiqueta)).join(', ')}.</div>` : ''}
 
+    ${renderResumenArchivoCarga(data, mapeo)}
+
     ${progresoCarga? `
-    <div style="margin-top:14px">
-      <div class="hint" style="margin-bottom:4px">Cargando… ${progresoCarga.pct}% (${progresoCarga.actual.toLocaleString('es-CL')} de ${progresoCarga.total.toLocaleString('es-CL')} SKU)</div>
-      <div style="height:6px;border-radius:3px;background:var(--line);overflow:hidden">
+    <div class="card" style="margin-top:14px">
+      <div class="hint">1. Archivo leído ✓</div>
+      <div style="font-size:14px;margin-top:4px;${progresoCarga.etapa==='finalizando'?'color:var(--text-dim)':'font-weight:600'}">2. Guardando materiales${progresoCarga.etapa==='finalizando' ? ' ✓' : `… ${progresoCarga.actual.toLocaleString('es-CL')} de ${progresoCarga.total.toLocaleString('es-CL')} (${progresoCarga.pct}%)`}</div>
+      <div style="height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:6px">
         <div style="height:100%;width:${progresoCarga.pct}%;background:var(--amber);transition:width .2s"></div>
       </div>
+      <div style="font-size:14px;margin-top:8px;${progresoCarga.etapa==='finalizando'?'font-weight:600':'color:var(--text-faint)'}">3. Actualizando clasificación ABC y revisando sobrantes${progresoCarga.etapa==='finalizando'?'…':''}</div>
+      <div class="hint" style="margin-top:8px">No cierres esta pestaña hasta que termine.</div>
     </div>
     ` : ''}
 
@@ -10846,7 +10976,7 @@ function renderCargaPreview(){
 
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-secondary" id="btn-cancelar-carga" ${state.loading?'disabled':''}>Cancelar</button>
-      <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||bloqueaReemplazo||bloqueaAvisoBodega||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Confirmar e importar'}</button>
+      <button class="btn btn-primary" id="btn-confirmar-carga" ${camposFaltantes.length||bloqueaReemplazo||bloqueaAvisoBodega||state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':(resumenArchivo && resumenArchivo.materiales ? `Cargar ${resumenArchivo.materiales.toLocaleString('es-CL')} materiales` : 'Confirmar e importar')}</button>
     </div>
   `;
 }
@@ -11364,7 +11494,7 @@ function renderBuscar(){
     <div class="card">
       ${(resultados.length && !resultadosFiltrados)? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalReal}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
+        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
@@ -11374,6 +11504,7 @@ function renderBuscar(){
             <td class="mono">${esc(r.batch||'—')}</td>
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
+            <td class="mono">${esc(r.storage_bin||'—')}</td>
             <td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>
             <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}${(contado && r.reconteo_cierre_tipo)? ` ${badgeCierreReconteo(r.reconteo_cierre_tipo, r.ajuste_erp_referencia)}` : ''}</td>
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>
@@ -15093,6 +15224,10 @@ function bind(){
       if(btnOmitir) btnOmitir.addEventListener('click', ()=> setState({cargaSobrantes:{...state.cargaSobrantes, plegado:true}}));
       const btnRevisar = document.getElementById('btn-revisar-sobrantes');
       if(btnRevisar) btnRevisar.addEventListener('click', ()=> setState({cargaSobrantes:{...state.cargaSobrantes, plegado:false}}));
+      const btnRevisarRes = document.getElementById('btn-revisar-sobrantes-resultado');
+      if(btnRevisarRes) btnRevisarRes.addEventListener('click', ()=> setState({cargaSobrantes:{...state.cargaSobrantes, plegado:false}}));
+      const btnCerrarRes = document.getElementById('btn-cerrar-resultado-carga');
+      if(btnCerrarRes) btnCerrarRes.addEventListener('click', ()=> setState({cargaResultado:null}));
     }
   }
 
