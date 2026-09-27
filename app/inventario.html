@@ -12815,7 +12815,11 @@ const BANNER_MFA_MS = 15000;
 let bannerMfaVencido = false, bannerMfaTimer = null;
 function ocultarBannerMfaPorTiempo(){
   bannerMfaVencido = true; bannerMfaTimer = null;
-  if(document.getElementById('banner-mfa')) render();
+  // Se quita el aviso del DOM, no se llama a render(): un render() completo a los 15 segundos
+  // reemplazaría el <input> donde la persona esté escribiendo y en iPad reinicia el teclado
+  // (lo detectó el e2e de Crear orden de compra: "lo reemplazó 1 de 8 veces").
+  const el = document.getElementById('banner-mfa');
+  if(el && el.remove) el.remove();
 }
 function reiniciarBannerMfa(){
   bannerMfaVencido = false;
