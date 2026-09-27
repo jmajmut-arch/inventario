@@ -347,7 +347,7 @@ input[type=text],input[type=number],input[type=password],input[type=email],input
    segmentos día/mes/año + el ícono de calendario) que puede superar el ancho ya calculado del
    elemento y lo deja desbordar en vez de encogerlo. min-width:0 fuerza a que sí respete el ancho
    del contenedor como cualquier otro input. */
-input[type=date]{min-width:0;}
+input[type=date]{min-width:0;max-width:100%;}
 input:focus,select:focus,textarea:focus{border-color:var(--amber);}
 /* Bug real reportado por Joel ("cuesta hacer la selección" en Plan del día): Ubicación empieza
    disabled hasta elegir Bodega/patio, pero sin esta regla un <select disabled> se ve IDÉNTICO a
@@ -1978,6 +1978,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
+  reiniciarBannerMfa(); // el próximo ingreso vuelve a mostrar el aviso de MFA sus 15 segundos
   return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
@@ -9332,15 +9333,17 @@ function lecturaResumenEstadoBusqueda(resumen, separarSigno){
   const contados = resumen.reduce((s,d)=> s + (d.dia==='No contado'? 0 : d.n), 0);
   if(!contados) return '';
   const cuadrados = n['Cuadrado']||0;
-  const pct = Math.round(cuadrados/contados*100);
-  const partes = [`De ${contados.toLocaleString('es-CL')} contado${contados===1?'':'s'}, <strong style="color:var(--text)">${cuadrados.toLocaleString('es-CL')} cuadr${cuadrados===1?'ó':'aron'} (${pct}%)</strong>.`];
+  // Cada parte lleva su porcentaje sobre lo contado (pedido de Joel, 27/09): antes solo lo
+  // llevaba "cuadraron" y había que calcular el resto a mano.
+  const pct = x => Math.round(x/contados*100);
+  const partes = [`De ${contados.toLocaleString('es-CL')} contado${contados===1?'':'s'}, <strong style="color:var(--text)">${cuadrados.toLocaleString('es-CL')} cuadr${cuadrados===1?'ó':'aron'} (${pct(cuadrados)}%)</strong>.`];
   if(separarSigno){
     const neg = n['Diferencia negativa']||0, pos = n['Diferencia positiva']||0;
-    if(neg || pos) partes.push(`${neg.toLocaleString('es-CL')} con faltante · ${pos.toLocaleString('es-CL')} con sobrante.`);
+    if(neg || pos) partes.push(`${neg.toLocaleString('es-CL')} con faltante (${pct(neg)}%) · ${pos.toLocaleString('es-CL')} con sobrante (${pct(pos)}%).`);
   }else if(n['Diferencia']){
-    partes.push(`${n['Diferencia'].toLocaleString('es-CL')} con diferencia.`);
+    partes.push(`${n['Diferencia'].toLocaleString('es-CL')} con diferencia (${pct(n['Diferencia'])}%).`);
   }
-  if(n['Pendiente']) partes.push(`${n['Pendiente'].toLocaleString('es-CL')} pendiente${n['Pendiente']===1?'':'s'} de revisión.`);
+  if(n['Pendiente']) partes.push(`${n['Pendiente'].toLocaleString('es-CL')} pendiente${n['Pendiente']===1?'':'s'} de revisión (${pct(n['Pendiente'])}%).`);
   return `<div class="hint" style="margin-top:10px;text-align:center">${partes.join(' ')}</div>`;
 }
 
@@ -12807,8 +12810,27 @@ function adminSinMfa(){
 function mfaObligatoriaVigente(){
   return fechaISO(new Date()) >= state.mfaObligatoriaDesde;
 }
+// Pedido de Joel (27/09/2026): el aviso se ve unos 15 segundos al entrar y se oculta solo; vuelve
+// en el próximo ingreso mientras la cuenta siga sin segundo factor, y la activación queda siempre
+// en Configuraciones. Antes se quedaba fijo arriba en todas las pestañas hasta activar la MFA.
+const BANNER_MFA_MS = 15000;
+let bannerMfaVencido = false, bannerMfaTimer = null;
+function ocultarBannerMfaPorTiempo(){
+  bannerMfaVencido = true; bannerMfaTimer = null;
+  // Se quita el aviso del DOM, no se llama a render(): un render() completo a los 15 segundos
+  // reemplazaría el <input> donde la persona esté escribiendo y en iPad reinicia el teclado
+  // (lo detectó el e2e de Crear orden de compra: "lo reemplazó 1 de 8 veces").
+  const el = document.getElementById('banner-mfa');
+  if(el && el.remove) el.remove();
+}
+function reiniciarBannerMfa(){
+  bannerMfaVencido = false;
+  if(bannerMfaTimer) clearTimeout(bannerMfaTimer);
+  bannerMfaTimer = null;
+}
 function renderBannerMfa(){
-  if(!adminSinMfa() || mfaObligatoriaVigente() || state.view==='config') return '';
+  if(!adminSinMfa() || mfaObligatoriaVigente() || state.view==='config' || bannerMfaVencido) return '';
+  if(!bannerMfaTimer) bannerMfaTimer = setTimeout(ocultarBannerMfaPorTiempo, BANNER_MFA_MS);
   return `
     <div id="banner-mfa" style="background:var(--amber-soft, rgba(224,178,60,.15));color:var(--text);border-bottom:1px solid var(--amber);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
       <span>Tu cuenta administra la empresa y no tiene verificación en dos pasos. Desde el ${fmtFecha(state.mfaObligatoriaDesde)} será obligatoria para entrar.</span>

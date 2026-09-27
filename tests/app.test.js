@@ -3841,6 +3841,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     elements['btn-banner-mfa'].dispatch('click');
     assert(ctx.__appstate.view==='config', 'el botón del aviso debe llevar a Configuraciones, obtuvo: '+ctx.__appstate.view);
     ctx.__appstate.view = 'dashboard';
+    // Pedido de Joel (27/09): el aviso dura 15 segundos y se oculta solo; vuelve al ingresar de nuevo.
+    assert(html.includes('const BANNER_MFA_MS = 15000;'), 'el aviso de MFA se oculta a los 15 segundos');
+    assert(ctx.renderShell().includes('id="banner-mfa"'), 'antes de vencer el tiempo el aviso se ve');
+    ctx.ocultarBannerMfaPorTiempo();
+    assert(!ctx.renderShell().includes('id="banner-mfa"'), 'vencido el tiempo, el aviso desaparece aunque la cuenta siga sin MFA');
+    ctx.__appstate = ctx.__resyncAppState ? ctx.__resyncAppState() : ctx.__appstate;
+    ctx.estadoTrasCerrarSesion();
+    assert(ctx.renderShell().includes('id="banner-mfa"'), 'tras cerrar sesión, el próximo ingreso vuelve a mostrar el aviso');
+    ctx.reiniciarBannerMfa();
     // Desde la fecha: la app no deja pasar; en vez de la pestaña muestra el enrolamiento, con sus botones atados.
     ctx.__appstate.mfaObligatoriaDesde = '2020-01-01';
     shellMfa = ctx.renderShell();
@@ -10653,7 +10662,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.grupoEstadoBusqueda({conteo_id:'c', estado:'aprobado', diferencia:-1}, true)==='Diferencia negativa' && ctx.grupoEstadoBusqueda({conteo_id:'c', estado:'aprobado', diferencia:-1}, false)==='Diferencia', 'grupoEstadoBusqueda debe respetar separarSigno fila por fila');
   // La frase bajo el gráfico: cuenta filas, nunca suma diferencias.
   const lecturaEstado = ctx.lecturaResumenEstadoBusqueda(resumenSigno, true);
-  assert(lecturaEstado.includes('De 4 contados') && lecturaEstado.includes('1 cuadró (25%)') && lecturaEstado.includes('1 con faltante · 1 con sobrante') && lecturaEstado.includes('1 pendiente de revisión'), 'la lectura debe resumir contados, cuadrados, faltantes, sobrantes y pendientes, obtuvo: '+lecturaEstado);
+  assert(lecturaEstado.includes('De 4 contados') && lecturaEstado.includes('1 cuadró (25%)') && lecturaEstado.includes('1 con faltante (25%) · 1 con sobrante (25%)') && lecturaEstado.includes('1 pendiente de revisión (25%)'), 'la lectura debe resumir contados, cuadrados, faltantes, sobrantes y pendientes, obtuvo: '+lecturaEstado);
   assert(ctx.lecturaResumenEstadoBusqueda(ctx.resumenEstadoBusqueda([{conteo_id:null}], true), true)==='', 'sin nada contado no hay frase que mostrar');
 
   // renderBuscar: el gráfico "Resumen por estado" se muestra siempre que haya resultados (antes
@@ -10673,9 +10682,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlEstadoSinFiltro = ctx.renderBuscar();
   const recorteEstado = h => h.slice(Math.max(0, h.indexOf('Resumen por estado')-50), h.indexOf('Resumen por estado')+900);
   assert(htmlEstadoSinFiltro.includes('Resumen por estado') && htmlEstadoSinFiltro.includes('data-estado-clave="Diferencia negativa"') && htmlEstadoSinFiltro.includes('data-estado-clave="Diferencia positiva"'), 'sin ningún filtro, Buscar debe mostrar "Resumen por estado" con las porciones de diferencia negativa y positiva, obtuvo: '+recorteEstado(htmlEstadoSinFiltro));
-  assert(htmlEstadoSinFiltro.includes('De 3 contados') && htmlEstadoSinFiltro.includes('1 con faltante · 1 con sobrante'), 'bajo el gráfico debe verse cuántos cuadraron y cuántos salieron con faltante o sobrante, obtuvo: '+recorteEstado(htmlEstadoSinFiltro));
+  assert(htmlEstadoSinFiltro.includes('De 3 contados') && htmlEstadoSinFiltro.includes('1 con faltante (33%) · 1 con sobrante (33%)'), 'bajo el gráfico debe verse cuántos cuadraron y cuántos salieron con faltante o sobrante, obtuvo: '+recorteEstado(htmlEstadoSinFiltro));
   assert((htmlEstadoSinFiltro.match(/<tr>\s*<td/g)||[]).length===4, 'sin filtro la tabla debe mostrar las 4 filas, obtuvo: '+((htmlEstadoSinFiltro.match(/<tr>\s*<td/g)||[]).length));
 
+  // Pedido de Joel (27/09): cada parte con su porcentaje, no solo "cuadraron" (su captura: 35 contados, 22/8/5).
+  const lectura35 = ctx.lecturaResumenEstadoBusqueda([{dia:'Cuadrado',n:22},{dia:'Diferencia positiva',n:5},{dia:'Diferencia negativa',n:8},{dia:'Pendiente',n:0},{dia:'No contado',n:10}], true);
+  assert(lectura35.includes('De 35 contados') && lectura35.includes('22 cuadraron (63%)') && lectura35.includes('8 con faltante (23%) · 5 con sobrante (14%)'), 'la lectura bajo el gráfico lleva el porcentaje de cada parte, obtuvo: '+lectura35);
+  const lecturaDif = ctx.lecturaResumenEstadoBusqueda([{dia:'Cuadrado',n:3},{dia:'Diferencia',n:1},{dia:'Pendiente',n:1},{dia:'No contado',n:0}], false);
+  assert(lecturaDif.includes('1 con diferencia (20%)') && lecturaDif.includes('1 pendiente de revisión (20%)'), 'también sin separar signo y para pendientes, obtuvo: '+lecturaDif);
   ctx.toggleFiltroEstado('Diferencia negativa');
   assert(ctx.__appstate.busqueda.filtroEstado==='Diferencia negativa', 'un clic en una porción debe fijar el filtro por estado, obtuvo: '+ctx.__appstate.busqueda.filtroEstado);
   const htmlEstadoFiltrado = ctx.renderBuscar();
