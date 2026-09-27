@@ -107,6 +107,45 @@
 :root[data-tema="claro"] .toast.err{border-color:#e3b3ae;color:#8a2b20;background:#fdf1f0;}
 :root[data-tema="claro"] .toast.ok{border-color:#b7dcc3;color:#1f6b3d;background:#eef8f1;}
 :root[data-tema="claro"] .toast.warn{border-color:#e8d9a8;color:#8a6d1f;background:#fdf8ec;}
+/* "Negro y Ámbar": la identidad de inventiapp.cl (fondo gris claro, barras negras, ámbar como
+   acento, esquinas rectas, títulos condensados en mayúsculas), a pedido de Joel el 27/09/2026 y
+   como un tema más: cada persona elige el suyo en Configuraciones, nadie cambia de aspecto sin
+   pedirlo. El ámbar del sitio (#f5a800) no alcanza contraste como texto sobre blanco, así que
+   --amber (texto, íconos, acentos) es un ámbar más oscuro y el botón principal y las barras
+   negras usan el brillante. Lo demás son las variables de siempre: ninguna pantalla se toca. */
+:root[data-tema="industrial"]{
+  --bg:#f2f3f5; --surface:#ffffff; --surface-2:#e8eaee; --line:#d7dae0;
+  --amber:#a86f00; --amber-dim:#f6e2a8; --steel:#3d6d8a;
+  --ok:#2f7d46; --warn:#a8720a; --danger:#c23b2f;
+  --text:#111111; --text-dim:#4a4f57; --text-faint:#6b7079; --radius:0px;
+}
+:root[data-tema="industrial"] .toast.err{border-color:#e3b3ae;color:#8a2b20;background:#fdf1f0;}
+:root[data-tema="industrial"] .toast.ok{border-color:#b7dcc3;color:#1f6b3d;background:#eef8f1;}
+:root[data-tema="industrial"] .toast.warn{border-color:#e8d9a8;color:#8a6d1f;background:#fdf8ec;}
+:root[data-tema="industrial"] h1,:root[data-tema="industrial"] h2,:root[data-tema="industrial"] h3{text-transform:uppercase;font-weight:800;letter-spacing:0.02em;}
+:root[data-tema="industrial"] .eyebrow::before{content:"";display:inline-block;width:7px;height:7px;background:#f5a800;margin-right:6px;vertical-align:1px;}
+:root[data-tema="industrial"] .topbar{background:#0b0b0b;border-bottom:3px solid #f5a800;color:#fff;}
+:root[data-tema="industrial"] .topbar .brand-text h1{color:#fff;}
+:root[data-tema="industrial"] .topbar .brand-text span{color:#c9ccd1;}
+:root[data-tema="industrial"] .topbar .icon-btn{color:#f5a800;}
+:root[data-tema="industrial"] .topbar .icon-btn.disabled{color:#8d9198;}
+:root[data-tema="industrial"] .topbar .user-chip{color:#c9ccd1;}
+:root[data-tema="industrial"] .topbar .user-chip button{color:#fff;border-color:#3a3a3a;}
+:root[data-tema="industrial"] .tabbar{background:#0b0b0b;border-top:1px solid #2a2a2a;}
+:root[data-tema="industrial"] .tab{color:#8d9198;}
+:root[data-tema="industrial"] .tab.active{color:#f5a800;}
+:root[data-tema="industrial"] .tab-candado{background:#0b0b0b;}
+:root[data-tema="industrial"] .tab-candado svg{stroke:#8d9198;}
+:root[data-tema="industrial"] .btn-primary{background:#f5a800;color:#111;}
+:root[data-tema="industrial"] .btn-primary:active{background:#c98a00;}
+:root[data-tema="industrial"] .btn-secondary{background:#fff;color:#111;border:1px solid #111;}
+:root[data-tema="industrial"] .btn-secondary:active{background:#e8eaee;}
+:root[data-tema="industrial"] .btn,:root[data-tema="industrial"] .badge,:root[data-tema="industrial"] .toast,:root[data-tema="industrial"] .selected-sku,:root[data-tema="industrial"] .login-card,:root[data-tema="industrial"] .login-logo,:root[data-tema="industrial"] .brand-badge,:root[data-tema="industrial"] .file-input,:root[data-tema="industrial"] .user-chip button,:root[data-tema="industrial"] .progress-fill,:root[data-tema="industrial"] .progress-track,:root[data-tema="industrial"] .foto-modal-card,:root[data-tema="industrial"] input[type=text],:root[data-tema="industrial"] input[type=number],:root[data-tema="industrial"] input[type=password],:root[data-tema="industrial"] input[type=email],:root[data-tema="industrial"] input[type=date],:root[data-tema="industrial"] select,:root[data-tema="industrial"] textarea{border-radius:0;}
+:root[data-tema="industrial"] input[type=text],:root[data-tema="industrial"] input[type=number],:root[data-tema="industrial"] input[type=password],:root[data-tema="industrial"] input[type=email],:root[data-tema="industrial"] input[type=date],:root[data-tema="industrial"] select,:root[data-tema="industrial"] textarea{background:#fff;border-color:#b9bec7;}
+:root[data-tema="industrial"] .selected-sku{border-left:4px solid #f5a800;}
+:root[data-tema="industrial"] .segmented,:root[data-tema="industrial"] .segmented>*,:root[data-tema="industrial"] .dash button,:root[data-tema="industrial"] .logo-preview,:root[data-tema="industrial"] .foto-modal-card img,:root[data-tema="industrial"] .tema-swatches span{border-radius:0;}
+/* El título en mayúsculas es más ancho: un punto menos para que los íconos sigan cabiendo al lado. */
+:root[data-tema="industrial"] .topbar .brand-text h1{font-size:16px;}
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;transition:background-color .2s ease,color .2s ease;}
@@ -799,7 +838,12 @@ const TEMAS = [
   { id:'verde', nombre:'Verde Mina', desc:'Oscuro con acento verde', colores:['#121a15','#19241c','#43c07c'] },
   { id:'claro', nombre:'Claro Bodega', desc:'Fondo claro, para uso diurno (predeterminado)', colores:['#f4f5f3','#ffffff','#c9720f'] },
   { id:'alto_contraste', nombre:'Alto Contraste', desc:'Negro y amarillo, máxima visibilidad en terreno', colores:['#000000','#0c0c0c','#ffd400'] },
+  { id:'industrial', nombre:'Negro y Ámbar', desc:'Como inventiapp.cl: fondo gris claro, barras negras, esquinas rectas', colores:['#f2f3f5','#0b0b0b','#f5a800'] },
 ];
+// Color de la barra del navegador y de la app instalada (meta theme-color), según el tema: con
+// barras negras, una barra blanca arriba se veía como un parche. Los demás temas siguen como hoy.
+const COLOR_BARRA_NAVEGADOR_POR_TEMA = { industrial:'#0b0b0b' };
+function colorBarraNavegadorTema(tema){ return COLOR_BARRA_NAVEGADOR_POR_TEMA[tema] || '#ffffff'; }
 
 const SKUS_POR_PAGINA = 50;
 // Stock va de a 30 y no de a 300 como antes: con 300 materiales la tabla generaba 7.022 nodos y en
@@ -14176,6 +14220,8 @@ function render(){
 
 function renderDom(){
   document.documentElement.setAttribute('data-tema', state.tema);
+  const metaColor = document.querySelector ? document.querySelector('meta[name="theme-color"]') : null;
+  if(metaColor && metaColor.getAttribute('content') !== colorBarraNavegadorTema(state.tema)) metaColor.setAttribute('content', colorBarraNavegadorTema(state.tema));
   if(state.session && state.perfil && state.view !== vistaAseguradaAnterior){
     vistaAseguradaAnterior = state.view;
     const vista = state.view;
