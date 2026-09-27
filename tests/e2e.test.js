@@ -344,7 +344,7 @@ async function loguear(page, perfil){
         actual: [...document.querySelectorAll('.nav-links a[aria-current="page"]')].map(a => a.getAttribute('href')),
         desbordeH: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       }));
-      assert(estado.fondo === 'rgb(250, 246, 238)', `${archivo}: assets/comun.css no aplicó, el fondo quedó en ${estado.fondo}`);
+      assert(estado.fondo === 'rgb(242, 243, 245)', `${archivo}: assets/comun.css no aplicó, el fondo quedó en ${estado.fondo}`);
       assert(estado.modales, `${archivo}: assets/comun.js no inyectó los modales de demo y contacto`);
       assert(estado.whatsapp, `${archivo}: falta el botón flotante de WhatsApp`);
       assert(estado.nav.includes('bodega.html') && estado.nav.includes('inventario.html'),
@@ -557,7 +557,7 @@ async function loguear(page, perfil){
           desbordeH: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
         };
       });
-      assert(estado.fondo === 'rgb(250, 246, 238)', `landing Ads ${ancho}px: assets/comun.css no aplicó`);
+      assert(estado.fondo === 'rgb(242, 243, 245)', `landing Ads ${ancho}px: assets/comun.css no aplicó`);
       assert(/noindex/.test(estado.robots), `landing Ads ${ancho}px: debe pedir noindex, obtuvo "${estado.robots}"`);
       assert(estado.modales && estado.whatsapp, `landing Ads ${ancho}px: assets/comun.js no inyectó los modales o el WhatsApp`);
       assert(estado.ctaVisible, `landing Ads ${ancho}px: el botón "Ver una demo" tiene que verse sin scrollear`);

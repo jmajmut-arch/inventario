@@ -25,14 +25,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/comun.css">
 <style>
-  .comparativa-img{width:100%;display:block;border-radius:20px;box-shadow:0 30px 60px -30px rgba(36,26,16,.4);}
+  .comparativa-img{width:100%;display:block;border-radius:var(--radius);box-shadow:0 30px 60px -30px rgba(0,0,0,.45);}
   .carousel .section-title{font-weight:700;}
   .carousel{position:relative;}
   .carousel-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
   .carousel-track::-webkit-scrollbar{display:none;}
   .carousel-slide{flex:0 0 100%;min-width:100%;scroll-snap-align:start;display:flex;flex-direction:column;justify-content:center;}
   .carousel-nav{display:flex;align-items:center;justify-content:center;gap:20px;margin-top:36px;}
-  .carousel-arrow{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0;}
+  .carousel-arrow{width:38px;height:38px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0;}
   .carousel-arrow:hover{border-color:var(--amber);color:var(--amber);}
   .carousel-dots{display:flex;align-items:center;gap:9px;}
   .carousel-dot{width:8px;height:8px;border-radius:50%;border:none;background:var(--line);padding:0;cursor:pointer;transition:background .2s ease,transform .2s ease;}
@@ -40,14 +40,14 @@
   .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:36px;}
   @media (max-width:720px){ .steps{grid-template-columns:1fr;gap:44px;} }
   .step{position:relative;padding-top:8px;}
-  .step .ghost-num{position:absolute;top:-38px;left:-6px;font-family:'Barlow Condensed';font-weight:800;font-size:72px;color:var(--surface-2);z-index:0;line-height:1;user-select:none;}
+  .step .ghost-num{position:absolute;top:-38px;left:-6px;font-family:'Barlow Condensed';font-weight:800;font-size:72px;color:var(--line);z-index:0;line-height:1;user-select:none;}
   .step h3,.step p{position:relative;z-index:1;}
-  .step h3{font-size:18px;letter-spacing:-0.01em;margin:20px 0 8px;}
+  .step h3{font-size:22px;margin:20px 0 8px;}
   .step p{font-size:14.5px;color:var(--text-dim);line-height:1.6;margin:0;}
   /* ---- checklist: ¿tu inventario está bajo control? ---- */
   .checklist-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
   @media (max-width:720px){ .checklist-grid{grid-template-columns:1fr;} }
-  .checklist-item{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:30px 32px;}
+  .checklist-item{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--amber);border-radius:var(--radius);padding:30px 32px;}
   .checklist-q{font-size:15.5px;color:var(--text-dim);margin-bottom:12px;}
   .checklist-a{font-size:19px;font-weight:700;color:var(--text);display:flex;align-items:baseline;gap:10px;line-height:1.4;}
   .checklist-a .arrow{color:var(--amber);flex-shrink:0;}

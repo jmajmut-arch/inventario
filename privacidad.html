@@ -11,23 +11,24 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#faf6ee; --surface:#ffffff; --surface-2:#f1e9d8; --line:#e7dcc4;
-    --amber:#bd5b2c; --amber-dim:#8c4520; --on-amber:#fffaf3;
-    --text:#241a10; --text-dim:#5f5142; --text-faint:#9c8b76;
+    --bg:#f2f3f5; --surface:#ffffff; --surface-2:#e8eaee; --line:#d7dae0;
+    --ink:#0b0b0b; --amber:#f5a800; --amber-dim:#c98a00; --on-amber:#111111;
+    --text:#111111; --text-dim:#4a4f57; --text-faint:#6b7079;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
-  h1,h2,.display{font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:-0.01em;margin:0;}
+  h1,h2,.display{font-family:'Barlow Condensed',sans-serif;font-weight:800;letter-spacing:0;text-transform:uppercase;margin:0;}
   a{color:var(--amber-dim);text-decoration:underline;text-underline-offset:2px;}
   .wrap{max-width:1080px;margin:0 auto;padding:0 24px;}
   .narrow{max-width:680px;margin:0 auto;padding:64px 24px 96px;}
 
-  .nav{position:sticky;top:0;z-index:40;background:rgba(250,246,238,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(36,26,16,.06);}
+  .nav{position:sticky;top:0;z-index:40;background:var(--ink);color:#fff;border-bottom:1px solid #2a2a2a;}
   .nav-inner{display:flex;align-items:center;justify-content:space-between;padding:14px 0;}
   .brand{display:flex;align-items:center;gap:9px;}
-  .brand-badge{width:30px;height:30px;border-radius:8px;background:linear-gradient(155deg,var(--amber),var(--amber-dim));display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:12px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
-  .brand-name{font-size:16px;font-weight:800;letter-spacing:-0.01em;}
-  .nav-cta{padding:9px 20px;border-radius:100px;background:var(--text);color:var(--bg);font-size:13.5px;font-weight:700;text-decoration:none;}
+  .brand-badge{width:32px;height:32px;border-radius:4px;background:var(--amber);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:13px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
+  .brand-name{font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:800;text-transform:uppercase;line-height:1;}
+  .brand-name .ia{color:var(--amber);}
+  .nav-cta{padding:11px 20px;border-radius:4px;background:var(--amber);color:var(--on-amber);font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;text-decoration:none;}
 
   h1{font-size:clamp(1.9rem,4vw,2.6rem);margin-bottom:8px;}
   .actualizado{color:var(--text-faint);font-size:13px;margin-bottom:40px;}
@@ -39,7 +40,7 @@
   th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);color:var(--text-dim);}
   th{color:var(--text);font-weight:700;}
 
-  footer{padding:40px 24px;text-align:center;font-size:13px;color:var(--text-faint);border-top:1px solid var(--line);}
+  footer{padding:40px 24px;text-align:center;font-size:13px;color:#8d9198;background:var(--ink);border-top:6px solid var(--amber);}
 
   .encabezado{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
   .btn-pdf{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:100px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:700;font-family:'Inter',sans-serif;text-decoration:none;cursor:pointer;flex-shrink:0;}
