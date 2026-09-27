@@ -120,7 +120,7 @@
 <section class="page">
   <div class="kicker">03 · Maestro de materiales (SKU)</div>
   <h2 class="title">Alta manual, carga masiva, y el mismo código en varios lugares</h2>
-  <p class="intro">Un SKU es único por (empresa, código, bodega, batch, ubicación específica, storage bin): el mismo material puede vivir en más de un lugar dentro de la misma bodega, cada uno como su propia fila con su propio stock.</p>
+  <p class="intro">Un SKU es único por (empresa, código, bodega, batch, ubicación específica, storage bin): el mismo material puede vivir en más de un lugar dentro de la misma bodega, cada uno como su propia fila con su propio stock. <code>stock_sistema</code> es lo que debe haber físicamente en el bin (propio más consignación del proveedor); <code>stock_consignado</code> guarda esa parte, y las vistas la suman por código como <code>total_consignado</code>, igual que el tránsito.</p>
   <h3 class="sub">Alta manual</h3>
   <div class="two">
     <ul class="checks">
