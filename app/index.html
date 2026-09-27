@@ -666,6 +666,9 @@ let state = {
   resumenGeneral: { criticidad:'', tipoGrafico:'torta', datos:null, cargando:false },
   fotoModal: null,        // {urls:[...], index:0}
   descartarReconteoModal: null, // {conteoId, skuCode, motivo, guardando}
+  reconteosSeleccionados: [], // conteo_id marcados en la tabla de Reconteo (acciones en lote, solo admin)
+  cerrarLoteErpModal: null, // {filas:[{conteoId, skuCode, diferencia, veces}], referencia, motivo, guardando, resultado}
+  descartarLoteModal: null, // {filas, motivo, guardando, resultado}
   cerrarAjusteErpModal: null, // {conteoId, skuCode, contado, sistema, vecesConDiferencia, referencia, motivo, guardando}
   reconteosCerrados: {abierto:false, cargado:false, cargando:false, filas:[], error:null},
   corregirConteoModal: null, // {conteoId, skuCode, fecha, cantidadActual, cantidadOriginal, cantidad, observacion, motivo, guardando}
@@ -1979,7 +1982,7 @@ async function ingresarConCodigo(email, codigo){
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
   reiniciarBannerMfa(); // el próximo ingreso vuelve a mostrar el aviso de MFA sus 15 segundos
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -5825,7 +5828,9 @@ async function cargarReconteos(){
     // se QUEDA en esa semana mostrando "No quedan pendientes en esta semana" y el botón para
     // volver a todas -- reportado por Joel: antes saltaba sola a "todas las semanas" y parecía que
     // Descartar no había hecho nada (o que aparecían pendientes nuevos de golpe).
-    setState({reconteos: rows||[], reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana});
+    // La selección solo conserva lo que sigue en pantalla: lo cerrado o recontado sale de ella.
+    const enPantalla = new Set((rows||[]).map(r=>r.conteo_id));
+    setState({reconteos: rows||[], reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteosSeleccionados: (state.reconteosSeleccionados||[]).filter(id=>enPantalla.has(id))});
   }catch(e){ /* silencioso */ }
 }
 
@@ -5833,7 +5838,7 @@ async function cargarReconteos(){
 // se toca la misma). Vuelve a pedir la primera página con el filtro.
 function elegirSemanaReconteo(semana){
   const nueva = (!semana || state.reconteoSemana===semana) ? null : semana;
-  setState({reconteoSemana: nueva, reconteos: [], reconteosHayMas:false});
+  setState({reconteoSemana: nueva, reconteos: [], reconteosHayMas:false, reconteosSeleccionados: []});
   cargarReconteos();
 }
 
@@ -5906,6 +5911,91 @@ async function cerrarReconteoAjusteErp(){
 }
 // Cerrados recientes (Descartar y Ajuste ERP): los últimos 50, con tipo, referencia, quién y
 // cuándo. Se piden recién cuando la persona abre la sección, no en cada entrada a Reconteo.
+// ---------- Reconteo: acciones en lote (pedido de Joel, 27/09/2026) ----------
+// Para cerrar 20 materiales ajustados en SAP había que abrir 20 veces el mismo botón y escribir
+// 20 veces el folio. Ahora se marcan con casillas y un solo modal cierra (o quita) todos: cada
+// material se cierra con la MISMA función de siempre (cerrar_reconteo_ajuste_erp /
+// descartar_reconteo, vía las funciones _lote), con sus reglas y su registro en Auditoría y en
+// Cierres. Lo que no se puede cerrar (una merma contada una sola vez) queda pendiente y se dice
+// cuál y por qué. Solo admin, igual que los botones de cada fila.
+function toggleReconteoSeleccionado(conteoId){
+  const actuales = state.reconteosSeleccionados||[];
+  const seleccionados = actuales.includes(conteoId) ? actuales.filter(id=>id!==conteoId) : actuales.concat(conteoId);
+  setState({reconteosSeleccionados: seleccionados});
+}
+function toggleTodosReconteosSeleccionados(){
+  const ids = (state.reconteos||[]).map(r=>r.conteo_id).filter(Boolean);
+  const todos = ids.length>0 && ids.every(id=>(state.reconteosSeleccionados||[]).includes(id));
+  setState({reconteosSeleccionados: todos ? [] : ids});
+}
+function filasReconteoSeleccionadas(){
+  const sel = new Set(state.reconteosSeleccionados||[]);
+  return (state.reconteos||[]).filter(r=>sel.has(r.conteo_id)).map(r=>({
+    conteoId:r.conteo_id, skuCode:r.sku_code, contado:r.ultima_cantidad_contada, sistema:r.stock_sistema,
+    diferencia:r.ultima_diferencia, vecesConDiferencia:Number(r.veces_con_diferencia)||0,
+  }));
+}
+function abrirCerrarLoteErp(){
+  const filas = filasReconteoSeleccionadas();
+  if(!filas.length) return;
+  setState({cerrarLoteErpModal:{filas, referencia:'', motivo:'', guardando:false, resultado:null}});
+}
+function abrirDescartarLote(){
+  const filas = filasReconteoSeleccionadas();
+  if(!filas.length) return;
+  setState({descartarLoteModal:{filas, motivo:'', guardando:false, resultado:null}});
+}
+// Tras un cierre en lote: misma limpieza que el cierre de a uno, más vaciar la selección.
+function trasCierreEnLote(){
+  setState({reconteosSeleccionados:[], reconteosCerrados:{...state.reconteosCerrados, cargado:false}});
+  cargarReconteos();
+  if(state.reconteosCerrados.abierto) cargarReconteosCerrados();
+  invalidarCacheAgregados(['generales','sinUbicacion']);
+  refrescarSiCargada(['dashboard']);
+}
+async function cerrarReconteosLoteErp(){
+  const m = state.cerrarLoteErpModal;
+  if(!m || m.guardando || m.resultado) return;
+  const referencia = (m.referencia||'').trim();
+  if(!referencia){ toast('Indica la referencia del ajuste en el ERP (folio o documento)','err'); return; }
+  // Las mermas con un solo conteo no viajan: el servidor las rechazaría una por una. Se informan
+  // junto con lo que el servidor deje afuera.
+  const fueraPorReconteo = m.filas.filter(f=>faltaReconteoParaCerrarErp(f)).map(f=>({conteo_id:f.conteoId, sku_code:f.skuCode, motivo:'Merma contada una sola vez: recuéntala antes de cerrarla por el ERP'}));
+  const ids = m.filas.filter(f=>!faltaReconteoParaCerrarErp(f)).map(f=>f.conteoId);
+  if(!ids.length){ toast('Ninguno se puede cerrar todavía: son mermas contadas una sola vez','err'); return; }
+  setState({cerrarLoteErpModal:{...m, referencia, guardando:true}});
+  try{
+    const r = await rest('/rpc/cerrar_reconteos_ajuste_erp_lote', {method:'POST', body:{p_conteo_ids: ids, p_referencia: referencia, p_motivo: (m.motivo||'').trim() || null}}) || {};
+    const omitidos = fueraPorReconteo.concat(Array.isArray(r.omitidos) ? r.omitidos : []);
+    const cerrados = Number(r.cerrados)||0;
+    toast(`${cerrados} reconteo${cerrados===1?'':'s'} cerrado${cerrados===1?'':'s'} con ajuste en el ERP${omitidos.length?`; ${omitidos.length} quedaron pendientes`:''}`, omitidos.length?'warn':'ok');
+    // Sin nada afuera el modal se cierra solo; si algo quedó pendiente, se queda mostrando cuál y por qué.
+    setState({cerrarLoteErpModal: omitidos.length ? {...state.cerrarLoteErpModal, guardando:false, resultado:{cerrados, omitidos}} : null});
+    trasCierreEnLote();
+  }catch(e){
+    setState({cerrarLoteErpModal:{...state.cerrarLoteErpModal, guardando:false}});
+    toast(e.message, 'err');
+  }
+}
+async function descartarReconteosLote(){
+  const m = state.descartarLoteModal;
+  if(!m || m.guardando || m.resultado) return;
+  const motivo = (m.motivo||'').trim();
+  if(!motivo){ toast('Debes indicar un motivo','err'); return; }
+  setState({descartarLoteModal:{...m, motivo, guardando:true}});
+  try{
+    const r = await rest('/rpc/descartar_reconteos_lote', {method:'POST', body:{p_conteo_ids: m.filas.map(f=>f.conteoId), p_motivo: motivo}}) || {};
+    const omitidos = Array.isArray(r.omitidos) ? r.omitidos : [];
+    const cerrados = Number(r.cerrados)||0;
+    toast(`${cerrados} reconteo${cerrados===1?'':'s'} quitado${cerrados===1?'':'s'} de la lista${omitidos.length?`; ${omitidos.length} no se pudieron quitar`:''}`, omitidos.length?'warn':'ok');
+    setState({descartarLoteModal: omitidos.length ? {...state.descartarLoteModal, guardando:false, resultado:{cerrados, omitidos}} : null});
+    trasCierreEnLote();
+  }catch(e){
+    setState({descartarLoteModal:{...state.descartarLoteModal, guardando:false}});
+    toast(e.message, 'err');
+  }
+}
+
 async function cargarReconteosCerrados(){
   setState({reconteosCerrados:{...state.reconteosCerrados, cargando:true, error:null}});
   try{
@@ -9707,6 +9797,64 @@ function renderCerrarAjusteErpModal(){
   </div>`;
 }
 
+// Lista de lo que quedó afuera en un cierre en lote (mismo bloque en los dos modales).
+function renderOmitidosLote(resultado, verbo){
+  if(!resultado) return '';
+  return `<div class="hint" style="margin-bottom:10px"><b>${resultado.cerrados}</b> ${verbo}. Quedaron pendientes <b>${resultado.omitidos.length}</b>:</div>
+    <ul style="margin:0 0 12px;padding-left:18px;font-size:13px">${resultado.omitidos.map(o=>`<li><span class="mono">${esc(o.sku_code||'')}</span> · ${esc(o.motivo||'')}</li>`).join('')}</ul>`;
+}
+function renderCerrarLoteErpModal(){
+  const m = state.cerrarLoteErpModal;
+  if(!m) return '';
+  const fuera = m.filas.filter(f=>faltaReconteoParaCerrarErp(f));
+  const cerrables = m.filas.length - fuera.length;
+  return `<div class="foto-modal-backdrop" id="cerrar-lote-erp-modal-backdrop">
+    <div class="card" style="width:min(92vw,480px);margin-bottom:0;max-height:86vh;overflow:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">Cerrar ${m.filas.length} con ajuste en el ERP</h2>
+        <button id="cerrar-lote-erp-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      ${m.resultado ? renderOmitidosLote(m.resultado, `cerrado${m.resultado.cerrados===1?'':'s'} con ajuste en el ERP`) + `
+      <button type="button" class="btn btn-primary" id="cerrar-lote-erp-listo">Entendido</button>` : `
+      <div class="hint" style="margin-bottom:10px">Al cerrar, el stock del sistema de cada material queda en lo contado y salen de la lista de reconteo. Úsalo solo cuando el ajuste ya está hecho en el ERP. Una sola referencia para todos.</div>
+      ${fuera.length ? `<div class="hint" style="margin-bottom:10px;color:var(--danger)">${fuera.length===1?'Una merma se contó una sola vez y queda afuera':`${fuera.length} mermas se contaron una sola vez y quedan afuera`}: ${fuera.map(f=>`<span class="mono">${esc(f.skuCode)}</span>`).join(', ')}. Recuéntalas antes de cerrarlas por el ERP.</div>` : ''}
+      <form id="form-cerrar-lote-erp">
+        <label for="cerrar-lote-erp-referencia">Referencia del ajuste en el ERP *</label>
+        <input type="text" id="cerrar-lote-erp-referencia" required placeholder="Ej: folio 4500123 / doc. MB1A 2026-09-22" value="${esc(m.referencia||'')}" ${cerrables?'':'disabled'}>
+        <label for="cerrar-lote-erp-motivo" style="margin-top:10px">Comentario</label>
+        <textarea id="cerrar-lote-erp-motivo" rows="2" placeholder="Opcional: qué se encontró" ${cerrables?'':'disabled'}>${esc(m.motivo||'')}</textarea>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" ${(m.guardando || !cerrables)?'disabled':''}>${m.guardando?'<span class="spinner"></span> Cerrando…':`Cerrar ${cerrables} reconteo${cerrables===1?'':'s'}`}</button>
+          <button type="button" class="btn btn-secondary" id="cerrar-lote-erp-cancelar" style="width:auto">Cancelar</button>
+        </div>
+      </form>`}
+    </div>
+  </div>`;
+}
+function renderDescartarLoteModal(){
+  const m = state.descartarLoteModal;
+  if(!m) return '';
+  return `<div class="foto-modal-backdrop" id="descartar-lote-modal-backdrop">
+    <div class="card" style="width:min(92vw,460px);margin-bottom:0;max-height:86vh;overflow:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;font-size:17px">Quitar ${m.filas.length} del reconteo</h2>
+        <button id="descartar-lote-modal-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      ${m.resultado ? renderOmitidosLote(m.resultado, `quitado${m.resultado.cerrados===1?'':'s'} de la lista`) + `
+      <button type="button" class="btn btn-primary" id="descartar-lote-listo">Entendido</button>` : `
+      <div class="hint" style="margin-bottom:10px">Salen de la lista de reconteo pendiente sin volver a contarlos -- úsalo solo cuando el problema fue un error en el dato maestro, no algo que deba verificarse físicamente. El stock del sistema no cambia. Un solo motivo para todos: ${m.filas.map(f=>`<span class="mono">${esc(f.skuCode)}</span>`).join(', ')}.</div>
+      <form id="form-descartar-lote">
+        <label for="descartar-lote-motivo">Motivo</label>
+        <textarea id="descartar-lote-motivo" rows="3" required placeholder="Ej: se corrigió un error de tipeo en el stock del maestro">${esc(m.motivo||'')}</textarea>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-danger" ${m.guardando?'disabled':''}>${m.guardando?'<span class="spinner"></span> Quitando…':`Quitar ${m.filas.length}`}</button>
+          <button type="button" class="btn btn-secondary" id="descartar-lote-cancelar" style="width:auto">Cancelar</button>
+        </div>
+      </form>`}
+    </div>
+  </div>`;
+}
+
 function renderDescartarReconteoModal(){
   const m = state.descartarReconteoModal;
   if(!m) return '';
@@ -11277,6 +11425,9 @@ function renderReconteo(){
   // "Descartar" (solo admin, ver descartarReconteo): saca un material de la lista sin recontarlo
   // físicamente, para cuando el problema era un error en el dato maestro y no algo por verificar.
   const esAdmin = state.perfil && state.perfil.rol === 'admin';
+  // Selección múltiple (solo admin): casillas por fila y acciones en lote, ver abrirCerrarLoteErp.
+  const seleccionados = state.reconteosSeleccionados||[];
+  const todosSeleccionados = rows.length>0 && rows.every(r=>seleccionados.includes(r.conteo_id));
   // Con el módulo de bodega activo, la diferencia confirmada se puede llevar al stock como un
   // ajuste (admin: inmediato; operador: queda pendiente de aprobación). Ver abrirAjusteBodega.
   const bodegaActiva = moduloBodegaActivo();
@@ -11310,9 +11461,16 @@ function renderReconteo(){
         </div>
         ${textoBusqueda ? `<div class="hint" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>Mostrando pendientes que coinciden con <strong>${esc(textoBusqueda)}</strong>${semanaActiva ? ` en la semana ${etiquetaSemana(semanaActiva)}` : ''}.</span><button type="button" class="link-btn" id="btn-limpiar-reconteo">Limpiar búsqueda</button></div>` : ''}
       </form>
+      ${esAdmin && seleccionados.length ? `<div id="acciones-reconteo-lote" class="card" style="border-color:var(--amber);display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px">
+        <span style="font-size:13px;flex:1;min-width:120px"><b>${seleccionados.length}</b> seleccionado${seleccionados.length===1?'':'s'}</span>
+        <button type="button" class="btn btn-primary" id="btn-cerrar-lote-erp" style="width:auto;padding:7px 12px;font-size:12.5px">Cerrar ${seleccionados.length} con ajuste en el ERP</button>
+        <button type="button" class="btn btn-secondary" id="btn-descartar-lote" style="width:auto;padding:7px 12px;font-size:12.5px">Quitar ${seleccionados.length} del reconteo</button>
+        <button type="button" class="link-btn" id="btn-limpiar-seleccion-reconteo">Deseleccionar</button>
+      </div>` : ''}
       ${rows.length? `<div class="table-wrap"><table>
-        <thead><tr><th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
+        <thead><tr>${esAdmin?`<th style="width:1%"><input type="checkbox" id="chk-reconteo-todos" aria-label="Seleccionar todos" ${todosSeleccionados?'checked':''}></th>`:''}<th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
+          ${esAdmin?`<td><input type="checkbox" class="chk-reconteo-fila" data-conteo-id="${esc(r.conteo_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${seleccionados.includes(r.conteo_id)?'checked':''}></td>`:''}
           <td class="mono">${esc(r.sku_code)}<div style="font-size:11px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div></td>
           ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}${r.stock_sistema_anterior!=null?`<div class="hint" style="font-size:10.5px;margin-top:2px;white-space:nowrap">antes: ${r.stock_sistema_anterior}${r.stock_sistema_actualizado_en?` · ${fmtFechaHora(r.stock_sistema_actualizado_en)}`:''}</div>`:''}${infoStockPorTipo(r)}</td>`}
           <td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>
@@ -14256,7 +14414,7 @@ function renderDom(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCerrarLoteErpModal() + renderDescartarLoteModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -15395,6 +15553,18 @@ function bind(){
   }
 
   if(state.view==='reconteo'){
+    // Selección múltiple y acciones en lote (solo admin, ver abrirCerrarLoteErp).
+    document.querySelectorAll('.chk-reconteo-fila').forEach(chk=>{
+      chk.addEventListener('change', ()=> toggleReconteoSeleccionado(chk.dataset.conteoId));
+    });
+    const chkTodosReconteo = document.getElementById('chk-reconteo-todos');
+    if(chkTodosReconteo) chkTodosReconteo.addEventListener('change', toggleTodosReconteosSeleccionados);
+    const btnCerrarLoteErp = document.getElementById('btn-cerrar-lote-erp');
+    if(btnCerrarLoteErp) btnCerrarLoteErp.addEventListener('click', abrirCerrarLoteErp);
+    const btnDescartarLote = document.getElementById('btn-descartar-lote');
+    if(btnDescartarLote) btnDescartarLote.addEventListener('click', abrirDescartarLote);
+    const btnLimpiarSelReconteo = document.getElementById('btn-limpiar-seleccion-reconteo');
+    if(btnLimpiarSelReconteo) btnLimpiarSelReconteo.addEventListener('click', ()=> setState({reconteosSeleccionados:[]}));
     const btnCargarMasReconteo = document.getElementById('btn-cargar-mas-reconteo');
     if(btnCargarMasReconteo) btnCargarMasReconteo.addEventListener('click', cargarMasReconteos);
     // Gráfico por semana: tocar una barra filtra la tabla a esa semana (ver elegirSemanaReconteo).
@@ -15549,6 +15719,40 @@ function bind(){
       e.preventDefault();
       setState({descartarReconteoModal:{...state.descartarReconteoModal, motivo: document.getElementById('descartar-reconteo-motivo').value}});
       descartarReconteo();
+    });
+  }
+  if(state.cerrarLoteErpModal){
+    const cerrarLote = ()=> setState({cerrarLoteErpModal:null});
+    document.getElementById('cerrar-lote-erp-modal-close').addEventListener('click', cerrarLote);
+    const cancelarLote = document.getElementById('cerrar-lote-erp-cancelar');
+    if(cancelarLote) cancelarLote.addEventListener('click', cerrarLote);
+    const listoLote = document.getElementById('cerrar-lote-erp-listo');
+    if(listoLote) listoLote.addEventListener('click', cerrarLote);
+    document.getElementById('cerrar-lote-erp-modal-backdrop').addEventListener('click', e=>{
+      if(e.target.id === 'cerrar-lote-erp-modal-backdrop') cerrarLote();
+    });
+    const formLote = document.getElementById('form-cerrar-lote-erp');
+    if(formLote) formLote.addEventListener('submit', e=>{
+      e.preventDefault();
+      setState({cerrarLoteErpModal:{...state.cerrarLoteErpModal, referencia: document.getElementById('cerrar-lote-erp-referencia').value, motivo: document.getElementById('cerrar-lote-erp-motivo').value}});
+      cerrarReconteosLoteErp();
+    });
+  }
+  if(state.descartarLoteModal){
+    const cerrarDescLote = ()=> setState({descartarLoteModal:null});
+    document.getElementById('descartar-lote-modal-close').addEventListener('click', cerrarDescLote);
+    const cancelarDescLote = document.getElementById('descartar-lote-cancelar');
+    if(cancelarDescLote) cancelarDescLote.addEventListener('click', cerrarDescLote);
+    const listoDescLote = document.getElementById('descartar-lote-listo');
+    if(listoDescLote) listoDescLote.addEventListener('click', cerrarDescLote);
+    document.getElementById('descartar-lote-modal-backdrop').addEventListener('click', e=>{
+      if(e.target.id === 'descartar-lote-modal-backdrop') cerrarDescLote();
+    });
+    const formDescLote = document.getElementById('form-descartar-lote');
+    if(formDescLote) formDescLote.addEventListener('submit', e=>{
+      e.preventDefault();
+      setState({descartarLoteModal:{...state.descartarLoteModal, motivo: document.getElementById('descartar-lote-motivo').value}});
+      descartarReconteosLote();
     });
   }
   if(state.cerrarAjusteErpModal){
