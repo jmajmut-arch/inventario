@@ -4632,58 +4632,69 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'sin repetidas, total 0');
   assert(!ctx.renderCargaPreview().includes('comparten identidad'), 'sin repetidas no se muestra el aviso');
 
-  // ===== Filas sin ubicación, sin storage bin y con stock 0: no se cargan =====
+  // ===== Filas sin ubicación, sin storage bin y con stock 0: se omiten y su tránsito pasa al bin =====
   // SAP exporta, además de la línea de cada bin, una línea del material a nivel de bodega: sin
-  // ubicación, sin bin y con stock 0. Medido en Escondida el 27/09/2026: 1.613 filas así, 1.295
-  // de ellas con una hermana sí ubicada. Cargadas como SKU no se pueden contar (no tienen dónde)
-  // y el "% del maestro contado" nunca llega a 100. Decisión de Joel: se omiten. La regla solo
-  // aplica si el archivo trae columna de ubicación o de bin: una empresa cuyo maestro no maneja
-  // ubicaciones no puede perder sus materiales con stock 0 por esto.
+  // ubicación, sin bin, stock 0 y con lo que viene en camino. Medido en Escondida el 27/09/2026
+  // (Materials (13).xlsx): 1.612 filas así, 1.611 con tránsito. Decisión de Joel: si el material
+  // ya viene con una fila ubicada en esa bodega, la fila sin sitio se omite y su tránsito pasa a
+  // la fila del bin; si es su única fila, se carga como siempre. La regla solo aplica si el
+  // archivo trae columna de ubicación o de bin.
   ctx.__appstate.cargaPreview = {
     file: { name: 'materiales.csv' }, modo: 'complementar',
-    mapeo: { sku_code:'Codigo', bodega:'Bodega', batch:'Batch', ubicacion:'Ubic', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo' },
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', batch:'Batch', ubicacion:'Ubic', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo', stock_transito_1:'Transito', stock_transito_2:'Transito2' },
     campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}],
-    headers: ['Codigo','Bodega','Batch','Ubic','Bin','Stock','Costo'],
+    headers: ['Codigo','Bodega','Batch','Ubic','Bin','Stock','Costo','Transito','Transito2'],
     confirmaReemplazo: false,
     data: [
-      { Codigo:'10001008', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'N1E-055-H5', Stock:'8', Costo:'1' }, // se carga
-      { Codigo:'10001008', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1' },             // fantasma: se omite
-      { Codigo:'10001064', Bodega:'B501', Batch:'NEW', Ubic:'', Bin:'', Stock:'0', Costo:'1' },          // fantasma con batch: se omite igual
-      { Codigo:'20001', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'3', Costo:'1' },                // sin sitio pero con stock: se carga
-      { Codigo:'20002', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'', Costo:'1' },                 // stock en blanco no es cero, es desconocido: se carga
-      { Codigo:'20003', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'A-1', Stock:'0', Costo:'1' },         // stock 0 pero ubicado: se carga
-      { Codigo:'20004', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1' },                // fantasma dos veces: se omiten ambas...
-      { Codigo:'20004', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1' },                // ...y no cuentan como "comparten identidad"
+      { Codigo:'10001008', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'N1E-055-H5', Stock:'8', Costo:'1', Transito:'', Transito2:'1' }, // fila del bin: se carga y recibe el tránsito
+      { Codigo:'10001008', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1', Transito:'15', Transito2:'2' },            // sin sitio, con hermana ubicada: se omite
+      { Codigo:'10001064', Bodega:'B501', Batch:'NEW', Ubic:'', Bin:'', Stock:'0', Costo:'1', Transito:'3', Transito2:'' },           // sin sitio y SIN hermana: se carga (único registro)
+      { Codigo:'20001', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'3', Costo:'1', Transito:'', Transito2:'' },                  // sin sitio pero con stock: se carga
+      { Codigo:'20002', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'', Costo:'1', Transito:'', Transito2:'' },                   // stock en blanco no es cero: se carga
+      { Codigo:'20003', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'A-1', Stock:'0', Costo:'1', Transito:'', Transito2:'' },           // stock 0 pero ubicado: se carga
+      { Codigo:'20004', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'B-2', Stock:'1', Costo:'1', Transito:'', Transito2:'' },           // bin de 20004
+      { Codigo:'20004', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1', Transito:'3', Transito2:'' },                 // dos filas sin sitio del mismo material: se omiten ambas,
+      { Codigo:'20004', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1', Transito:'4', Transito2:'' },                 // ...suman su tránsito y no cuentan como "comparten identidad"
+      { Codigo:'20005', Bodega:'B521', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1', Transito:'9', Transito2:'' },                 // la hermana ubicada está en OTRA bodega: no es hermana, se carga
+      { Codigo:'20005', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'C-1', Stock:'2', Costo:'1', Transito:'', Transito2:'' },
     ],
   };
   const omitidas = ctx.filasSinUbicacionNiStock(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo);
-  assert(omitidas.total===4, 'deben omitirse 4 filas (sin ubicación, sin bin y stock 0), obtuvo: '+JSON.stringify(omitidas));
-  assert(omitidas.ejemplos.length===3 && omitidas.ejemplos.map(e=>e.sku_code).join(',')==='10001008,10001064,20004', 'los ejemplos van por código, una vez cada uno, obtuvo: '+JSON.stringify(omitidas.ejemplos));
-  assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'dos fantasmas idénticas no se avisan como repetidas: ninguna se carga');
+  assert(omitidas.total===3, 'deben omitirse 3 filas (1 de 10001008 + 2 de 20004), obtuvo: '+JSON.stringify(omitidas));
+  assert(omitidas.ejemplos.map(e=>e.sku_code).join(',')==='10001008,20004', 'los ejemplos van por código, una vez cada uno, obtuvo: '+JSON.stringify(omitidas.ejemplos));
+  assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'dos filas sin sitio idénticas que se omiten no se avisan como repetidas');
   const htmlPreviewOmit = ctx.renderCargaPreview();
-  assert(htmlPreviewOmit.includes('4 fila(s) sin ubicación, sin storage bin y con stock 0'), 'el preview dice cuántas filas se van a omitir antes de confirmar, obtuvo: '+htmlPreviewOmit);
-  assert(htmlPreviewOmit.includes('10001064') && htmlPreviewOmit.includes('batch NEW'), 'muestra ejemplos concretos con su batch, obtuvo: '+htmlPreviewOmit);
+  assert(htmlPreviewOmit.includes('3 fila(s) sin ubicación, sin storage bin y con stock 0'), 'el preview dice cuántas filas se van a omitir antes de confirmar, obtuvo: '+htmlPreviewOmit);
+  assert(htmlPreviewOmit.includes('10001008') && htmlPreviewOmit.includes('su tránsito pasa a la fila del bin'), 'muestra ejemplos y explica que el tránsito no se pierde, obtuvo: '+htmlPreviewOmit);
   const toastRootOmit = elements['toast-root'];
   const toastsAntesOmit = toastRootOmit.hijos.length;
   calls.length = 0;
   await ctx.confirmarCargaMasiva();
   const postOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   const filasOmit = JSON.parse(postOmit.opts.body);
-  assert(filasOmit.map(f=>f.sku_code).join(',')==='10001008,20001,20002,20003', 'al upsert llegan solo las 4 filas que sí se cargan, obtuvo: '+JSON.stringify(filasOmit.map(f=>[f.sku_code,f.storage_bin,f.stock_sistema])));
-  assert(filasOmit[0].storage_bin==='N1E-055-H5' && filasOmit[0].stock_sistema===8, 'la hermana ubicada se carga intacta, obtuvo: '+JSON.stringify(filasOmit[0]));
+  assert(filasOmit.map(f=>f.sku_code).join(',')==='10001008,10001064,20001,20002,20003,20004,20005,20005', 'al upsert llegan las 8 filas que sí se cargan, obtuvo: '+JSON.stringify(filasOmit.map(f=>[f.sku_code,f.bodega,f.storage_bin,f.stock_sistema])));
+  const binOmit = filasOmit[0];
+  assert(binOmit.storage_bin==='N1E-055-H5' && binOmit.stock_sistema===8, 'la fila del bin se carga con su stock, obtuvo: '+JSON.stringify(binOmit));
+  assert(binOmit.stock_transito_1===15 && binOmit.stock_transito_2===3, 'el tránsito de la fila omitida pasa a la fila del bin (15 a un campo vacío; 2 + 1 al otro), obtuvo: '+JSON.stringify(binOmit));
+  const binDos = filasOmit.find(f=>f.sku_code==='20004');
+  assert(binDos.storage_bin==='B-2' && binDos.stock_transito_1===7, 'dos filas omitidas del mismo material suman su tránsito en la fila del bin (3 + 4), obtuvo: '+JSON.stringify(binDos));
+  const unicaOmit = filasOmit.find(f=>f.sku_code==='10001064');
+  assert(unicaOmit.storage_bin===null && unicaOmit.stock_sistema===0 && unicaOmit.stock_transito_1===3, 'la fila sin sitio de un material que no viene ubicado se carga como siempre, con su tránsito, obtuvo: '+JSON.stringify(unicaOmit));
+  const otraBodega = filasOmit.filter(f=>f.sku_code==='20005');
+  assert(otraBodega.length===2 && otraBodega.some(f=>f.bodega==='B521' && f.stock_transito_1===9) && otraBodega.some(f=>f.bodega==='B501' && f.stock_transito_1===null), 'una fila ubicada en otra bodega no es hermana: la fila sin sitio se carga y nada se traspasa, obtuvo: '+JSON.stringify(otraBodega));
   const regOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
   const cuerpoOmit = JSON.parse(regOmit.opts.body)[0];
-  assert(cuerpoOmit.filas_totales===8 && cuerpoOmit.filas_ok===4 && cuerpoOmit.filas_error===0, 'el historial registra 8 filas, 4 cargadas, 0 con error (las omitidas no son error), obtuvo: '+JSON.stringify(cuerpoOmit));
-  assert((cuerpoOmit.detalle_errores||[]).some(e=>/sin ubicación, sin storage bin y con stock 0/i.test(e.motivo) && e.cantidad===4), 'el historial deja constancia de cuántas se omitieron y por qué, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
+  assert(cuerpoOmit.filas_totales===11 && cuerpoOmit.filas_ok===8 && cuerpoOmit.filas_error===0, 'el historial registra 11 filas, 8 cargadas, 0 con error (las omitidas no son error), obtuvo: '+JSON.stringify(cuerpoOmit));
+  assert((cuerpoOmit.detalle_errores||[]).some(e=>/sin ubicación, sin storage bin y con stock 0/i.test(e.motivo) && e.cantidad===3), 'el historial deja constancia de cuántas se omitieron y por qué, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
   const toastsOmit = toastRootOmit.hijos.slice(toastsAntesOmit).map(t=>t.textContent);
-  assert(toastsOmit.some(t=>t.includes('4 SKUs cargados') && t.includes('4 omitidas')), 'el aviso final dice cuántas se omitieron, obtuvo: '+JSON.stringify(toastsOmit));
+  assert(toastsOmit.some(t=>t.includes('8 SKUs cargados') && t.includes('3 omitidas')), 'el aviso final dice cuántas se omitieron, obtuvo: '+JSON.stringify(toastsOmit));
   await new Promise(r=>setTimeout(r, 0));
 
   // El historial muestra las omitidas y su motivo aunque no haya errores.
-  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[{ id:'c-omit', nombre_archivo:'Materials (14).xlsx', tipo:'skus', filas_totales:62247, filas_ok:60634, filas_error:0, created_at:'2026-09-28T12:00:00Z', usuarios:{nombre:'Joel'}, detalle_errores:[{motivo:'Sin ubicación, sin storage bin y con stock 0 (no se cargan)', cantidad:1613}] }]};
+  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[{ id:'c-omit', nombre_archivo:'Materials (14).xlsx', tipo:'skus', filas_totales:62247, filas_ok:60634, filas_error:0, created_at:'2026-09-28T12:00:00Z', usuarios:{nombre:'Joel'}, detalle_errores:[{motivo:'Sin ubicación, sin storage bin y con stock 0, con el material ya ubicado en otra fila (no se cargan; su tránsito pasa a la fila del bin)', cantidad:1613}] }]};
   const htmlHistOmit = ctx.renderCargaMasiva();
   assert(htmlHistOmit.includes('60634 de 62247 filas cargadas') && htmlHistOmit.includes('1613 omitidas'), 'el historial cuenta las omitidas aparte de los errores, obtuvo: '+htmlHistOmit);
-  assert(htmlHistOmit.includes('Ver detalle') && htmlHistOmit.includes('Sin ubicación, sin storage bin y con stock 0 (no se cargan) - 1613 SKU'), 'el detalle explica el motivo aunque filas_error sea 0, obtuvo: '+htmlHistOmit);
+  assert(htmlHistOmit.includes('Ver detalle') && htmlHistOmit.includes('su tránsito pasa a la fila del bin) - 1613 SKU'), 'el detalle explica el motivo aunque filas_error sea 0, obtuvo: '+htmlHistOmit);
   ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
 
   // Sin columna de ubicación ni de bin, la regla no aplica: un maestro sin ubicaciones conserva
