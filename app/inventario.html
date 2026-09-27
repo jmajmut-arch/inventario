@@ -7673,15 +7673,67 @@ function agruparDetalleErrores(detalleErrores){
 // Se calcula con la misma normalización que confirmarCargaMasiva (trim y vacío = null), sobre el
 // mapeo que la persona tenga elegido en ese momento; se memoriza porque el archivo puede traer
 // decenas de miles de filas y el preview se redibuja con cada cambio.
+// Filas sin ubicación, sin storage bin y con stock 0. SAP exporta, además de la línea de cada
+// bin, una línea del material a nivel de bodega: sin ubicación, sin bin, stock 0 y con lo que
+// viene en camino (tránsito). Medido en Escondida el 27/09/2026 sobre Materials (13).xlsx: 1.612
+// filas así, 1.611 con tránsito. Cargadas como SKU no se pueden contar (no tienen dónde) y el
+// "% del maestro contado" nunca llega a 100. Decisión de Joel: si el mismo material (código +
+// bodega) ya viene con una fila ubicada, la fila sin sitio se omite y su tránsito (y el resto del
+// stock informativo) pasa a esa fila, así el total del material (skus_lectura suma por código) se
+// ve igual que hoy en Contar, Buscar y SKU. Si es la única fila del material, se carga como
+// siempre: es su único registro. La regla solo aplica si el archivo trae columna de ubicación o
+// de bin: una empresa cuyo maestro no maneja ubicaciones no cambia. Stock en blanco no es cero,
+// es desconocido: esa fila se carga.
+const MOTIVO_FILA_SIN_UBICACION_NI_STOCK = 'Sin ubicación, sin storage bin y con stock 0, con el material ya ubicado en otra fila (no se cargan; su tránsito pasa a la fila del bin)';
+const CAMPOS_STOCK_TRASPASABLES = ['stock_bloqueado','stock_transito_1','stock_transito_2','stock_transferencia'];
+function claveMaterialCarga(valor, row){ return valor(row,'sku_code') + '|' + valor(row,'bodega'); }
+// Materiales (código + bodega) que en el archivo traen al menos una fila con ubicación o bin.
+function materialesConSitioEnArchivo(data, valor){
+  const set = new Set();
+  data.forEach(row=>{ if(valor(row,'ubicacion')!=='' || valor(row,'storage_bin')!=='') set.add(claveMaterialCarga(valor, row)); });
+  return set;
+}
+function esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio){
+  if(!mapeo.ubicacion && !mapeo.storage_bin) return false;
+  if(valor(row,'ubicacion')!=='' || valor(row,'storage_bin')!=='') return false;
+  const stock = valor(row,'stock_sistema');
+  if(stock==='' || Number(stock)!==0) return false;
+  return conSitio.has(claveMaterialCarga(valor, row));
+}
+let cacheFilasSinUbicacionNiStock = null;
+function filasSinUbicacionNiStock(data, mapeo){
+  const firma = JSON.stringify(mapeo) + '|' + data.length;
+  if(cacheFilasSinUbicacionNiStock && cacheFilasSinUbicacionNiStock.firma === firma) return cacheFilasSinUbicacionNiStock.resultado;
+  const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
+  const conSitio = materialesConSitioEnArchivo(data, valor);
+  let total = 0;
+  const ejemplos = [];
+  const vistos = new Set();
+  data.forEach(row=>{
+    const sku_code = valor(row,'sku_code');
+    if(!sku_code || !esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio)) return;
+    total++;
+    if(ejemplos.length < 5 && !vistos.has(sku_code)){
+      vistos.add(sku_code);
+      ejemplos.push({sku_code, descripcion: valor(row,'descripcion'), bodega: valor(row,'bodega'), batch: valor(row,'batch')});
+    }
+  });
+  const resultado = {total, ejemplos};
+  cacheFilasSinUbicacionNiStock = {firma, resultado};
+  return resultado;
+}
+
 let cacheIdentidadesRepetidas = null;
 function identidadesRepetidas(data, mapeo){
   const firma = JSON.stringify(mapeo) + '|' + data.length;
   if(cacheIdentidadesRepetidas && cacheIdentidadesRepetidas.firma === firma) return cacheIdentidadesRepetidas.resultado;
   const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
   const veces = new Map();
+  const conSitio = materialesConSitioEnArchivo(data, valor);
   data.forEach(row=>{
     const sku_code = valor(row,'sku_code');
     if(!sku_code) return; // sin código no llega al upsert: ya se cuenta como error aparte
+    if(esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio)) return; // no se carga ninguna: no hay nada que se pise
     const clave = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null,
                                   valor(row,'ubicacion')||null, valor(row,'storage_bin')||null]);
     veces.set(clave, (veces.get(clave)||0) + 1);
@@ -7715,7 +7767,9 @@ async function calcularImpactoReemplazo(){
   render();
   try{
     const valor = (row, campo) => p.mapeo[campo] ? (row[p.mapeo[campo]]!==undefined ? String(row[p.mapeo[campo]]).trim() : '') : '';
-    const claves = new Set(p.data.map(row => [valor(row,'sku_code'), valor(row,'bodega'), valor(row,'batch'), valor(row,'ubicacion'), valor(row,'storage_bin')].join('|')));
+    // Las filas que la carga omite (ver esFilaSinUbicacionNiStock) no cuentan como "vienen".
+    const conSitio = materialesConSitioEnArchivo(p.data, valor);
+    const claves = new Set(p.data.filter(row => !esFilaSinUbicacionNiStock(valor, row, p.mapeo, conSitio)).map(row => [valor(row,'sku_code'), valor(row,'bodega'), valor(row,'batch'), valor(row,'ubicacion'), valor(row,'storage_bin')].join('|')));
     const clave = s => [s.sku_code||'', s.bodega||'', s.batch||'', s.ubicacion||'', s.storage_bin||''].join('|');
     let ciclo = (state.ciclos||[]).find(c=>c.es_actual);
     if(!ciclo && !(state.ciclos||[]).length){
@@ -7752,7 +7806,7 @@ async function confirmarCargaMasiva(){
   setState({loading:true});
 
   const marcaTiempo = new Date().toISOString();
-  let ok=0, error=0;
+  let ok=0, error=0, omitidas=0;
   // Se agrupan por motivo, no fila por fila: un archivo grande puede tener miles de filas con
   // el mismo problema (ej. "1.306 con costo negativo"), y una lista fila por fila no es legible
   // ni práctica de mostrar en el historial — tampoco depende de un tope arbitrario de cuántas
@@ -7769,9 +7823,18 @@ async function confirmarCargaMasiva(){
   // todas deben llegar al upsert como filas separadas. Si trae dos filas idénticas en TODOS esos
   // campos, ahí sí nos quedamos con la última (no hay forma de saber cuál es la correcta).
   const porIdentidadSku = new Map();
+  const conSitio = materialesConSitioEnArchivo(data, valor);
+  const traspaso = new Map(); // código|bodega -> stock informativo de las filas omitidas
   data.forEach((row,idx)=>{
     const sku_code = valor(row,'sku_code');
     if(!sku_code){ anotarError('Código de SKU vacío'); return; }
+    if(esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio)){
+      omitidas++;
+      const acc = traspaso.get(claveMaterialCarga(valor, row)) || {};
+      CAMPOS_STOCK_TRASPASABLES.forEach(c=>{ const n = mapeo[c] && valor(row,c)!=='' ? Number(valor(row,c)) : NaN; if(!isNaN(n)) acc[c] = (acc[c]||0) + n; });
+      traspaso.set(claveMaterialCarga(valor, row), acc);
+      return;
+    }
     ok++;
     const stockRaw = valor(row,'stock_sistema');
     const costoRaw = valor(row,'costo_unitario');
@@ -7823,6 +7886,16 @@ async function confirmarCargaMasiva(){
     });
   });
   const lote = Array.from(porIdentidadSku.values());
+  // El tránsito de las filas omitidas pasa a la primera fila con sitio del mismo material
+  // (código + bodega). El total por material lo suma la vista por código, así que da lo mismo
+  // cuál de sus bines lo lleve: se ve igual que cuando la fila sin sitio era un SKU más.
+  if(traspaso.size){
+    const destino = new Map();
+    lote.forEach(f=>{ if(f.ubicacion || f.storage_bin){ const k = f.sku_code + '|' + (f.bodega||''); if(!destino.has(k)) destino.set(k, f); } });
+    traspaso.forEach((acc, k)=>{ const f = destino.get(k); if(!f) return; Object.keys(acc).forEach(c=>{ if(acc[c]) f[c] = (Number(f[c])||0) + acc[c]; }); });
+  }
+  // Las omitidas no son error, pero el historial tiene que explicar por qué ok + error no suma el total.
+  const detalleCarga = () => omitidas ? [...resumenErroresAArray(resumenErrores), {motivo: MOTIVO_FILA_SIN_UBICACION_NI_STOCK, cantidad: omitidas}] : resumenErroresAArray(resumenErrores);
   // Módulo de bodega: después de la apertura el stock lo llevan los movimientos, no el Excel.
   const bodegaActiva = moduloBodegaActivo();
   const aperturaYaHecha = bodegaActiva ? await hayAperturaBodega() : false;
@@ -7856,8 +7929,8 @@ async function confirmarCargaMasiva(){
     if(lote.some(f=>f.costo_unitario!==undefined && f.costo_unitario!==null) || lote.some(f=>f.stock_sistema!==undefined && f.stock_sistema!==null)){
       try{ await rest('/rpc/refrescar_clasificacion_abc', {method:'POST'}); }catch(e){ /* el cron nocturno lo cubre */ }
     }
-    const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, resumenErroresAArray(resumenErrores), marcaTiempo);
-    toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}`);
+    const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, detalleCarga(), marcaTiempo);
+    toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}${omitidas?`, ${omitidas} omitidas (sin ubicación ni bin y stock 0; su tránsito pasó a la fila del bin)`:''}`);
     refrescarListaSkus();
     setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null});
     // "Reemplazar completo" ya desactivó lo que no vino; solo el modo de todos los días acumula.
@@ -7867,7 +7940,7 @@ async function confirmarCargaMasiva(){
     // anteriores que ya se guardaron — se informa cuántos SKU sí entraron antes del corte.
     const filasFallidas = lote.length - insertados;
     if(filasFallidas>0) resumenErrores.set(e.message, filasFallidas);
-    await registrarCarga(file.name, 'skus', data.length, insertados, error + filasFallidas, resumenErroresAArray(resumenErrores));
+    await registrarCarga(file.name, 'skus', data.length, insertados, error + filasFallidas, detalleCarga());
     setState({loading:false, cargaMasivaProgreso:null});
     toast(insertados ? `Se cargaron ${insertados} de ${lote.length} SKU antes de fallar: ${e.message}` : e.message, 'err');
   }
@@ -10484,8 +10557,9 @@ function renderCargaMasiva(){
           <div style="margin-top:4px;font-size:13px">
             ${f.filas_ok} de ${f.filas_totales} filas cargadas
             ${f.filas_error? `<span style="color:var(--danger)"> · ${f.filas_error} con error</span>` : ''}
+            ${(f.filas_totales - f.filas_ok - (f.filas_error||0)) > 0 ? `<span class="hint"> · ${f.filas_totales - f.filas_ok - (f.filas_error||0)} omitidas</span>` : ''}
           </div>
-          ${f.filas_error && f.detalle_errores && f.detalle_errores.length? `
+          ${f.detalle_errores && f.detalle_errores.length? `
           <details style="margin-top:4px">
             <summary class="hint" style="cursor:pointer">Ver detalle</summary>
             <ul style="margin:4px 0 0;padding-left:18px;font-size:13px">
@@ -10627,6 +10701,23 @@ function renderCargaPreview(){
       </div>
     </div>
     ` : ''}
+
+    ${(()=>{
+      const om = filasSinUbicacionNiStock(data, mapeo);
+      if(!om.total) return '';
+      return `<div class="card" style="margin-top:14px">
+        <h3 style="margin:0 0 4px;font-size:15px">${om.total.toLocaleString('es-CL')} fila(s) sin ubicación, sin storage bin y con stock 0 no se cargan</h3>
+        <div class="hint">Son las líneas que el ERP agrega a nivel de bodega con lo que viene en camino, además de la línea de cada bin. Como el material ya viene con su bin, la fila sin sitio no se carga y su tránsito pasa a la fila del bin: el total del material se ve igual. Si un material viene solo sin sitio, esa fila sí se carga, porque es su único registro.</div>
+        <div class="table-wrap" style="margin-top:8px"><table>
+          <thead><tr><th>Código</th><th>Descripción</th><th>Dónde</th></tr></thead>
+          <tbody>${om.ejemplos.map(e=>`<tr>
+            <td class="mono">${esc(e.sku_code)}</td>
+            <td style="font-size:12px">${esc(e.descripcion||'—')}</td>
+            <td style="font-size:12px">${esc([e.bodega, e.batch?`batch ${e.batch}`:''].filter(Boolean).join(' · ') || '—')}</td>
+          </tr>`).join('')}</tbody></table></div>
+        ${om.ejemplos.length<5?'':'<div class="hint" style="margin-top:6px">Se muestran los primeros 5 códigos.</div>'}
+      </div>`;
+    })()}
 
     ${(()=>{
       const rep = identidadesRepetidas(data, mapeo);
