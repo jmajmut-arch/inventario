@@ -4971,7 +4971,7 @@ function sanearTextoFiltro(s){
 // Columnas de skus_busqueda por las que se puede ordenar la tabla (clic en el encabezado) --
 // "Fotos" queda afuera porque es un arreglo agregado, PostgREST no puede ordenar por su tamaño
 // con un simple "order=".
-const ORDEN_COLUMNAS_BUSQUEDA = new Set(['sku_code','batch','descripcion','bodega','cantidad_contada','estado','fuera_de_plan','fecha_conteo','ciclo_nombre','clase_abc']);
+const ORDEN_COLUMNAS_BUSQUEDA = new Set(['sku_code','batch','descripcion','bodega','storage_bin','cantidad_contada','estado','fuera_de_plan','fecha_conteo','ciclo_nombre','clase_abc']);
 function construirOrdenBusqueda(){
   const o = state.busqueda.orden;
   if(o && o.campo && ORDEN_COLUMNAS_BUSQUEDA.has(o.campo)){
@@ -11494,7 +11494,7 @@ function renderBuscar(){
     <div class="card">
       ${(resultados.length && !resultadosFiltrados)? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalReal}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
+        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
@@ -11504,6 +11504,7 @@ function renderBuscar(){
             <td class="mono">${esc(r.batch||'—')}</td>
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
+            <td class="mono">${esc(r.storage_bin||'—')}</td>
             <td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>
             <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}${(contado && r.reconteo_cierre_tipo)? ` ${badgeCierreReconteo(r.reconteo_cierre_tipo, r.ajuste_erp_referencia)}` : ''}</td>
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>

@@ -7020,10 +7020,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Pedido de Joel: mostrar el batch también -- la tabla de resultados de Buscar debe traer su
   // propia columna Batch, para distinguir dos filas del mismo sku_code que solo difieren en lote.
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', soloConFotos:false, buscando:false, yaBuscado:true, resultados: [
-    { sku_code:'SKU-LOTE', batch:'L-001', descripcion:'Aceite', bodega:'Nave', conteo_id:'c3', cantidad_contada:40, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T20:00:00Z', ciclo_nombre:null, fotos:[] },
-    { sku_code:'SKU-LOTE', batch:null, descripcion:'Aceite', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, ciclo_nombre:null, fotos:[] },
+    { sku_code:'SKU-LOTE', batch:'L-001', descripcion:'Aceite', bodega:'Nave', storage_bin:'N1E-055-H5', conteo_id:'c3', cantidad_contada:40, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-10T20:00:00Z', capturado_en:'2026-08-10T20:00:00Z', ciclo_nombre:null, fotos:[] },
+    { sku_code:'SKU-LOTE', batch:null, descripcion:'Aceite', bodega:'Nave', storage_bin:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, ciclo_nombre:null, fotos:[] },
   ]};
   const htmlBuscarConBatch = ctx.renderBuscar();
+  // Pedido de Joel (27/09): la tabla de resultados también muestra el storage bin, ordenable.
+  assert(htmlBuscarConBatch.includes('data-orden-campo="storage_bin"') && htmlBuscarConBatch.includes('>Storage bin<'), 'la tabla de resultados debe tener su propia columna Storage bin (ordenable), obtuvo: '+htmlBuscarConBatch);
+  assert(htmlBuscarConBatch.includes('<td class="mono">N1E-055-H5</td>'), 'debe mostrar el storage bin de la fila que lo trae, obtuvo: '+htmlBuscarConBatch);
+  ctx.__appstate.busqueda.orden = {campo:'storage_bin', dir:'asc'};
+  assert(ctx.construirPathBusqueda(0).includes('order=storage_bin.asc.nullslast,sku_code.asc'), 'ordenar por storage bin va al servidor, obtuvo: '+ctx.construirPathBusqueda(0));
+  ctx.__appstate.busqueda.orden = null;
   assert(htmlBuscarConBatch.includes('data-orden-campo="batch"') && htmlBuscarConBatch.includes('>Batch<'), 'la tabla de resultados debe tener su propia columna Batch (ordenable), obtuvo: '+htmlBuscarConBatch);
   assert(htmlBuscarConBatch.includes('<td class="mono">L-001</td>'), 'debe mostrar el batch de la fila que lo trae, obtuvo: '+htmlBuscarConBatch);
   assert((htmlBuscarConBatch.match(/<td class="mono">—<\/td>/g)||[]).length>=1, 'una fila sin batch debe mostrar el guion, no vacío ni "null", obtuvo: '+htmlBuscarConBatch);
