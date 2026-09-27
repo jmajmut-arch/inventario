@@ -4613,6 +4613,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       { Codigo:'', Bodega:'B501', Ubic:'', Bin:'', Stock:'1', Costo:'1' },
     ],
   };
+  const resumenRep = ctx.resumenArchivoCarga(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo);
+  assert(resumenRep.filas===8 && resumenRep.repetidas===3 && resumenRep.sinCodigo===1 && resumenRep.materiales===4, 'el resumen previo cuenta repetidas y sin código y promete 4 materiales, obtuvo: '+JSON.stringify(resumenRep));
+  const htmlResumenRep = ctx.renderCargaPreview();
+  assert(htmlResumenRep.includes('Qué va a pasar con este archivo') && htmlResumenRep.includes('8 filas → 4 materiales en tu maestro') && htmlResumenRep.includes('3 fila(s) idénticas a otra se pisan') && htmlResumenRep.includes('1 fila(s) sin código no se cargan'), 'el preview resume qué va a pasar con el archivo, obtuvo: '+htmlResumenRep);
+  assert(htmlResumenRep.includes('>Cargar 4 materiales</button>'), 'el botón dice cuántos materiales se van a cargar, obtuvo: '+htmlResumenRep);
   const repetidas = ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo);
   assert(repetidas.total===3, 'deben contarse 3 filas que se pisan (1 del primer código + 2 del segundo), obtuvo: '+JSON.stringify(repetidas));
   assert(repetidas.ejemplos.length===2, 'dos identidades distintas repetidas, obtuvo: '+JSON.stringify(repetidas.ejemplos));
@@ -4659,6 +4664,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       { Codigo:'20005', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'C-1', Stock:'2', Costo:'1', Transito:'', Transito2:'' },
     ],
   };
+  const previewOmit = ctx.__appstate.cargaPreview;
   const omitidas = ctx.filasSinUbicacionNiStock(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo);
   assert(omitidas.total===3, 'deben omitirse 3 filas (1 de 10001008 + 2 de 20004), obtuvo: '+JSON.stringify(omitidas));
   assert(omitidas.ejemplos.map(e=>e.sku_code).join(',')==='10001008,20004', 'los ejemplos van por código, una vez cada uno, obtuvo: '+JSON.stringify(omitidas.ejemplos));
@@ -4672,6 +4678,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.confirmarCargaMasiva();
   const postOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   const filasOmit = JSON.parse(postOmit.opts.body);
+  assert(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo).materiales===filasOmit.length, 'el resumen previo debe prometer exactamente los materiales que llegan al upsert (tránsito), obtuvo: '+JSON.stringify(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo))+' vs '+filasOmit.length);
   assert(filasOmit.map(f=>f.sku_code).join(',')==='10001008,10001064,20001,20002,20003,20004,20005,20005', 'al upsert llegan las 8 filas que sí se cargan, obtuvo: '+JSON.stringify(filasOmit.map(f=>[f.sku_code,f.bodega,f.storage_bin,f.stock_sistema])));
   const binOmit = filasOmit[0];
   assert(binOmit.storage_bin==='N1E-055-H5' && binOmit.stock_sistema===8, 'la fila del bin se carga con su stock, obtuvo: '+JSON.stringify(binOmit));
@@ -4742,6 +4749,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       { Codigo:'30003', Bodega:'B501', Ubic:'', Bin:'', Stock:'6', Costo:'1', Bloq:'', Tipo:'O' },                     // ...y su O con la misma identidad: no la pisa, se suma como En prov.
     ],
   };
+  const previewConsig = ctx.__appstate.cargaPreview;
   assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'las líneas K y O no "comparten identidad" con la propia: se suman, nada se pisa');
   assert(ctx.renderCargaPreview().includes('3 fila(s) de stock en consignación') && ctx.renderCargaPreview().includes('3 fila(s) en poder del proveedor'), 'el preview dice cuántas líneas K y O trae el archivo y qué pasa con ellas, obtuvo: '+ctx.renderCargaPreview());
   calls.length = 0;
@@ -4749,6 +4757,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postConsig = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   const filasConsig = JSON.parse(postConsig.opts.body);
   const porCodigoConsig = Object.fromEntries(filasConsig.map(f=>[f.sku_code, f]));
+  const resumenConsig = ctx.resumenArchivoCarga(previewConsig.data, previewConsig.mapeo);
+  assert(resumenConsig.materiales===filasConsig.length && resumenConsig.filas===10 && resumenConsig.consignacion===3 && resumenConsig.enProveedor===3 && resumenConsig.repetidas===0, 'el resumen previo debe prometer exactamente los materiales que llegan al upsert (K y O), obtuvo: '+JSON.stringify(resumenConsig)+' vs '+filasConsig.length);
   assert(filasConsig.length===6, 'las 10 filas se convierten en 6 SKU (dos pares K+propia se funden, las O no son fila salvo la sola), obtuvo: '+JSON.stringify(filasConsig.map(f=>[f.sku_code,f.storage_bin,f.stock_sistema,f.stock_consignado,f.stock_en_proveedor])));
   assert(porCodigoConsig['11518173'].stock_sistema===128 && porCodigoConsig['11518173'].stock_consignado===0 && porCodigoConsig['11518173'].stock_bloqueado===288, 'K después de la propia: el stock propio no se pierde y el bloqueado de la K se suma, obtuvo: '+JSON.stringify(porCodigoConsig['11518173']));
   assert(porCodigoConsig['11518173'].storage_bin==='N1E-090-F3' && porCodigoConsig['11518173'].stock_en_proveedor===7, 'la línea O va a "En prov." de la fila ubicada del material, no a una fila propia, obtuvo: '+JSON.stringify(porCodigoConsig['11518173']));
@@ -4757,8 +4767,53 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(porCodigoConsig['11599340'].stock_sistema===30 && porCodigoConsig['11599340'].stock_consignado===30, 'un bin con solo línea K queda con todo su stock como consignado, obtuvo: '+JSON.stringify(porCodigoConsig['11599340']));
   assert(porCodigoConsig['30001'].stock_consignado===null && porCodigoConsig['30001'].stock_en_proveedor===null && porCodigoConsig['30001'].stock_sistema===4, 'sin línea K ni O se mandan ambos campos en null para limpiar lo anterior, obtuvo: '+JSON.stringify(porCodigoConsig['30001']));
   assert(porCodigoConsig['30002'].stock_sistema===0 && porCodigoConsig['30002'].stock_en_proveedor===2 && porCodigoConsig['30002'].stock_consignado===null, 'una línea O sin otra fila del material queda como fila con stock 0 y En prov. 2 (no está en la bodega), obtuvo: '+JSON.stringify(porCodigoConsig['30002']));
+  // Tarjeta de resultado (pedido de Joel: el aviso flotante de 2,6 s no alcanzaba a leerse).
+  const resultadoConsig = ctx.__appstate.cargaResultado;
+  assert(resultadoConsig && resultadoConsig.archivo==='materiales.csv' && resultadoConsig.materiales===6 && resultadoConsig.fallo===null && typeof resultadoConsig.segundos==='number', 'al terminar queda el resultado en el estado, obtuvo: '+JSON.stringify(resultadoConsig));
+  assert(ctx.__appstate.cargaPreview===null, 'la vista previa se cierra al terminar');
+  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[]};
+  const htmlResultadoConsig = ctx.renderCargaMasiva();
+  assert(htmlResultadoConsig.includes('✓ materiales.csv cargado') && htmlResultadoConsig.includes('<b>6</b> materiales actualizados') && htmlResultadoConsig.includes('3 de consignación, 3 en poder del proveedor'), 'la tarjeta de resultado dice qué se cargó y qué quedó en la tarjeta del material, obtuvo: '+htmlResultadoConsig);
+  assert(htmlResultadoConsig.includes('id="btn-cerrar-resultado-carga"'), 'la tarjeta se puede cerrar');
+  // Con sobrantes detectados, la línea y el botón van dentro de la tarjeta de resultado y el
+  // aviso amarillo arranca plegado (sin duplicar el mensaje).
+  ctx.__appstate.cargaSobrantes = {cargaId:'c1', archivo:'materiales.csv', total:2101, contados:0, con_stock:5, sin_ubicacion:3, limpiando:false, progreso:null, plegado:true};
+  const htmlResultadoSob = ctx.renderCargaMasiva();
+  assert(htmlResultadoSob.includes('<b>2.101</b> materiales activos ya no vienen en este archivo') && htmlResultadoSob.includes('id="btn-revisar-sobrantes-resultado"'), 'la tarjeta de resultado ofrece revisar los sobrantes, obtuvo: '+htmlResultadoSob);
+  assert(!htmlResultadoSob.includes('que el último archivo no trajo siguen activos'), 'con la tarjeta de resultado no se repite la línea plegada de sobrantes');
+  ctx.__appstate.cargaSobrantes.plegado = false;
+  assert(ctx.renderCargaMasiva().includes('Desactivar 2101 material(es)'), 'al pedir revisar, el aviso completo de sobrantes se despliega');
+  ctx.__appstate.cargaSobrantes = null;
+  ctx.__appstate.cargaResultado = null;
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
   const regConsig = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
   assert(JSON.parse(regConsig.opts.body)[0].filas_ok===10 && JSON.parse(regConsig.opts.body)[0].filas_error===0, 'las líneas K y O cuentan como filas cargadas, no como error, obtuvo: '+regConsig.opts.body);
+  await new Promise(r=>setTimeout(r, 0));
+
+  // Fallo a medias: la vista previa se cierra y queda una tarjeta roja que dice cuántos entraron
+  // y qué hacer (volver a cargar el mismo archivo es seguro: es un upsert).
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'grande.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock', costo_unitario:'Costo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}], headers: ['Codigo','Bodega','Stock','Costo'], confirmaReemplazo: false,
+    data: Array.from({length: 2500}, (_, i)=>({ Codigo:'F-'+i, Bodega:'B501', Stock:'1', Costo:'1' })),
+  };
+  const fetchAntesFallo = ctx.fetch;
+  let postsFallo = 0;
+  ctx.fetch = async (url, opts) => {
+    if(opts && opts.method==='POST' && url.includes('/rest/v1/skus')){ postsFallo++; if(postsFallo===2) throw new ctx.__TypeError('Failed to fetch'); }
+    return fetchAntesFallo(url, opts);
+  };
+  await ctx.confirmarCargaMasiva();
+  ctx.fetch = fetchAntesFallo;
+  const resultadoFallo = ctx.__appstate.cargaResultado;
+  assert(resultadoFallo && resultadoFallo.fallo && resultadoFallo.fallo.insertados===2000 && resultadoFallo.fallo.total===2500, 'un fallo a medias deja el resultado con cuántos entraron, obtuvo: '+JSON.stringify(resultadoFallo));
+  assert(ctx.__appstate.cargaPreview===null && ctx.__appstate.cargaMasivaProgreso===null, 'tras el fallo la vista previa se cierra y no queda barra de avance pegada');
+  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[]};
+  const htmlFallo = ctx.renderCargaMasiva();
+  assert(htmlFallo.includes('✕ grande.csv no terminó de cargarse') && htmlFallo.includes('Se guardaron los primeros <b>2.000</b> de 2.500 materiales') && htmlFallo.includes('Vuelve a cargar el mismo archivo') && htmlFallo.includes('Motivo: No se pudo conectar'), 'la tarjeta roja dice cuántos entraron, qué hacer y el motivo, obtuvo: '+htmlFallo);
+  ctx.__appstate.cargaResultado = null;
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
   await new Promise(r=>setTimeout(r, 0));
 
   // Sin la columna de tipo especial no se manda stock_consignado: no se toca lo que el SKU ya tenía.
@@ -4814,6 +4869,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.loading = true;
   const htmlProgreso = ctx.renderCargaPreview();
   assert(htmlProgreso.includes('30%') && htmlProgreso.includes('6.000') && htmlProgreso.includes('20.000'), 'debe mostrar el porcentaje y las cantidades del avance, obtuvo: '+htmlProgreso);
+  // Etapas (pedido de Joel): el porcentaje solo cubre la del medio; se ve qué está haciendo.
+  assert(htmlProgreso.includes('1. Archivo leído ✓') && htmlProgreso.includes('2. Guardando materiales… 6.000 de 20.000 (30%)') && htmlProgreso.includes('3. Actualizando clasificación ABC') && htmlProgreso.includes('No cierres esta pestaña'), 'el avance muestra las tres etapas y el aviso de no cerrar, obtuvo: '+htmlProgreso);
+  ctx.__appstate.cargaMasivaProgreso = { actual: 20000, total: 20000, etapa:'finalizando' };
+  const htmlFinalizando = ctx.renderCargaPreview();
+  assert(htmlFinalizando.includes('2. Guardando materiales ✓') && htmlFinalizando.includes('revisando sobrantes…'), 'al terminar de guardar, la etapa 3 pasa a activa, obtuvo: '+htmlFinalizando);
   assert(/id="btn-cancelar-carga"[^>]*disabled/.test(htmlProgreso), 'Cancelar debe deshabilitarse mientras hay una carga en curso, obtuvo: '+htmlProgreso);
   ctx.__appstate.loading = false;
   ctx.__appstate.cargaMasivaProgreso = null;
