@@ -6,7 +6,7 @@ if(!m) throw new Error('No se encontró el bloque <script>');
 let script = m[1];
 // Evitar que se ejecute el arranque real de la app al final del script.
 script = script.replace(/\nasync function iniciarApp\(\)\{[\s\S]*?\niniciarApp\(\);\s*$/, '\n');
-script += '\nvar __appstate = state;\nvar __TypeError = TypeError;\nfunction __resyncAppState(){ __appstate = state; return __appstate; }\nvar __CAMPOS_SKU = CAMPOS_SKU;\n';
+script += '\nvar __appstate = state;\nvar __TypeError = TypeError;\nfunction __resyncAppState(){ __appstate = state; return __appstate; }\nvar __CAMPOS_SKU = CAMPOS_SKU;\nvar __TEMAS = TEMAS;\n';
 
 // Assert real: a diferencia de console.assert(), esta SI hace fallar el proceso
 // (exit code != 0) si alguna aserción no se cumple, para que sirva como gate en CI.
@@ -7033,6 +7033,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlBuscarConBatch.includes('data-orden-campo="batch"') && htmlBuscarConBatch.includes('>Batch<'), 'la tabla de resultados debe tener su propia columna Batch (ordenable), obtuvo: '+htmlBuscarConBatch);
   assert(htmlBuscarConBatch.includes('<td class="mono">L-001</td>'), 'debe mostrar el batch de la fila que lo trae, obtuvo: '+htmlBuscarConBatch);
   assert((htmlBuscarConBatch.match(/<td class="mono">—<\/td>/g)||[]).length>=1, 'una fila sin batch debe mostrar el guion, no vacío ni "null", obtuvo: '+htmlBuscarConBatch);
+
+  // ===== Tema "Negro y Ámbar" (identidad de inventiapp.cl), pedido de Joel el 27/09/2026 =====
+  // Es un tema más, elegible por persona: nadie cambia de aspecto sin pedirlo.
+  const temaIndustrial = ctx.__TEMAS.find(x=>x.id==='industrial');
+  assert(temaIndustrial && temaIndustrial.nombre==='Negro y Ámbar' && temaIndustrial.colores.length===3, 'debe existir el tema industrial en la lista, obtuvo: '+JSON.stringify(ctx.__TEMAS.map(x=>x.id)));
+  assert(ctx.__TEMAS.find(x=>x.id==='claro') && ctx.__TEMAS.find(x=>x.id==='alto_contraste'), 'los temas de siempre siguen disponibles');
+  assert(html.includes(':root[data-tema="industrial"]{') && html.includes(':root[data-tema="industrial"] .tabbar{background:#0b0b0b'), 'el tema industrial define sus variables y sus barras negras en el CSS');
+  // Predeterminado desde el 27/09 (decisión de Joel): sin preferencia guardada, arranca en Negro y Ámbar.
+  assert(html.includes("localStorage.getItem('tema_app') || 'industrial'") && temaIndustrial.desc.includes('(predeterminado)') && !ctx.__TEMAS.find(x=>x.id==='claro').desc.includes('predeterminado'), 'el tema predeterminado es Negro y Ámbar y la lista lo dice');
+  assert(ctx.colorBarraNavegadorTema('industrial')==='#0b0b0b' && ctx.colorBarraNavegadorTema('claro')==='#ffffff' && ctx.colorBarraNavegadorTema('ambar')==='#ffffff', 'la barra del navegador acompaña al tema industrial y no cambia para los demás');
 
   // fueCapturadoOffline: distingue una captura offline (fechas separadas por horas) de una
   // online normal (mismo instante), con un margen de un minuto para no marcar falsos positivos.
