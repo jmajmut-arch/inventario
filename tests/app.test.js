@@ -125,6 +125,8 @@ function crearCanvasFalso(){
 }
 let descartarReconteoError = null; // mensaje de error simulado del RPC descartar_reconteo (null = éxito)
 let cerrarAjusteErpError = null; // ídem para cerrar_reconteo_ajuste_erp
+let loteErpRespuesta = null; // respuesta simulada de cerrar_reconteos_ajuste_erp_lote (null = todos cerrados)
+let loteDescartarRespuesta = null; // ídem para descartar_reconteos_lote
 let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesCiclo); null = sin mockear (usa default vacío)
 // Simula el caso "ya existía" de la idempotencia de conteos: el POST responde sin filas (como
 // hace Postgres ante ON CONFLICT DO NOTHING) y la búsqueda de respaldo por idempotency_key
@@ -180,9 +182,17 @@ const fakeFetchImpl = async (url, opts) => {
       observacion: b.p_observacion || null, cantidad_original: 12, corregido_en: '2026-09-17T12:00:00Z', motivo_correccion: b.p_motivo,
     }) };
   }
+  if(path.startsWith('/rest/v1/rpc/descartar_reconteos_lote')){
+    const b = JSON.parse(opts.body||'{}');
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(loteDescartarRespuesta || {cerrados:(b.p_conteo_ids||[]).length, omitidos:[]}) };
+  }
   if(path.startsWith('/rest/v1/rpc/descartar_reconteo')){
     if(descartarReconteoError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:descartarReconteoError}) };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'' };
+  }
+  if(path.startsWith('/rest/v1/rpc/cerrar_reconteos_ajuste_erp_lote')){
+    const b = JSON.parse(opts.body||'{}');
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(loteErpRespuesta || {cerrados:(b.p_conteo_ids||[]).length, omitidos:[]}) };
   }
   if(path.startsWith('/rest/v1/rpc/cerrar_reconteo_ajuste_erp')){
     if(cerrarAjusteErpError) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:cerrarAjusteErpError}) };
@@ -9300,6 +9310,117 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlModalDescartar.includes('SKU-DESCARTAR') && htmlModalDescartar.includes('Ya escrito antes'), 'el modal debe mostrar el SKU y precargar el motivo ya escrito, obtuvo: '+htmlModalDescartar);
   ctx.__appstate.descartarReconteoModal = null;
   assert(ctx.renderDescartarReconteoModal()==='', 'sin modal abierto, renderDescartarReconteoModal debe devolver vacío, obtuvo: '+JSON.stringify(ctx.renderDescartarReconteoModal()));
+
+  // ===== Reconteo: acciones en lote (pedido de Joel, 27/09/2026) =====
+  // Casillas por fila, "Cerrar N con ajuste en el ERP" y "Quitar N del reconteo" con una sola
+  // referencia o motivo. Cada material se cierra con la misma regla de siempre; lo que no se
+  // puede cerrar queda pendiente y se dice cuál y por qué.
+  {
+    const toastRootLote = elements['toast-root'];
+    const ultimoToastLote = ()=> { const h = toastRootLote ? toastRootLote.hijos : []; return h.length ? h[h.length-1].textContent : ''; };
+    const base = { descripcion:'x', stock_sistema:10, ultimo_conteo_fecha:'2026-09-20', causa_probable:'Sin patrón detectado', fotos:[] };
+    const fL1 = { ...base, id:'sku-l1', conteo_id:'conteo-l1', sku_code:'SKU-L1', ultima_cantidad_contada:7, ultima_diferencia:-3, veces_con_diferencia:2 };
+    const fL2 = { ...base, id:'sku-l2', conteo_id:'conteo-l2', sku_code:'SKU-L2', ultima_cantidad_contada:12, ultima_diferencia:2, veces_con_diferencia:1 };
+    const fL3 = { ...base, id:'sku-l3', conteo_id:'conteo-l3', sku_code:'SKU-L3', ultima_cantidad_contada:4, ultima_diferencia:-6, veces_con_diferencia:1 }; // merma una sola vez
+    ctx.__appstate.reconteos = [fL1, fL2, fL3];
+    ctx.__appstate.reconteosSeleccionados = [];
+    ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    assert(!ctx.renderReconteo().includes('chk-reconteo-fila'), 'un operador no ve casillas de selección');
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    const htmlLote0 = ctx.renderReconteo();
+    assert(htmlLote0.includes('id="chk-reconteo-todos"') && (htmlLote0.match(/class="chk-reconteo-fila"/g)||[]).length===3 && !htmlLote0.includes('id="acciones-reconteo-lote"'), 'un admin ve una casilla por fila y la de todos; sin selección no hay barra de acciones, obtuvo: '+htmlLote0.slice(0,300));
+    ctx.toggleReconteoSeleccionado('conteo-l1');
+    ctx.toggleReconteoSeleccionado('conteo-l3');
+    const htmlLote2 = ctx.renderReconteo();
+    assert(ctx.__appstate.reconteosSeleccionados.join(',')==='conteo-l1,conteo-l3' && htmlLote2.includes('<b>2</b> seleccionados') && htmlLote2.includes('Cerrar 2 con ajuste en el ERP') && htmlLote2.includes('Quitar 2 del reconteo'), 'con dos marcados aparece la barra con las dos acciones, obtuvo: '+htmlLote2.slice(htmlLote2.indexOf('acciones-reconteo-lote')-20, htmlLote2.indexOf('acciones-reconteo-lote')+700));
+    ctx.toggleReconteoSeleccionado('conteo-l1');
+    assert(ctx.__appstate.reconteosSeleccionados.join(',')==='conteo-l3', 'volver a tocar una casilla la desmarca');
+    ctx.toggleTodosReconteosSeleccionados();
+    assert(ctx.__appstate.reconteosSeleccionados.length===3 && /id="chk-reconteo-todos"[^>]*checked/.test(ctx.renderReconteo()), 'la casilla de todos marca las tres filas');
+    ctx.toggleTodosReconteosSeleccionados();
+    assert(ctx.__appstate.reconteosSeleccionados.length===0, 'y vuelve a tocarla las desmarca');
+
+    // Cerrar en lote: la merma contada una sola vez queda afuera desde el modal; el resto viaja con una referencia.
+    ctx.__appstate.reconteosSeleccionados = ['conteo-l1','conteo-l2','conteo-l3'];
+    ctx.abrirCerrarLoteErp();
+    const mLote = ctx.__appstate.cerrarLoteErpModal;
+    assert(mLote && mLote.filas.length===3 && mLote.resultado===null, 'abrir el modal toma las filas seleccionadas, obtuvo: '+JSON.stringify(mLote));
+    const htmlModalLote = ctx.renderCerrarLoteErpModal();
+    assert(htmlModalLote.includes('Cerrar 3 con ajuste en el ERP') && htmlModalLote.includes('Una merma se contó una sola vez y queda afuera') && htmlModalLote.includes('SKU-L3') && htmlModalLote.includes('>Cerrar 2 reconteos</button>'), 'el modal avisa cuál queda afuera y cuántos va a cerrar, obtuvo: '+htmlModalLote);
+    calls.length = 0;
+    await ctx.cerrarReconteosLoteErp();
+    assert(!calls.some(c=>c.url.includes('/rpc/cerrar_reconteos_ajuste_erp_lote')) && /referencia/i.test(ultimoToastLote()), 'sin referencia no se llama al RPC y se avisa, obtuvo: '+ultimoToastLote());
+    ctx.__appstate.cerrarLoteErpModal = {...ctx.__appstate.cerrarLoteErpModal, referencia:' 4500900 ', motivo:'Ajuste del 27/09'};
+    calls.length = 0;
+    loteErpRespuesta = null;
+    await ctx.cerrarReconteosLoteErp();
+    const callLote = calls.find(c=>c.url.includes('/rpc/cerrar_reconteos_ajuste_erp_lote'));
+    assert(!!callLote, 'debe llamar al RPC en lote, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const bodyLote = JSON.parse(callLote.opts.body);
+    assert(bodyLote.p_conteo_ids.join(',')==='conteo-l1,conteo-l2' && bodyLote.p_referencia==='4500900' && bodyLote.p_motivo==='Ajuste del 27/09', 'viajan solo los cerrables, con la referencia recortada y el comentario, obtuvo: '+JSON.stringify(bodyLote));
+    // La merma que no viajó se informa: el modal queda con el resultado y la selección se vacía.
+    const mTras = ctx.__appstate.cerrarLoteErpModal;
+    assert(mTras && mTras.resultado && mTras.resultado.cerrados===2 && mTras.resultado.omitidos.length===1 && mTras.resultado.omitidos[0].sku_code==='SKU-L3', 'el resultado dice 2 cerrados y cuál quedó pendiente, obtuvo: '+JSON.stringify(mTras));
+    const htmlResLote = ctx.renderCerrarLoteErpModal();
+    assert(htmlResLote.includes('<b>2</b> cerrados con ajuste en el ERP') && htmlResLote.includes('SKU-L3') && htmlResLote.includes('id="cerrar-lote-erp-listo"'), 'el modal muestra cerrados y pendientes con su motivo, obtuvo: '+htmlResLote);
+    assert(ctx.__appstate.reconteosSeleccionados.length===0 && calls.some(c=>c.url.includes('/reconteo_pendiente?select=')), 'tras cerrar se vacía la selección y se recarga la lista');
+    assert(/2 reconteos cerrados/.test(ultimoToastLote()) && /1 quedaron pendientes/.test(ultimoToastLote()), 'el aviso resume cerrados y pendientes, obtuvo: '+ultimoToastLote());
+    ctx.__appstate.cerrarLoteErpModal = null;
+
+    // Todo cerrable y el servidor no deja nada afuera: el modal se cierra solo.
+    ctx.__appstate.reconteos = [fL1, fL2, fL3];
+    ctx.__appstate.reconteosSeleccionados = ['conteo-l1','conteo-l2'];
+    ctx.abrirCerrarLoteErp();
+    ctx.__appstate.cerrarLoteErpModal = {...ctx.__appstate.cerrarLoteErpModal, referencia:'4500901'};
+    await ctx.cerrarReconteosLoteErp();
+    assert(ctx.__appstate.cerrarLoteErpModal===null, 'sin pendientes el modal se cierra solo');
+
+    // El servidor puede dejar afuera algo que la app no anticipó (ej. ya cerrado por otra persona).
+    ctx.__appstate.reconteos = [fL1, fL2, fL3];
+    ctx.__appstate.reconteosSeleccionados = ['conteo-l1','conteo-l2'];
+    ctx.abrirCerrarLoteErp();
+    ctx.__appstate.cerrarLoteErpModal = {...ctx.__appstate.cerrarLoteErpModal, referencia:'4500902'};
+    loteErpRespuesta = {cerrados:1, omitidos:[{conteo_id:'conteo-l2', sku_code:'SKU-L2', motivo:'Este reconteo ya está cerrado'}]};
+    await ctx.cerrarReconteosLoteErp();
+    loteErpRespuesta = null;
+    assert(ctx.__appstate.cerrarLoteErpModal && ctx.__appstate.cerrarLoteErpModal.resultado.omitidos[0].motivo==='Este reconteo ya está cerrado', 'lo que el servidor deja afuera se muestra con su motivo, obtuvo: '+JSON.stringify(ctx.__appstate.cerrarLoteErpModal));
+    ctx.__appstate.cerrarLoteErpModal = null;
+
+    // Solo mermas de una vez: no hay nada que mandar.
+    ctx.__appstate.reconteos = [fL1, fL2, fL3];
+    ctx.__appstate.reconteosSeleccionados = ['conteo-l3'];
+    ctx.abrirCerrarLoteErp();
+    assert(/id="cerrar-lote-erp-referencia"[^>]*disabled/.test(ctx.renderCerrarLoteErpModal()), 'si ninguno se puede cerrar, el formulario queda deshabilitado');
+    ctx.__appstate.cerrarLoteErpModal = {...ctx.__appstate.cerrarLoteErpModal, referencia:'4500903'};
+    calls.length = 0;
+    await ctx.cerrarReconteosLoteErp();
+    assert(!calls.some(c=>c.url.includes('/rpc/cerrar_reconteos_ajuste_erp_lote')) && /una sola vez/.test(ultimoToastLote()), 'no se llama al RPC y se explica por qué, obtuvo: '+ultimoToastLote());
+    ctx.__appstate.cerrarLoteErpModal = null;
+
+    // Quitar del reconteo en lote: un motivo para todos.
+    ctx.__appstate.reconteos = [fL1, fL2, fL3];
+    ctx.__appstate.reconteosSeleccionados = ['conteo-l2','conteo-l3'];
+    ctx.abrirDescartarLote();
+    const htmlDescLote = ctx.renderDescartarLoteModal();
+    assert(htmlDescLote.includes('Quitar 2 del reconteo') && htmlDescLote.includes('SKU-L2') && htmlDescLote.includes('SKU-L3') && htmlDescLote.includes('id="descartar-lote-motivo"'), 'el modal de quitar nombra los materiales y pide un motivo, obtuvo: '+htmlDescLote);
+    calls.length = 0;
+    await ctx.descartarReconteosLote();
+    assert(!calls.some(c=>c.url.includes('/rpc/descartar_reconteos_lote')) && /motivo/i.test(ultimoToastLote()), 'sin motivo no se llama al RPC');
+    ctx.__appstate.descartarLoteModal = {...ctx.__appstate.descartarLoteModal, motivo:' Error de tipeo en el maestro '};
+    calls.length = 0;
+    loteDescartarRespuesta = null;
+    await ctx.descartarReconteosLote();
+    const callDesc = calls.find(c=>c.url.includes('/rpc/descartar_reconteos_lote'));
+    assert(!!callDesc && JSON.parse(callDesc.opts.body).p_conteo_ids.join(',')==='conteo-l2,conteo-l3' && JSON.parse(callDesc.opts.body).p_motivo==='Error de tipeo en el maestro', 'quita los dos con el motivo recortado, obtuvo: '+(callDesc&&callDesc.opts.body));
+    assert(ctx.__appstate.descartarLoteModal===null && ctx.__appstate.reconteosSeleccionados.length===0 && /2 reconteos quitados/.test(ultimoToastLote()), 'sin pendientes el modal se cierra, la selección se vacía y el aviso lo resume, obtuvo: '+ultimoToastLote());
+
+    // Al recargar la lista, la selección conserva solo lo que sigue en pantalla.
+    ctx.__appstate.reconteosSeleccionados = ['conteo-l1','conteo-que-ya-no-esta'];
+    await ctx.cargarReconteos();
+    assert(!ctx.__appstate.reconteosSeleccionados.includes('conteo-que-ya-no-esta'), 'lo que ya no está en la lista sale de la selección, obtuvo: '+JSON.stringify(ctx.__appstate.reconteosSeleccionados));
+    ctx.__appstate.reconteosSeleccionados = [];
+    await new Promise(r=>setTimeout(r, 0));
+  }
 
   // ===== Reconteo: "Ajustado en ERP" (pedido de Joel, 22/09/2026) =====
   // Segundo cierre sin recontar, distinto de Descartar: la diferencia era real, se verificó
