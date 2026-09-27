@@ -2137,7 +2137,7 @@ async function buscarSkusLibre(texto){
   const miPeticion = ++buscadorLibrePeticionId;
   const t = sanearTextoFiltro(texto);
   try{
-    const rows = t? await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
+    const rows = t? await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
     state.buscadorLibre = { resultados: sinFilasNoContables(rows||[]), buscando: false };
     actualizarResultadosBuscadorLibreEnPantalla();
@@ -7329,10 +7329,11 @@ const CAMPOS_SKU = [
     alias:['soh en transito 2','soh transito 2','stock in transit 2','transito 2','en transito 2','in transit 2'] },
   { campo:'stock_transferencia', obligatorio:false, etiqueta:'Transferencia',
     alias:['stock in transfer','transferencia','stock transferencia','en transferencia','transfer stock'] },
-  // Consignación: SAP exporta el stock en consignación del proveedor como otra línea del mismo
-  // bin con "Special Stock Type" = K. Con esta columna mapeada, esa línea se suma al stock de
-  // la línea propia del bin y queda aparte en stock_consignado (ver confirmarCargaMasiva). No se
-  // guarda el tipo en sí; solo sirve para reconocer la línea K.
+  // Tipo de stock especial de SAP ("Special Stock Type"). Con esta columna mapeada: la línea K
+  // (consignación del proveedor, está en el bin) se suma al stock de la línea propia del mismo
+  // bin y queda aparte en stock_consignado; la línea O (material en poder del proveedor, fuera
+  // de la bodega) no se convierte en fila contable y su cantidad queda en stock_en_proveedor de
+  // una fila del mismo material (ver confirmarCargaMasiva). No se guarda el tipo en sí.
   { campo:'tipo_stock_especial', obligatorio:false, etiqueta:'Tipo de stock especial',
     alias:['special stock type','tipo de stock especial','stock especial','special stock','sobkz','tipo especial'] },
 ];
@@ -7701,24 +7702,32 @@ function materialesConSitioEnArchivo(data, valor){
 }
 function esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio){
   if(!mapeo.ubicacion && !mapeo.storage_bin) return false;
+  if(esFilaEnProveedor(valor, row, mapeo)) return false; // tiene su propio destino (stock_en_proveedor)
   if(valor(row,'ubicacion')!=='' || valor(row,'storage_bin')!=='') return false;
   const stock = valor(row,'stock_sistema');
   if(stock==='' || Number(stock)!==0) return false;
   return conSitio.has(claveMaterialCarga(valor, row));
 }
-// Línea de consignación (tipo especial K). Ver CAMPOS_SKU y confirmarCargaMasiva.
+// Líneas con tipo de stock especial de SAP. Ver CAMPOS_SKU y confirmarCargaMasiva.
 function esFilaConsignacion(valor, row, mapeo){
   return !!mapeo.tipo_stock_especial && valor(row,'tipo_stock_especial').toUpperCase()==='K';
 }
-let cacheFilasConsignacion = null;
-function filasConsignacion(data, mapeo){
+function esFilaEnProveedor(valor, row, mapeo){
+  return !!mapeo.tipo_stock_especial && valor(row,'tipo_stock_especial').toUpperCase()==='O';
+}
+let cacheFilasTipoEspecial = null;
+function filasTipoEspecial(data, mapeo){
   const firma = JSON.stringify(mapeo) + '|' + data.length;
-  if(cacheFilasConsignacion && cacheFilasConsignacion.firma === firma) return cacheFilasConsignacion.resultado;
+  if(cacheFilasTipoEspecial && cacheFilasTipoEspecial.firma === firma) return cacheFilasTipoEspecial.resultado;
   const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
-  let total = 0;
-  data.forEach(row=>{ if(valor(row,'sku_code') && esFilaConsignacion(valor, row, mapeo)) total++; });
-  const resultado = {total};
-  cacheFilasConsignacion = {firma, resultado};
+  let consignacion = 0, enProveedor = 0;
+  data.forEach(row=>{
+    if(!valor(row,'sku_code')) return;
+    if(esFilaConsignacion(valor, row, mapeo)) consignacion++;
+    else if(esFilaEnProveedor(valor, row, mapeo)) enProveedor++;
+  });
+  const resultado = {consignacion, enProveedor};
+  cacheFilasTipoEspecial = {firma, resultado};
   return resultado;
 }
 let cacheFilasSinUbicacionNiStock = null;
@@ -7755,7 +7764,7 @@ function identidadesRepetidas(data, mapeo){
     const sku_code = valor(row,'sku_code');
     if(!sku_code) return; // sin código no llega al upsert: ya se cuenta como error aparte
     if(esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio)) return; // no se carga ninguna: no hay nada que se pise
-    if(esFilaConsignacion(valor, row, mapeo)) return; // se suma a la línea propia del bin: nada se pisa
+    if(esFilaConsignacion(valor, row, mapeo) || esFilaEnProveedor(valor, row, mapeo)) return; // se suman a otra fila: nada se pisa
     const clave = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null,
                                   valor(row,'ubicacion')||null, valor(row,'storage_bin')||null]);
     veces.set(clave, (veces.get(clave)||0) + 1);
@@ -7791,7 +7800,7 @@ async function calcularImpactoReemplazo(){
     const valor = (row, campo) => p.mapeo[campo] ? (row[p.mapeo[campo]]!==undefined ? String(row[p.mapeo[campo]]).trim() : '') : '';
     // Las filas que la carga omite (ver esFilaSinUbicacionNiStock) no cuentan como "vienen".
     const conSitio = materialesConSitioEnArchivo(p.data, valor);
-    const claves = new Set(p.data.filter(row => !esFilaSinUbicacionNiStock(valor, row, p.mapeo, conSitio)).map(row => [valor(row,'sku_code'), valor(row,'bodega'), valor(row,'batch'), valor(row,'ubicacion'), valor(row,'storage_bin')].join('|')));
+    const claves = new Set(p.data.filter(row => !esFilaSinUbicacionNiStock(valor, row, p.mapeo, conSitio) && !esFilaEnProveedor(valor, row, p.mapeo)).map(row => [valor(row,'sku_code'), valor(row,'bodega'), valor(row,'batch'), valor(row,'ubicacion'), valor(row,'storage_bin')].join('|')));
     const clave = s => [s.sku_code||'', s.bodega||'', s.batch||'', s.ubicacion||'', s.storage_bin||''].join('|');
     let ciclo = (state.ciclos||[]).find(c=>c.es_actual);
     if(!ciclo && !(state.ciclos||[]).length){
@@ -7848,6 +7857,7 @@ async function confirmarCargaMasiva(){
   const conSitio = materialesConSitioEnArchivo(data, valor);
   const traspaso = new Map(); // código|bodega -> stock informativo de las filas omitidas
   const consignacionPorIdentidad = new Map(); // identidad -> líneas K acumuladas
+  const enProveedorPorMaterial = new Map(); // código|bodega -> líneas O acumuladas
   data.forEach((row,idx)=>{
     const sku_code = valor(row,'sku_code');
     if(!sku_code){ anotarError('Código de SKU vacío'); return; }
@@ -7910,8 +7920,15 @@ async function confirmarCargaMasiva(){
       // Con la columna de tipo especial mapeada se manda siempre (null cuando el bin no tiene
       // línea K), para que una consignación que ya no viene se limpie. Sin la columna, se omite
       // el campo entero y no se toca lo que el SKU ya tenía.
-      ...(mapeo.tipo_stock_especial? {stock_consignado: null} : {}),
+      ...(mapeo.tipo_stock_especial? {stock_consignado: null, stock_en_proveedor: null} : {}),
     };
+    if(esFilaEnProveedor(valor, row, mapeo)){
+      const k = claveMaterialCarga(valor, row);
+      const acc = enProveedorPorMaterial.get(k) || {fila, cantidad:0};
+      acc.cantidad += Number(stock_sistema)||0;
+      enProveedorPorMaterial.set(k, acc);
+      return;
+    }
     if(esFilaConsignacion(valor, row, mapeo)){
       const acc = consignacionPorIdentidad.get(claveIdentidad) || {fila, cantidad:0, info:{}};
       acc.cantidad += Number(stock_sistema)||0;
@@ -7950,6 +7967,28 @@ async function confirmarCargaMasiva(){
     const destino = new Map();
     lote.forEach(f=>{ if(f.ubicacion || f.storage_bin){ const k = f.sku_code + '|' + (f.bodega||''); if(!destino.has(k)) destino.set(k, f); } });
     traspaso.forEach((acc, k)=>{ const f = destino.get(k); if(!f) return; Object.keys(acc).forEach(c=>{ if(acc[c]) f[c] = (Number(f[c])||0) + acc[c]; }); });
+  }
+  // En poder del proveedor (tipo especial O): el material está fuera de la bodega, así que la
+  // línea no se convierte en fila contable (en Escondida eran 935 SKU "sin ubicación" con stock
+  // positivo que Plan ofrecía contar). Su cantidad queda en stock_en_proveedor de una fila del
+  // mismo material (código + bodega), con sitio si la hay; si el material no viene de otra forma,
+  // se crea su fila con stock 0 para no perder el registro. Se muestra consolidado por material
+  // ("Todo el material · En prov.").
+  if(enProveedorPorMaterial.size){
+    const porMaterial = new Map();
+    lote.forEach(f=>{
+      const k = f.sku_code + '|' + (f.bodega||'');
+      const actual = porMaterial.get(k);
+      if(!actual || (!(actual.ubicacion||actual.storage_bin) && (f.ubicacion||f.storage_bin))) porMaterial.set(k, f);
+    });
+    enProveedorPorMaterial.forEach((acc, k)=>{
+      const f = porMaterial.get(k);
+      if(f){ f.stock_en_proveedor = (Number(f.stock_en_proveedor)||0) + acc.cantidad; return; }
+      const nueva = acc.fila;
+      nueva.stock_sistema = 0;
+      nueva.stock_en_proveedor = acc.cantidad;
+      lote.push(nueva);
+    });
   }
   // Las omitidas no son error, pero el historial tiene que explicar por qué ok + error no suma el total.
   const detalleCarga = () => omitidas ? [...resumenErroresAArray(resumenErrores), {motivo: MOTIVO_FILA_SIN_UBICACION_NI_STOCK, cantidad: omitidas}] : resumenErroresAArray(resumenErrores);
@@ -10777,12 +10816,15 @@ function renderCargaPreview(){
     })()}
 
     ${(()=>{
-      const k = filasConsignacion(data, mapeo);
-      if(!k.total) return '';
-      return `<div class="card" style="margin-top:14px">
-        <h3 style="margin:0 0 4px;font-size:15px">${k.total.toLocaleString('es-CL')} fila(s) de stock en consignación (tipo especial K)</h3>
+      const te = filasTipoEspecial(data, mapeo);
+      if(!te.consignacion && !te.enProveedor) return '';
+      return `${te.consignacion ? `<div class="card" style="margin-top:14px">
+        <h3 style="margin:0 0 4px;font-size:15px">${te.consignacion.toLocaleString('es-CL')} fila(s) de stock en consignación (tipo especial K)</h3>
         <div class="hint">Se suman al stock de la línea propia del mismo bin, que es lo que hay que contar, y quedan aparte como "Consignado" en la tarjeta del material. Si un bin solo trae la línea K, todo su stock queda como consignado.</div>
-      </div>`;
+      </div>` : ''}${te.enProveedor ? `<div class="card" style="margin-top:14px">
+        <h3 style="margin:0 0 4px;font-size:15px">${te.enProveedor.toLocaleString('es-CL')} fila(s) en poder del proveedor (tipo especial O)</h3>
+        <div class="hint">Ese material está fuera de la bodega: no se carga como fila para contar. Su cantidad se muestra en la tarjeta del material como "En prov.". Si el material no viene de otra forma, queda su fila con stock 0.</div>
+      </div>` : ''}`;
     })()}
 
     ${(()=>{
@@ -10959,7 +11001,7 @@ function renderConteo(){
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${claseAbcBadge(state.skuSeleccionado.clase_abc)}${state.skuSeleccionado.critico?criticoBadge():''}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:4px">Storage bin: ${esc(state.skuSeleccionado.storage_bin||'—')}</div>
         <div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Batch: ${esc(state.skuSeleccionado.batch||'—')}</div>
-        ${ocultarStockOperador()? '' : `<div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}</div>${infoStockPorTipo(state.skuSeleccionado)}`}
+        ${ocultarStockOperador()? '' : `<div style="font-size:11.5px;color:var(--text-faint);margin-top:2px">Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}${esc(desgloseConsignado(state.skuSeleccionado))}</div>${infoStockPorTipo(state.skuSeleccionado)}`}
         ${avisoVecesContadoPeriodo()}
       </div>
 
@@ -11018,19 +11060,27 @@ function renderConteo(){
 // 60.351 filas con stock, 4.005 son de un código con alguno de estos valores en otra fila y
 // 2.686 no mostraban nada. Los total_* los calculan skus_lectura, reconteo_pendiente y
 // universo_entradas_plan_contar, con el mismo enmascarado de conteo ciego que el stock.
+// Desglose del stock sistema de la fila cuando parte es consignación del proveedor (pedido de
+// Joel: "SOH x + SOH consignado y"). stock_sistema ya incluye el consignado (ver la carga).
+function desgloseConsignado(r){
+  const consignado = Number(r.stock_consignado);
+  if(!(consignado > 0) || r.stock_sistema==null) return '';
+  return ` · SOH ${Number(r.stock_sistema) - consignado} + SOH consignado ${consignado}`;
+}
 function infoStockPorTipo(r){
   // Sin los totales (una fila que venga de una consulta que no los pide) se cae de vuelta al
   // valor de la fila: menos completo, pero nunca inventa un total que no vino.
   const valor = (total, propio) => total!=null ? Number(total) : (propio!=null ? Number(propio) : 0);
   const partes = [
     ['Consig.', valor(r.total_consignado, r.stock_consignado)],
+    ['En prov.', valor(r.total_en_proveedor, r.stock_en_proveedor)],
     ['Bloq', valor(r.total_bloqueado, r.stock_bloqueado)],
     ['Trán. 1', valor(r.total_transito_1, r.stock_transito_1)],
     ['Trán. 2', valor(r.total_transito_2, r.stock_transito_2)],
     ['Transf', valor(r.total_transferencia, r.stock_transferencia)],
   ].filter(([, n]) => n > 0).map(([etiqueta, n]) => `${etiqueta}: ${n}`);
   if(!partes.length) return '';
-  const hayTotales = r.total_bloqueado!=null || r.total_transito_1!=null || r.total_transito_2!=null || r.total_transferencia!=null || r.total_consignado!=null;
+  const hayTotales = r.total_bloqueado!=null || r.total_transito_1!=null || r.total_transito_2!=null || r.total_transferencia!=null || r.total_consignado!=null || r.total_en_proveedor!=null;
   // Con cinco tipos (Consignado incluido) la línea llena el ancho de un celular: se deja envolver
   // en vez de cortarse.
   return `<div class="hint" style="font-size:10.5px;margin-top:2px">${hayTotales?'Todo el material · ':''}${esc(partes.join(' · '))}</div>`;
@@ -15176,7 +15226,7 @@ function bind(){
         if(!r) return;
         setState({
           view:'conteo',
-          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc, stock_bloqueado:r.stock_bloqueado, stock_transito_1:r.stock_transito_1, stock_transito_2:r.stock_transito_2, stock_transferencia:r.stock_transferencia, total_bloqueado:r.total_bloqueado, total_transito_1:r.total_transito_1, total_transito_2:r.total_transito_2, total_transferencia:r.total_transferencia, stock_consignado:r.stock_consignado, total_consignado:r.total_consignado },
+          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc, stock_bloqueado:r.stock_bloqueado, stock_transito_1:r.stock_transito_1, stock_transito_2:r.stock_transito_2, stock_transferencia:r.stock_transferencia, total_bloqueado:r.total_bloqueado, total_transito_1:r.total_transito_1, total_transito_2:r.total_transito_2, total_transferencia:r.total_transferencia, stock_consignado:r.stock_consignado, total_consignado:r.total_consignado, stock_en_proveedor:r.stock_en_proveedor, total_en_proveedor:r.total_en_proveedor },
           // conteoOrigenPlan:true (no false): recontar una diferencia es trabajo pedido por la
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
