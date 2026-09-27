@@ -9333,15 +9333,17 @@ function lecturaResumenEstadoBusqueda(resumen, separarSigno){
   const contados = resumen.reduce((s,d)=> s + (d.dia==='No contado'? 0 : d.n), 0);
   if(!contados) return '';
   const cuadrados = n['Cuadrado']||0;
-  const pct = Math.round(cuadrados/contados*100);
-  const partes = [`De ${contados.toLocaleString('es-CL')} contado${contados===1?'':'s'}, <strong style="color:var(--text)">${cuadrados.toLocaleString('es-CL')} cuadr${cuadrados===1?'ó':'aron'} (${pct}%)</strong>.`];
+  // Cada parte lleva su porcentaje sobre lo contado (pedido de Joel, 27/09): antes solo lo
+  // llevaba "cuadraron" y había que calcular el resto a mano.
+  const pct = x => Math.round(x/contados*100);
+  const partes = [`De ${contados.toLocaleString('es-CL')} contado${contados===1?'':'s'}, <strong style="color:var(--text)">${cuadrados.toLocaleString('es-CL')} cuadr${cuadrados===1?'ó':'aron'} (${pct(cuadrados)}%)</strong>.`];
   if(separarSigno){
     const neg = n['Diferencia negativa']||0, pos = n['Diferencia positiva']||0;
-    if(neg || pos) partes.push(`${neg.toLocaleString('es-CL')} con faltante · ${pos.toLocaleString('es-CL')} con sobrante.`);
+    if(neg || pos) partes.push(`${neg.toLocaleString('es-CL')} con faltante (${pct(neg)}%) · ${pos.toLocaleString('es-CL')} con sobrante (${pct(pos)}%).`);
   }else if(n['Diferencia']){
-    partes.push(`${n['Diferencia'].toLocaleString('es-CL')} con diferencia.`);
+    partes.push(`${n['Diferencia'].toLocaleString('es-CL')} con diferencia (${pct(n['Diferencia'])}%).`);
   }
-  if(n['Pendiente']) partes.push(`${n['Pendiente'].toLocaleString('es-CL')} pendiente${n['Pendiente']===1?'':'s'} de revisión.`);
+  if(n['Pendiente']) partes.push(`${n['Pendiente'].toLocaleString('es-CL')} pendiente${n['Pendiente']===1?'':'s'} de revisión (${pct(n['Pendiente'])}%).`);
   return `<div class="hint" style="margin-top:10px;text-align:center">${partes.join(' ')}</div>`;
 }
 
