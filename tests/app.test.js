@@ -4598,9 +4598,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     headers: ['Codigo','Bodega','Ubic','Bin','Stock','Costo'],
     confirmaReemplazo: false,
     data: [
-      // Mismo código, mismo sitio, dos veces: se pisan.
-      { Codigo:'10001445', Bodega:'B501', Ubic:'', Bin:'', Stock:'0', Costo:'1' },
-      { Codigo:'10001445', Bodega:'B501', Ubic:'', Bin:'', Stock:'0', Costo:'1' },
+      // Mismo código, mismo sitio, dos veces: se pisan. (Antes este ejemplo era la fila sin
+      // ubicación, sin bin y stock 0; esa hoy se omite entera, ver filasSinUbicacionNiStock.)
+      { Codigo:'10001445', Bodega:'B501', Ubic:'0100', Bin:'N1E-120-F2', Stock:'2', Costo:'1' },
+      { Codigo:'10001445', Bodega:'B501', Ubic:'0100', Bin:'N1E-120-F2', Stock:'2', Costo:'1' },
       // Mismo código en dos bines distintos: NO se pisan, es lo normal.
       { Codigo:'10001445', Bodega:'B501', Ubic:'0100', Bin:'N1E-120-F3', Stock:'14', Costo:'1' },
       { Codigo:'10001445', Bodega:'B501', Ubic:'0100', Bin:'N1E-120-F4', Stock:'3', Costo:'1' },
@@ -4630,6 +4631,78 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   };
   assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'sin repetidas, total 0');
   assert(!ctx.renderCargaPreview().includes('comparten identidad'), 'sin repetidas no se muestra el aviso');
+
+  // ===== Filas sin ubicación, sin storage bin y con stock 0: no se cargan =====
+  // SAP exporta, además de la línea de cada bin, una línea del material a nivel de bodega: sin
+  // ubicación, sin bin y con stock 0. Medido en Escondida el 27/09/2026: 1.613 filas así, 1.295
+  // de ellas con una hermana sí ubicada. Cargadas como SKU no se pueden contar (no tienen dónde)
+  // y el "% del maestro contado" nunca llega a 100. Decisión de Joel: se omiten. La regla solo
+  // aplica si el archivo trae columna de ubicación o de bin: una empresa cuyo maestro no maneja
+  // ubicaciones no puede perder sus materiales con stock 0 por esto.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'materiales.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', batch:'Batch', ubicacion:'Ubic', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}],
+    headers: ['Codigo','Bodega','Batch','Ubic','Bin','Stock','Costo'],
+    confirmaReemplazo: false,
+    data: [
+      { Codigo:'10001008', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'N1E-055-H5', Stock:'8', Costo:'1' }, // se carga
+      { Codigo:'10001008', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1' },             // fantasma: se omite
+      { Codigo:'10001064', Bodega:'B501', Batch:'NEW', Ubic:'', Bin:'', Stock:'0', Costo:'1' },          // fantasma con batch: se omite igual
+      { Codigo:'20001', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'3', Costo:'1' },                // sin sitio pero con stock: se carga
+      { Codigo:'20002', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'', Costo:'1' },                 // stock en blanco no es cero, es desconocido: se carga
+      { Codigo:'20003', Bodega:'B501', Batch:'', Ubic:'0100', Bin:'A-1', Stock:'0', Costo:'1' },         // stock 0 pero ubicado: se carga
+      { Codigo:'20004', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1' },                // fantasma dos veces: se omiten ambas...
+      { Codigo:'20004', Bodega:'B501', Batch:'', Ubic:'', Bin:'', Stock:'0', Costo:'1' },                // ...y no cuentan como "comparten identidad"
+    ],
+  };
+  const omitidas = ctx.filasSinUbicacionNiStock(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo);
+  assert(omitidas.total===4, 'deben omitirse 4 filas (sin ubicación, sin bin y stock 0), obtuvo: '+JSON.stringify(omitidas));
+  assert(omitidas.ejemplos.length===3 && omitidas.ejemplos.map(e=>e.sku_code).join(',')==='10001008,10001064,20004', 'los ejemplos van por código, una vez cada uno, obtuvo: '+JSON.stringify(omitidas.ejemplos));
+  assert(ctx.identidadesRepetidas(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'dos fantasmas idénticas no se avisan como repetidas: ninguna se carga');
+  const htmlPreviewOmit = ctx.renderCargaPreview();
+  assert(htmlPreviewOmit.includes('4 fila(s) sin ubicación, sin storage bin y con stock 0'), 'el preview dice cuántas filas se van a omitir antes de confirmar, obtuvo: '+htmlPreviewOmit);
+  assert(htmlPreviewOmit.includes('10001064') && htmlPreviewOmit.includes('batch NEW'), 'muestra ejemplos concretos con su batch, obtuvo: '+htmlPreviewOmit);
+  const toastRootOmit = elements['toast-root'];
+  const toastsAntesOmit = toastRootOmit.hijos.length;
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  const filasOmit = JSON.parse(postOmit.opts.body);
+  assert(filasOmit.map(f=>f.sku_code).join(',')==='10001008,20001,20002,20003', 'al upsert llegan solo las 4 filas que sí se cargan, obtuvo: '+JSON.stringify(filasOmit.map(f=>[f.sku_code,f.storage_bin,f.stock_sistema])));
+  assert(filasOmit[0].storage_bin==='N1E-055-H5' && filasOmit[0].stock_sistema===8, 'la hermana ubicada se carga intacta, obtuvo: '+JSON.stringify(filasOmit[0]));
+  const regOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
+  const cuerpoOmit = JSON.parse(regOmit.opts.body)[0];
+  assert(cuerpoOmit.filas_totales===8 && cuerpoOmit.filas_ok===4 && cuerpoOmit.filas_error===0, 'el historial registra 8 filas, 4 cargadas, 0 con error (las omitidas no son error), obtuvo: '+JSON.stringify(cuerpoOmit));
+  assert((cuerpoOmit.detalle_errores||[]).some(e=>/sin ubicación, sin storage bin y con stock 0/i.test(e.motivo) && e.cantidad===4), 'el historial deja constancia de cuántas se omitieron y por qué, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
+  const toastsOmit = toastRootOmit.hijos.slice(toastsAntesOmit).map(t=>t.textContent);
+  assert(toastsOmit.some(t=>t.includes('4 SKUs cargados') && t.includes('4 omitidas')), 'el aviso final dice cuántas se omitieron, obtuvo: '+JSON.stringify(toastsOmit));
+  await new Promise(r=>setTimeout(r, 0));
+
+  // El historial muestra las omitidas y su motivo aunque no haya errores.
+  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[{ id:'c-omit', nombre_archivo:'Materials (14).xlsx', tipo:'skus', filas_totales:62247, filas_ok:60634, filas_error:0, created_at:'2026-09-28T12:00:00Z', usuarios:{nombre:'Joel'}, detalle_errores:[{motivo:'Sin ubicación, sin storage bin y con stock 0 (no se cargan)', cantidad:1613}] }]};
+  const htmlHistOmit = ctx.renderCargaMasiva();
+  assert(htmlHistOmit.includes('60634 de 62247 filas cargadas') && htmlHistOmit.includes('1613 omitidas'), 'el historial cuenta las omitidas aparte de los errores, obtuvo: '+htmlHistOmit);
+  assert(htmlHistOmit.includes('Ver detalle') && htmlHistOmit.includes('Sin ubicación, sin storage bin y con stock 0 (no se cargan) - 1613 SKU'), 'el detalle explica el motivo aunque filas_error sea 0, obtuvo: '+htmlHistOmit);
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+
+  // Sin columna de ubicación ni de bin, la regla no aplica: un maestro sin ubicaciones conserva
+  // sus materiales con stock 0.
+  ctx.__appstate.cargaPreview = {
+    file: { name: 'sin-ubicaciones.csv' }, modo: 'complementar',
+    mapeo: { sku_code:'Codigo', bodega:'Bodega', stock_sistema:'Stock', costo_unitario:'Costo' },
+    campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}],
+    headers: ['Codigo','Bodega','Stock','Costo'],
+    confirmaReemplazo: false,
+    data: [ { Codigo:'A', Bodega:'B501', Stock:'0', Costo:'1' }, { Codigo:'B', Bodega:'B501', Stock:'2', Costo:'1' } ],
+  };
+  assert(ctx.filasSinUbicacionNiStock(ctx.__appstate.cargaPreview.data, ctx.__appstate.cargaPreview.mapeo).total===0, 'sin columnas de ubicación/bin no se omite nada');
+  assert(!ctx.renderCargaPreview().includes('sin storage bin y con stock 0'), 'sin filas omitidas no se muestra el aviso');
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  const postSinUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+  assert(JSON.parse(postSinUbic.opts.body).length===2, 'con stock 0 y sin columnas de ubicación, la fila se carga igual, obtuvo: '+postSinUbic.opts.body);
+  await new Promise(r=>setTimeout(r, 0));
 
   // Un archivo grande (ej. 64.000 filas de un maestro SAP) se parte en bloques de 2.000 antes
   // de mandarlo — un solo POST con todo el archivo superaba el statement_timeout de la base
