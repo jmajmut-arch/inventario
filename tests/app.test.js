@@ -7040,6 +7040,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(temaIndustrial && temaIndustrial.nombre==='Negro y Ámbar' && temaIndustrial.colores.length===3, 'debe existir el tema industrial en la lista, obtuvo: '+JSON.stringify(ctx.__TEMAS.map(x=>x.id)));
   assert(ctx.__TEMAS.find(x=>x.id==='claro') && ctx.__TEMAS.find(x=>x.id==='alto_contraste'), 'los temas de siempre siguen disponibles');
   assert(html.includes(':root[data-tema="industrial"]{') && html.includes(':root[data-tema="industrial"] .tabbar{background:#0b0b0b'), 'el tema industrial define sus variables y sus barras negras en el CSS');
+  // Predeterminado desde el 27/09 (decisión de Joel): sin preferencia guardada, arranca en Negro y Ámbar.
+  assert(html.includes("localStorage.getItem('tema_app') || 'industrial'") && temaIndustrial.desc.includes('(predeterminado)') && !ctx.__TEMAS.find(x=>x.id==='claro').desc.includes('predeterminado'), 'el tema predeterminado es Negro y Ámbar y la lista lo dice');
   assert(ctx.colorBarraNavegadorTema('industrial')==='#0b0b0b' && ctx.colorBarraNavegadorTema('claro')==='#ffffff' && ctx.colorBarraNavegadorTema('ambar')==='#ffffff', 'la barra del navegador acompaña al tema industrial y no cambia para los demás');
 
   // fueCapturadoOffline: distingue una captura offline (fechas separadas por horas) de una

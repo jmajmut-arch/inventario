@@ -687,7 +687,9 @@ let state = {
   reconteosPorSemana: [],   // [{semana:'YYYY-MM-DD' (lunes), pendientes}] -- gráfico de Reconteo por semana
   reconteoSemana: null,     // lunes (ISO) de la semana elegida en ese gráfico; null = todas
   reconteoTexto: '',        // buscador de Reconteo: código o descripción del SKU (filtra en el servidor)
-  tema: localStorage.getItem('tema_app') || 'claro',
+  // Predeterminado "Negro y Ámbar" desde el 27/09/2026 (decisión de Joel). Quien ya eligió un
+  // tema en su dispositivo lo conserva: solo cambia quien nunca eligió.
+  tema: localStorage.getItem('tema_app') || 'industrial',
   cargaPreview: null,
   cargaMasivaProgreso: null, // {actual, total} mientras confirmarCargaMasiva sube el archivo en bloques
   cargasHistorial: { cargado:false, cargando:false, filas:[] },
@@ -836,9 +838,9 @@ const TEMAS = [
   { id:'ambar', nombre:'Ámbar Industrial', desc:'Oscuro con acento ámbar', colores:['#161a20','#1e242c','#f0a030'] },
   { id:'acero', nombre:'Acero Nocturno', desc:'Oscuro con acento azul acero', colores:['#10151c','#19212b','#4d9fe0'] },
   { id:'verde', nombre:'Verde Mina', desc:'Oscuro con acento verde', colores:['#121a15','#19241c','#43c07c'] },
-  { id:'claro', nombre:'Claro Bodega', desc:'Fondo claro, para uso diurno (predeterminado)', colores:['#f4f5f3','#ffffff','#c9720f'] },
+  { id:'claro', nombre:'Claro Bodega', desc:'Fondo claro, para uso diurno', colores:['#f4f5f3','#ffffff','#c9720f'] },
   { id:'alto_contraste', nombre:'Alto Contraste', desc:'Negro y amarillo, máxima visibilidad en terreno', colores:['#000000','#0c0c0c','#ffd400'] },
-  { id:'industrial', nombre:'Negro y Ámbar', desc:'Como inventiapp.cl: fondo gris claro, barras negras, esquinas rectas', colores:['#f2f3f5','#0b0b0b','#f5a800'] },
+  { id:'industrial', nombre:'Negro y Ámbar', desc:'Como inventiapp.cl: fondo gris claro, barras negras, esquinas rectas (predeterminado)', colores:['#f2f3f5','#0b0b0b','#f5a800'] },
 ];
 // Color de la barra del navegador y de la app instalada (meta theme-color), según el tema: con
 // barras negras, una barra blanca arriba se veía como un parche. Los demás temas siguen como hoy.
