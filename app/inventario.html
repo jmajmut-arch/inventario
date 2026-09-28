@@ -2201,11 +2201,12 @@ async function buscarSkusLibre(texto){
 }
 
 let conteoVecesPeriodoPeticionId = 0;
-// Avisa en la tarjeta del SKU elegido en Contar si ya se contó en el período (ciclo) actual y
-// cuántas veces (RPC veces_contado_periodo, ver migración) -- para no duplicar trabajo si dos
-// personas cuentan el mismo material sin saberlo (a pedido de Joel). Se dispara solo, en segundo
-// plano, la primera vez que se pinta la tarjeta de cada SKU (ver bind() de la vista Contar); si
-// falla, simplemente no se muestra el aviso, no bloquea el conteo.
+// Avisa en la tarjeta del SKU elegido en Contar si ya se contó en el período (ciclo) actual:
+// cuántas veces, cuándo fue el último conteo, quién lo hizo y cuánto contó (RPC contado_periodo,
+// ver migración) -- para no duplicar trabajo si dos personas cuentan el mismo material sin
+// saberlo (a pedido de Joel). Se dispara solo, en segundo plano, la primera vez que se pinta la
+// tarjeta de cada SKU (ver bind() de la vista Contar); si falla, simplemente no se muestra el
+// aviso, no bloquea el conteo.
 async function cargarVecesContadoPeriodo(sku){
   // Marca "cargando" de inmediato (mutación directa, sin setState/render) para que el guard en
   // bind() no dispare una segunda consulta mientras esta sigue en vuelo -- mismo patrón que
@@ -2213,9 +2214,14 @@ async function cargarVecesContadoPeriodo(sku){
   state.conteoVecesPeriodo = {skuId: sku.id, veces:null, cargando:true};
   const miPeticion = ++conteoVecesPeriodoPeticionId;
   try{
-    const veces = await rest('/rpc/veces_contado_periodo', {method:'POST', body:{p_sku_id: sku.id}});
+    const r = await rest('/rpc/contado_periodo', {method:'POST', body:{p_sku_id: sku.id}}) || {};
     if(miPeticion !== conteoVecesPeriodoPeticionId) return; // se eligió otro SKU mientras tanto
-    setState({conteoVecesPeriodo: {skuId: sku.id, veces: Number(veces)||0, cargando:false}});
+    setState({conteoVecesPeriodo: {
+      skuId: sku.id, veces: Number(r.veces)||0, cargando:false,
+      ultimaFecha: r.ultima_fecha || null,
+      ultimaCantidad: r.ultima_cantidad == null ? null : Number(r.ultima_cantidad),
+      ultimoPor: r.ultimo_por || null,
+    }});
   }catch(e){
     if(miPeticion !== conteoVecesPeriodoPeticionId) return;
     setState({conteoVecesPeriodo: {skuId: sku.id, veces:null, cargando:false}});
@@ -11302,7 +11308,18 @@ function avisoVecesContadoPeriodo(){
   const info = state.conteoVecesPeriodo;
   if(!info || info.skuId !== state.skuSeleccionado.id) return '';
   if(info.cargando || !info.veces) return '';
-  return `<div class="hint" style="margin-top:6px;color:var(--amber);font-weight:600">⚠ Ya contado ${info.veces} ${info.veces===1?'vez':'veces'} en este período.</div>`;
+  return `<div class="hint" style="margin-top:6px;color:var(--amber);font-weight:600">⚠ Ya contado ${info.veces} ${info.veces===1?'vez':'veces'} en este período${detalleUltimoConteoPeriodo(info)}.</div>`;
+}
+// Cuándo, quién y cuánto del último conteo del período (pedido de Joel: "que diga cuándo y a
+// qué hora"). La cantidad se omite con conteo ciego (ver ocultarStockOperador): anclaría el
+// nuevo conteo, igual que la diferencia en el aviso de reconteo.
+function detalleUltimoConteoPeriodo(info){
+  if(!info.ultimaFecha) return '';
+  const cuando = info.veces===1 ? ` · el ${fmtFechaHora(info.ultimaFecha)}` : ` · la última el ${fmtFechaHora(info.ultimaFecha)}`;
+  const quien = info.ultimoPor ? ` por ${esc(info.ultimoPor)}` : '';
+  const unidad = state.skuSeleccionado && state.skuSeleccionado.unidad_medida ? ' '+esc(state.skuSeleccionado.unidad_medida) : '';
+  const cuanto = (info.ultimaCantidad!=null && !ocultarStockOperador()) ? ` (contó ${info.ultimaCantidad}${unidad})` : '';
+  return cuando + quien + cuanto;
 }
 // El SKU elegido en Contar viene del botón Recontar (ver bind de [data-recontar]) y sigue siendo
 // el mismo: se compara por skuId para que elegir otro material por el plan o el buscador no

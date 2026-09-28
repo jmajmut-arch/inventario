@@ -24,6 +24,7 @@ let flowSyncRespuesta = { ok:true, sincronizada:true, estado:'activa', cambio:fa
 let cicloActualRpcRespuesta = null;
 let verificarConteoAtipicoRespuesta = false;
 let conteosEnPeriodoRespuesta = 0;
+let contadoPeriodoDetalle = null; // {ultima_fecha, ultima_cantidad, ultimo_por} del último conteo del período
 let autoservicioRespuesta = { error: null };
 // ===== MFA (verificación en dos pasos) =====
 let usuarioAuthFactores = []; // lo que /auth/v1/user devuelve en su campo "factors"
@@ -162,10 +163,13 @@ const fakeFetchImpl = async (url, opts) => {
     // función escalar (RETURNS boolean), valor crudo sin envolver, igual que ciclo_actual.
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(verificarConteoAtipicoRespuesta) };
   }
-  if(path.startsWith('/rest/v1/rpc/veces_contado_periodo')){
-    // "Ya contado este período" en Contar (ver cargarVecesContadoPeriodo): función escalar
-    // (RETURNS integer), valor crudo sin envolver, igual que ciclo_actual.
-    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(conteosEnPeriodoRespuesta) };
+  if(path.startsWith('/rest/v1/rpc/contado_periodo')){
+    // "Ya contado este período" en Contar (ver cargarVecesContadoPeriodo): RETURNS jsonb con
+    // veces, ultima_fecha, ultima_cantidad y ultimo_por. El fixture solo fija cuántas veces; el
+    // resto lo aporta contadoPeriodoDetalle (null = sin detalle, como una función antigua).
+    const veces = Number(conteosEnPeriodoRespuesta)||0;
+    const detalle = veces && contadoPeriodoDetalle ? contadoPeriodoDetalle : {};
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({veces, ultima_fecha:null, ultima_cantidad:null, ultimo_por:null, ...detalle}) };
   }
   if(path.startsWith('/rest/v1/informes_ciclo')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(informesCicloFixture||[]) };
@@ -9643,23 +9647,56 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // ===== "Ya contado este período": avisar en la tarjeta del SKU elegido en Contar si ya tiene
   // conteos en el período (ciclo) actual, y cuántos -- para no duplicar trabajo si dos personas
-  // cuentan lo mismo sin saberlo (RPC veces_contado_periodo, a pedido de Joel). =====
+  // cuentan lo mismo sin saberlo (RPC contado_periodo, a pedido de Joel). =====
   const skuVecesPrueba = {id:'sku-veces-1', sku_code:'SKU-VECES', descripcion:'X', bodega:'Nave', ubicacion:'', unidad_medida:'UN'};
   calls.length = 0;
   conteosEnPeriodoRespuesta = 2;
   await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
-  const rpcVecesCall = calls.find(c=>c.url.includes('/rpc/veces_contado_periodo'));
-  assert(!!rpcVecesCall && JSON.parse(rpcVecesCall.opts.body).p_sku_id==='sku-veces-1', 'debe consultar veces_contado_periodo con el sku_id del SKU elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const rpcVecesCall = calls.find(c=>c.url.includes('/rpc/contado_periodo'));
+  assert(!!rpcVecesCall && JSON.parse(rpcVecesCall.opts.body).p_sku_id==='sku-veces-1', 'debe consultar contado_periodo con el sku_id del SKU elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.conteoVecesPeriodo && ctx.__appstate.conteoVecesPeriodo.skuId==='sku-veces-1' && ctx.__appstate.conteoVecesPeriodo.veces===2, 'debe guardar cuántas veces ya se contó según la respuesta del servidor, obtuvo: '+JSON.stringify(ctx.__appstate.conteoVecesPeriodo));
 
   ctx.__appstate.skuSeleccionado = skuVecesPrueba;
   const htmlConVeces = ctx.renderConteo();
   assert(htmlConVeces.includes('Ya contado 2 veces en este período'), 'debe avisar en la tarjeta cuántas veces ya se contó, obtuvo: '+htmlConVeces);
 
+  // Pedido de Joel (28/09/2026): "cuando voy a contar y ya fue contado, que diga cuándo y a qué
+  // hora". El aviso dice cuándo fue el último conteo, quién lo hizo y cuánto contó.
+  // (El bloque de conteo ciego más arriba deja un perfil de operador: se fija uno de admin.)
+  const perfilAntesVeces = ctx.__appstate.perfil;
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:false} };
+  contadoPeriodoDetalle = {ultima_fecha:'2026-09-28T14:05:00Z', ultima_cantidad:7, ultimo_por:'Ana Pérez'};
+  await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
+  const estadoDetalle = ctx.__appstate.conteoVecesPeriodo;
+  assert(estadoDetalle.veces===2 && estadoDetalle.ultimaFecha==='2026-09-28T14:05:00Z' && estadoDetalle.ultimaCantidad===7 && estadoDetalle.ultimoPor==='Ana Pérez', 'debe guardar cuándo, cuánto y quién del último conteo, obtuvo: '+JSON.stringify(estadoDetalle));
+  const htmlDetalle = ctx.renderConteo();
+  const fechaHoraEsperada = ctx.fmtFechaHora('2026-09-28T14:05:00Z');
+  assert(fechaHoraEsperada.includes(':'), 'fmtFechaHora debe incluir la hora (hh:mm), obtuvo: '+fechaHoraEsperada);
+  assert(htmlDetalle.includes(`Ya contado 2 veces en este período · la última el ${fechaHoraEsperada} por Ana Pérez (contó 7 UN).`), 'el aviso debe decir cuándo (fecha y hora), quién y cuánto se contó la última vez, obtuvo: '+htmlDetalle);
+
+  // Conteo ciego para operador: la cantidad anterior anclaría el nuevo conteo, así que se omite;
+  // la fecha, la hora y quién contó sí se muestran.
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+  const htmlDetalleCiego = ctx.renderConteo();
+  assert(htmlDetalleCiego.includes(`la última el ${fechaHoraEsperada} por Ana Pérez.`) && !htmlDetalleCiego.includes('contó 7'), 'con conteo ciego el aviso dice cuándo y quién pero no cuánto, obtuvo: '+htmlDetalleCiego);
+  ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:false} };
+
+  // Si el servidor no trae detalle (o no hay nombre), el aviso sigue diciendo cuántas veces.
+  contadoPeriodoDetalle = {ultima_fecha:'2026-09-28T14:05:00Z', ultima_cantidad:null, ultimo_por:null};
+  await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
+  const htmlSinNombre = ctx.renderConteo();
+  assert(htmlSinNombre.includes(`Ya contado 2 veces en este período · la última el ${fechaHoraEsperada}.`), 'sin nombre ni cantidad el aviso dice solo cuándo, obtuvo: '+htmlSinNombre);
+  contadoPeriodoDetalle = null;
+
   conteosEnPeriodoRespuesta = 1;
   await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
   const htmlUnaVez = ctx.renderConteo();
   assert(htmlUnaVez.includes('Ya contado 1 vez en este período'), 'debe usar singular ("vez") cuando solo se contó una vez, obtuvo: '+htmlUnaVez);
+  contadoPeriodoDetalle = {ultima_fecha:'2026-09-28T14:05:00Z', ultima_cantidad:3, ultimo_por:'Joel Majmut'};
+  await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
+  const htmlUnaVezDetalle = ctx.renderConteo();
+  assert(htmlUnaVezDetalle.includes(`Ya contado 1 vez en este período · el ${fechaHoraEsperada} por Joel Majmut (contó 3 UN).`), 'con una sola vez no dice "la última", dice "el <fecha hora>", obtuvo: '+htmlUnaVezDetalle);
+  contadoPeriodoDetalle = null;
 
   conteosEnPeriodoRespuesta = 0;
   await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
@@ -9669,19 +9706,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Si falla la consulta (red, etc.), no debe lanzar ni bloquear -- simplemente no se muestra
   // el aviso, igual que verificar_conteo_atipico más arriba.
   const fetchOriginalParaVecesFalla = ctx.fetch;
-  ctx.fetch = async (url, opts) => { if(String(url).includes('/rpc/veces_contado_periodo')) throw new TypeError('fallo de red'); return fetchOriginalParaVecesFalla(url, opts); };
+  ctx.fetch = async (url, opts) => { if(String(url).includes('/rpc/contado_periodo')) throw new TypeError('fallo de red'); return fetchOriginalParaVecesFalla(url, opts); };
   await ctx.cargarVecesContadoPeriodo(skuVecesPrueba);
   const htmlFallaRpcVeces = ctx.renderConteo();
   assert(!htmlFallaRpcVeces.includes('Ya contado'), 'si falla la consulta del servidor, no debe mostrarse el aviso ni bloquear el conteo, obtuvo: '+htmlFallaRpcVeces);
   ctx.fetch = fetchOriginalParaVecesFalla;
   conteosEnPeriodoRespuesta = 0;
   ctx.__appstate.conteoVecesPeriodo = null;
+  ctx.__appstate.perfil = perfilAntesVeces;
 
   ctx.__appstate.skuSeleccionado = null;
 
   // ===== Recontar desde la pestaña Reconteo: "Ya contado N veces" es ruido ahí (obvio que ya se
   // contó, por eso se recuenta). En su lugar la tarjeta dice de qué conteo viene, y no se gasta la
-  // ida y vuelta a veces_contado_periodo. Pedido de Joel: "al recontarlo me indica inmediatamente
+  // ida y vuelta a contado_periodo. Pedido de Joel: "al recontarlo me indica inmediatamente
   // que ya se contó... ¿no debería ser a la segunda contada?". =====
   {
     // El bloque siguiente reusa la lista de reconteos ya cargada: se guarda y se restaura.
@@ -9699,12 +9737,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.view==='conteo' && ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-rec-1', 'Recontar debe llevar a Contar con el SKU elegido, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, sku:ctx.__appstate.skuSeleccionado&&ctx.__appstate.skuSeleccionado.id}));
     assert(ctx.__appstate.conteoReconteo && ctx.__appstate.conteoReconteo.skuId==='sku-rec-1' && ctx.__appstate.conteoReconteo.cantidad===8 && ctx.__appstate.conteoReconteo.diferencia===-2, 'Recontar debe recordar de qué conteo viene (skuId, cantidad, diferencia, fecha), obtuvo: '+JSON.stringify(ctx.__appstate.conteoReconteo));
 
-    // Al pintar Contar no se consulta veces_contado_periodo ni se muestra "Ya contado".
+    // Al pintar Contar no se consulta contado_periodo ni se muestra "Ya contado".
     calls.length = 0;
     conteosEnPeriodoRespuesta = 1;
     ctx.bind();
     await new Promise(r=>setTimeout(r,0));
-    assert(!calls.some(c=>c.url.includes('/rpc/veces_contado_periodo')), 'viniendo de Recontar no debe consultarse veces_contado_periodo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/rpc/contado_periodo')), 'viniendo de Recontar no debe consultarse contado_periodo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     const htmlRecontar = ctx.renderConteo();
     assert(!htmlRecontar.includes('Ya contado'), 'viniendo de Recontar no debe mostrarse "Ya contado", obtuvo: '+htmlRecontar);
     assert(htmlRecontar.includes('Reconteo · el ') && htmlRecontar.includes('se contaron 8 (diferencia -2)'), 'la tarjeta debe decir de qué conteo viene el reconteo, con cantidad y diferencia, obtuvo: '+htmlRecontar);
@@ -9716,13 +9754,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(htmlRecontarCiego.includes('Reconteo · el ') && !htmlRecontarCiego.includes('se contaron') && !htmlRecontarCiego.includes('diferencia'), 'con la diferencia oculta por el servidor solo debe mostrarse la fecha del conteo anterior, obtuvo: '+htmlRecontarCiego);
 
     // Elegir otro material (plan o buscador) no arrastra el aviso de reconteo: vuelve el
-    // comportamiento normal, incluida la consulta de veces_contado_periodo.
+    // comportamiento normal, incluida la consulta de contado_periodo.
     ctx.__appstate.skuSeleccionado = {id:'sku-otro-1', sku_code:'SKU-OTRO', descripcion:'Otro', bodega:'Nave', ubicacion:'', unidad_medida:'UN'};
     ctx.__appstate.conteoVecesPeriodo = null;
     calls.length = 0;
     ctx.bind();
     await new Promise(r=>setTimeout(r,0));
-    assert(calls.some(c=>c.url.includes('/rpc/veces_contado_periodo')), 'con otro SKU elegido debe volver a consultarse veces_contado_periodo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/rpc/contado_periodo')), 'con otro SKU elegido debe volver a consultarse contado_periodo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(!ctx.renderConteo().includes('Reconteo · el '), 'con otro SKU elegido no debe mostrarse el aviso de reconteo');
 
     // Guardar el conteo limpia el origen de reconteo, para que el siguiente material parta de cero.
