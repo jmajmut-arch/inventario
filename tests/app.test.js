@@ -4467,6 +4467,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // más adelante y contamina el conteo de llamadas del siguiente bloque (perfil no cargado).
   await new Promise(r=>setTimeout(r, 0));
 
+  // ===== Alta manual: el batch se guarda en mayúsculas (decisión de Joel, 28/09/2026) =====
+  // SAP escribe "REPAIRED"; a mano se tecleó "Repaired" y quedó como otro lote. El formulario
+  // normaliza; la carga por Excel no (conserva lo que trae el ERP).
+  assert(ctx.normalizarBatchManual(' Repaired ')==='REPAIRED' && ctx.normalizarBatchManual('l-2026-045')==='L-2026-045', 'el batch manual se recorta y va en mayúsculas, obtuvo: '+ctx.normalizarBatchManual(' Repaired '));
+  assert(ctx.normalizarBatchManual('')===null && ctx.normalizarBatchManual('   ')===null && ctx.normalizarBatchManual(undefined)===null, 'sin batch queda null, no cadena vacía');
+  assert(html.includes("batch: normalizarBatchManual(document.getElementById('s-batch').value)"), 'el formulario de alta usa la normalización del batch');
+
   // ===== Carga masiva: el mismo sku_code en dos bodegas distintas no debe deduplicarse =====
   // (ver migración permitir_mismo_sku_en_varias_bodegas: cada bodega es su propia fila).
   ctx.__appstate.cargaPreview = {

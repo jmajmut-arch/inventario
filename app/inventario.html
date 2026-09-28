@@ -7737,6 +7737,13 @@ function describirUbicacion({bodega, ubicacion, storage_bin}){
   return partes.length ? partes.join(' · ') : 'sin ubicación';
 }
 
+// Batch del alta manual en mayúsculas (decisión de Joel, 28/09/2026): SAP escribe "REPAIRED" y
+// a mano se tecleó "Repaired"; como el batch distingue mayúsculas en la identidad del material,
+// quedaron como dos lotes distintos. La carga por Excel no se toca: conserva lo que trae el ERP.
+function normalizarBatchManual(valor){
+  const v = String(valor||'').trim().toUpperCase();
+  return v || null;
+}
 async function crearSkuManual(payload){
   if(!perfilCargado()) return false;
   const capturadoEn = new Date().toISOString();
@@ -15353,7 +15360,7 @@ function bind(){
         sku_code: document.getElementById('s-code').value.trim(),
         descripcion: document.getElementById('s-desc').value.trim() || null,
         categoria: document.getElementById('s-cat').value.trim() || null,
-        batch: document.getElementById('s-batch').value.trim() || null,
+        batch: normalizarBatchManual(document.getElementById('s-batch').value),
         unidad_medida: document.getElementById('s-um').value.trim() || null,
         bodega: document.getElementById('s-bodega').value.trim() || null,
         ubicacion: document.getElementById('s-ubic').value.trim() || null,
