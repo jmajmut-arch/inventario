@@ -212,6 +212,51 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Alta manual de SKU: sitio por desplegables y revisión del código (Joel, 29/09) =====
+  // Con el navegador real: el código existente muestra sus posiciones y completa los datos del
+  // material; los desplegables se encadenan; "+ Otra…" abre un campo que se puede
+  // teclear sin que se reemplace (en iPad eso reiniciaría el teclado); a 420 px no desborda.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('alta-sku: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.route('**/rest/v1/rpc/catalogos_pantalla_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
+      categorias:['Repuestos'], unidades:['EA'], batches:[],
+      generales:[{bodega:'Nave Mina', cantidad_skus:3}, {bodega:'Nave Planta', cantidad_skus:1}],
+      ubicaciones:[{id:'u1', bodega:'Nave Mina', ubicacion:null, activo:true}, {id:'u2', bodega:'Nave Planta', ubicacion:null, activo:true}, {id:'u3', bodega:'Nave Mina', ubicacion:'Pasillo 3', activo:true}],
+    }) }));
+    await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:2}]) }));
+    await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:1}]) }));
+    await page.route('**/rest/v1/skus?activo=eq.true&sku_code=eq.**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      {id:'e1', sku_code:'10371892', descripcion:'FILTRO ACEITE', unidad_medida:'EA', categoria:'Repuestos', costo_unitario:1500, critico:false, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', batch:null},
+    ]) }));
+    await page.evaluate(() => setState({view:'skus'}));
+    await page.waitForSelector('#form-sku');
+    await page.waitForFunction(() => document.querySelectorAll('#s-bodega option').length >= 4, null, { timeout:ESPERA });
+    await page.fill('#s-code', '10371892');
+    await page.press('#s-code', 'Tab');
+    await page.waitForSelector('#sku-codigo-existente', { timeout:ESPERA });
+    const desc = await page.inputValue('#s-desc');
+    assert(desc === 'FILTRO ACEITE', 'el código existente completa la descripción del material, obtuvo "'+desc+'"');
+    await page.selectOption('#s-bodega', 'Nave Mina');
+    await page.waitForFunction(() => [...document.querySelectorAll('#s-ubic option')].some(o=>o.value==='Pasillo 3'), null, { timeout:ESPERA });
+    const codigoSigue = await page.inputValue('#s-code');
+    assert(codigoSigue === '10371892', 'elegir la bodega no borra lo escrito en otros campos, obtuvo "'+codigoSigue+'"');
+    await page.selectOption('#s-ubic', 'Pasillo 3');
+    await page.waitForFunction(() => [...document.querySelectorAll('#s-bin option')].some(o=>o.value==='A-01'), null, { timeout:ESPERA });
+    await page.selectOption('#s-bin', '__nuevo');
+    await page.waitForSelector('#s-bin-nueva');
+    await page.evaluate(() => { document.getElementById('s-bin-nueva').dataset.marca = 'original'; });
+    await page.click('#s-bin-nueva');
+    await page.keyboard.type('A-02');
+    const binNuevo = await page.evaluate(() => { const el = document.getElementById('s-bin-nueva'); return { valor: el.value, mismo: el.dataset.marca === 'original' }; });
+    assert(binNuevo.valor === 'A-02' && binNuevo.mismo, 'escribir el bin nuevo no reemplaza el campo, obtuvo '+JSON.stringify(binNuevo));
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px el formulario no desborda, obtuvo '+desborde);
+    await context.close();
+  }
+
   // ===== Landing: honeypot silencioso (bot) no debe llamar a la red =====
   {
     const context = await browser.newContext();
