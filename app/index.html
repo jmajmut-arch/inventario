@@ -703,7 +703,7 @@ let state = {
   ubicacionesLista: { cargado:false, cargando:false, filas:[], error:null },
   // Buscar: desplegable "Contado por" (ver cargarPersonasBuscar).
   personasBuscar: { cargado:false, cargando:false, filas:[], error:null },
-  busqueda: { texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[] },
+  busqueda: { texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'' },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -5028,67 +5028,29 @@ function sanearTextoFiltro(s){
 // invisible acá. "Contado"/"no contado" son valores especiales de Estado que no son columnas
 // reales: se traducen a filtrar por si hay o no conteo_id.
 // Columnas de skus_busqueda por las que se puede ordenar la tabla (clic en el encabezado) --
-// "Fotos" queda afuera porque es un arreglo agregado, PostgREST no puede ordenar por su tamaño
-// con un simple "order=".
+// "Fotos" queda afuera porque es un arreglo agregado; el servidor (filas_busqueda_skus) solo
+// acepta estas.
 const ORDEN_COLUMNAS_BUSQUEDA = new Set(['sku_code','batch','descripcion','bodega','storage_bin','cantidad_contada','estado','fuera_de_plan','fecha_conteo','ciclo_nombre','clase_abc']);
-function construirOrdenBusqueda(){
+// Orden de la tabla para el RPC filas_busqueda_skus: la columna elegida con un clic en el
+// encabezado y su sentido, o null para el orden por defecto (fecha del último conteo descendente,
+// código ascendente). El servidor agrega el desempate por código, salvo cuando se ordena por código.
+function ordenBusquedaRpc(){
   const o = state.busqueda.orden;
-  if(o && o.campo && ORDEN_COLUMNAS_BUSQUEDA.has(o.campo)){
-    const base = `${o.campo}.${o.dir}.nullslast`;
-    return o.campo==='sku_code' ? base : `${base},sku_code.asc`;
-  }
-  return 'fecha_conteo.desc.nullslast,sku_code.asc';
+  if(o && o.campo && ORDEN_COLUMNAS_BUSQUEDA.has(o.campo)) return { p_orden_campo: o.campo, p_orden_dir: o.dir };
+  return { p_orden_campo: null, p_orden_dir: null };
 }
-function construirPathBusqueda(offset, limit=TAM_PAGINA_LISTA){
-  let path = `/skus_busqueda?select=*&order=${construirOrdenBusqueda()}&limit=${limit}&offset=${offset}`;
-  const texto = sanearTextoFiltro(state.busqueda.texto);
-  // Además de código/descripción, también busca por batch y storage bin -- alguien que escribe
-  // un lote o una ubicación física puntual en el buscador libre espera encontrarlo igual.
-  if(texto) path += `&or=(sku_code.ilike.*${encodeURIComponent(texto)}*,descripcion.ilike.*${encodeURIComponent(texto)}*,batch.ilike.*${encodeURIComponent(texto)}*,storage_bin.ilike.*${encodeURIComponent(texto)}*)`;
-  // Ubicación general y específica vienen de desplegables con los valores reales del maestro
-  // (ver cargarUbicacionesLista): igualdad exacta, no "contiene" -- con ilike, "Bodega 1" traía
-  // también "Bodega 10". BODEGA_VACIA = con ubicación pero sin bodega, igual que en Plan.
-  if(state.busqueda.bodega) path += `&${filtroBodegaOpciones(state.busqueda.bodega)}`;
-  if(state.busqueda.ubicacion) path += `&ubicacion=eq.${encodeURIComponent(state.busqueda.ubicacion)}`;
-  if(state.busqueda.estado === 'no_contado') path += `&conteo_id=is.null`;
-  // "Pendiente de reconteo" (pedido de Joel): los mismos materiales que lista la pestaña Reconteo
-  // (último conteo del período con diferencia y no descartado), como columna de skus_busqueda.
-  else if(state.busqueda.estado === 'reconteo_pendiente') path += `&reconteo_pendiente=eq.true`;
-  // "Diferencia positiva" / "Diferencia negativa": las dos mitades de "Con diferencia", con el
-  // mismo criterio que el gráfico "Resumen por estado" (grupoEstadoBusqueda): negativa es
-  // faltante (se contó menos que el sistema), positiva es sobrante. Se filtra por estado Y por
-  // signo para que positiva + negativa sea exactamente "Con diferencia". El RPC del total
-  // (contar_busqueda_skus) entiende los mismos dos valores.
-  else if(state.busqueda.estado === 'diferencia_positiva') path += `&estado=eq.con_diferencia&diferencia=gt.0`;
-  else if(state.busqueda.estado === 'diferencia_negativa') path += `&estado=eq.con_diferencia&diferencia=lt.0`;
-  else if(state.busqueda.estado) path += `&estado=eq.${encodeURIComponent(state.busqueda.estado)}`;
-  if(state.busqueda.ciclo === '__sin_ciclo__') path += `&ciclo_id=is.null&conteo_id=not.is.null`;
-  else if(state.busqueda.ciclo) path += `&ciclo_id=eq.${encodeURIComponent(state.busqueda.ciclo)}`;
-  if(state.busqueda.soloFueraDePlan) path += `&fuera_de_plan=eq.true`;
-  if(state.busqueda.claseAbc === '__sin_clasificar__') path += `&clase_abc=is.null`;
-  else if(state.busqueda.claseAbc) path += `&clase_abc=eq.${encodeURIComponent(state.busqueda.claseAbc)}`;
-  // Rango de fechas de conteo (reemplaza al viejo "Contado hoy" fijo -- a pedido de Joel, ahora
-  // se elige el rango): mismo patrón que exportarConteosExcel, se arma el instante real a partir
-  // de la medianoche LOCAL de cada fecha (no un string con "Z" a la fuerza), para que el rango
-  // coincida con el día calendario que la persona ve en su pantalla, sin importar el huso horario.
-  // Cada extremo es independiente -- se puede filtrar solo desde, solo hasta, o ambos.
-  const { desde, hasta } = instantesFiltroFechaBusqueda();
-  if(desde) path += `&fecha_conteo=gte.${desde}`;
-  if(hasta) path += `&fecha_conteo=lt.${hasta}`;
-  // Filtro por responsable (ver irABuscarDelDia, "Ver lo contado" en Calendario): a diferencia de
-  // filtroContadoPor (drill-down por NOMBRE sobre lo ya cargado en el cliente), este sí restringe
-  // el pedido al servidor -- necesario para que un operador que llega desde Calendario vea solo lo
-  // suyo sin que la respuesta traiga de más al resto de la empresa.
-  if(state.busqueda.usuarioId) path += `&contado_por_id=eq.${encodeURIComponent(state.busqueda.usuarioId)}`;
-  path += filtroGrupoBuscar();
-  return path;
+// Cuerpo del RPC filas_busqueda_skus (ver migración): las filas de skus_busqueda que calzan con
+// los filtros de Buscar, ordenadas y recortadas en el servidor. Los filtros son exactamente los
+// mismos que recibe el RPC del total (construirParametrosBusquedaRpc) -- así las filas y el total
+// salen del mismo criterio -- y la función usa los índices de trigramas para el texto, cosa que la
+// consulta directa a la vista bajo RLS no podía (ver buscar_skus_lectura).
+function cuerpoFilasBusqueda(offset, limit=TAM_PAGINA_LISTA){
+  return { ...construirParametrosBusquedaRpc(), ...ordenBusquedaRpc(), p_limite: limit, p_offset: offset };
+}
+async function pedirFilasBusqueda(offset, limit=TAM_PAGINA_LISTA){
+  return await rest('/rpc/filas_busqueda_skus', {method:'POST', body: cuerpoFilasBusqueda(offset, limit)}) || [];
 }
 
-// Filtro por grupo de conteo curado a mano (ver Grupos de conteo) en Buscar. skus_busqueda no
-// tiene una columna de grupo -- se resuelve con los pares código+bodega ya traídos de
-// skus_grupos_conteo (state.busqueda.gruposPares, ver buscarConteos) armando un OR de pares
-// exactos, igual mecánica que ya usa calcularVistaPreviaPlanGrupo. El grupo automático de
-// Crítico NO pasa por acá -- se resuelve directo por la columna critico (critico=eq.true, sin join).
 // El grupo elegido en el <select> de Buscar (ver gruposParaFiltroBuscar) -- null si no hay
 // ninguno elegido, o si state.grupos.lista todavía no cargó ese id.
 function grupoBuscarSeleccionado(){
@@ -5096,31 +5058,14 @@ function grupoBuscarSeleccionado(){
   return (state.grupos.lista || []).find(g=>g.id===state.busqueda.grupoId) || null;
 }
 
-function filtroGrupoBuscar(){
-  const grupo = grupoBuscarSeleccionado();
-  if(!grupo) return '';
-  // Automático (ej. "Críticos"): se resuelve directo por skus_busqueda.critico, sin pasar por
-  // skus_grupos_conteo (ese grupo no tiene filas ahí). Reemplaza al viejo checkbox "Solo
-  // críticos" de Buscar, que se quitó por redundante (pedido de Joel).
-  if(grupo.automatico_critico) return '&critico=eq.true';
-  const pares = state.busqueda.gruposPares || [];
-  // Grupo sin materiales: ningún resultado puede coincidir -- se arma un filtro que nunca hace
-  // match (en vez de mandar un "or=()" vacío, que PostgREST rechazaría) para no pedir de más.
-  if(!pares.length) return '&sku_id=eq.00000000-0000-0000-0000-000000000000';
-  const clausulas = pares.map(p=>
-    p.bodega ? `and(sku_code.eq.${encodeURIComponent(p.sku_code)},bodega.eq.${encodeURIComponent(p.bodega)})`
-              : `and(sku_code.eq.${encodeURIComponent(p.sku_code)},bodega.is.null)`
-  );
-  return `&or=(${clausulas.join(',')})`;
-}
 
 // Convierte el rango de fechas (calendario, string "YYYY-MM-DD") de Buscar en los instantes UTC
-// exactos a partir de la medianoche LOCAL de cada fecha -- compartido entre construirPathBusqueda
-// (filtra las filas) y construirParametrosBusquedaRpc (cuenta el total): ambos deben comparar
+// exactos a partir de la medianoche LOCAL de cada fecha -- compartido entre las filas y el total
+// de Buscar (construirParametrosBusquedaRpc alimenta a los dos RPC): ambos deben comparar
 // exactamente el mismo instante, o el total mostrado no calzaría con las filas que trae la tabla.
 // Convierte un rango de fechas (calendario, strings "YYYY-MM-DD") en los instantes UTC exactos a
-// partir de la medianoche LOCAL de cada fecha -- usado por Buscar (construirPathBusqueda /
-// construirParametrosBusquedaRpc) y por el resumen general del Dashboard
+// partir de la medianoche LOCAL de cada fecha -- usado por Buscar (construirParametrosBusquedaRpc,
+// filas y total) y por el resumen general del Dashboard
 // (parametrosResumenGeneralSkus): todos deben comparar exactamente el mismo instante, o lo que
 // muestran no calzaría entre sí.
 function instantesFiltroFecha(fechaDesde, fechaHasta){
@@ -5136,7 +5081,7 @@ function instantesFiltroFechaBusqueda(){
   return instantesFiltroFecha(state.busqueda.fechaDesde, state.busqueda.fechaHasta);
 }
 
-// Parámetros para el RPC contar_busqueda_skus -- mismo contrato de filtros que construirPathBusqueda
+// Parámetros de filtro para los RPC contar_busqueda_skus (total) y filas_busqueda_skus (filas)
 // (ver esa función), pero como un count(*) directo contra skus (sin joins), mucho más rápido que
 // pedirle a PostgREST el total exacto vía Prefer: count=exact/Content-Range cuando la búsqueda no
 // tiene filtros (ver PR de optimización de Buscar para la medición).
@@ -5150,8 +5095,8 @@ function construirParametrosBusquedaRpc(){
     p_estado: state.busqueda.estado || null,
     p_ciclo: state.busqueda.ciclo || null,
     p_solo_fuera_de_plan: !!state.busqueda.soloFueraDePlan,
-    // El grupo automático de Crítico se resuelve como "solo críticos" (ver filtroGrupoBuscar) --
-    // así el RPC del total usa el mismo camino, sin join.
+    // El grupo automático de Crítico se resuelve como "solo críticos" --
+    // así el total y las filas usan el mismo camino, sin join.
     p_solo_criticos: !!(grupo && grupo.automatico_critico),
     p_clase_abc: state.busqueda.claseAbc || null,
     p_fecha_desde: desde,
@@ -5178,7 +5123,7 @@ function irABuscarSku(skuCode){
     busqueda: {
       texto: skuCode, bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, seleccionados:[],
-      usuarioId:null, usuarioNombre:null, grupoId:'', gruposPares:[],
+      usuarioId:null, usuarioNombre:null, grupoId:'',
     },
   });
   buscarConteos();
@@ -5201,7 +5146,7 @@ function irABuscarDelDia(fecha){
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, seleccionados:[],
       usuarioId: esAdmin ? null : (state.perfil && state.perfil.id) || null,
       usuarioNombre: esAdmin ? null : (state.perfil && state.perfil.nombre) || null,
-      grupoId:'', gruposPares:[],
+      grupoId:'',
     },
   });
   buscarConteos();
@@ -5217,17 +5162,10 @@ function irABuscarDelDia(fecha){
 // "Siguiente"/buscarMasConteos, como antes.
 async function buscarConteos(){
   try{
-    // Filtro por grupo: primero se traen los pares código+bodega del grupo elegido (consulta
-    // liviana e indexada por grupo_id, ver idx_skus_grupos_conteo_grupo) para armar el filtro
-    // exacto en construirPathBusqueda/construirParametrosBusquedaRpc. Se guarda en el estado
-    // (gruposPares) para que "cargar más" y exportar reutilicen el mismo snapshot sin volver a
-    // pedirlo -- igual criterio que el resto de los filtros de Buscar.
-    const grupoParaBuscar = grupoBuscarSeleccionado();
-    state.busqueda.gruposPares = (grupoParaBuscar && !grupoParaBuscar.automatico_critico)
-      ? (await rest(`/skus_grupos_conteo?grupo_id=eq.${encodeURIComponent(grupoParaBuscar.id)}&select=sku_code,bodega`) || [])
-      : [];
+    // Filas y total en paralelo, con los mismos filtros (el grupo viaja como p_grupo_id y lo
+    // resuelve el servidor por código+bodega, ver filas_busqueda_skus).
     const [data, total] = await Promise.all([
-      rest(construirPathBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA)),
+      pedirFilasBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA),
       rest('/rpc/contar_busqueda_skus', { method:'POST', body: construirParametrosBusquedaRpc() }),
     ]);
     const rows = data || [];
@@ -5244,7 +5182,7 @@ async function buscarMasConteos(){
   state.busqueda.buscandoMas = true;
   render();
   try{
-    const rows = await rest(construirPathBusqueda(state.busqueda.paginaOffset)) || [];
+    const rows = await pedirFilasBusqueda(state.busqueda.paginaOffset);
     state.busqueda.resultados = state.busqueda.resultados.concat(filtrarResultadosBusqueda(rows));
     state.busqueda.paginaOffset += rows.length;
     state.busqueda.hayMas = state.busqueda.total!=null ? state.busqueda.paginaOffset<state.busqueda.total : rows.length===TAM_PAGINA_LISTA;
@@ -5309,7 +5247,7 @@ function filtrarResultadosCargadosBuscar(b){
 }
 
 // Exporta a Excel TODO lo que matchea los filtros actuales de Buscar, no solo lo ya cargado en
-// pantalla -- pagina de a TAM_PAGINA_LISTA vía construirPathBusqueda (mismo path que usa la
+// pantalla -- pagina de a TAM_PAGINA_LISTA vía filas_busqueda_skus (mismo RPC que usa la
 // búsqueda), igual que buscarMasConteos, hasta agotar el servidor. Si hay un filtro de "Quién
 // contó" activo (drill-down del gráfico), ese sí es solo sobre lo ya cargado -- ver su propio
 // aviso en pantalla ("Primeros N cargados") -- así que ahí se exporta esa misma selección en vez
@@ -5325,7 +5263,7 @@ async function exportarBusquedaExcel(){
       filas = [];
       let offset = 0, hayMas = true;
       while(hayMas){
-        const rows = await rest(construirPathBusqueda(offset)) || [];
+        const rows = await pedirFilasBusqueda(offset);
         filas = filas.concat(filtrarResultadosBusqueda(rows));
         hayMas = rows.length === TAM_PAGINA_LISTA;
         offset += rows.length;
@@ -5580,7 +5518,7 @@ function hojasFichasPdf(filas){
 const COLOR_PDF = { ok:[0.30,0.69,0.43], warn:[0.88,0.70,0.24], danger:[0.88,0.33,0.29], steel:[0.36,0.56,0.69], amber:[0.96,0.66,0], faint:[0.62,0.62,0.62] };
 const COLOR_PDF_ESTADO = { 'No contado':'faint', 'Cuadrado':'ok', 'Diferencia':'warn', 'Diferencia positiva':'warn', 'Diferencia negativa':'danger', 'Pendiente':'steel' };
 const COLOR_PDF_QUIEN_CONTO = ['steel','amber','ok','warn','danger'];
-const PDF_RESUMEN = { radio:50, leyendaX:126, leyendaFila:14, tablaFila:12.5 };
+const PDF_RESUMEN = { radio:50, leyendaX:126, leyendaFila:14 };
 
 // Torta en pdf-lib: cada porción es un path SVG (centro, borde, arco, cierre) con origen en el
 // centro. En SVG la y crece hacia abajo, y pdf-lib ya lo traduce al papel: con las mismas
@@ -5614,9 +5552,9 @@ function dibujarTortaConLeyendaPdf(page, datos, etiquetaDe, colorDe, yTope, t){
   return Math.max(2*R.radio + 12, yTope - y + 4);
 }
 
-// Primera hoja del PDF de Buscar: lo mismo que muestra la pantalla sobre los materiales
-// exportados -- Resumen por estado (con su lectura), Quién contó y la lista de materiales con
-// su resultado -- para que quien reciba el documento entienda el conjunto antes de las fichas.
+// Primera hoja del PDF de Buscar: los dos gráficos que muestra la pantalla sobre los materiales
+// exportados -- Resumen por estado (con su lectura) y Quién contó -- para que quien reciba el
+// documento entienda el conjunto antes de las fichas. Sin tabla: Joel la quitó el 29/09.
 function dibujarResumenPdf(page, filas, yTope, t){
   const C = PDF_FICHAS, R = PDF_RESUMEN, x = C.margen;
   const rgbDe = clave => t.rgb(...(COLOR_PDF[clave] || COLOR_PDF.faint));
@@ -5638,27 +5576,9 @@ function dibujarResumenPdf(page, filas, yTope, t){
   if(quienConto.length){
     y -= dibujarTortaConLeyendaPdf(page, quienConto, d=>d.nombre, (d,i)=>rgbDe(COLOR_PDF_QUIEN_CONTO[i]), y, t);
   }else{
-    page.drawText('Ningún material contado todavía.', {x, y, size:8.5, font:t.fuente, color:t.gris}); y -= 12;
+    page.drawText('Ningún material contado todavía.', {x, y, size:8.5, font:t.fuente, color:t.gris});
   }
-  y -= 14;
 
-  titulo(`Materiales en este documento (${filas.length})`, y); y -= 20;
-  const cols = [['SKU', x, 84], ['Descripción', x+90, 160], ['Contado', x+258, 40, 'num'], ['Estado', x+306, 84], ['Contado por', x+396, t.anchoUtil-396]];
-  cols.forEach(([k, cx, w, num])=> page.drawText(textoPdf(k).toUpperCase(), {x: num ? cx + w - t.fuente.widthOfTextAtSize(textoPdf(k).toUpperCase(), 7) : cx, y, size:7, font:t.fuente, color:t.gris}));
-  y -= R.tablaFila;
-  const yMinimo = 48;
-  let i = 0;
-  for(; i<filas.length && y > yMinimo + R.tablaFila; i++){
-    const r = filas[i], contado = !!r.conteo_id;
-    const celdas = [r.sku_code, r.descripcion || '—', contado ? String(r.cantidad_contada) : '—', estadoTextoPdf(r, t.ocultar), contado ? `${r.contado_por || 'Sin asignar'} · ${fmtFechaHora(r.fecha_conteo)}` : '—'];
-    cols.forEach(([k, cx, w, num], c)=>{
-      const font = c===0 ? t.mono : t.fuente, texto = recortarPdf(celdas[c], font, 8, w);
-      page.drawText(texto, {x: num ? cx + w - font.widthOfTextAtSize(texto, 8) : cx, y, size:8, font, color:t.negro});
-    });
-    page.drawLine({start:{x, y:y-4}, end:{x:x+t.anchoUtil, y:y-4}, thickness:0.3, color:t.linea});
-    y -= R.tablaFila;
-  }
-  if(i<filas.length) page.drawText(textoPdf(`… y ${filas.length-i} más: ver las fichas siguientes.`), {x, y, size:8, font:t.fuente, color:t.gris});
 }
 
 async function generarPdfFichasBusqueda(filas, fotos, opciones){
@@ -11661,7 +11581,7 @@ function renderReconteosCerrados(){
 // cuando esa columna es la que ordena ahora mismo (▲ ascendente, ▼ descendente).
 // Grupos que se pueden elegir como filtro en Buscar -- TODOS los activos, curados a mano o
 // automáticos (ej. "Críticos"). El automático internamente se resuelve como critico=eq.true (ver
-// filtroGrupoBuscar/construirParametrosBusquedaRpc), sin pasar por skus_grupos_conteo -- pero
+// construirParametrosBusquedaRpc), sin pasar por skus_grupos_conteo -- pero
 // tiene que aparecer acá igual, si no la persona no lo encuentra (reportado por Joel).
 function gruposParaFiltroBuscar(){
   return state.grupos.lista || [];

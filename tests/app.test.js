@@ -485,11 +485,10 @@ const fakeFetchImpl = async (url, opts) => {
   // por defecto; honra el "limit=" real del pedido (30 para "cargar más", TOPE_CARGA_TOTAL_BUSQUEDA
   // para la carga inicial) -- el total real que pide buscarConteos en paralelo (RPC
   // contar_busqueda_skus) tiene su propio mock más abajo, usando este mismo fixture.
-  if(path.startsWith('/rest/v1/skus_busqueda?select=')){
-    const offsetMatch = path.match(/offset=(\d+)/);
-    const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
-    const limitMatch = path.match(/limit=(\d+)/);
-    const limit = limitMatch ? Number(limitMatch[1]) : 30;
+  if(path.startsWith('/rest/v1/rpc/filas_busqueda_skus')){
+    const cuerpoFilas = JSON.parse(opts.body);
+    const offset = Number(cuerpoFilas.p_offset)||0;
+    const limit = Number(cuerpoFilas.p_limite)||30;
     if(skusBusquedaFixture){
       const total = skusBusquedaFixture.length;
       const filas = skusBusquedaFixture.slice(offset, offset+limit);
@@ -2711,7 +2710,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.busqueda.texto==='SKU-FOTO-1', 'irABuscarSku debe precargar el texto de búsqueda con el SKU elegido, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
   assert(!ctx.__appstate.busqueda.bodega && !ctx.__appstate.busqueda.estado && !ctx.__appstate.busqueda.soloConFotos, 'irABuscarSku debe limpiar los demás filtros de una búsqueda anterior, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
   await new Promise(resolve=>setTimeout(resolve, 20));
-  assert(calls.some(c=>c.url.includes('/rest/v1/skus_busqueda') && c.url.includes('sku_code.ilike.*SKU-FOTO-1*')), 'irABuscarSku debe disparar la búsqueda con el SKU elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rest/v1/rpc/filas_busqueda_skus') && JSON.parse(c.opts.body).p_texto==='SKU-FOTO-1'), 'irABuscarSku debe disparar la búsqueda con el SKU elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Bug real reportado: con el navegador en una zona horaria detrás de UTC (Chile, que es
   // donde vive la empresa que usa esta app), "Mensual" mostraba "Julio" para datos de agosto.
@@ -7062,7 +7061,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlBuscarConBatch.includes('data-orden-campo="storage_bin"') && htmlBuscarConBatch.includes('>Storage bin<'), 'la tabla de resultados debe tener su propia columna Storage bin (ordenable), obtuvo: '+htmlBuscarConBatch);
   assert(htmlBuscarConBatch.includes('<td class="mono">N1E-055-H5</td>'), 'debe mostrar el storage bin de la fila que lo trae, obtuvo: '+htmlBuscarConBatch);
   ctx.__appstate.busqueda.orden = {campo:'storage_bin', dir:'asc'};
-  assert(ctx.construirPathBusqueda(0).includes('order=storage_bin.asc.nullslast,sku_code.asc'), 'ordenar por storage bin va al servidor, obtuvo: '+ctx.construirPathBusqueda(0));
+  assert(JSON.stringify(ctx.ordenBusquedaRpc())===JSON.stringify({p_orden_campo:'storage_bin', p_orden_dir:'asc'}), 'ordenar por storage bin va al servidor (filas_busqueda_skus), obtuvo: '+JSON.stringify(ctx.ordenBusquedaRpc()));
   ctx.__appstate.busqueda.orden = null;
   assert(htmlBuscarConBatch.includes('data-orden-campo="batch"') && htmlBuscarConBatch.includes('>Batch<'), 'la tabla de resultados debe tener su propia columna Batch (ordenable), obtuvo: '+htmlBuscarConBatch);
   assert(htmlBuscarConBatch.includes('<td class="mono">L-001</td>'), 'debe mostrar el batch de la fila que lo trae, obtuvo: '+htmlBuscarConBatch);
@@ -7637,7 +7636,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const bodyCorr = JSON.parse(rpcCorr.opts.body);
     assert(bodyCorr.p_conteo_id==='c-mio' && bodyCorr.p_cantidad===10.5 && bodyCorr.p_motivo==='tecleé 12 en vez de 10,5' && bodyCorr.p_observacion==='ajustado', 'el RPC debe recibir id, cantidad numérica, motivo y observación, obtuvo: '+JSON.stringify(bodyCorr));
     assert(ctx.__appstate.corregirConteoModal===null, 'al corregir con éxito el modal debe cerrarse');
-    assert(!calls.some(c=>c.url.includes('/skus_busqueda?select=')), 'no debe repetir la búsqueda entera: la fila se actualiza en pantalla, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/rpc/filas_busqueda_skus')), 'no debe repetir la búsqueda entera: la fila se actualiza en pantalla, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     const filaAct = ctx.__appstate.busqueda.resultados.find(r=>r.conteo_id==='c-mio');
     assert(filaAct.cantidad_contada===10.5 && filaAct.diferencia===0.5 && filaAct.estado==='con_diferencia' && filaAct.cantidad_original===12 && filaAct.motivo_correccion==='tecleé 12 en vez de 10,5' && filaAct.observacion==='ajustado', 'la fila debe reflejar lo que devolvió el servidor, obtuvo: '+JSON.stringify(filaAct));
     assert(ctx.renderBuscar().includes('corregido · antes 12'), 'tras corregir, la fila muestra la marca con la cantidad original');
@@ -9848,14 +9847,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   calls.length = 0;
   await ctx.buscarConteos();
-  const busquedaCallInicial = calls.find(c=>c.url.includes('/skus_busqueda?select='));
-  assert(!!busquedaCallInicial && busquedaCallInicial.url.includes(`limit=${1000}`), 'la carga inicial debe pedir hasta TOPE_CARGA_TOTAL_BUSQUEDA, no solo TAM_PAGINA_LISTA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const busquedaCallInicial = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
+  assert(!!busquedaCallInicial && JSON.parse(busquedaCallInicial.opts.body).p_limite===1000, 'la carga inicial debe pedir hasta TOPE_CARGA_TOTAL_BUSQUEDA, no solo TAM_PAGINA_LISTA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===true, 'con más filas que el tope, debe cargar hasta el tope y saber el total real (1005) vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
   assert(ctx.__appstate.busqueda.paginaOffset===1000, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
   calls.length = 0;
   await ctx.buscarMasConteos();
-  const busquedaCallMas = calls.find(c=>c.url.includes('/skus_busqueda?select='));
-  assert(!!busquedaCallMas && busquedaCallMas.url.includes(`offset=${1000}`), 'buscarMasConteos debe pedir la página siguiente desde donde quedó, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const busquedaCallMas = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
+  assert(!!busquedaCallMas && JSON.parse(busquedaCallMas.opts.body).p_offset===1000, 'buscarMasConteos debe pedir la página siguiente desde donde quedó, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las filas restantes hasta completar el total real y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
 
   // Caso típico (un total chico, por debajo del tope): queda TODO cargado en la primera llamada,
@@ -9892,8 +9891,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda.busquedaPagina = 0;
   calls.length = 0;
   await ctx.avanzarPaginaBuscar();
-  const busquedaCallPagina = calls.find(c=>c.url.includes('/skus_busqueda?select='));
-  assert(!!busquedaCallPagina && busquedaCallPagina.url.includes('offset=15'), 'avanzarPaginaBuscar debe pedir la siguiente tanda al servidor (offset=15) cuando la página pedida no está cargada todavía, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const busquedaCallPagina = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
+  assert(!!busquedaCallPagina && JSON.parse(busquedaCallPagina.opts.body).p_offset===15, 'avanzarPaginaBuscar debe pedir la siguiente tanda al servidor (offset=15) cuando la página pedida no está cargada todavía, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.busquedaPagina===1, 'debe avanzar a la página 2 después de traer los datos que faltaban, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
 
   // retrocederPaginaBuscar: los datos ya están cargados, nunca debe pedir nada al servidor.
@@ -10756,8 +10755,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Buscar: filtro "Solo fuera de plan" y badge de origen por resultado.
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:true, resultados:[{sku_code:'SKU-9', descripcion:'X', bodega:'Nave', conteo_id:'c-9', cantidad_contada:1, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-20T10:00:00Z', capturado_en:'2026-08-20T10:00:00Z', fuera_de_plan:true, ciclo_nombre:null, fotos:[]}], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
-  const pathBuscarFueraPlan = ctx.construirPathBusqueda(0);
-  assert(pathBuscarFueraPlan.includes('fuera_de_plan=eq.true'), 'con "Solo fuera de plan" marcado, la búsqueda debe filtrar por fuera_de_plan=eq.true, obtuvo: '+pathBuscarFueraPlan);
+  assert(ctx.construirParametrosBusquedaRpc().p_solo_fuera_de_plan===true, 'con "Solo fuera de plan" marcado, la búsqueda debe filtrar por fuera de plan (p_solo_fuera_de_plan), obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   const htmlBuscarFueraPlan = ctx.renderBuscar();
   assert(htmlBuscarFueraPlan.includes('id="b-solo-fuera-plan"') && htmlBuscarFueraPlan.includes('Fuera de plan'), 'debe mostrar el checkbox del filtro y el badge "Fuera de plan" en el resultado, obtuvo: '+htmlBuscarFueraPlan);
   // El gráfico "Resumen por estado" (torta, como "Quién contó") acompaña a los resultados cargados
@@ -10891,14 +10889,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // fecha, sin importar el huso horario. Cada extremo es independiente (se puede filtrar solo
   // desde, solo hasta, o ambos), y no aparece nada cuando los dos están vacíos.
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, fechaDesde:'', fechaHasta:'', resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
-  const pathBuscarSinFechas = ctx.construirPathBusqueda(0);
-  assert(!pathBuscarSinFechas.includes('fecha_conteo='), 'sin fechas elegidas, la búsqueda no debe filtrar por fecha_conteo, obtuvo: '+pathBuscarSinFechas);
+  const paramsSinFechas = ctx.construirParametrosBusquedaRpc();
+  assert(paramsSinFechas.p_fecha_desde===null && paramsSinFechas.p_fecha_hasta===null, 'sin fechas elegidas, la búsqueda no debe filtrar por fecha de conteo, obtuvo: '+JSON.stringify(paramsSinFechas));
   ctx.__appstate.busqueda = { ...ctx.__appstate.busqueda, fechaDesde:'2026-08-20' };
-  const pathBuscarSoloDesde = ctx.construirPathBusqueda(0);
-  assert(pathBuscarSoloDesde.includes('fecha_conteo=gte.') && !pathBuscarSoloDesde.includes('fecha_conteo=lt.'), 'con solo "Contado desde", debe filtrar únicamente el extremo inferior, obtuvo: '+pathBuscarSoloDesde);
+  const paramsSoloDesde = ctx.construirParametrosBusquedaRpc();
+  assert(!!paramsSoloDesde.p_fecha_desde && paramsSoloDesde.p_fecha_hasta===null, 'con solo "Contado desde", debe filtrar únicamente el extremo inferior, obtuvo: '+JSON.stringify(paramsSoloDesde));
   ctx.__appstate.busqueda = { ...ctx.__appstate.busqueda, fechaHasta:'2026-08-25' };
-  const pathBuscarAmbasFechas = ctx.construirPathBusqueda(0);
-  assert(pathBuscarAmbasFechas.includes('fecha_conteo=gte.') && pathBuscarAmbasFechas.includes('fecha_conteo=lt.'), 'con ambas fechas, la búsqueda debe filtrar el rango completo, obtuvo: '+pathBuscarAmbasFechas);
+  const paramsAmbasFechas = ctx.construirParametrosBusquedaRpc();
+  assert(!!paramsAmbasFechas.p_fecha_desde && !!paramsAmbasFechas.p_fecha_hasta, 'con ambas fechas, la búsqueda debe filtrar el rango completo, obtuvo: '+JSON.stringify(paramsAmbasFechas));
   const htmlBuscarFechas = ctx.renderBuscar();
   assert(htmlBuscarFechas.includes('id="b-fecha-desde"') && htmlBuscarFechas.includes('id="b-fecha-hasta"') && htmlBuscarFechas.includes('Contado desde') && htmlBuscarFechas.includes('Contado hasta'), 'debe mostrar los campos de rango de fecha, obtuvo: '+htmlBuscarFechas);
   assert(!htmlBuscarFechas.includes('Contado hoy') && !htmlBuscarFechas.includes('id="b-contado-hoy"'), 'el checkbox fijo de "Contado hoy" debe haber desaparecido, obtuvo: '+htmlBuscarFechas);
@@ -10911,12 +10909,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlBuscarSinBuscar = ctx.renderBuscar();
   assert(!htmlBuscarSinBuscar.includes('0 resultado') && !htmlBuscarSinBuscar.includes('table-wrap'), 'antes de buscar no debe mostrarse un conteo de "0 resultados" ni la tabla, obtuvo: '+htmlBuscarSinBuscar);
   assert(htmlBuscarSinBuscar.includes('presiona &quot;Buscar&quot;') || htmlBuscarSinBuscar.includes('presiona "Buscar"'), 'antes de buscar debe invitar a usar el formulario, obtuvo: '+htmlBuscarSinBuscar);
-  const pathBuscarTexto = ctx.construirPathBusqueda(0);
-  assert(pathBuscarTexto.includes('or=(sku_code.ilike.*filtro*,descripcion.ilike.*filtro*,batch.ilike.*filtro*,storage_bin.ilike.*filtro*)'), 'el texto debe buscarse en el servidor por código, descripción, batch y storage bin (no solo filtrarse en el cliente), obtuvo: '+pathBuscarTexto);
+  const paramsTexto = ctx.construirParametrosBusquedaRpc();
+  assert(paramsTexto.p_texto==='filtro', 'el texto debe buscarse en el servidor (filas_busqueda_skus busca por código, descripción, batch y storage bin), no solo filtrarse en el cliente, obtuvo: '+JSON.stringify(paramsTexto));
 
   ctx.__appstate.busqueda.estado = 'no_contado';
-  const pathBuscarNoContado = ctx.construirPathBusqueda(0);
-  assert(pathBuscarNoContado.includes('conteo_id=is.null') && !pathBuscarNoContado.includes('estado=eq.'), 'el estado "No contado" debe filtrar por conteo_id=is.null, no por la columna estado, obtuvo: '+pathBuscarNoContado);
+  assert(ctx.construirParametrosBusquedaRpc().p_estado==='no_contado', 'el estado "No contado" debe viajar como p_estado=no_contado (el servidor lo resuelve como conteo nulo), obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   ctx.__appstate.busqueda.estado = '';
 
   // Pedido de Joel: el desplegable Estado tiene que ofrecer los mismos grupos que el gráfico
@@ -10927,15 +10924,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSelectEstado = ctx.renderBuscar();
   assert(htmlSelectEstado.includes('<option value="diferencia_positiva"') && htmlSelectEstado.includes('<option value="diferencia_negativa"') && htmlSelectEstado.includes('<option value="con_diferencia"'), 'el desplegable Estado debe ofrecer "Con diferencia" y sus dos mitades, positiva y negativa, obtuvo: '+htmlSelectEstado.slice(htmlSelectEstado.indexOf('id="b-estado"'), htmlSelectEstado.indexOf('id="b-estado"')+900));
   ctx.__appstate.busqueda.estado = 'diferencia_negativa';
-  const pathBuscarNegativa = ctx.construirPathBusqueda(0);
-  assert(pathBuscarNegativa.includes('estado=eq.con_diferencia') && pathBuscarNegativa.includes('diferencia=lt.0') && !pathBuscarNegativa.includes('estado=eq.diferencia_negativa'), '"Diferencia negativa" debe pedir estado con_diferencia y diferencia < 0, obtuvo: '+pathBuscarNegativa);
   assert(ctx.construirParametrosBusquedaRpc().p_estado==='diferencia_negativa', 'el RPC del total debe recibir p_estado=diferencia_negativa, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   ctx.__appstate.busqueda.estado = 'diferencia_positiva';
-  const pathBuscarPositiva = ctx.construirPathBusqueda(0);
-  assert(pathBuscarPositiva.includes('estado=eq.con_diferencia') && pathBuscarPositiva.includes('diferencia=gt.0'), '"Diferencia positiva" debe pedir estado con_diferencia y diferencia > 0, obtuvo: '+pathBuscarPositiva);
+  assert(ctx.construirParametrosBusquedaRpc().p_estado==='diferencia_positiva', '"Diferencia positiva" debe viajar como p_estado=diferencia_positiva, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   ctx.__appstate.busqueda.estado = 'con_diferencia';
-  const pathBuscarConDif = ctx.construirPathBusqueda(0);
-  assert(pathBuscarConDif.includes('estado=eq.con_diferencia') && !pathBuscarConDif.includes('diferencia=gt.') && !pathBuscarConDif.includes('diferencia=lt.'), '"Con diferencia" sigue trayendo las dos mitades juntas, obtuvo: '+pathBuscarConDif);
+  assert(ctx.construirParametrosBusquedaRpc().p_estado==='con_diferencia', '"Con diferencia" sigue trayendo las dos mitades juntas (p_estado=con_diferencia), obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   ctx.__appstate.busqueda.estado = '';
   // Conteo ciego + operador: no puede ver el signo (el badge y el gráfico tampoco lo muestran),
   // así que el desplegable no le ofrece las mitades.
@@ -10946,8 +10939,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.perfil = perfilAntesSelectEstado;
 
   ctx.__appstate.busqueda.ciclo = '__sin_ciclo__';
-  const pathBuscarSinCiclo = ctx.construirPathBusqueda(0);
-  assert(pathBuscarSinCiclo.includes('ciclo_id=is.null') && pathBuscarSinCiclo.includes('conteo_id=not.is.null'), '"Sin ciclo asignado" debe exigir que sí haya un conteo (si no, mostraría todos los SKU nunca contados como si fueran de ese grupo), obtuvo: '+pathBuscarSinCiclo);
+  assert(ctx.construirParametrosBusquedaRpc().p_ciclo==='__sin_ciclo__', '"Sin ciclo asignado" debe viajar como p_ciclo=__sin_ciclo__ (el servidor exige que sí haya un conteo), obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   ctx.__appstate.busqueda.ciclo = '';
 
   // ===== Buscar: Estado "Pendiente de reconteo" (pedido de Joel: ver en Buscar los mismos
@@ -10957,20 +10949,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlBuscarEstado.includes('<option value="reconteo_pendiente"') && htmlBuscarEstado.includes('Pendiente de reconteo'), 'Estado debe ofrecer "Pendiente de reconteo", obtuvo: '+htmlBuscarEstado);
   assert(!htmlBuscarEstado.includes('id="b-solo-criticos"') && !htmlBuscarEstado.includes('Solo críticos'), 'el checkbox "Solo críticos" ya no debe existir en Buscar, obtuvo: '+htmlBuscarEstado);
   ctx.__appstate.busqueda.estado = 'reconteo_pendiente';
-  const pathReconteoPendiente = ctx.construirPathBusqueda(0);
-  assert(pathReconteoPendiente.includes('reconteo_pendiente=eq.true') && !pathReconteoPendiente.includes('estado=eq.'), 'con "Pendiente de reconteo" debe filtrar por la columna reconteo_pendiente de skus_busqueda (no por estado=eq.), obtuvo: '+pathReconteoPendiente);
   assert(ctx.construirParametrosBusquedaRpc().p_estado==='reconteo_pendiente', 'el RPC del total debe recibir p_estado=reconteo_pendiente, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   ctx.__appstate.busqueda.estado = '';
   ctx.__appstate.busqueda.soloCriticos = true; // campo viejo: aunque quede en un estado guardado, ya no filtra
-  assert(!ctx.construirPathBusqueda(0).includes('critico=') && ctx.construirParametrosBusquedaRpc().p_solo_criticos===false, 'sin grupo Críticos elegido no debe filtrar por critico (el checkbox ya no existe), obtuvo: '+ctx.construirPathBusqueda(0));
+  assert(ctx.construirParametrosBusquedaRpc().p_solo_criticos===false, 'sin grupo Críticos elegido no debe filtrar por critico (el checkbox ya no existe), obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   delete ctx.__appstate.busqueda.soloCriticos;
 
   ctx.__appstate.busqueda.claseAbc = 'B';
-  const pathBuscarClaseB = ctx.construirPathBusqueda(0);
-  assert(pathBuscarClaseB.includes('clase_abc=eq.B'), 'con Clase B elegida, debe filtrar por clase_abc=eq.B, obtuvo: '+pathBuscarClaseB);
+  assert(ctx.construirParametrosBusquedaRpc().p_clase_abc==='B', 'con Clase B elegida, debe filtrar por p_clase_abc=B, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   ctx.__appstate.busqueda.claseAbc = '__sin_clasificar__';
-  const pathBuscarSinClasificar = ctx.construirPathBusqueda(0);
-  assert(pathBuscarSinClasificar.includes('clase_abc=is.null'), '"Sin clasificar" debe filtrar por clase_abc=is.null, obtuvo: '+pathBuscarSinClasificar);
+  assert(ctx.construirParametrosBusquedaRpc().p_clase_abc==='__sin_clasificar__', '"Sin clasificar" debe viajar como p_clase_abc=__sin_clasificar__, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
   const htmlBuscarClaseAbc = ctx.renderBuscar();
   assert(htmlBuscarClaseAbc.includes('id="b-clase-abc"') && htmlBuscarClaseAbc.includes('Clase ABC'), 'debe mostrar el selector de Clase ABC, obtuvo: '+htmlBuscarClaseAbc);
   ctx.__appstate.busqueda.claseAbc = '';
@@ -10991,7 +10979,6 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlSelectorGrupo.includes('id="b-grupo"') && htmlSelectorGrupo.includes('>IE<') && htmlSelectorGrupo.includes('>Críticos<'), 'debe ofrecer un <select> de grupo con TODOS los grupos, incluido el automático de Crítico, obtuvo: '+htmlSelectorGrupo);
 
   // Sin grupo elegido: no debe agregar ningún filtro ni tocar el RPC.
-  assert(!ctx.construirPathBusqueda(0).includes('sku_id=eq.') , 'sin grupo elegido, no debe agregar el filtro de grupo, obtuvo: '+ctx.construirPathBusqueda(0));
   assert(ctx.construirParametrosBusquedaRpc().p_grupo_id===null, 'sin grupo elegido, el RPC debe recibir p_grupo_id null, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
 
   // Con un grupo curado a mano elegido: buscarConteos debe traer primero los pares código+bodega
@@ -11002,47 +10989,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     {sku_code:'IE-200', bodega:null}, // material del grupo sin bodega asignada
   ];
   ctx.__appstate.busqueda = {
-    texto:'', bodega:'', estado:'', ciclo:'', grupoId:'grupo-ie', gruposPares:[], soloConFotos:false,
+    texto:'', bodega:'', estado:'', ciclo:'', grupoId:'grupo-ie', soloConFotos:false,
     soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'',
     resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0,
   };
   calls.length = 0;
   await ctx.buscarConteos();
-  assert(calls.some(c=>c.url.includes('/skus_grupos_conteo?grupo_id=eq.grupo-ie&select=sku_code,bodega')), 'buscarConteos debe traer los pares código+bodega del grupo elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(JSON.stringify(ctx.__appstate.busqueda.gruposPares)===JSON.stringify([{sku_code:'IE-100',bodega:'B501'},{sku_code:'IE-200',bodega:null}]), 'debe guardar los pares traídos en el estado (para "cargar más"/exportar), obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.gruposPares));
-  const pathConGrupo = ctx.construirPathBusqueda(0);
-  assert(pathConGrupo.includes('or=(and(sku_code.eq.IE-100,bodega.eq.B501),and(sku_code.eq.IE-200,bodega.is.null))'), 'debe armar un OR de pares exactos código+bodega, respetando bodega nula, obtuvo: '+pathConGrupo);
+  assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo')), 'buscarConteos ya no trae los pares del grupo: el filtro lo resuelve el servidor por p_grupo_id (filas_busqueda_skus y contar_busqueda_skus), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const filasGrupo = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
+  assert(!!filasGrupo && JSON.parse(filasGrupo.opts.body).p_grupo_id==='grupo-ie' && JSON.parse(filasGrupo.opts.body).p_solo_criticos===false, 'las filas deben pedirse con el grupo elegido en p_grupo_id (el servidor cruza código Y bodega, respetando bodega nula), obtuvo: '+JSON.stringify(filasGrupo && JSON.parse(filasGrupo.opts.body)));
   const rpcCallGrupo = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
   assert(!!rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body).p_grupo_id==='grupo-ie' && JSON.parse(rpcCallGrupo.opts.body).p_solo_criticos===false, 'el RPC debe recibir el mismo grupo elegido en p_grupo_id (y no forzar p_solo_criticos), obtuvo: '+JSON.stringify(rpcCallGrupo && JSON.parse(rpcCallGrupo.opts.body)));
 
   // Grupo sin materiales: no debe generar un "or=()" vacío (PostgREST lo rechazaría) -- debe usar
   // un filtro que garantice cero resultados, sin necesidad de pedirle nada a skus_busqueda.
   ctx.__appstate.busqueda.grupoId = 'grupo-vacio';
-  ctx.__appstate.busqueda.gruposPares = [];
   gruposMiembrosFixture['grupo-vacio'] = [];
   calls.length = 0;
   await ctx.buscarConteos();
-  assert(JSON.stringify(ctx.__appstate.busqueda.gruposPares)===JSON.stringify([]), 'un grupo sin materiales debe dejar gruposPares vacío, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.gruposPares));
-  assert(ctx.construirPathBusqueda(0).includes('sku_id=eq.00000000-0000-0000-0000-000000000000'), 'un grupo sin materiales debe usar un filtro que nunca hace match, no un or=() vacío, obtuvo: '+ctx.construirPathBusqueda(0));
+  assert(JSON.parse(calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus')).opts.body).p_grupo_id==='grupo-vacio', 'un grupo sin materiales igual viaja como p_grupo_id: el servidor no encuentra pares y devuelve cero filas, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Grupo automático de Crítico elegido desde el <select>: se resuelve igual que "Solo críticos"
   // (critico=eq.true, sin join) -- no debe pedir skus_grupos_conteo para nada.
   ctx.__appstate.busqueda.grupoId = 'grupo-critico-buscar';
-  ctx.__appstate.busqueda.gruposPares = [];
   calls.length = 0;
   await ctx.buscarConteos();
   assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo')), 'el grupo automático de Crítico no debe consultar skus_grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(JSON.stringify(ctx.__appstate.busqueda.gruposPares)===JSON.stringify([]), 'el grupo automático no necesita pares, gruposPares debe quedar vacío, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.gruposPares));
-  const pathGrupoAutomatico = ctx.construirPathBusqueda(0);
-  assert(pathGrupoAutomatico.includes('critico=eq.true') && !pathGrupoAutomatico.includes('sku_id=eq.'), 'el grupo automático debe filtrar por critico=eq.true, igual que el checkbox, obtuvo: '+pathGrupoAutomatico);
+  const filasGrupoAutomatico = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
+  assert(!!filasGrupoAutomatico && JSON.parse(filasGrupoAutomatico.opts.body).p_solo_criticos===true && JSON.parse(filasGrupoAutomatico.opts.body).p_grupo_id===null, 'el grupo automático debe pedir las filas con p_solo_criticos:true y sin p_grupo_id, obtuvo: '+JSON.stringify(filasGrupoAutomatico && JSON.parse(filasGrupoAutomatico.opts.body)));
   const rpcCallGrupoAutomatico = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
   assert(!!rpcCallGrupoAutomatico && JSON.parse(rpcCallGrupoAutomatico.opts.body).p_solo_criticos===true && JSON.parse(rpcCallGrupoAutomatico.opts.body).p_grupo_id===null, 'el RPC debe recibir p_solo_criticos:true y p_grupo_id:null para el grupo automático, obtuvo: '+JSON.stringify(rpcCallGrupoAutomatico && JSON.parse(rpcCallGrupoAutomatico.opts.body)));
 
   ctx.__appstate.busqueda.grupoId = '';
-  ctx.__appstate.busqueda.gruposPares = [];
 
   // ===== Buscar: el RPC contar_busqueda_skus (total real, pedido en paralelo a las filas -- ver
-  // buscarConteos) debe recibir EXACTAMENTE los mismos filtros que construirPathBusqueda usa para
+  // buscarConteos) debe recibir EXACTAMENTE los mismos filtros que filas_busqueda_skus recibe para
   // pedir las filas. En particular las fechas: deben viajar como el instante (timestamptz) que el
   // cliente ya calculó a partir de la medianoche LOCAL, no como una fecha simple -- si el RPC
   // hiciera el cast fecha->timestamptz del lado de la base, usaría el timezone de la SESIÓN de la
@@ -11054,9 +11035,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   };
   calls.length = 0;
   await ctx.buscarConteos();
-  const pathConFiltros = ctx.construirPathBusqueda(0);
-  const desdeEsperado = (pathConFiltros.match(/fecha_conteo=gte\.([^&]+)/)||[])[1];
-  const hastaEsperado = (pathConFiltros.match(/fecha_conteo=lt\.([^&]+)/)||[])[1];
+  const filasConFiltros = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
+  const desdeEsperado = filasConFiltros && JSON.parse(filasConFiltros.opts.body).p_fecha_desde;
+  const hastaEsperado = filasConFiltros && JSON.parse(filasConFiltros.opts.body).p_fecha_hasta;
   const rpcCall = calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus'));
   assert(!!rpcCall, 'buscarConteos debe pedir el total en paralelo vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const rpcBody = rpcCall && JSON.parse(rpcCall.opts.body);
@@ -11068,7 +11049,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, orden:null, yaBuscado:true, resultados:[
     {sku_code:'SKU-ORD', batch:null, descripcion:'X', bodega:'Nave', conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[]},
   ]};
-  assert(ctx.construirPathBusqueda(0).includes('order=fecha_conteo.desc.nullslast,sku_code.asc'), 'sin orden elegido, debe usar el orden por defecto (fecha desc, código asc), obtuvo: '+ctx.construirPathBusqueda(0));
+  assert(JSON.stringify(ctx.ordenBusquedaRpc())===JSON.stringify({p_orden_campo:null, p_orden_dir:null}), 'sin orden elegido, debe pedir el orden por defecto (fecha desc, código asc: p_orden_campo null), obtuvo: '+JSON.stringify(ctx.ordenBusquedaRpc()));
   const htmlBuscarSinOrden = ctx.renderBuscar();
   assert(htmlBuscarSinOrden.includes('data-orden-campo="sku_code"') && htmlBuscarSinOrden.includes('data-orden-campo="descripcion"') && htmlBuscarSinOrden.includes('data-orden-campo="clase_abc"'), 'los encabezados ordenables deben tener su data-orden-campo, obtuvo: '+htmlBuscarSinOrden);
   assert(!/data-orden-campo="[^"]*"[^<]*▲/.test(htmlBuscarSinOrden) && !/data-orden-campo="[^"]*"[^<]*▼/.test(htmlBuscarSinOrden), 'sin orden elegido, ningún encabezado debe mostrar flecha, obtuvo: '+htmlBuscarSinOrden);
@@ -11076,7 +11057,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   calls.length = 0;
   await ctx.toggleOrdenBusqueda('descripcion');
   assert(JSON.stringify(ctx.__appstate.busqueda.orden)===JSON.stringify({campo:'descripcion', dir:'asc'}), 'el primer clic en un encabezado debe ordenar ascendente por esa columna, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.orden));
-  assert(calls.some(c=>c.url.includes('/skus_busqueda') && c.url.includes('order=descripcion.asc.nullslast,sku_code.asc')), 'debe volver a pedir al servidor con el nuevo orden, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/filas_busqueda_skus') && JSON.parse(c.opts.body).p_orden_campo==='descripcion' && JSON.parse(c.opts.body).p_orden_dir==='asc'), 'debe volver a pedir al servidor con el nuevo orden, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.busquedaPagina===0, 'cambiar el orden debe reiniciar la paginación, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
   const htmlOrdenAsc = ctx.renderBuscar();
   assert(/data-orden-campo="descripcion"[^<]*▲/.test(htmlOrdenAsc), 'con orden ascendente por descripción, su encabezado debe mostrar ▲, obtuvo: '+htmlOrdenAsc);
@@ -11084,16 +11065,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   calls.length = 0;
   await ctx.toggleOrdenBusqueda('descripcion');
   assert(JSON.stringify(ctx.__appstate.busqueda.orden)===JSON.stringify({campo:'descripcion', dir:'desc'}), 'un segundo clic en el mismo encabezado debe invertir a descendente, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.orden));
-  assert(calls.some(c=>c.url.includes('order=descripcion.desc.nullslast,sku_code.asc')), 'debe volver a pedir al servidor con el orden invertido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/filas_busqueda_skus') && JSON.parse(c.opts.body).p_orden_campo==='descripcion' && JSON.parse(c.opts.body).p_orden_dir==='desc'), 'debe volver a pedir al servidor con el orden invertido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   calls.length = 0;
   await ctx.toggleOrdenBusqueda('descripcion');
   assert(ctx.__appstate.busqueda.orden===null, 'un tercer clic en el mismo encabezado debe volver al orden por defecto, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.orden));
-  assert(calls.some(c=>c.url.includes('order=fecha_conteo.desc.nullslast,sku_code.asc')), 'al volver al orden por defecto debe pedirlo así al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/filas_busqueda_skus') && JSON.parse(c.opts.body).p_orden_campo===null), 'al volver al orden por defecto debe pedirlo así al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Ordenar por SKU (la columna que ya es el desempate por defecto) no debe duplicar "sku_code.asc".
   await ctx.toggleOrdenBusqueda('sku_code');
-  assert(ctx.construirPathBusqueda(0).includes('order=sku_code.asc.nullslast') && !ctx.construirPathBusqueda(0).includes('sku_code.asc.nullslast,sku_code.asc'), 'ordenar por SKU no debe duplicar el desempate, obtuvo: '+ctx.construirPathBusqueda(0));
+  assert(JSON.stringify(ctx.ordenBusquedaRpc())===JSON.stringify({p_orden_campo:'sku_code', p_orden_dir:'asc'}), 'ordenar por SKU viaja como campo sku_code (el servidor no duplica el desempate), obtuvo: '+JSON.stringify(ctx.ordenBusquedaRpc()));
   ctx.__appstate.busqueda.orden = null;
 
   // Regresión real reportada: tras el cambio anterior, enviar el formulario "Buscar" traía los
@@ -11110,7 +11091,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     formBuscarEl.dispatch('submit', {target: formBuscarEl, preventDefault(){}});
     setTimeout(resolve, 30);
   });
-  assert(calls.some(c=>c.url.includes('/skus_busqueda?select=')), 'enviar el formulario debe disparar la búsqueda real, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/filas_busqueda_skus')), 'enviar el formulario debe disparar la búsqueda real, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.busqueda.yaBuscado===true, 'tras enviar el formulario, yaBuscado debe quedar en true, obtuvo: '+ctx.__appstate.busqueda.yaBuscado);
   assert(ctx.__appstate.busqueda.resultados.length>0, 'tras enviar el formulario deben quedar resultados cargados en el estado, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
   const htmlTrasBuscarReal = ctx.renderBuscar();
@@ -11164,8 +11145,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     elements['b-texto'].value = ''; elements['b-bodega'].value = 'Nave Mina'; elements['b-ubicacion'].value = 'Rack';
     calls.length = 0;
     await enviarBuscar();
-    const urlFilasUbic = (calls.find(c=>c.url.includes('/skus_busqueda?select='))||{url:''}).url;
-    assert(urlFilasUbic.includes('&bodega=eq.Nave%20Mina') && urlFilasUbic.includes('&ubicacion=eq.Rack') && !urlFilasUbic.includes('ilike.*Nave'), 'las filas deben filtrarse por igualdad exacta de bodega y ubicación, obtuvo: '+urlFilasUbic);
+    const bodyFilasUbic = JSON.parse(calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus')).opts.body);
+    assert(bodyFilasUbic.p_bodega==='Nave Mina' && bodyFilasUbic.p_ubicacion==='Rack' && bodyFilasUbic.p_texto===null, 'las filas deben pedirse con bodega y ubicación exactas (igualdad en el servidor, no "contiene"), obtuvo: '+JSON.stringify(bodyFilasUbic));
     const bodyUbic = JSON.parse(calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus')).opts.body);
     assert(bodyUbic.p_bodega==='Nave Mina' && bodyUbic.p_ubicacion==='Rack', 'el RPC del total debe recibir bodega y ubicación, obtuvo: '+JSON.stringify(bodyUbic));
     assert(ctx.__appstate.busqueda.bodega==='Nave Mina' && ctx.__appstate.busqueda.ubicacion==='Rack', 'al buscar, bodega y ubicación deben quedar en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
@@ -11173,9 +11154,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     elements['b-bodega'].value = '__bodega_vacia__'; elements['b-ubicacion'].value = '';
     calls.length = 0;
     await enviarBuscar();
-    const urlVacia = (calls.find(c=>c.url.includes('/skus_busqueda?select='))||{url:''}).url;
+    const bodyFilasVacia = JSON.parse(calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus')).opts.body);
     const bodyVacia = JSON.parse(calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus')).opts.body);
-    assert(urlVacia.includes('&bodega=is.null') && !urlVacia.includes('ubicacion=eq') && bodyVacia.p_bodega==='__bodega_vacia__' && bodyVacia.p_ubicacion===null, '"Sin bodega asignada" debe ir como bodega=is.null y BODEGA_VACIA al RPC, obtuvo: '+urlVacia+' '+JSON.stringify(bodyVacia));
+    assert(bodyFilasVacia.p_bodega==='__bodega_vacia__' && bodyFilasVacia.p_ubicacion===null && bodyVacia.p_bodega==='__bodega_vacia__' && bodyVacia.p_ubicacion===null, '"Sin bodega asignada" debe ir como BODEGA_VACIA a las filas y al total, obtuvo: '+JSON.stringify(bodyFilasVacia)+' '+JSON.stringify(bodyVacia));
     // Exportar a Excel usa el mismo path: hereda los dos filtros.
     // Si la lista no se puede cargar, se ve como error (no como "sin ubicaciones") y volver a
     // entrar a Buscar reintenta.
@@ -11233,9 +11214,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     elements['b-texto'].value = ''; elements['b-bodega'].value = ''; elements['b-ubicacion'].value = ''; elements['b-usuario'].value = 'eq2';
     calls.length = 0;
     await enviarBuscar();
-    const urlPersonas = (calls.find(c=>c.url.includes('/skus_busqueda?select='))||{url:''}).url;
+    const bodyFilasPersonas = JSON.parse(calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus')).opts.body);
     const bodyPersonas = JSON.parse(calls.find(c=>c.url.includes('/rpc/contar_busqueda_skus')).opts.body);
-    assert(urlPersonas.includes('contado_por_id=eq.eq2') && bodyPersonas.p_usuario_id==='eq2', 'buscar por persona debe filtrar por contado_por_id en las filas y p_usuario_id en el total, obtuvo: '+urlPersonas+' '+JSON.stringify(bodyPersonas));
+    assert(bodyFilasPersonas.p_usuario_id==='eq2' && bodyPersonas.p_usuario_id==='eq2', 'buscar por persona debe filtrar por p_usuario_id en las filas y en el total, obtuvo: '+JSON.stringify(bodyFilasPersonas)+' '+JSON.stringify(bodyPersonas));
     assert(ctx.__appstate.busqueda.usuarioId==='eq2' && ctx.__appstate.busqueda.usuarioNombre==='Marta Soto', 'al buscar deben quedar id y nombre de la persona en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
     const htmlConPersona = ctx.renderBuscar();
     assert(htmlConPersona.includes('id="btn-quitar-filtro-usuario"') && htmlConPersona.includes('Marta Soto'), 'con persona elegida sigue el aviso "Mostrando solo lo contado por", obtuvo: '+htmlConPersona);
@@ -11278,7 +11259,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // resultados?") — a diferencia de "Exportar conteos" (que exporta un rango de fechas desde su
   // propio modal), esto exporta TODO lo que matchea los filtros actuales de la búsqueda, no solo
   // la página visible: pagina por el servidor con el mismo path que usa la búsqueda
-  // (construirPathBusqueda) hasta agotarlo. =====
+  // (filas_busqueda_skus) hasta agotarlo. =====
   assert(htmlBuscarMixto.includes('id="btn-exportar-buscar"') && htmlBuscarMixto.includes('Exportar a Excel'), 'con resultados, debe verse el botón de exportar, obtuvo: '+htmlBuscarMixto);
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados:[], yaBuscado:true};
   const htmlBuscarSinResultados = ctx.renderBuscar();
@@ -11320,7 +11301,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   xlsxEscrituras.length = 0;
   calls.length = 0;
   await ctx.exportarBusquedaExcel();
-  const llamadasBusquedaExport = calls.filter(c=>c.url.includes('/skus_busqueda?select='));
+  const llamadasBusquedaExport = calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus'));
   assert(llamadasBusquedaExport.length===2, 'con 34 filas en total (30+4) debe paginar en dos llamadas al servidor, obtuvo: '+llamadasBusquedaExport.length);
   assert(xlsxEscrituras.length===1 && xlsxEscrituras[0].libro.hojas['Buscar'].length===34, 'debe exportar las 34 filas completas, no solo la primera tanda, obtuvo: '+(xlsxEscrituras[0] && xlsxEscrituras[0].libro.hojas['Buscar'].length));
   skusBusquedaFixture = null;
@@ -11403,12 +11384,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // lista de los materiales del documento, sin fichas.
     const p0 = doc.paginas[0], t0 = textosDe(p0);
     assert(t0.includes('Detalle de materiales') && t0.some(x=>/^2 materiales · Generado /.test(x)), 'la primera hoja lleva el título y el total, obtuvo: '+JSON.stringify(t0.slice(0,4)));
-    assert(t0.includes('Resumen por estado') && t0.includes('Quién contó') && t0.includes('Materiales en este documento (2)'), 'la primera hoja lleva las tres secciones del resumen, obtuvo: '+JSON.stringify(t0));
+    assert(t0.includes('Resumen por estado') && t0.includes('Quién contó') && !t0.includes('Materiales en este documento'), 'la primera hoja lleva los dos gráficos y nada más (Joel quitó la tabla), obtuvo: '+JSON.stringify(t0));
     assert(t0.includes('No contado · 1 (50%)') && t0.includes('Diferencia negativa · 1 (50%)'), 'la leyenda de estado dice cada grupo con su cantidad y porcentaje, obtuvo: '+JSON.stringify(t0.filter(x=>x.includes('%'))));
     assert(p0.porciones.length===2 && p0.porciones.every(x=>/^M 0 0 L .* A 50 50 0 [01] 1 .* Z$/.test(x.p)), 'la torta de estado se dibuja como porciones (paths SVG) desde el centro, obtuvo: '+JSON.stringify(p0.porciones.map(x=>x.p)));
     assert(p0.circulos.length===1 && t0.includes('Ana Torres · 1 (100%)'), 'con una sola persona, "Quién contó" es un círculo completo con su leyenda, obtuvo: '+JSON.stringify({circulos:p0.circulos.length, leyenda:t0.filter(x=>x.includes('Ana'))}));
     assert(t0.some(x=>x.startsWith('De 1 contado, 0 cuadraron (0%).') && x.includes('1 con faltante (100%) · 0 con sobrante (0%).')), 'la lectura del estado va como texto plano, obtuvo: '+JSON.stringify(t0.filter(x=>x.startsWith('De '))));
-    assert(skusEn(p0).length===2 && t0.includes('Diferencia -2') && t0.includes('Nunca contado') && p0.textos.some(x=>x.size===8 && x.t.startsWith('Ana Torres · ')), 'la lista de materiales lleva SKU, descripción, estado y quién contó, obtuvo: '+JSON.stringify(t0));
+    assert(skusEn(p0).length===0, 'la primera hoja no lista materiales, obtuvo: '+JSON.stringify(skusEn(p0)));
     assert(!t0.includes('UBICACIÓN GENERAL'), 'la primera hoja no lleva fichas');
     assert(t0.includes('Página 1 de 2'), 'la primera hoja se numera, obtuvo: '+JSON.stringify(t0.slice(-3)));
 
@@ -11540,7 +11521,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   {
     const d = ultimoPdf();
     assert(d.paginas.length===3, 'con 4 seleccionados salen tres hojas (resumen + 3 + 1), obtuvo: '+d.paginas.length);
-    assert(textosDe(d.paginas[0]).includes('Detalle de materiales') && textosDe(d.paginas[0]).includes('Materiales en este documento (4)') && !textosDe(d.paginas[0]).includes('UBICACIÓN GENERAL'), 'la primera hoja lleva el título y el resumen, sin fichas, obtuvo: '+JSON.stringify(textosDe(d.paginas[0])));
+    assert(textosDe(d.paginas[0]).includes('Detalle de materiales') && textosDe(d.paginas[0]).includes('Quién contó') && skusEn(d.paginas[0]).length===0 && !textosDe(d.paginas[0]).includes('UBICACIÓN GENERAL'), 'la primera hoja lleva el título y el resumen, sin fichas, obtuvo: '+JSON.stringify(textosDe(d.paginas[0])));
     assert(textosDe(d.paginas[0]).includes('Cuadrado · 2 (50%)') && textosDe(d.paginas[0]).includes('No contado · 1 (25%)') && textosDe(d.paginas[0]).includes('Sin asignar · 2 (67%)') && textosDe(d.paginas[0]).includes('Ana Torres · 1 (33%)'), 'la leyenda de estado y la de quién contó cuentan sobre los 4 exportados, obtuvo: '+JSON.stringify(textosDe(d.paginas[0]).filter(x=>x.includes('%'))));
     assert(JSON.stringify(skusEn(d.paginas[1]))==='["SKU-EXP-1","SKU-EXP-4","SKU-EXP-2"]' && !textosDe(d.paginas[1]).includes('Detalle de materiales'), 'la segunda lleva las 3 primeras fichas, sin repetir el título, obtuvo: '+JSON.stringify(skusEn(d.paginas[1])));
     assert(JSON.stringify(skusEn(d.paginas[2]))==='["SKU-EXP-3"]', 'la tercera lleva la 4ta, obtuvo: '+JSON.stringify(skusEn(d.paginas[2])));
@@ -11867,7 +11848,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   // Un operador con el mismo botón ("Ver lo que conté") sí debe restringirse a lo suyo -- el
   // filtro va server-side (contado_por_id en la URL), no un drill-down por nombre en el cliente
-  // (eso traería de más al resto de la empresa igual, ver construirPathBusqueda).
+  // (eso traería de más al resto de la empresa igual, ver filas_busqueda_skus).
   ctx.__appstate.perfil = { id:'op-nasib', nombre:'Nasib V2', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   ctx.__appstate.view = 'calendario';
   ctx.__appstate.calendario = { mes:'2026-09-01', cargando:false, cargado:true, dias:[{fecha:'2026-09-01', planificado:24, contado:20, recontado:3, pendiente:4}], diaSeleccionado:'2026-09-01' };
@@ -11878,7 +11859,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   btnCalIrBuscarOperador.dispatch('click');
   await new Promise(r=>setTimeout(r, 0));
   assert(ctx.__appstate.view==='buscar' && ctx.__appstate.busqueda.usuarioId==='op-nasib' && ctx.__appstate.busqueda.usuarioNombre==='Nasib V2', '"Ver lo que conté" (operador) debe filtrar por su propia cuenta, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda));
-  assert(calls.some(c=>c.url.includes('/skus_busqueda') && c.url.includes('contado_por_id=eq.op-nasib')), 'la búsqueda de un operador debe restringirse server-side por contado_por_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/filas_busqueda_skus') && JSON.parse(c.opts.body).p_usuario_id==='op-nasib'), 'la búsqueda de un operador debe restringirse server-side por contado_por_id, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const htmlBuscarConFiltroUsuario = ctx.renderBuscar();
   assert(htmlBuscarConFiltroUsuario.includes('Nasib V2') && htmlBuscarConFiltroUsuario.includes('id="btn-quitar-filtro-usuario"'), 'Buscar debe mostrar un aviso de que está filtrando por esa persona, con botón para quitarlo, obtuvo: '+htmlBuscarConFiltroUsuario);
 
