@@ -1,0 +1,11 @@
+-- Quita idx_skus_categoria, que no se usa.
+--
+-- Medido el 29/09/2026: 2,6 MB y 2 lecturas en total (la última el 13/09), contra cientos de
+-- miles de las demás. Ninguna pantalla filtra ni ordena por categoría: la lista de categorías sale
+-- de la vista categorias_sku y de catalogos_pantalla_skus, que leen la empresa completa y agrupan;
+-- con 63.000 materiales Postgres prefiere recorrer por empresa a usar un índice por categoría sola
+-- (que además no incluye empresa_id). Lo que sí cuesta es mantenerlo en cada carga de materiales.
+--
+-- Para volver atrás:
+--   create index idx_skus_categoria on public.skus using btree (categoria);
+drop index if exists public.idx_skus_categoria;
