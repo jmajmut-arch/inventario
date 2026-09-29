@@ -177,6 +177,41 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Contar: la X del buscador vacía el campo sin reemplazar el <input> =====
+  // Pedido de Joel (29/09): "un botón para eliminar el SKU anotado, así rápidamente escribo otro".
+  // Se marca el nodo: si render() lo reemplazara, en iPad el teclado volvería a letras.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('limpiar-buscador: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.route('**/rest/v1/rpc/buscar_skus_lectura**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'s1', sku_code:'11164514', descripcion:'CLIP,ELEC,PRESS', bodega:'B501', ubicacion:'0102', storage_bin:'N1E-027-B1', batch:null, stock_sistema:3, unidad_medida:'EA' },
+    ]) }));
+    await page.click('[data-tab="conteo"]');
+    await page.waitForSelector('#sku-search');
+    await page.waitForTimeout(800);
+    assert(!(await page.isVisible('#btn-limpiar-sku-search')), 'con el campo vacío la X no se muestra');
+    await page.evaluate(() => { document.getElementById('sku-search').dataset.marca = 'original'; });
+    await page.click('#sku-search');
+    await page.keyboard.type('11164514');
+    await page.waitForSelector('[data-pick-btn="s1"]', { timeout:ESPERA });
+    assert(await page.isVisible('#btn-limpiar-sku-search'), 'al escribir aparece la X');
+    const caja = await page.$eval('#btn-limpiar-sku-search', el => { const r = el.getBoundingClientRect(); return { w:r.width, h:r.height }; });
+    assert(caja.w >= 40 && caja.h >= 40, 'la X tiene un área táctil de al menos 40 px, obtuvo '+JSON.stringify(caja));
+    await page.click('#btn-limpiar-sku-search');
+    await page.waitForTimeout(200);
+    const tras = await page.evaluate(() => { const el = document.getElementById('sku-search'); return { valor: el.value, mismo: el.dataset.marca === 'original', foco: document.activeElement === el }; });
+    assert(tras.valor === '' && tras.mismo && tras.foco, 'la X vacía el campo, conserva el mismo <input> y lo deja enfocado, obtuvo '+JSON.stringify(tras));
+    assert(!(await page.isVisible('[data-pick-btn="s1"]')) && !(await page.isVisible('#btn-limpiar-sku-search')), 'se van los resultados y la X');
+    await page.keyboard.type('10');
+    const otro = await page.inputValue('#sku-search');
+    assert(otro === '10', 'se puede escribir el siguiente código de inmediato, obtuvo "'+otro+'"');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px no hay desborde horizontal, obtuvo '+desborde);
+    await context.close();
+  }
+
   // ===== Landing: honeypot silencioso (bot) no debe llamar a la red =====
   {
     const context = await browser.newContext();

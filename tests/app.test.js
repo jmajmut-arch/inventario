@@ -10457,6 +10457,37 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.skuSearch==='AC', 'debe actualizar state.skuSearch directo (sin pasar por setState), obtuvo '+ctx.__appstate.skuSearch);
   assert(ctx.__appstate.buscadorLibre.buscando===true, 'con 2+ letras, debe marcar "buscando" de inmediato en el estado, obtuvo '+JSON.stringify(ctx.__appstate.buscadorLibre));
 
+  // La X del buscador (pedido de Joel, 29/09: "un botón para eliminar el SKU anotado, así
+  // rápidamente escribo otro"). Aparece al escribir; al tocarla vacía el campo, los resultados y
+  // el estado sin setState/render (el <input> no se reemplaza: en iPad reiniciaría el teclado) y
+  // le devuelve el foco para teclear el siguiente código.
+  {
+    const btnLimpiar = documentMock.getElementById('btn-limpiar-sku-search');
+    btnLimpiar.hidden = true;
+    ctx.escribirBuscadorLibre('11164514');
+    assert(btnLimpiar.hidden===false, 'con texto escrito, la X debe mostrarse sin repintar la pantalla');
+    ctx.__appstate.buscadorLibre = { resultados:[{id:'x1', sku_code:'11164514', descripcion:'CLIP'}], buscando:false };
+    buscadorEl.value = '11164514';
+    let enfocadoAlLimpiar = 0, rendersAlLimpiar = 0;
+    buscadorEl.focus = ()=> enfocadoAlLimpiar++;
+    const renderOriginalLimpiar = ctx.render;
+    const htmlAntesLimpiar = elements['buscador-libre-resultados'].innerHTML;
+    ctx.limpiarBuscadorLibre();
+    assert(buscadorEl.value==='' && ctx.__appstate.skuSearch==='', 'la X debe vaciar el campo y el estado, obtuvo: '+JSON.stringify({valor:buscadorEl.value, estado:ctx.__appstate.skuSearch}));
+    assert(ctx.__appstate.buscadorLibre.resultados.length===0 && ctx.__appstate.buscadorLibre.buscando===false, 'la X debe limpiar los resultados, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
+    assert(elements['buscador-libre-resultados'].innerHTML.includes('Escribe para buscar'), 'tras limpiar, el contenedor de resultados vuelve a la invitación a escribir, obtuvo: '+elements['buscador-libre-resultados'].innerHTML);
+    assert(btnLimpiar.hidden===true, 'con el campo vacío, la X se esconde');
+    assert(enfocadoAlLimpiar===1, 'la X devuelve el foco al campo para escribir el siguiente código, obtuvo '+enfocadoAlLimpiar+' llamadas a focus()');
+    const htmlVacio = ctx.renderConteo();
+    assert(/id="btn-limpiar-sku-search"[^>]*hidden/.test(htmlVacio), 'al pintar Contar con el campo vacío, la X nace escondida');
+    ctx.__appstate.skuSearch = 'AB';
+    assert(!/id="btn-limpiar-sku-search"[^>]*hidden/.test(ctx.renderConteo()), 'al pintar Contar con texto, la X nace visible');
+    ctx.__appstate.skuSearch = '';
+    buscadorEl.focus = ()=> vecesEnfocadoTecleo++;
+    // Deja el buscador como lo dejó el tecleo de 'AC' de arriba: lo que sigue lo inspecciona.
+    ctx.escribirBuscadorLibre('AC');
+  }
+
   // El único repintado real debe caer sobre #buscador-libre-resultados (el contenedor extraído
   // en renderResultadosBuscadorLibre), reflejando el hint "Buscando…" mientras se resuelve.
   const contResultados = documentMock.getElementById('buscador-libre-resultados');
