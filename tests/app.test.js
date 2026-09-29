@@ -24,6 +24,8 @@ let flowSyncRespuesta = { ok:true, sincronizada:true, estado:'activa', cambio:fa
 let cicloActualRpcRespuesta = null;
 let verificarConteoAtipicoRespuesta = false;
 let conteosEnPeriodoRespuesta = 0;
+let skusPorCodigoFixture = {}; // alta manual de SKU: filas activas por código (ver revisarCodigoSkuExistente)
+let skusPorCodigoFalla = null;
 let contadoPeriodoDetalle = null; // {ultima_fecha, ultima_cantidad, ultimo_por} del último conteo del período
 let autoservicioRespuesta = { error: null };
 // ===== MFA (verificación en dos pasos) =====
@@ -1269,6 +1271,12 @@ const fakeFetchImpl = async (url, opts) => {
     const TOTAL_STOCK = 61636;
     return { status:200, ok:true, headers:{get:(h)=> String(h).toLowerCase()==='content-range' ? `${desde}-${desde+29}/${TOTAL_STOCK}` : null}, text: async()=>JSON.stringify([{sku_id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', batch:null, bodega:'Bodega Central', ubicacion:'Pasillo 1', storage_bin:'R-1', stock:6, reservado:4, disponible:2, unidad_medida:'UN', costo_unitario:1000, stock_minimo:10, bajo_minimo:true, falta_para_minimo:4, tipo_material:'EPP', valor:6000}]) };
   }
+  // Alta manual de SKU: revisión del código contra el maestro (ver revisarCodigoSkuExistente).
+  if(path.startsWith('/rest/v1/skus?activo=eq.true&sku_code=eq.') && (!opts || !opts.method || opts.method==='GET')){
+    if(skusPorCodigoFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: skusPorCodigoFalla}) };
+    const codigo = decodeURIComponent(path.split('sku_code=eq.')[1].split('&')[0]);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(skusPorCodigoFixture[codigo] || []) };
+  }
   // Simula el rechazo del índice único (empresa_id, sku_code, bodega_key, batch_key,
   // ubicacion_key, storage_bin_key) para probar que crearSkuManual / procesarUnItemOffline lo
   // traducen a un mensaje claro en vez del error crudo de Postgres — ver esErrorCodigoSkuDuplicado.
@@ -1516,10 +1524,105 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // categoria, con su propio datalist de sugerencias.
   assert(htmlSkus.includes('for="s-batch">Batch<') && htmlSkus.includes('id="s-batch" list="dl-batches"') && htmlSkus.includes('<option value="L-001">') && htmlSkus.includes('<option value="L-002">'), 'debe existir un campo Batch propio con datalist de sugerencias, obtuvo: '+htmlSkus);
   assert(htmlSkus.includes('id="s-um" list="dl-unidades"') && htmlSkus.includes('<option value="KG">') && htmlSkus.includes('<option value="UN">'), 'el campo unidad de medida debe tener datalist con las unidades sugeridas, obtuvo: '+htmlSkus);
-  assert(htmlSkus.includes('id="s-bodega" list="dl-sku-bodegas"') && htmlSkus.includes('<option value="Nave Mina">') && htmlSkus.includes('<option value="Nave Planta">'), 'el campo bodega debe tener datalist con las bodegas ya usadas, obtuvo: '+htmlSkus);
-  assert(htmlSkus.includes('id="s-ubic" list="dl-sku-ubicaciones"') && htmlSkus.includes('<datalist id="dl-sku-ubicaciones"><option value="Interior Nave">'), 'el campo ubicación debe tener datalist con las ubicaciones de la bodega elegida, obtuvo: '+htmlSkus);
-  assert(htmlSkus.includes('id="s-bin" list="dl-sku-bins"') && htmlSkus.includes('<datalist id="dl-sku-bins"><option value="A-01">'), 'el campo storage bin debe tener datalist con los bins de esa ubicación, obtuvo: '+htmlSkus);
+  // Pedido de Joel (29/09): bodega, ubicación y bin son desplegables con lo que ya existe, más
+  // "+ Otra…" (antes texto libre: "Bodega central" creaba otra bodega sin aviso).
+  assert(/<select id="s-bodega">[\s\S]*<option value="Nave Mina"[\s\S]*<option value="Nave Planta"[\s\S]*<option value="__nueva"[^>]*>\+ Otra…/.test(htmlSkus), 'Ubicación general debe ser un desplegable con las bodegas existentes y la opción de agregar una nueva, obtuvo: '+htmlSkus);
+  assert(/<select id="s-ubic">[\s\S]*<option value="Interior Nave"/.test(htmlSkus), 'Ubicación específica debe ser un desplegable con las ubicaciones de la bodega elegida, obtuvo: '+htmlSkus);
+  assert(/<select id="s-bin">[\s\S]*<option value="A-01"/.test(htmlSkus), 'Storage bin debe ser un desplegable con los bins de esa ubicación, obtuvo: '+htmlSkus);
+  assert(!htmlSkus.includes('dl-sku-bodegas') && !htmlSkus.includes('id="s-bodega-nueva"'), 'sin elegir "nueva" no hay campo de texto para la bodega, obtuvo: '+htmlSkus);
+  ctx.__appstate.skuForm = {...ctx.skuFormInicial(), nuevaBodega:true, bodega:'Bodega Norte'};
+  const htmlSkusNueva = ctx.renderSkus();
+  assert(htmlSkusNueva.includes('<option value="__nueva" selected>') && htmlSkusNueva.includes('id="s-bodega-nueva" value="Bodega Norte"'), 'al elegir "+ Otra…" aparece el campo con lo escrito, obtuvo: '+htmlSkusNueva);
+  ctx.__appstate.skuForm = ctx.skuFormInicial();
   ctx.__appstate.skuFormOpciones = { ubicaciones: [], bins: [] };
+
+  // ===== Alta manual: si el código ya existe, se muestran sus posiciones y se completan los datos
+  // del material en los campos vacíos; la misma posición se avisa antes de guardar (Joel, 29/09).
+  {
+    skusPorCodigoFixture = { '10371892': [
+      {id:'e1', sku_code:'10371892', descripcion:'FILTRO ACEITE', unidad_medida:'EA', categoria:'Repuestos', costo_unitario:1500, critico:true, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', batch:null},
+      {id:'e2', sku_code:'10371892', descripcion:'FILTRO ACEITE', unidad_medida:'EA', categoria:'Repuestos', costo_unitario:1500, critico:true, bodega:'Nave Planta', ubicacion:null, storage_bin:null, batch:'REPAIRED'},
+    ] };
+    ['s-desc','s-um','s-cat','s-costo','s-critico','s-code','s-batch','s-stock','form-sku','toast-root'].forEach(id=> makeEl(id));
+    ['s-desc','s-um','s-cat','s-costo'].forEach(id=>{ elements[id].value = ''; });
+    elements['s-um'].value = 'UN'; // lo que la persona ya escribió no se pisa
+    elements['s-critico'].checked = false;
+    calls.length = 0;
+    const rev = await ctx.revisarCodigoSkuExistente(' 10371892 ');
+    assert(calls.some(c=>c.url.includes('/rest/v1/skus?activo=eq.true&sku_code=eq.10371892')), 'debe buscar el código exacto en el maestro, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(rev && rev.filas.length===2 && ctx.__appstate.skuForm.existente.codigo==='10371892', 'debe guardar las posiciones encontradas, obtuvo: '+JSON.stringify(ctx.__appstate.skuForm.existente));
+    assert(elements['s-desc'].value==='FILTRO ACEITE' && elements['s-cat'].value==='Repuestos' && String(elements['s-costo'].value)==='1500' && elements['s-critico'].checked===true, 'debe completar descripción, categoría, costo y crítico del material, obtuvo: '+JSON.stringify({d:elements['s-desc'].value, c:elements['s-cat'].value, costo:elements['s-costo'].value, cr:elements['s-critico'].checked}));
+    assert(elements['s-um'].value==='UN', 'no debe pisar lo que la persona ya escribió, obtuvo: '+elements['s-um'].value);
+    const htmlExiste = ctx.renderSkus();
+    assert(htmlExiste.includes('Este material ya existe en 2 posiciones') && htmlExiste.includes('Nave Mina · Pasillo 3 · A-01') && htmlExiste.includes('Nave Planta · Batch REPAIRED'), 'debe listar las posiciones existentes, obtuvo: '+htmlExiste);
+    // Una segunda revisión del mismo código no vuelve al servidor.
+    calls.length = 0;
+    await ctx.revisarCodigoSkuExistente('10371892');
+    assert(!calls.some(c=>c.url.includes('sku_code=eq.')), 'el mismo código ya revisado no se vuelve a pedir, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Posición repetida: misma bodega, batch, ubicación y bin (null y vacío son lo mismo).
+    assert(ctx.posicionSkuRepetida(rev.filas, {bodega:'Nave Planta', ubicacion:null, storage_bin:null, batch:'REPAIRED'}).id==='e2', 'la misma posición debe detectarse');
+    assert(ctx.posicionSkuRepetida(rev.filas, {bodega:'Nave Planta', ubicacion:null, storage_bin:null, batch:'OTRO'})===null, 'otro batch es otra posición');
+    assert(ctx.posicionSkuRepetida(rev.filas, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-02', batch:null})===null, 'otro bin es otra posición');
+    // Código nuevo y error: el error se ve como error, no como "código nuevo".
+    await ctx.revisarCodigoSkuExistente('NUEVO-1');
+    assert(ctx.renderSkus().includes('Código nuevo en el maestro.'), 'un código que no existe se informa como nuevo');
+    skusPorCodigoFalla = 'servidor caído';
+    await ctx.revisarCodigoSkuExistente('FALLA-1');
+    const htmlFalla = ctx.renderSkus();
+    assert(htmlFalla.includes('No se pudo revisar si el código ya existe: servidor caído') && !htmlFalla.includes('Código nuevo'), 'un fallo del servidor se muestra como error, obtuvo: '+htmlFalla);
+    skusPorCodigoFalla = null;
+    await ctx.revisarCodigoSkuExistente('');
+    assert(ctx.__appstate.skuForm.existente===null, 'con el código vacío se limpia la revisión');
+
+    // Guardar: la posición repetida se avisa sin ir al servidor.
+    const viewAntesSku = ctx.__appstate.view;
+    // bind() solo ata las pantallas con sesión iniciada: en este punto del archivo todavía no hay.
+    const sesionAntesSku = ctx.__appstate.session, perfilAntesSku = ctx.__appstate.perfil;
+    ctx.__appstate.session = sesionAntesSku || {access_token:'fake-token', user:{id:'auth-user-1'}};
+    ctx.__appstate.perfil = perfilAntesSku || { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.view = 'skus';
+    ctx.bind();
+    // En el navegador cada render() crea un <form> nuevo con un solo listener; el documento de prueba
+    // reutiliza el mismo objeto y los acumula, así que se dispara solo el último atado.
+    const enviarSku = () => new Promise(resolve=>{
+      const ls = elements['form-sku'].listeners.submit || [];
+      elements['form-sku'].listeners.submit = ls.slice(-1);
+      elements['form-sku'].dispatch('submit', {target: elements['form-sku'], preventDefault(){}});
+      setTimeout(resolve, 30);
+    });
+    elements['s-code'].value = '10371892'; elements['s-batch'].value = 'repaired'; elements['s-stock'].value = ''; elements['s-costo'].value = '';
+    ctx.__appstate.skuForm = {...ctx.skuFormInicial(), bodega:'Nave Planta'};
+    elements['toast-root'].hijos.length = 0; calls.length = 0;
+    await enviarSku();
+    assert(!calls.some(c=>c.url.endsWith('/rest/v1/skus') && c.opts && c.opts.method==='POST'), 'con la posición repetida no se intenta guardar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('ya existe en esa misma posición'), 'debe avisar que la posición ya existe, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    // Bodega "nueva" que es la misma con otras mayúsculas: se ofrece usar la existente.
+    elements['s-batch'].value = 'L-NUEVO';
+    ctx.__appstate.skuForm = {...ctx.skuFormInicial(), bodega:'nave  mina', nuevaBodega:true};
+    confirmLlamadas.length = 0; confirmRespuesta = false; calls.length = 0;
+    await enviarSku();
+    assert(confirmLlamadas.some(m=> m.includes('Ya existe la bodega "Nave Mina"')), 'debe ofrecer la bodega existente, obtuvo: '+JSON.stringify(confirmLlamadas));
+    assert(!calls.some(c=>c.url.endsWith('/rest/v1/skus') && c.opts && c.opts.method==='POST'), 'si no acepta, no se guarda');
+    confirmRespuesta = true; confirmLlamadas.length = 0; calls.length = 0;
+    await enviarSku();
+    const postNuevo = calls.find(c=>c.url.endsWith('/rest/v1/skus') && c.opts && c.opts.method==='POST');
+    assert(!!postNuevo && JSON.parse(postNuevo.opts.body)[0].bodega==='Nave Mina' && JSON.parse(postNuevo.opts.body)[0].batch==='L-NUEVO', 'al aceptar se guarda en la bodega existente, obtuvo: '+(postNuevo && postNuevo.opts.body));
+    assert(ctx.__appstate.skuForm.bodega==='' && ctx.__appstate.skuForm.existente===null, 'tras guardar, el formulario vuelve a empezar, obtuvo: '+JSON.stringify(ctx.__appstate.skuForm));
+    // Sin señal la revisión falla por red: igual se guarda (a la cola), no se bloquea.
+    ctx.guardarColaOffline([]);
+    const fetchAntesOffline = ctx.fetch;
+    ctx.fetch = async (url, opts) => { if(String(url).includes('sku_code=eq.') || (String(url).endsWith('/rest/v1/skus') && opts && opts.method==='POST')) throw new ctx.__TypeError('Failed to fetch'); return fetchAntesOffline(url, opts); };
+    elements['s-code'].value = 'SIN-SENAL-1';
+    ctx.__appstate.skuForm = {...ctx.skuFormInicial(), bodega:'Nave Mina'};
+    await enviarSku();
+    ctx.fetch = fetchAntesOffline;
+    assert((ctx.__appstate.colaOffline||[]).length===1 && ctx.__appstate.colaOffline[0].sku_code==='SIN-SENAL-1', 'sin señal el material queda en la cola, aunque no se pudo revisar el código, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+    ctx.guardarColaOffline([]);
+    ctx.__appstate.view = viewAntesSku;
+    ctx.__appstate.session = sesionAntesSku; ctx.__appstate.perfil = perfilAntesSku;
+    ctx.__appstate.skuForm = ctx.skuFormInicial();
+    skusPorCodigoFixture = {};
+  }
 
   const especificas = await ctx.opcionesEspecificas('Nave Mina');
   assert(especificas.length===2 && especificas[0].ubicacion==='Interior Nave', 'opcionesEspecificas debe filtrar por bodega, obtuvo: '+JSON.stringify(especificas));

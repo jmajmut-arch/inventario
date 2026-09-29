@@ -749,7 +749,8 @@ let state = {
   opcionesCategorias: [], // valores de categoría ya usados por la empresa (sugerencia en "Cargar SKU")
   opcionesBatches: [], // valores de batch/lote ya usados por la empresa (idem)
   opcionesUnidades: [],   // valores de unidad de medida ya usados por la empresa (idem)
-  skuFormOpciones: { ubicaciones: [], bins: [] }, // sugerencias de ubicación/bin en "Cargar SKU", en cascada según la bodega/ubicación tipeada
+  skuFormOpciones: { ubicaciones: [], bins: [] }, // opciones de ubicación/bin en "Cargar SKU", en cascada según la bodega/ubicación elegida
+  skuForm: skuFormInicial(), // desplegables de sitio y revisión del código del alta manual (ver renderSkus)
   // Catálogo de sitios de la empresa (tabla ubicaciones). Antes las ubicaciones no se creaban:
   // existían porque un material decía que existían, así que "Bodega Central" y "bodega central"
   // convivían como dos sitios y una bodega vacía no podía existir.
@@ -1989,7 +1990,7 @@ async function ingresarConCodigo(email, codigo){
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
   reiniciarBannerMfa(); // el próximo ingreso vuelve a mostrar el aviso de MFA sus 15 segundos
-  return { ...state, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -8778,15 +8779,120 @@ function alternarOtraUbicacionConteo(marcado){
   if(obs2 && valObs!==undefined) obs2.value = valObs;
 }
 
-// Mismo problema que conservandoCamposConteo: refrescar las sugerencias de ubicación/bin
-// en "Cargar SKU" implica un render() completo, que si no se hace con cuidado borraría lo
-// que la persona ya tipeó en los otros campos del formulario (descripción, categoría, etc.).
+// Mismo problema que conservandoCamposConteo: refrescar las opciones de ubicación/bin o el aviso
+// del código en "Cargar SKU" implica un render() completo, que si no se hace con cuidado borraría
+// lo que la persona ya tipeó en los otros campos del formulario (descripción, categoría, etc.).
+// Bodega, ubicación y bin no están acá: son desplegables que se pintan desde state.skuForm.
 function conservandoCamposSku(fn){
-  const ids = ['s-code', 's-desc', 's-cat', 's-batch', 's-um', 's-bodega', 's-ubic', 's-bin', 's-stock', 's-costo'];
+  const ids = ['s-code', 's-desc', 's-cat', 's-batch', 's-um', 's-stock', 's-costo'];
   const valores = {};
   ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
+  const critico = document.getElementById('s-critico');
+  const criticoMarcado = critico ? critico.checked : undefined;
   fn();
   ids.forEach(id=>{ const el = document.getElementById(id); if(el && valores[id]!==undefined) el.value = valores[id]; });
+  const criticoNuevo = document.getElementById('s-critico');
+  if(criticoNuevo && criticoMarcado!==undefined) criticoNuevo.checked = criticoMarcado;
+}
+
+// ===== Alta manual de SKU: sitio por desplegables y revisión del código (pedido de Joel, 29/09:
+// "cuando se crea un SKU, esa opción debe enlazar a los campos que ya existan") =====
+// Bodega, ubicación y bin son desplegables con lo que ya existe, más "+ Otra…" que abre un campo
+// para escribirla -- mismo patrón que Cambio de ubicación (ahí dice "+ Agregar una nueva…"; acá es
+// más corto porque a 420 px el desplegable va a media columna y se cortaba). Antes eran texto libre con
+// sugerencias, y "Bodega central" en vez de "Bodega Central" creaba otra bodega sin aviso.
+function skuFormInicial(){
+  return { bodega:'', nuevaBodega:false, ubicacion:'', nuevaUbicacion:false, storage_bin:'', nuevoBin:false, existente:null };
+}
+function bodegasFormSku(){
+  const origen = state.ubicaciones.cargado
+    ? state.ubicaciones.lista.filter(x=>!x.ubicacion && x.activo).map(x=>x.bodega)
+    : (state.plan.generales||[]).map(g=>g.bodega);
+  return opcionesConActual(origen, state.skuForm.nuevaBodega ? '' : state.skuForm.bodega);
+}
+function campoSitioSku(id, etiqueta, valor, opciones, escribiendo, marcaNueva, ayuda){
+  return `<label for="${id}">${etiqueta}</label>
+    <select id="${id}">
+      <option value="">— sin ${etiqueta.toLowerCase()} —</option>
+      ${opciones.map(o=>`<option value="${esc(o)}" ${!escribiendo && valor===o?'selected':''}>${esc(o)}</option>`).join('')}
+      <option value="${marcaNueva}" ${escribiendo?'selected':''}>+ Otra…</option>
+    </select>
+    ${escribiendo ? `<input type="text" id="${id}-nueva" value="${esc(valor||'')}" placeholder="${ayuda}" autocomplete="off" style="margin-top:6px">` : ''}`;
+}
+// Mismo texto sin importar mayúsculas ni espacios: "Bodega central" y "bodega Central " son la
+// misma bodega para quien la escribió, aunque para la base sean dos.
+function mismoNombreSitio(a, b){
+  return String(a||'').trim().replace(/\s+/g,' ').toLowerCase() === String(b||'').trim().replace(/\s+/g,' ').toLowerCase();
+}
+
+// Revisión del código: si ya existe en el maestro, se muestran sus posiciones y se completan los
+// datos que son del material (no de la posición) en los campos que la persona dejó vacíos.
+let revisionCodigoSkuPeticionId = 0;
+let revisionCodigoSkuPromesa = null;
+const CAMPOS_MATERIAL_SKU = [['s-desc','descripcion'], ['s-um','unidad_medida'], ['s-cat','categoria'], ['s-costo','costo_unitario']];
+async function revisarCodigoSkuExistente(codigoTecleado){
+  const codigo = String(codigoTecleado||'').trim();
+  if(!codigo){
+    revisionCodigoSkuPeticionId++;
+    revisionCodigoSkuPromesa = null;
+    if(state.skuForm.existente) conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, existente:null}}));
+    return null;
+  }
+  const actual = state.skuForm.existente;
+  if(actual && actual.codigo===codigo && !actual.cargando && !actual.error) return actual;
+  if(actual && actual.codigo===codigo && actual.cargando && revisionCodigoSkuPromesa) return revisionCodigoSkuPromesa;
+  const miPeticion = ++revisionCodigoSkuPeticionId;
+  conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, existente:{codigo, cargando:true, filas:[], error:null}}}));
+  revisionCodigoSkuPromesa = (async ()=>{
+    try{
+      const filas = await rest(`/skus?activo=eq.true&sku_code=eq.${encodeURIComponent(codigo)}&select=id,sku_code,descripcion,unidad_medida,categoria,costo_unitario,critico,bodega,ubicacion,storage_bin,batch&order=bodega.asc.nullsfirst,ubicacion.asc.nullsfirst,storage_bin.asc.nullsfirst&limit=50`) || [];
+      if(miPeticion !== revisionCodigoSkuPeticionId) return state.skuForm.existente;
+      const existente = {codigo, cargando:false, filas, error:null};
+      conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, existente}}));
+      if(filas.length) completarDatosMaterialSku(filas);
+      return existente;
+    }catch(e){
+      if(miPeticion !== revisionCodigoSkuPeticionId) return state.skuForm.existente;
+      // Se muestra como error (no como "código nuevo"): si no, un fallo del servidor haría creer
+      // que el material no existe.
+      const existente = {codigo, cargando:false, filas:[], error: e.message || 'error desconocido'};
+      conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, existente}}));
+      return existente;
+    }
+  })();
+  return revisionCodigoSkuPromesa;
+}
+function completarDatosMaterialSku(filas){
+  CAMPOS_MATERIAL_SKU.forEach(([id, campo])=>{
+    const el = document.getElementById(id);
+    const valor = (filas.find(f=> f[campo]!==null && f[campo]!==undefined && f[campo]!=='')||{})[campo];
+    if(el && el.value==='' && valor!==undefined) el.value = valor;
+  });
+  const critico = document.getElementById('s-critico');
+  if(critico && !critico.checked && filas.some(f=>f.critico)) critico.checked = true;
+}
+// La misma posición (código + bodega + batch + ubicación + bin) ya existe: guardar chocaría con la
+// identidad única del maestro. Se compara igual que la base (null y vacío son lo mismo).
+function posicionSkuRepetida(filas, payload){
+  const k = v => (v===null || v===undefined) ? '' : String(v);
+  return (filas||[]).find(f=> k(f.bodega)===k(payload.bodega) && k(f.batch)===k(payload.batch)
+    && k(f.ubicacion)===k(payload.ubicacion) && k(f.storage_bin)===k(payload.storage_bin)) || null;
+}
+function renderRevisionCodigoSku(){
+  const x = state.skuForm.existente;
+  if(!x) return '';
+  if(x.cargando) return `<div class="hint" style="margin-top:6px">Revisando si el código ya existe…</div>`;
+  if(x.error) return `<div class="hint" style="margin-top:6px;color:var(--danger)">No se pudo revisar si el código ya existe: ${esc(x.error)}</div>`;
+  if(!x.filas.length) return `<div class="hint" style="margin-top:6px">Código nuevo en el maestro.</div>`;
+  const n = x.filas.length;
+  return `<div class="card" id="sku-codigo-existente" style="margin:8px 0 0;padding:10px 12px;background:var(--surface-2)">
+    <div style="font-size:12.5px;font-weight:600">Este material ya existe en ${n} ${n===1?'posición':'posiciones'}:</div>
+    <ul style="margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--text-dim)">
+      ${x.filas.slice(0,8).map(f=>`<li>${esc(describirUbicacion(f))}${f.batch?` · Batch ${esc(f.batch)}`:''}</li>`).join('')}
+      ${n>8?`<li>y ${n-8} más</li>`:''}
+    </ul>
+    <div class="hint" style="margin-top:6px">Se completaron descripción, unidad, categoría, costo y crítico con los datos del material. Indica dónde está la nueva posición.</div>
+  </div>`;
 }
 
 async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacionDistinta}){
@@ -9054,6 +9160,7 @@ async function onCodigoEscaneado(codigo){
     const input = document.getElementById('s-code');
     if(input){ input.value = codigo; input.focus(); }
     toast('Código escaneado');
+    revisarCodigoSkuExistente(codigo);
     return;
   }
   const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
@@ -10839,17 +10946,18 @@ function renderSkus(){
       <form id="form-sku">
         <label for="s-code">Código SKU *</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" id="s-code" style="flex:1" placeholder="Ej. 4400-1123" required>
+          <input type="text" id="s-code" style="flex:1" placeholder="Ej. 4400-1123" required autocomplete="off">
           <button type="button" id="btn-escanear-sku-code" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
         </div>
+        ${renderRevisionCodigoSku()}
         <label for="s-desc">Descripción</label>
         <input type="text" id="s-desc" placeholder="Ej. Filtro hidraulico 3 pulgadas">
         <div class="row2">
-          <div><label for="s-bodega">Ubicación general</label><input type="text" id="s-bodega" list="dl-sku-bodegas" autocomplete="off" placeholder="Bodega Central"></div>
-          <div><label for="s-ubic">Ubicación específica</label><input type="text" id="s-ubic" list="dl-sku-ubicaciones" autocomplete="off" placeholder="Pasillo 3"></div>
+          <div>${campoSitioSku('s-bodega','Ubicación general', state.skuForm.bodega, bodegasFormSku(), state.skuForm.nuevaBodega, '__nueva', 'Nombre de la bodega nueva')}</div>
+          <div>${campoSitioSku('s-ubic','Ubicación específica', state.skuForm.ubicacion, opcionesConActual(state.skuFormOpciones.ubicaciones.map(u=>u.ubicacion), state.skuForm.nuevaUbicacion ? '' : state.skuForm.ubicacion), state.skuForm.nuevaUbicacion, '__nueva', 'Nombre de la ubicación nueva')}</div>
         </div>
         <div class="row2">
-          <div><label for="s-bin">Storage bin</label><input type="text" id="s-bin" list="dl-sku-bins" autocomplete="off" placeholder="Ej. A-12-03"></div>
+          <div>${campoSitioSku('s-bin','Storage bin', state.skuForm.storage_bin, opcionesConActual(state.skuFormOpciones.bins.map(b=>b.storage_bin), state.skuForm.nuevoBin ? '' : state.skuForm.storage_bin), state.skuForm.nuevoBin, '__nuevo', 'Ej. A-12-03')}</div>
           <div><label for="s-batch">Batch</label><input type="text" id="s-batch" list="dl-batches" autocomplete="off" placeholder="Ej. L-2026-045"></div>
         </div>
         <div class="row2">
@@ -10871,9 +10979,6 @@ function renderSkus(){
       <datalist id="dl-categorias">${state.opcionesCategorias.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
       <datalist id="dl-batches">${state.opcionesBatches.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
       <datalist id="dl-unidades">${state.opcionesUnidades.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
-      <datalist id="dl-sku-bodegas">${(state.ubicaciones.cargado ? state.ubicaciones.lista.filter(x=>!x.ubicacion && x.activo).map(x=>({bodega:x.bodega})) : (state.plan.generales||[])).map(g=>`<option value="${esc(g.bodega)}">`).join('')}</datalist>
-      <datalist id="dl-sku-ubicaciones">${state.skuFormOpciones.ubicaciones.map(u=>`<option value="${esc(u.ubicacion)}">`).join('')}</datalist>
-      <datalist id="dl-sku-bins">${state.skuFormOpciones.bins.map(b=>`<option value="${esc(b.storage_bin)}">`).join('')}</datalist>
     </div>
 
     ${renderTablaSkus()}
@@ -15406,17 +15511,41 @@ function bind(){
   if(state.view==='skus'){
     const btnEscanearSkuCode = document.getElementById('btn-escanear-sku-code');
     if(btnEscanearSkuCode) btnEscanearSkuCode.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'campo-sku'}}));
-    // Sugerencias en cascada (datalist, no select forzado: acá se puede estar cargando una
-    // ubicación nueva que todavía no existe) — al salir del campo bodega/ubicación, se
-    // refrescan las opciones de ubicación específica/storage bin para esa bodega.
+    // Código: al salir del campo se revisa si ya existe (ver revisarCodigoSkuExistente).
+    document.getElementById('s-code').addEventListener('change', e=> revisarCodigoSkuExistente(e.target.value));
+    // Desplegables en cascada. Elegir "+ Otra…" no fija el valor: abre el campo para
+    // escribirlo. Cambiar la bodega invalida la ubicación y el bin (eran de la bodega anterior).
     document.getElementById('s-bodega').addEventListener('change', async e=>{
-      const opciones = await opcionesEspecificas(e.target.value.trim());
-      conservandoCamposSku(()=> setState({skuFormOpciones: {...state.skuFormOpciones, ubicaciones: opciones}}));
+      const v = e.target.value, nueva = v==='__nueva';
+      conservandoCamposSku(()=> setState({
+        skuForm:{...state.skuForm, bodega: nueva ? '' : v, nuevaBodega: nueva, ubicacion:'', nuevaUbicacion:false, storage_bin:'', nuevoBin:false},
+        skuFormOpciones:{ubicaciones:[], bins:[]},
+      }));
+      if(nueva || !v) return;
+      const [ubicaciones, bins] = await Promise.all([opcionesEspecificas(v), opcionesBins(v, '')]);
+      if(state.skuForm.bodega!==v || state.skuForm.nuevaBodega) return; // se eligió otra mientras tanto
+      conservandoCamposSku(()=> setState({skuFormOpciones:{ubicaciones, bins}}));
     });
     document.getElementById('s-ubic').addEventListener('change', async e=>{
-      const bodega = document.getElementById('s-bodega').value.trim();
-      const opciones = await opcionesBins(bodega, e.target.value.trim());
-      conservandoCamposSku(()=> setState({skuFormOpciones: {...state.skuFormOpciones, bins: opciones}}));
+      const v = e.target.value, nueva = v==='__nueva';
+      conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, ubicacion: nueva ? '' : v, nuevaUbicacion: nueva, storage_bin:'', nuevoBin:false}}));
+      const bodega = state.skuForm.nuevaBodega ? '' : state.skuForm.bodega;
+      if(nueva || !bodega) return;
+      const bins = await opcionesBins(bodega, v);
+      if(state.skuForm.bodega!==bodega || state.skuForm.ubicacion!==v) return;
+      conservandoCamposSku(()=> setState({skuFormOpciones:{...state.skuFormOpciones, bins}}));
+    });
+    document.getElementById('s-bin').addEventListener('change', e=>{
+      const v = e.target.value, nuevo = v==='__nuevo';
+      conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, storage_bin: nuevo ? '' : v, nuevoBin: nuevo}}));
+    });
+    // Lo que se escribe en "nueva" va al estado en cada tecla, sin repintar (repintar reemplaza el
+    // input y en iPad reinicia el teclado); recién al abrirse el campo se le da el foco.
+    [['s-bodega-nueva','bodega'],['s-ubic-nueva','ubicacion'],['s-bin-nueva','storage_bin']].forEach(([id, campo])=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('input', ev=>{ state.skuForm = {...state.skuForm, [campo]: ev.target.value}; });
+      if(document.activeElement!==el && !el.value){ el.focus(); }
     });
     document.getElementById('form-sku').addEventListener('submit', async e=>{
       e.preventDefault();
@@ -15426,14 +15555,39 @@ function bind(){
         categoria: document.getElementById('s-cat').value.trim() || null,
         batch: normalizarBatchManual(document.getElementById('s-batch').value),
         unidad_medida: document.getElementById('s-um').value.trim() || null,
-        bodega: document.getElementById('s-bodega').value.trim() || null,
-        ubicacion: document.getElementById('s-ubic').value.trim() || null,
-        storage_bin: document.getElementById('s-bin').value.trim() || null,
+        bodega: String(state.skuForm.bodega||'').trim() || null,
+        ubicacion: String(state.skuForm.ubicacion||'').trim() || null,
+        storage_bin: String(state.skuForm.storage_bin||'').trim() || null,
         stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
         costo_unitario: document.getElementById('s-costo').value !== '' ? Number(document.getElementById('s-costo').value) : null,
         critico: document.getElementById('s-critico').checked,
       };
       if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
+      // Una bodega o ubicación "nueva" que es la misma que una existente con otras mayúsculas o
+      // espacios: se ofrece usar la existente en vez de crear un duplicado.
+      if(state.skuForm.nuevaBodega && payload.bodega){
+        const igual = bodegasFormSku().find(b=> b!==payload.bodega && mismoNombreSitio(b, payload.bodega));
+        if(igual){
+          if(!confirm(`Ya existe la bodega "${igual}".\n\n¿Usar esa en vez de crear "${payload.bodega}"?`)) return;
+          payload.bodega = igual;
+        }
+      }
+      if(state.skuForm.nuevaUbicacion && payload.ubicacion){
+        const igual = state.skuFormOpciones.ubicaciones.map(u=>u.ubicacion).find(u=> u!==payload.ubicacion && mismoNombreSitio(u, payload.ubicacion));
+        if(igual){
+          if(!confirm(`Ya existe la ubicación "${igual}" en esta bodega.\n\n¿Usar esa en vez de crear "${payload.ubicacion}"?`)) return;
+          payload.ubicacion = igual;
+        }
+      }
+      // La misma posición ya existe: se avisa antes de ir al servidor (ver posicionSkuRepetida).
+      // Si la revisión no se pudo hacer (sin señal), se sigue: la base igual rechaza el duplicado, y
+      // sin conexión el material tiene que poder quedar en la cola.
+      const revision = await revisarCodigoSkuExistente(payload.sku_code);
+      const repetida = revision && !revision.error ? posicionSkuRepetida(revision.filas, payload) : null;
+      if(repetida){
+        toast(`Ese material ya existe en esa misma posición (${describirUbicacion(repetida)}${repetida.batch?` · Batch ${repetida.batch}`:''}). Para cambiar su stock o datos, búscalo en la tabla de SKU activos.`, 'err');
+        return;
+      }
       if(!ubicacionConocida(payload.bodega, payload.ubicacion)){
         const sitio = [payload.bodega, payload.ubicacion].filter(Boolean).join(' · ');
         if(!confirm(`"${sitio}" no está en tus ubicaciones.\n\n¿Agregarla al maestro y guardar el material ahí? Si fue un error de tipeo, cancela y elige una de la lista.`)) return;
@@ -15441,10 +15595,15 @@ function bind(){
       }
       if(payload.stock_sistema !== null && payload.stock_sistema < 0){ toast('El stock según sistema no puede ser negativo','err'); return; }
       if(payload.costo_unitario !== null && payload.costo_unitario < 0){ toast('El costo unitario no puede ser negativo','err'); return; }
-      setState({loading:true});
+      conservandoCamposSku(()=> setState({loading:true}));
       const ok = await crearSkuManual(payload);
-      setState({loading:false});
-      if(ok) render();
+      if(ok){
+        revisionCodigoSkuPeticionId++;
+        revisionCodigoSkuPromesa = null;
+        setState({loading:false, skuForm: skuFormInicial(), skuFormOpciones:{ubicaciones:[], bins:[]}});
+      }else{
+        conservandoCamposSku(()=> setState({loading:false}));
+      }
     });
     const btnPrev = document.getElementById('skus-pag-prev');
     const btnNext = document.getElementById('skus-pag-next');
