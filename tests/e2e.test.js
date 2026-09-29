@@ -312,6 +312,17 @@ async function loguear(page, perfil){
     await page.waitForFunction(() => [...document.querySelectorAll('#p-bin option')].some(o=>o.value==='A-01'), null, { timeout:ESPERA });
     const sitio = await page.evaluate(() => { const u = document.getElementById('p-ubic').getBoundingClientRect(), b = document.getElementById('p-bin').getBoundingClientRect(); return { apilados: b.top >= u.bottom, anchoIgual: Math.abs(u.width-b.width) < 2, binLleno: document.getElementById('p-bin').size }; });
     assert(binVacio === 2 && sitio.binLleno === 6 && sitio.apilados && sitio.anchoIgual, 'a 420 px Ubicación específica y Storage bin van apilados y la lista de bins crece al llenarse, obtuvo '+JSON.stringify({binVacio, ...sitio}));
+    // Pendientes sin storage bin (Joel, B501 · 0098: "36/44" y la lista decía "3 bin / 4 SKU"):
+    // la bodega tiene 30 pendientes y sus bins suman 8, así que 22 no tienen bin. Se dicen en el
+    // resumen y en la ayuda; entran con "Seleccionar todos" y quedan fuera al elegir bins puntuales.
+    const sinBinTodos = await page.evaluate(() => ({ resumen: document.getElementById('p-bin-resumen').textContent, hint: document.getElementById('p-bin-hint').textContent }));
+    assert(sinBinTodos.resumen === '(2 bin / 8 SKU · 22 sin storage bin)' && sinBinTodos.hint.includes('también entran los 22 SKU sin storage bin'), 'con "Seleccionar todos" se dicen los pendientes sin bin, obtuvo '+JSON.stringify(sinBinTodos));
+    await page.selectOption('#p-bin', 'A-01');
+    const sinBinParcial = await page.textContent('#p-bin-resumen');
+    assert(sinBinParcial === '(1 de 2 bin / 4 SKU · 22 sin storage bin quedan fuera)', 'al elegir bins puntuales se avisa que los sin bin quedan fuera, obtuvo '+sinBinParcial);
+    await page.check('#p-bin-todos');
+    const sinBinDeNuevo = await page.textContent('#p-bin-resumen');
+    assert(sinBinDeNuevo === '(2 bin / 8 SKU · 22 sin storage bin)', 'al volver a "Seleccionar todos" los sin bin vuelven a entrar, obtuvo '+sinBinDeNuevo);
     const tabs = await page.evaluate(() => [...document.querySelectorAll('.tabbar .tab')].map(t => t.clientHeight));
     assert(tabs.length && Math.max(...tabs) === Math.min(...tabs) && Math.max(...tabs) < 60, 'cada pestaña de la barra de abajo en una sola línea (misma altura, sin partirse), obtuvo '+JSON.stringify(tabs));
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

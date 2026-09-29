@@ -16476,6 +16476,7 @@ function bind(){
       selBin.dataset.modo = 'bins';
       delete selBin.dataset.opciones;
       delete selBin.dataset.totalSkuModoSkus;
+      delete selBin.dataset.sinBin;
       chkTodos.checked = false;
       chkTodos.disabled = true;
       resumenBin.textContent = '';
@@ -16504,9 +16505,15 @@ function bind(){
       const esTodos = seleccionados.length===0 || seleccionados.length>=opciones.length;
       const base = esTodos ? opciones : opciones.filter(o=>seleccionados.includes(o.storage_bin));
       const totalSkus = base.reduce((s,o)=> s+(Number(o.cantidad_skus)||0), 0);
+      // Los pendientes sin bin entran solo si la entrada cubre la ubicación completa: "Seleccionar
+      // todos" marcado o nada elegido (ver el submit de #form-plan).
+      const sinBin = Number(selBin.dataset.sinBin||0);
+      const chkTodosBin = document.getElementById('p-bin-todos');
+      const entraSinBin = (chkTodosBin && chkTodosBin.checked) || seleccionados.length===0;
+      const textoSinBin = sinBin ? (entraSinBin ? ` · ${sinBin} sin storage bin` : ` · ${sinBin} sin storage bin quedan fuera`) : '';
       resumenBin.textContent = esTodos
-        ? `(${opciones.length} bin / ${totalSkus} SKU)`
-        : `(${seleccionados.length} de ${opciones.length} bin / ${totalSkus} SKU)`;
+        ? `(${opciones.length} bin / ${totalSkus} SKU${textoSinBin})`
+        : `(${seleccionados.length} de ${opciones.length} bin / ${totalSkus} SKU${textoSinBin})`;
     }
     // Por arriba de esta cantidad de SKU sin bin, no tiene sentido listarlos uno a uno en el
     // <select> (se vuelve lento e inmanejable) — se deja solo el mensaje de "agregar igual".
@@ -16550,6 +16557,15 @@ function bind(){
         // cada vez que cambie la selección (no solo al cargar), sin tener que volver a pedirla.
         selBin.dataset.opciones = JSON.stringify(opciones.map(o=>({storage_bin:o.storage_bin, cantidad_skus:Number(o.cantidad_skus)||0})));
         delete selBin.dataset.totalSkuModoSkus;
+        // Pendientes SIN storage bin (reportado por Joel: B501 · 0098 decía "36/44" y la lista
+        // mostraba "3 bin / 4 SKU"; los otros 32 no tienen bin y no salían en ninguna parte).
+        // Entran con "Seleccionar todos" (la entrada cubre la ubicación completa) y quedan fuera si
+        // se eligen bins puntuales: se muestran en el resumen y en la ayuda para que se sepa.
+        let pendientesSitio = null;
+        try{ const mapa = JSON.parse((document.getElementById('p-ubic')||{dataset:{}}).dataset.pendientes || '{}'); if(mapa[ubicacion||'']!==undefined) pendientesSitio = Number(mapa[ubicacion||'']); }catch(e){ pendientesSitio = null; }
+        const pendientesConBin = opciones.reduce((s,o)=> s+(Number(o.cantidad_skus)||0), 0);
+        const sinBin = pendientesSitio===null ? 0 : Math.max(0, pendientesSitio - pendientesConBin);
+        if(sinBin) selBin.dataset.sinBin = String(sinBin); else delete selBin.dataset.sinBin;
         // A pedido: la lista carga con TODOS los storage bin ya marcados (visualmente explícito),
         // en vez de dejarla sin nada seleccionado confiando en la regla "sin selección = todos"
         // (que ya causó confusión — ver actualizarResumenBin). Se marca también "Seleccionar
@@ -16558,7 +16574,8 @@ function bind(){
         if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = true; });
         selBin.size = PLAN_BIN_FILAS_LLENA;
         chkTodos.checked = true;
-        hintBin.textContent = 'Vienen todos los storage bin marcados. Puedes dejarlos así o desmarcar los que no quieras incluir.';
+        hintBin.textContent = 'Vienen todos los storage bin marcados. Puedes dejarlos así o desmarcar los que no quieras incluir.'
+          + (sinBin ? ` Con "Seleccionar todos" también entran los ${sinBin} SKU sin storage bin; si eliges bins puntuales, quedan fuera.` : '');
         // Aclara que "12 elementos" (resumen nativo del navegador para el <select multiple>) son
         // storage bin, no SKU — bug real reportado: se entendía como 12 SKU y no cuadraba con el
         // total real, que suma los SKU de todos esos bins juntos (normalmente más que uno por bin).
@@ -16597,6 +16614,7 @@ function bind(){
         if(!selBin || !chkTodos || !hintBin || !resumenBin) return; // la vista cambió mientras esperábamos
         if(skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES){
           selBin.dataset.modo = 'skus';
+          delete selBin.dataset.sinBin;
           selBin.dataset.skuCodes = JSON.stringify(skusUniversoCompleto.map(s=>s.sku_code));
           selBin.dataset.totalSkuModoSkus = String(skus.length);
           delete selBin.dataset.opciones;
@@ -16611,6 +16629,7 @@ function bind(){
           selBin.innerHTML = '';
           selBin.size = PLAN_BIN_FILAS_VACIA;
           delete selBin.dataset.opciones;
+          delete selBin.dataset.sinBin;
           delete selBin.dataset.totalSkuModoSkus;
           resumenBin.textContent = '';
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';
@@ -16635,6 +16654,12 @@ function bind(){
       if(!selUbic) return ''; // la vista cambió mientras esperábamos la respuesta
       const bodegaObj = state.plan.generales.find(g => bodega===BODEGA_VACIA ? g.bodega===null : g.bodega===bodega);
       selUbic.innerHTML = `<option value="">Todas${bodegaObj? ` (${bodegaObj.cantidad_pendiente}/${bodegaObj.cantidad_skus})` : ''}</option>` + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`).join('');
+      // Pendientes de cada opción ("36" de "36/44"): cargarBinsPara los usa para decir cuántos de
+      // esos pendientes no tienen storage bin y por eso no aparecen en la lista de bins.
+      const pendientesUbic = {};
+      if(bodegaObj) pendientesUbic[''] = Number(bodegaObj.cantidad_pendiente)||0;
+      opciones.forEach(o=>{ if(o.ubicacion) pendientesUbic[o.ubicacion] = Number(o.cantidad_pendiente)||0; });
+      selUbic.dataset.pendientes = JSON.stringify(pendientesUbic);
       selUbic.disabled = false;
       selUbic.value = (valorPreferido && opciones.some(o=>o.ubicacion===valorPreferido)) ? valorPreferido : '';
       return selUbic.value;

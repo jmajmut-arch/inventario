@@ -1757,7 +1757,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Bug real reportado: el resumen nativo del navegador para <select multiple> ("12 elementos")
   // se leía como cantidad de SKU, no de storage bin, y no cuadraba con el total real al agregar
   // "todos" (un bin puede tener más de un SKU). Se aclara con un resumen propio (bin / SKU).
-  assert(elements['p-bin-resumen'].textContent === '(2 bin / 8 SKU)', 'el resumen debe aclarar cuántos storage bin hay y cuántos SKU suman entre todos (5+3=8), obtuvo: '+elements['p-bin-resumen'].textContent);
+  // Interior Nave tiene 80 pendientes en el fixture y sus bins suman 8: los otros 72 no tienen
+  // bin (Joel, B501 · 0098: "36/44" y "3 bin / 4 SKU") y el resumen lo dice.
+  assert(elements['p-bin-resumen'].textContent === '(2 bin / 8 SKU · 72 sin storage bin)', 'el resumen debe aclarar cuántos storage bin hay, cuántos SKU suman entre todos (5+3=8) y cuántos pendientes no tienen bin, obtuvo: '+elements['p-bin-resumen'].textContent);
 
   // A pedido: si la persona desmarca a mano y deja elegido solo un storage bin puntual, el
   // resumen debe recalcularse en vivo para reflejar SOLO lo seleccionado (no seguir mostrando
@@ -1767,7 +1769,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     binEl.dispatch('change', {target: binEl});
     setTimeout(resolve, 20);
   });
-  assert(elements['p-bin-resumen'].textContent === '(1 de 2 bin / 5 SKU)', 'el resumen debe reflejar solo el bin puntual elegido (A-01, 5 SKU), obtuvo: '+elements['p-bin-resumen'].textContent);
+  assert(elements['p-bin-resumen'].textContent === '(1 de 2 bin / 5 SKU · 72 sin storage bin quedan fuera)', 'el resumen debe reflejar solo el bin puntual elegido (A-01, 5 SKU) y avisar que los sin bin quedan fuera, obtuvo: '+elements['p-bin-resumen'].textContent);
   // Volver a marcar "Seleccionar todos" debe recalcular el resumen de nuevo al total.
   // (El mock de <select> no simula options/selectedOptions reales: se simula acá el efecto real
   // del listener de "Seleccionar todos" -marcar cada option visible- para poder probarlo.)
@@ -1777,7 +1779,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     chkTodosEl.dispatch('change', {target: chkTodosEl});
     setTimeout(resolve, 20);
   });
-  assert(elements['p-bin-resumen'].textContent === '(2 bin / 8 SKU)', 'al re-marcar "Seleccionar todos", el resumen debe volver a mostrar el total, obtuvo: '+elements['p-bin-resumen'].textContent);
+  assert(elements['p-bin-resumen'].textContent === '(2 bin / 8 SKU · 72 sin storage bin)', 'al re-marcar "Seleccionar todos", el resumen debe volver a mostrar el total (y los sin bin vuelven a entrar), obtuvo: '+elements['p-bin-resumen'].textContent);
 
   // Volver a "Todas" en Ubicación específica (value vacío) NO debe vaciar/deshabilitar el
   // storage bin — debe seguir mostrando los bin de toda la bodega (con las cantidades sumadas
@@ -1789,7 +1791,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   });
   assert(binEl.disabled === false, 'p-bin debe seguir habilitado al elegir "Todas" en ubicación específica, obtuvo disabled='+binEl.disabled);
   assert(binEl.innerHTML.includes('A-01 — 7 SKU') && binEl.innerHTML.includes('A-02 — 3 SKU'), 'con "Todas" elegido, p-bin debe listar los bin de toda la bodega con las cantidades sumadas (A-01 aparece en dos ubicaciones: 5+2=7), obtuvo: '+binEl.innerHTML);
-  assert(elements['p-bin-resumen'].textContent === '(2 bin / 10 SKU)', 'el resumen debe recalcularse con "Todas" (7+3=10), obtuvo: '+elements['p-bin-resumen'].textContent);
+  assert(elements['p-bin-resumen'].textContent === '(2 bin / 10 SKU · 18224 sin storage bin)', 'el resumen debe recalcularse con "Todas" (7+3=10; la bodega tiene 18.234 pendientes), obtuvo: '+elements['p-bin-resumen'].textContent);
   assert(chkTodosEl.checked === true, 'al recargar los storage bin de "Todas", "Seleccionar todos" debe volver a quedar marcado, obtuvo: '+chkTodosEl.checked);
   ubicEl.value = 'Interior Nave';
   await new Promise(resolve => {
