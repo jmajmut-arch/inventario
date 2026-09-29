@@ -141,6 +141,7 @@ let etagPublicado = '"v1"';   // ETag que devuelve el servidor para el propio HT
 let headVersionFalla = false;  // simula sin señal en el HEAD de versión
 let catalogosSkusFalla = null; // mensaje de error de catalogos_pantalla_skus; null = responde bien
 let empresasPatchFalla = null; // mensaje de error del PATCH a /empresas; null = responde bien
+let planVentanaPantallaFalla = null; // mensaje de error de plan_ventana_pantalla; null = responde bien
 const fakeFetchImpl = async (url, opts) => {
   calls.push({url, opts});
   if(opts && opts.method==='HEAD'){
@@ -216,6 +217,29 @@ const fakeFetchImpl = async (url, opts) => {
   }
   if(path.startsWith('/functions/v1/flow-sincronizar-suscripcion')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(flowSyncRespuesta), json: async()=>flowSyncRespuesta };
+  }
+  // plan_ventana_pantalla (ver planVentanaPantalla): entradas + totales/detalle en UN viaje. El
+  // servidor hace por dentro exactamente las dos consultas que antes hacía la app; este simulacro
+  // también: pide las mismas URL de siempre por ctx.fetch (así las pruebas que reemplazan
+  // plan_semanal_detalle o los RPC de universo siguen mandando), marcadas {__interno:true} para
+  // distinguirlas de los viajes reales de la app. planVentanaPantallaFalla fuerza un error.
+  if(path.startsWith('/rest/v1/rpc/plan_ventana_pantalla')){
+    if(planVentanaPantallaFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: planVentanaPantallaFalla}) };
+    const b = opts && opts.body ? JSON.parse(opts.body) : {};
+    const base = `${u.origin}/rest/v1`;
+    const filtro = b.p_ciclo_id ? `ciclo_id=eq.${b.p_ciclo_id}`
+      : b.p_desde===b.p_hasta ? `fecha=eq.${b.p_desde}`
+      : `fecha=gte.${b.p_desde}&fecha=lte.${b.p_hasta}`;
+    const rEntradas = await ctx.fetch(`${base}/plan_semanal_detalle?${filtro}&order=fecha.asc`, {__interno:true});
+    const tEntradas = await rEntradas.text();
+    if(!rEntradas.ok) return { status:rEntradas.status||500, ok:false, headers:{get:()=>null}, text: async()=>tEntradas };
+    const entradas = JSON.parse(tEntradas||'[]');
+    const ids = entradas.map(e=>e.id);
+    const rParte = await ctx.fetch(`${base}/rpc/${b.p_resumido ? 'resumen_entradas_plan' : 'universo_entradas_plan_resumen'}`, {method:'POST', body: JSON.stringify({p_plan_ids: ids}), __interno:true});
+    const tParte = await rParte.text();
+    if(!rParte.ok) return { status:rParte.status||500, ok:false, headers:{get:()=>null}, text: async()=>tParte };
+    const cuerpo = {entradas, [b.p_resumido ? 'resumen' : 'universo']: JSON.parse(tParte||(b.p_resumido?'[]':'{}'))};
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cuerpo) };
   }
   if(path.startsWith('/rest/v1/plan_semanal_detalle')){
     // "Mi plan del día" (Contar): cuatro entradas para resp-yo el 2026-08-24 — dos ubicaciones
@@ -1660,7 +1684,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlOut = ctx.renderPlanificacion();
   assert(htmlOut.includes('<select id="p-bodega">'), 'p-bodega debe ser un <select>');
   assert(htmlOut.includes('<select id="p-ubic" disabled>'), 'p-ubic debe iniciar como <select disabled>');
-  assert(htmlOut.includes('<select id="p-bin" multiple size="6" disabled>'), 'p-bin debe iniciar como <select multiple disabled>');
+  // Vacía (antes de elegir ubicación) la lista de bins es baja; crece a 6 filas al llenarse.
+  assert(htmlOut.includes('<select id="p-bin" multiple size="2" disabled>'), 'p-bin debe iniciar como <select multiple disabled> de 2 filas, obtuvo: '+(htmlOut.match(/<select id="p-bin"[^>]*>/)||[''])[0]);
   assert(htmlOut.includes('<option value="Nave Mina">Nave Mina (18234/23708)</option>'), 'debe listar Nave Mina como opción de bodega con lo pendiente y el total de SKU, obtuvo: '+htmlOut);
   assert(htmlOut.includes('<option value="__bodega_vacia__">Sin bodega asignada (6/8)</option>'), 'debe ofrecer el grupo "Sin bodega asignada" para los SKU con ubicación pero sin bodega, obtuvo: '+htmlOut);
   assert(!htmlOut.includes('datalist'), 'no debe quedar ningún <datalist> residual');
@@ -12102,6 +12127,150 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/plan_semanal_detalle?fecha=eq.2026-08-12')), 'al pasar de día debe pedirse solo ese día nuevo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   await new Promise(r=>setTimeout(r, 20));
 
+  // ===== Planificación en un solo viaje (plan_ventana_pantalla) =====
+  // Antes: entradas y, recién con esa respuesta, su detalle o sus totales (dos viajes seguidos).
+  // Ahora uno solo; si la función falla por algo que no es la red, se sigue por el camino de
+  // antes (que tiene su propio aviso y su "Reintentar"); sin señal, el error se muestra tal cual.
+  {
+    const viajesReales = ()=> calls.filter(c=>!(c.opts && c.opts.__interno));
+    const cuerpoRpc = ()=>{ const c = viajesReales().find(c=>c.url.includes('/rpc/plan_ventana_pantalla')); return c ? JSON.parse(c.opts.body) : null; };
+    // Semana: rango de 8 días y detalle de SKU, en un viaje.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, diaFiltro:null, cicloFiltro:'', rango:'semana', semanaInicio:'2026-08-10', universos:{}, detalle:{}, propios:{}};
+    calls.length = 0;
+    await ctx.cargarPlanSemanal();
+    assert(JSON.stringify(cuerpoRpc())===JSON.stringify({p_desde:'2026-08-10', p_hasta:'2026-08-17', p_resumido:false}), 'Semana: debe pedir plan_ventana_pantalla con el lunes a lunes y el detalle, obtuvo: '+JSON.stringify(cuerpoRpc()));
+    assert(viajesReales().length===1, 'Semana: entradas y detalle deben llegar en UN solo viaje, obtuvo: '+JSON.stringify(viajesReales().map(c=>c.url)));
+    assert(ctx.__appstate.plan.entradas.map(e=>e.id).join()==='e1,e2' && ctx.__appstate.plan.universos.e1===1 && Array.isArray(ctx.__appstate.plan.detalle.e1) && ctx.__appstate.plan.universoError===null, 'Semana: deben quedar las entradas con su universo y detalle, obtuvo: '+JSON.stringify({entradas:ctx.__appstate.plan.entradas.map(e=>e.id), universos:ctx.__appstate.plan.universos, err:ctx.__appstate.plan.universoError}));
+    // Período: por ciclo y resumido.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, cicloFiltro:'ciclo-1'};
+    calls.length = 0;
+    await ctx.cargarPlanSemanal();
+    assert(JSON.stringify(cuerpoRpc())===JSON.stringify({p_ciclo_id:'ciclo-1', p_resumido:true}), 'Período: debe pedir por ciclo y resumido, obtuvo: '+JSON.stringify(cuerpoRpc()));
+    assert(ctx.__appstate.plan.propios.e1===1 && ctx.__appstate.plan.detalle.e1===undefined, 'Período: deben quedar totales y propios, sin detalle, obtuvo: '+JSON.stringify({propios:ctx.__appstate.plan.propios, detalle:Object.keys(ctx.__appstate.plan.detalle)}));
+    // Día puntual: desde = hasta.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, cicloFiltro:'', diaFiltro:'2026-08-11'};
+    calls.length = 0;
+    await ctx.cargarPlanSemanal();
+    assert(JSON.stringify(cuerpoRpc())===JSON.stringify({p_desde:'2026-08-11', p_hasta:'2026-08-11', p_resumido:false}), 'Día: debe pedir solo ese día, obtuvo: '+JSON.stringify(cuerpoRpc()));
+    // Si la función falla (error del servidor), se sigue por el camino de antes: la pantalla
+    // queda igual que siempre, no vacía.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, diaFiltro:null, entradas:[], universos:{}, detalle:{}};
+    planVentanaPantallaFalla = 'function plan_ventana_pantalla does not exist';
+    calls.length = 0;
+    await ctx.cargarPlanSemanal();
+    planVentanaPantallaFalla = null;
+    const urlsRespaldo = viajesReales().map(c=>c.url);
+    assert(urlsRespaldo.some(u=>u.includes('/plan_semanal_detalle?fecha=gte.2026-08-10')) && urlsRespaldo.some(u=>u.includes('/rpc/universo_entradas_plan_resumen')), 'si plan_ventana_pantalla falla, debe seguir por entradas + detalle como antes, obtuvo: '+JSON.stringify(urlsRespaldo));
+    assert(ctx.__appstate.plan.entradas.length===2 && ctx.__appstate.plan.universos.e1===1, 'con el camino de respaldo la pantalla debe quedar completa, obtuvo: '+JSON.stringify({n:ctx.__appstate.plan.entradas.length, universos:ctx.__appstate.plan.universos}));
+    // Sin señal no se reintenta por el otro camino: se avisa del error.
+    const toastRootPlan = elements['toast-root'];
+    const hijosAntes = toastRootPlan ? toastRootPlan.hijos.length : 0;
+    const fetchAntesSinSenal = ctx.fetch;
+    ctx.fetch = async (url, opts)=>{ if(String(url).includes('/rpc/plan_ventana_pantalla')) throw new ctx.__TypeError('Failed to fetch'); return fetchAntesSinSenal(url, opts); };
+    calls.length = 0;
+    await ctx.cargarPlanSemanal();
+    ctx.fetch = fetchAntesSinSenal;
+    assert(!calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'sin señal no debe intentar el camino de respaldo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const hijosDespues = toastRootPlan ? toastRootPlan.hijos : [];
+    assert(hijosDespues.length > hijosAntes && /conexi|señal|internet/i.test(hijosDespues[hijosDespues.length-1].textContent), 'sin señal debe mostrarse el error, no una pantalla vacía, obtuvo: '+(hijosDespues.length ? hijosDespues[hijosDespues.length-1].textContent : '(sin aviso)'));
+
+    // Regresión: un error del servidor al contar "SKU sin ubicación" se leía como 0 (el
+    // Content-Range no viene en un 400/500) y la opción desaparecía de Planificación sin aviso.
+    const fetchAntesSinUbic = ctx.fetch;
+    ctx.fetch = async (url, opts)=>{
+      if(String(url).includes('/skus_disponibles_planificar?activo=eq.true&bodega=is.null')) return { status:500, ok:false, statusText:'Internal Server Error', headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
+      return fetchAntesSinUbic(url, opts);
+    };
+    let errorConteo = null;
+    try{ await ctx.contarUniversoUbicacion({soloSinUbicacion:true, excluirYaPlanificados:true}); }catch(e){ errorConteo = e; }
+    assert(errorConteo && /statement timeout/.test(errorConteo.message), 'contarUniversoUbicacion debe lanzar el error del servidor, no devolver 0, obtuvo: '+(errorConteo ? errorConteo.message : 'sin error'));
+    ctx.__appstate.plan = {...ctx.__appstate.plan, sinUbicacionCount: 7};
+    const hijosAntesSinUbic = toastRootPlan ? toastRootPlan.hijos.length : 0;
+    await ctx.cargarConteoSinUbicacion(true);
+    ctx.fetch = fetchAntesSinUbic;
+    const hijosSinUbic = toastRootPlan ? toastRootPlan.hijos : [];
+    assert(hijosSinUbic.length > hijosAntesSinUbic && /sin ubicación/.test(hijosSinUbic[hijosSinUbic.length-1].textContent) && /statement timeout/.test(hijosSinUbic[hijosSinUbic.length-1].textContent), 'el error al contar SKU sin ubicación debe avisarse con su mensaje, obtuvo: '+(hijosSinUbic.length ? hijosSinUbic[hijosSinUbic.length-1].textContent : '(sin aviso)'));
+    assert(ctx.__appstate.plan.sinUbicacionCount===7, 'un error no debe pisar el conteo con 0, obtuvo: '+ctx.__appstate.plan.sinUbicacionCount);
+  }
+
+  // ===== Planificación en el celular: resumen arriba, "Agregar" plegado, días plegables =====
+  {
+    const planAntes = ctx.__appstate.plan;
+    const hoyPlan = ctx.fechaISO(new Date());
+    const mesHoy = hoyPlan.slice(0,8)+'01';
+    const respPlan = [{id:'r1', nombre:'Pedro Soto'}, {id:'r2', nombre:'María Rojas'}];
+    // 60 entradas repartidas en 20 días del mes actual; una de cada tres sin responsable.
+    const muchas = Array.from({length:60}, (_,i)=>{
+      const dia = String(1 + (i%20)).padStart(2,'0');
+      const r = i%3===0 ? null : respPlan[i%2];
+      return {id:'m'+i, fecha: mesHoy.slice(0,8)+dia, bodega:'B50'+(i%4), ubicacion:'01'+String(i%20).padStart(2,'0'), storage_bin:null, responsable_id: r && r.id, responsable_nombre: r && r.nombre, ciclo_nombre:'Sep', nota:null};
+    });
+    // El día de hoy siempre con al menos una entrada, para probar que parte abierto.
+    muchas[0] = {...muchas[0], fecha: hoyPlan};
+    const universosM = {}, propiosM = {};
+    muchas.forEach((e,i)=>{ universosM[e.id] = 10+i; propiosM[e.id] = 10+i; });
+    const basePlan = {...planAntes, diaFiltro:null, cicloFiltro:'', rango:'mes', mesInicio: mesHoy, entradas: muchas, universos: universosM, propios: propiosM, detalle:{}, seleccionados:[], editando:null, responsables: respPlan, agregarAbierto: undefined, diasAbiertos: {}};
+    ctx.__appstate.plan = {...basePlan};
+    const html = ctx.renderPlanificacion();
+    // Resumen antes del formulario.
+    const iResumen = html.indexOf('Resumen del mes'), iAgregar = html.indexOf('id="plan-agregar-card"');
+    assert(iResumen>0 && iAgregar>0 && iResumen < iAgregar, 'el resumen debe ir antes del formulario "Agregar", obtuvo posiciones '+iResumen+' / '+iAgregar);
+    // Con entradas, "Agregar" parte cerrado detrás de un botón, pero el formulario sigue en la página.
+    assert(/id="btn-toggle-agregar-plan"[^>]*aria-expanded="false"[^>]*>\+ Agregar a la planificación</.test(html) && /id="plan-agregar-cuerpo" hidden/.test(html) && html.includes('<form id="form-plan">'), 'con entradas, "Agregar" debe partir cerrado (formulario oculto, no quitado), obtuvo: '+(html.match(/<div class="card" id="plan-agregar-card">[\s\S]{0,600}/)||[''])[0]);
+    // Días plegables: un bloque por día, solo hoy abierto.
+    const bloques = html.match(/class="plan-dia-toggle"/g) || [];
+    const diasDistintos = new Set(muchas.map(e=>e.fecha)).size;
+    assert(bloques.length===diasDistintos, 'con más de 40 entradas en una vista resumida debe haber un bloque por día ('+diasDistintos+'), obtuvo: '+bloques.length);
+    assert(new RegExp('data-plan-dia="'+hoyPlan+'" aria-expanded="true"').test(html) && (html.match(/aria-expanded="true"/g)||[]).length===1, 'solo el día de hoy debe partir abierto, obtuvo: '+(html.match(/data-plan-dia="[^"]+" aria-expanded="true"/g)||[]).join(' | '));
+    const itemsVisibles = (html.match(/class="plan-item"/g)||[]).length;
+    const deHoy = muchas.filter(e=>e.fecha===hoyPlan).length;
+    assert(itemsVisibles===deHoy, 'solo deben dibujarse las entradas de los días abiertos ('+deHoy+'), obtuvo: '+itemsVisibles);
+    assert(/\d+ entradas? · \d+ SKU · <span class="plan-dia-sin-resp">\d+ sin responsable<\/span>/.test(html), 'el encabezado del día debe traer entradas, SKU y los sin responsable, obtuvo: '+(html.match(/class="plan-dia-meta">[^<]*(<span[^>]*>[^<]*<\/span>)?/)||[''])[0]);
+    // Tocar un día cerrado lo abre.
+    const otroDia = muchas.find(e=>e.fecha!==hoyPlan).fecha;
+    ctx.__appstate.view = 'plan';
+    ctx.__appstate.session = ctx.__appstate.session || { access_token:'x', user:{email:'a@b.com'} };
+    const idToggle = 'btn-dia-plan-prueba';
+    const elDia = makeEl(idToggle);
+    elDia.dataset = {planDia: otroDia};
+    elDia.getAttribute = (a)=> a==='aria-expanded' ? 'false' : null;
+    const qsaAntes = ctx.document.querySelectorAll;
+    ctx.document.querySelectorAll = (sel)=> sel==='[data-plan-dia]' ? [elDia] : qsaAntes.call(ctx.document, sel);
+    ctx.bind();
+    ctx.document.querySelectorAll = qsaAntes;
+    elDia.dispatch('click');
+    assert(ctx.__appstate.plan.diasAbiertos[otroDia]===true, 'tocar un día cerrado debe abrirlo, obtuvo: '+JSON.stringify(ctx.__appstate.plan.diasAbiertos));
+    const htmlAbierto = ctx.renderPlanificacion();
+    assert(new RegExp('data-plan-dia="'+otroDia+'" aria-expanded="true"').test(htmlAbierto), 'el día tocado debe dibujarse abierto, obtuvo: '+(htmlAbierto.match(/data-plan-dia="[^"]+" aria-expanded="true"/g)||[]).join(' | '));
+    // "Agregar": abrir y cerrar.
+    delete elements['btn-toggle-agregar-plan'];
+    ctx.bind();
+    const btnAgregar = elements['btn-toggle-agregar-plan'];
+    btnAgregar.getAttribute = (a)=> a==='aria-expanded' ? 'false' : null;
+    btnAgregar.dispatch('click');
+    assert(ctx.__appstate.plan.agregarAbierto===true, 'el botón "+ Agregar" debe abrir el formulario, obtuvo: '+ctx.__appstate.plan.agregarAbierto);
+    const htmlForm = ctx.renderPlanificacion();
+    assert(/id="btn-toggle-agregar-plan"[^>]*aria-expanded="true"[^>]*>Cerrar</.test(htmlForm) && /id="plan-agregar-cuerpo" >/.test(htmlForm), 'abierto, debe verse el formulario con su botón Cerrar, obtuvo: '+(htmlForm.match(/<div class="card" id="plan-agregar-card">[\s\S]{0,500}/)||[''])[0]);
+    // "Asignar": selecciona las entradas sin responsable para la reasignación masiva.
+    assert(html.includes('id="btn-asignar-sin-responsable"'), 'el aviso de entradas sin responsable debe traer el botón Asignar');
+    delete elements['btn-asignar-sin-responsable'];
+    ctx.bind();
+    elements['btn-asignar-sin-responsable'].dispatch('click');
+    const sinResp = muchas.filter(e=>!e.responsable_id).map(e=>e.id);
+    assert(JSON.stringify(ctx.__appstate.plan.seleccionados)===JSON.stringify(sinResp), 'Asignar debe seleccionar exactamente las entradas sin responsable ('+sinResp.length+'), obtuvo: '+ctx.__appstate.plan.seleccionados.length);
+    assert(ctx.renderPlanificacion().includes('id="plan-reasignar-select"'), 'con la selección hecha debe aparecer "Reasignar a…"');
+    // Sin nada planificado, "Agregar" parte abierto; con pocas entradas, sin bloques plegables.
+    ctx.__appstate.plan = {...basePlan, entradas: [], agregarAbierto: undefined};
+    assert(/id="plan-agregar-cuerpo" >/.test(ctx.renderPlanificacion()), 'sin entradas, el formulario debe partir abierto');
+    ctx.__appstate.plan = {...basePlan, entradas: muchas.slice(0,10), agregarAbierto: undefined};
+    const htmlPocas = ctx.renderPlanificacion();
+    assert(!htmlPocas.includes('plan-dia-toggle') && (htmlPocas.match(/class="plan-item"/g)||[]).length===10, 'con pocas entradas la vista resumida sigue abierta como siempre, obtuvo: '+(htmlPocas.match(/class="plan-item"/g)||[]).length);
+    // En Semana (con detalle) nunca se pliega, aunque haya muchas entradas.
+    ctx.__appstate.plan = {...basePlan, rango:'semana', semanaInicio: ctx.fechaISO(ctx.inicioSemana(new Date())), agregarAbierto: undefined};
+    assert(!ctx.renderPlanificacion().includes('plan-dia-toggle'), 'en Semana no debe plegarse por día');
+    ctx.__appstate.plan = planAntes;
+  }
+
   // ===== Pestañas Día / Semana / Mes / Año (idea de Joel) =====
   // Mes y Año son ventanas más grandes que la semana y, como el Período, vistas RESUMIDAS: se
   // piden las entradas del rango y solo sus totales (resumen_entradas_plan), nunca los SKU, para
@@ -12117,7 +12286,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.plan.rango==='mes' && ctx.__appstate.plan.mesInicio==='2026-08-01', 'Mes debe caer sobre el mes de la ventana que se estaba mirando (agosto 2026), obtuvo: '+JSON.stringify({rango:ctx.__appstate.plan.rango, mesInicio:ctx.__appstate.plan.mesInicio}));
     const getMes = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
     assert(!!getMes && getMes.url.includes('fecha=gte.2026-08-01') && getMes.url.includes('fecha=lte.2026-08-31'), 'en modo Mes debe pedirse el mes completo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-    assert(getMes.opts && getMes.opts.headers && getMes.opts.headers.Range==='0-999', 'las ventanas grandes deben pedir las entradas paginadas con Range (PostgREST corta en 1.000), obtuvo: '+JSON.stringify(getMes.opts && getMes.opts.headers));
+    // Un solo viaje real: plan_ventana_pantalla con el rango del mes y p_resumido (las otras URL
+    // de arriba son las que el servidor resuelve por dentro, ver el simulacro {__interno:true}).
+    // Devuelve un solo jsonb, así que ya no hay tope de 1.000 filas que paginar con Range.
+    const viajesMes = calls.filter(c=>!(c.opts && c.opts.__interno));
+    const rpcMes = viajesMes.find(c=>c.url.includes('/rpc/plan_ventana_pantalla'));
+    assert(!!rpcMes && JSON.stringify(JSON.parse(rpcMes.opts.body))===JSON.stringify({p_desde:'2026-08-01', p_hasta:'2026-08-31', p_resumido:true}), 'en modo Mes debe pedirse plan_ventana_pantalla con el mes completo y resumido, obtuvo: '+JSON.stringify(viajesMes.map(c=>[c.url, c.opts && c.opts.body])));
+    assert(viajesMes.filter(c=>c.url.includes('/plan_semanal_detalle') || c.url.includes('/rpc/resumen_entradas_plan') || c.url.includes('/rpc/plan_ventana_pantalla')).length===1, 'entradas y totales deben llegar en UN solo viaje, obtuvo: '+JSON.stringify(viajesMes.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/rpc/resumen_entradas_plan')) && !calls.some(c=>c.url.includes('/rpc/universo_entradas_plan_resumen')), 'en modo Mes debe pedirse solo el resumen por entrada, nunca el detalle de SKU, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(ctx.__appstate.plan.universos.e1===1 && ctx.__appstate.plan.propios.e1===1 && ctx.__appstate.plan.detalle.e1===undefined, 'en modo Mes deben quedar universos/propios por entrada y ningún detalle, obtuvo: '+JSON.stringify({universos:ctx.__appstate.plan.universos, propios:ctx.__appstate.plan.propios, detalle:Object.keys(ctx.__appstate.plan.detalle)}));
     const htmlMes = ctx.renderPlanificacion();
