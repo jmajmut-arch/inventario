@@ -518,7 +518,7 @@ textarea{resize:vertical;min-height:60px;}
 .plan-dia-textos{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
 .plan-dia-titulo{font-size:14px;font-weight:600;text-transform:capitalize;}
 .plan-dia-meta{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
-.plan-dia-meta .plan-dia-sin-resp{color:var(--warn);font-weight:600;}
+.plan-dia-meta .plan-dia-sin-resp,.plan-sin-resp{color:var(--warn);font-weight:600;}
 .plan-dia-cuerpo{padding:0 14px 6px;border-top:1px solid var(--line);}
 @media (prefers-reduced-motion:reduce){ .plan-dia-chevron{transition:none;} }
 /* Agregar a la planificación: el formulario queda detrás de un botón para que en el celular lo
@@ -2680,6 +2680,10 @@ const PLAN_ENTRADAS_SIN_PLEGAR = 40;
 // caja grande en blanco) y de 6 filas cuando ya tiene bins o SKU para elegir.
 const PLAN_BIN_FILAS_VACIA = 2;
 const PLAN_BIN_FILAS_LLENA = 6;
+// ¿La vista actual muestra los días plegados? y ¿este día está abierto? Los usa el render y
+// también la confirmación de "Eliminar" (para avisar cuántas entradas elegidas no se están viendo).
+function planDiasPlegables(p, visibles){ return esResumenPlan(p) && visibles.length > PLAN_ENTRADAS_SIN_PLEGAR; }
+function planDiaAbierto(p, iso){ const v = (p.diasAbiertos||{})[iso]; return typeof v==='boolean' ? v : iso===fechaISO(new Date()); }
 function modoPlan(p){
   if(p.diaFiltro) return 'dia';
   if(p.cicloFiltro) return 'periodo';
@@ -4786,7 +4790,16 @@ async function borrarPlanEntradas(ids){
 async function confirmarYBorrarSeleccionPlan(){
   const ids = state.plan.seleccionados;
   if(!ids.length) return;
-  if(confirm(`¿Eliminar ${ids.length} entrada${ids.length>1?'s':''} del plan? Se pierde la ubicación, el responsable y la nota de cada una.`)){
+  // Con los días plegados, "Seleccionar todo" también marca entradas de días cerrados: el aviso
+  // dice de cuántos días son y cuántas no se están viendo, para no borrar a ciegas.
+  const p = state.plan;
+  const visibles = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
+  const elegidas = p.entradas.filter(e=>ids.includes(e.id));
+  const dias = new Set(elegidas.map(e=>e.fecha)).size;
+  const ocultas = planDiasPlegables(p, visibles) ? elegidas.filter(e=>!planDiaAbierto(p, e.fecha)).length : 0;
+  const deDias = dias>1 ? `, de ${dias} días` : '';
+  const aviso = ocultas ? ` ${ocultas===ids.length? (ocultas===1? 'Está en un día cerrado' : 'Todas están en días cerrados') : `${ocultas} de ellas están en días cerrados`} que no estás viendo.` : '';
+  if(confirm(`¿Eliminar ${ids.length} entrada${ids.length>1?'s':''} del plan${deDias}?${aviso} Se pierde la ubicación, el responsable y la nota de cada una.`)){
     await borrarPlanEntradas(ids);
   }
 }
@@ -12417,9 +12430,9 @@ function renderPlanificacion(){
   const agregarAbierto = typeof p.agregarAbierto==='boolean' ? p.agregarAbierto : !entradasVisibles.length;
   // Días plegables en las vistas resumidas con muchas entradas (ver .plan-dia): con pocas se ven
   // abiertas como siempre. Parte abierto solo el día de hoy; cada día se abre o cierra al tocarlo.
-  const diasPlegables = resumido && entradasVisibles.length > PLAN_ENTRADAS_SIN_PLEGAR;
+  const diasPlegables = planDiasPlegables(p, entradasVisibles);
   const cantidadPorDia = new Map(datosPorDia.map(d=>[d.dia, d.cantidad]));
-  const diaAbierto = iso => { const v = (p.diasAbiertos||{})[iso]; return typeof v==='boolean' ? v : iso===hoyISO; };
+  const diaAbierto = iso => planDiaAbierto(p, iso);
 
   // Una entrada del plan (o su formulario de edición). La usan la lista por día de siempre y los
   // bloques plegables de las vistas resumidas con muchas entradas.
@@ -12446,8 +12459,8 @@ function renderPlanificacion(){
             <input type="checkbox" class="plan-select-check" data-select-plan="${e.id}" ${p.seleccionados.includes(e.id)?'checked':''} aria-label="Seleccionar esta entrada para borrado masivo" style="margin-top:3px;flex:none">
             <div class="plan-item-info">
               <div class="plan-item-ubic">${esc(etiquetaUbicacionEntradaPlan(e))}</div>
-              <div class="plan-item-responsable">Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}</div>
-              <div class="plan-item-responsable">Período: ${esc(e.ciclo_nombre || 'Sin período asignado')}</div>
+              <div class="plan-item-responsable">Responsable: ${e.responsable_id? esc(e.responsable_nombre || '') : '<span class="plan-sin-resp">Sin asignar</span>'}</div>
+              ${modo==='periodo' && e.ciclo_id===p.cicloFiltro? '' : `<div class="plan-item-responsable">Período: ${esc(e.ciclo_nombre || 'Sin período asignado')}</div>`}
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
               <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU ${e.por_sku? 'elegidos por código' : 'en esta ubicación'}${resumido && propios[e.id]!==undefined && propios[e.id]<p.universos[e.id]? ` · ${p.universos[e.id]-propios[e.id]} ya en otra entrada anterior` : ''}` : 'Calculando…'}</div>
               ${resumido? '' : `<div class="plan-item-detalle">
@@ -12550,7 +12563,11 @@ function renderPlanificacion(){
 
       <div class="card">
         <div class="hint" style="margin-bottom:8px">SKU a contar por ${modo==='anio'?'mes':'día'} (${totalSemana} en total)</div>
-        ${renderBarChart(datosGrafico, 'cantidad', 'var(--amber)', modo==='anio'? fmtMesCorto : (modo==='semana'||modo==='dia')? abrevDiaSemana : fmtDiaCorto, true)}
+        ${modo==='anio' || modo==='semana' || modo==='dia'
+          ? renderBarChart(datosGrafico, 'cantidad', 'var(--amber)', modo==='anio'? fmtMesCorto : abrevDiaSemana, true)
+          // Mes y Período: "06-sept" no cabe bajo una barra y las fechas se montaban unas con
+          // otras ("01-sept02-sept…"); van en dos líneas, el día arriba y el mes abajo.
+          : renderBarChart(datosGrafico, 'cantidad', 'var(--amber)', iso=> fmtDiaCorto(iso).replace('-',' '), true, true)}
       </div>
       <div class="card">
         <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
