@@ -12603,7 +12603,7 @@ function renderPlanificacion(){
           ` : `<div class="hint" style="margin:10px 0 0">Aún no has elegido ningún SKU.</div>`}
         </div>
         <div id="p-campos-ubicacion" ${p.modoAgregar==='sku'? 'style="display:none"' : ''}>
-        <label for="p-bodega">Ubicación general</label>
+        <label for="p-bodega">Ubicación general <span style="font-weight:400;color:var(--text-faint)">(por planificar / total SKU)</span></label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
           ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
@@ -12612,8 +12612,9 @@ function renderPlanificacion(){
             : `<option value="${esc(o.bodega)}">${esc(o.bodega)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
           ).join('')}
         </select>
+        <div class="hint" style="margin:4px 0 0">En "36/44", 36 son los SKU que faltan por contar en el período y aún no están en otra entrada del plan; 44 es el total de SKU del lugar.</div>
         <div class="row2 row2-plan-sitio">
-          <div><label for="p-ubic">Ubicación específica</label>
+          <div><label for="p-ubic">Ubicación específica <span style="font-weight:400;color:var(--text-faint)">(por planificar / total SKU)</span></label>
             <select id="p-ubic" disabled>
               <option value="">Elige ubicación general primero</option>
             </select>

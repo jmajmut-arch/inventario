@@ -1683,6 +1683,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Verificar que renderPlanificacion genera los <select> encadenados, el de Responsable y la lista de responsables.
   const htmlOut = ctx.renderPlanificacion();
   assert(htmlOut.includes('<select id="p-bodega">'), 'p-bodega debe ser un <select>');
+  // Joel: "36/44" no se entendía. Las dos etiquetas dicen qué es cada número y hay una ayuda.
+  assert(/for="p-bodega">Ubicación general <span[^>]*>\(por planificar \/ total SKU\)<\/span>/.test(htmlOut) && /for="p-ubic">Ubicación específica <span[^>]*>\(por planificar \/ total SKU\)<\/span>/.test(htmlOut) && htmlOut.includes('SKU que faltan por contar en el período y aún no están en otra entrada del plan'), 'las etiquetas de Ubicación deben explicar el "pendientes/total", obtuvo: '+(htmlOut.match(/<label for="p-(bodega|ubic)">[^\n]*/g)||[]).join(' | '));
   assert(htmlOut.includes('<select id="p-ubic" disabled>'), 'p-ubic debe iniciar como <select disabled>');
   // Vacía (antes de elegir ubicación) la lista de bins es baja; crece a 6 filas al llenarse.
   assert(htmlOut.includes('<select id="p-bin" multiple size="2" disabled>'), 'p-bin debe iniciar como <select multiple disabled> de 2 filas, obtuvo: '+(htmlOut.match(/<select id="p-bin"[^>]*>/)||[''])[0]);
