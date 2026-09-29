@@ -245,7 +245,7 @@
   <p class="intro">Una entrada del plan es una fila de <code>plan_semanal</code>: fecha, bodega, ubicación, un storage bin (una fila por bin), responsable, nota, período y banderas para "SKU sin ubicación" y "sin ubicación específica". Su universo de SKU se resuelve siempre en el servidor, donde <code>empresas.plan_incluye_stock_cero</code> puede dejar fuera los materiales en cero.</p>
   <div class="two">
     <ul class="checks">
-      <li>Cinco ventanas: Día, Semana, Mes, Año y Período (selector). Día y Semana traen el detalle de SKU por entrada; Mes, Año y Período son vistas resumidas</li>
+      <li>Cinco ventanas: Día, Semana, Mes, Año y Período (selector). Día y Semana traen el detalle de SKU por entrada; Mes, Año y Período, solo totales. Todo en una llamada: <code>plan_ventana_pantalla</code></li>
       <li>Un mismo SKU cubierto por dos entradas se cuenta una sola vez en los totales de la ventana (regla "gana la entrada más temprana por fecha y creación", igual en cliente y servidor)</li>
       <li>Aviso de solapamiento antes de agregar: cuántos SKU de la entrada nueva ya están planificados en el período (<code>skus_planificables</code> vs <code>skus_disponibles_planificar</code>)</li>
       <li>Exclusiones puntuales por entrada (<code>plan_semanal_exclusiones</code>) resueltas en el servidor: nunca viajan por la URL</li>

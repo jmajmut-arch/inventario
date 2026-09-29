@@ -368,6 +368,9 @@ textarea{resize:vertical;min-height:60px;}
    vez de pelear por el ancho exacto, apila los dos campos en pantallas de celular. */
 @media (max-width:480px){
   .row2-fechas{grid-template-columns:1fr;}
+  /* Planificación: Ubicación específica y Storage bin lado a lado se cortaban a 420 px
+     ("Elige ubicación ge…") y la lista de bins quedaba de media pantalla de ancho. */
+  .row2-plan-sitio{grid-template-columns:1fr;}
 }
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:8px;padding:12px 16px;font-size:14px;font-weight:600;width:100%;}
@@ -411,6 +414,16 @@ textarea{resize:vertical;min-height:60px;}
    puede partirse en dos líneas cuando el tab se achica de verdad. */
 .tab{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 2px 8px;background:none;border:none;color:var(--text-faint);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;text-align:center;overflow-wrap:anywhere;}
 .tab.active{color:var(--amber);}
+/* En el celular, con 7 pestañas cada una mide ~56 px y "DASHBOARD"/"RECONTEO" en mayúsculas
+   (68/60 px) se partían a la mitad ("DASHBOA / RD"). En minúsculas y un punto más chico entran
+   enteras: medido con Inter 600, "Dashboard" ocupa 52,8 px a 10 px (entra desde 390 px de ancho),
+   50,1 a 9,5 px (desde 375) y 47,5 a 9 px (desde 360). overflow-wrap:anywhere sigue como último
+   recurso para que ninguna pestaña quede fuera de pantalla. */
+@media (max-width:440px){
+  .tab{text-transform:none;letter-spacing:0;font-size:10px;padding-left:1px;padding-right:1px;}
+}
+@media (max-width:385px){ .tab{font-size:9.5px;} }
+@media (max-width:365px){ .tab{font-size:9px;} }
 .tab-icon-wrap{position:relative;display:flex;}
 .tab-icon-wrap>svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;}
 .tab-bloqueada{opacity:0.55;}
@@ -494,6 +507,24 @@ textarea{resize:vertical;min-height:60px;}
 .plan-item-responsable{font-size:12px;color:var(--text-dim);margin-top:2px;}
 .plan-item-nota{font-size:12px;color:var(--text-dim);margin-top:2px;}
 .plan-item-universo{font-size:11px;color:var(--text-faint);margin-top:3px;}
+/* Planificación con muchas entradas (Mes, Año, Período): cada día es un bloque que se abre al
+   tocarlo. Con el período real de Escondida (384 entradas) la lista completa medía 42.000 px y
+   cada toque repintaba 8.000 elementos (131 ms en computador, varias veces más en el iPad). */
+.plan-dia{padding:0;overflow:hidden;}
+.plan-dia-toggle{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:none;border:0;color:var(--text);font:inherit;text-align:left;cursor:pointer;}
+.plan-dia-toggle:focus-visible{outline:2px solid var(--amber);outline-offset:-2px;}
+.plan-dia-chevron{flex:none;width:16px;height:16px;stroke:var(--text-faint);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s;}
+.plan-dia-toggle[aria-expanded="true"] .plan-dia-chevron{transform:rotate(90deg);}
+.plan-dia-textos{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.plan-dia-titulo{font-size:14px;font-weight:600;text-transform:capitalize;}
+.plan-dia-meta{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.plan-dia-meta .plan-dia-sin-resp{color:var(--warn);font-weight:600;}
+.plan-dia-cuerpo{padding:0 14px 6px;border-top:1px solid var(--line);}
+@media (prefers-reduced-motion:reduce){ .plan-dia-chevron{transition:none;} }
+/* Agregar a la planificación: el formulario queda detrás de un botón para que en el celular lo
+   primero que se vea sea el plan, no el formulario. */
+.plan-agregar-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.plan-agregar-head h3{margin:0;font-size:15px;}
 .plan-item-detalle{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
 .plan-sku-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
 .plan-sku-lista li{font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;}
@@ -2418,6 +2449,14 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
       'Prefer': 'count=exact',
     }
   });
+  // Un error del servidor no es "0 SKU": antes se leía el Content-Range sin mirar el estado, y un
+  // 400/500 (sin ese encabezado) se volvía un cero indistinguible de una ubicación vacía -- la
+  // opción "SKU sin ubicación" desaparecía de Planificación sin ningún aviso.
+  if(!res.ok){
+    const text = await res.text().catch(()=> '');
+    let data = null; try{ data = text ? JSON.parse(text) : null; }catch(e){ data = null; }
+    throw new Error((data && data.message) || res.statusText || 'Error de base de datos');
+  }
   const range = res.headers.get('content-range');
   return range && range.includes('/') ? Number(range.split('/')[1]) : 0;
 }
@@ -2559,6 +2598,60 @@ async function resumenEntradasPlan(planIds){
   return data;
 }
 
+// Planificación en UN solo viaje (plan_ventana_pantalla): las entradas de la ventana y, en el
+// mismo JSON, sus totales (Mes/Año/Período, forma de resumen_entradas_plan) o su detalle de SKU
+// (Día/Semana, forma de universo_entradas_plan_resumen). Antes eran dos viajes seguidos: el
+// segundo no podía partir hasta que volviera el primero. Verificado con datos reales que cada
+// parte es idéntica a lo que devolvían las dos consultas. La ventana viaja igual que antes: por
+// período (ciclo_id) o por rango de fechas.
+async function planVentanaPantalla(ventana, resumido, semanaDesde, semanaHasta){
+  const rango = ventana.modo==='periodo' ? {p_ciclo_id: state.plan.cicloFiltro}
+    : ventana.modo==='semana' ? {p_desde: semanaDesde, p_hasta: semanaHasta}
+    : {p_desde: ventana.desde, p_hasta: ventana.hasta};
+  const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/rpc/plan_ventana_pantalla`, {
+    method: 'POST',
+    headers:{
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({...rango, p_resumido: !!resumido}),
+  }, TIMEOUT_UNIVERSO_PLAN_MS);
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if(!res.ok){ throw new Error((data && data.message) || res.statusText || 'Error de base de datos'); }
+  const parteOk = resumido ? Array.isArray(data && data.resumen) : !!(data && data.universo && typeof data.universo==='object' && !Array.isArray(data.universo));
+  if(!data || !Array.isArray(data.entradas) || !parteOk) throw new Error('respuesta inesperada del servidor');
+  return data;
+}
+
+// Universo, detalle y "propios" por entrada a partir de la respuesta de resumen_entradas_plan
+// (resumido: filas {plan_id, total, propios}) o de universo_entradas_plan_resumen (detalle:
+// { "<plan_id>": [{id, sku_code, descripcion}] }). Parte de lo que ya había en pantalla para no
+// perder lo de otras entradas; una entrada que no viene en la respuesta queda en 0 / [].
+function totalesEntradasPlan(rows, resumido, datos){
+  const universos = {...state.plan.universos};
+  const detalle = {...state.plan.detalle};
+  const propios = {...(state.plan.propios||{})};
+  if(resumido){
+    const porPlan = new Map((datos||[]).map(f=>[f.plan_id, f]));
+    rows.forEach(r=>{
+      const f = porPlan.get(r.id);
+      universos[r.id] = f ? Number(f.total)||0 : 0;
+      propios[r.id] = f ? Number(f.propios)||0 : 0;
+      delete detalle[r.id];
+    });
+  }else{
+    rows.forEach(r=>{
+      const skus = datos && Array.isArray(datos[r.id]) ? datos[r.id] : [];
+      universos[r.id] = skus.length;
+      detalle[r.id] = skus;
+      delete propios[r.id];
+    });
+  }
+  return {universos, detalle, propios};
+}
+
 // GET paginado con Range: PostgREST corta en 1.000 filas por respuesta. Para las ventanas grandes
 // (un año, un período entero) la lista de entradas puede pasar de ahí; se sigue pidiendo mientras
 // la página venga llena. Solo para listas de entradas (filas chicas), nunca para SKU.
@@ -2580,6 +2673,13 @@ async function restTodo(path){
    y sin ninguno de los dos se navega por calendario según `rango` (semana, mes o año). En las
    ventanas grandes (mes, año, período) la pantalla es RESUMIDA: totales por entrada sin listar
    SKU (ver esResumenPlan / resumenEntradasPlan). Día y Semana siguen con el detalle completo. */
+// Hasta esta cantidad de entradas, las vistas resumidas se listan abiertas como siempre; por
+// encima, cada día es un bloque plegable (ver .plan-dia y diasPlegables en renderPlanificacion).
+const PLAN_ENTRADAS_SIN_PLEGAR = 40;
+// Alto de la lista de Storage bin: baja mientras está vacía (antes de elegir ubicación era una
+// caja grande en blanco) y de 6 filas cuando ya tiene bins o SKU para elegir.
+const PLAN_BIN_FILAS_VACIA = 2;
+const PLAN_BIN_FILAS_LLENA = 6;
 function modoPlan(p){
   if(p.diaFiltro) return 'dia';
   if(p.cicloFiltro) return 'periodo';
@@ -2671,6 +2771,27 @@ async function cargarPlanSemanal(){
   const ventana = ventanaPlan(state.plan);
   const resumido = esResumenPlan(state.plan);
   try{
+    // Primero, todo en un solo viaje (plan_ventana_pantalla: entradas + totales o detalle). Si esa
+    // llamada falla por algo que no sea la red, se sigue por el camino de siempre (entradas y
+    // después totales, con su propio aviso de error y su "Reintentar"): así un problema de la
+    // función nueva nunca deja la pantalla peor que antes. Sin señal no tiene sentido reintentar
+    // por el otro camino: el error sube tal cual.
+    let conjunto = null;
+    try{
+      conjunto = await planVentanaPantalla(ventana, resumido, inicio, fin);
+    }catch(e){
+      if(e instanceof TypeError) throw e;
+      conjunto = null;
+    }
+    if(miSecuencia !== cargarPlanSemanalSecuencia) return; // ver comentario arriba: ya hay una llamada más nueva
+    if(conjunto){
+      planCargadoEn = Date.now();
+      planCargadoDia = fechaISO(new Date());
+      const rows = conjunto.entradas;
+      const {universos, detalle, propios} = totalesEntradasPlan(rows, resumido, resumido ? conjunto.resumen : conjunto.universo);
+      setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows, seleccionados:[], universos, detalle, propios, universoError:null}});
+      return;
+    }
     const rows = ventana.modo==='dia'
       ? await rest(`/plan_semanal_detalle?fecha=eq.${ventana.desde}&order=fecha.asc`)
       : ventana.modo==='periodo'
@@ -2697,31 +2818,11 @@ async function cargarPlanSemanal(){
     // solo al volver a cargar la pestaña).
     try{
       const ids = (rows||[]).map(r=>r.id);
-      const universos = {...state.plan.universos};
-      const detalle = {...state.plan.detalle};
-      const propios = {...(state.plan.propios||{})};
-      if(resumido){
-        // Vista resumida: solo totales por entrada (y cuántos ya estaban en una entrada anterior),
-        // sin bajar ningún SKU -- ver resumenEntradasPlan.
-        const filas = await resumenEntradasPlan(ids);
-        if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
-        const porPlan = new Map(filas.map(f=>[f.plan_id, f]));
-        (rows||[]).forEach(r=>{
-          const f = porPlan.get(r.id);
-          universos[r.id] = f ? Number(f.total)||0 : 0;
-          propios[r.id] = f ? Number(f.propios)||0 : 0;
-          delete detalle[r.id];
-        });
-      }else{
-        const resumen = await universoEntradasPlanResumen(ids);
-        if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
-        (rows||[]).forEach(r=>{
-          const skus = Array.isArray(resumen[r.id]) ? resumen[r.id] : [];
-          universos[r.id] = skus.length;
-          detalle[r.id] = skus;
-          delete propios[r.id];
-        });
-      }
+      // Vista resumida: solo totales por entrada (y cuántos ya estaban en una entrada anterior),
+      // sin bajar ningún SKU -- ver resumenEntradasPlan. Día y Semana: el detalle de SKU.
+      const datos = resumido ? await resumenEntradasPlan(ids) : await universoEntradasPlanResumen(ids);
+      if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
+      const {universos, detalle, propios} = totalesEntradasPlan(rows||[], resumido, datos);
       setState({plan: {...state.plan, universos, detalle, propios, universoError:null}});
     }catch(e){
       if(miSecuencia !== cargarPlanSemanalSecuencia) return;
@@ -4876,7 +4977,11 @@ async function cargarConteoSinUbicacion(forzar){
     const total = cache !== null ? cache : await contarUniversoUbicacion({soloSinUbicacion:true, excluirYaPlanificados:true});
     if(cache === null) guardarCacheAgregado('sinUbicacion', total);
     setState({plan: {...state.plan, sinUbicacionCount: total}});
-  }catch(e){ /* no bloquea la planificación normal si esto falla */ }
+  }catch(e){
+    // No bloquea la planificación normal, pero se avisa: si no, la opción "SKU sin ubicación"
+    // simplemente no aparece y nadie sabe que hubo un error.
+    toast(`No se pudo contar los SKU sin ubicación: ${e.message}`, 'warn');
+  }
 }
 
 // Categorías y unidades de medida ya usadas por la empresa, para sugerirlas (datalist) al
@@ -12306,157 +12411,19 @@ function renderPlanificacion(){
   const finVentanaISO = ventana.hasta || hoyMasSieteISO;
   const maxFechaPlan = finVentanaISO > hoyMasSieteISO ? finVentanaISO : hoyMasSieteISO;
   const minFechaPlan = (modo==='dia' || modo==='periodo') ? null : ventana.desde;
+  // "Agregar a la planificación" parte cerrado detrás de un botón cuando ya hay algo planificado
+  // (lo primero en el celular es el plan); sin nada planificado parte abierto. Si la persona lo
+  // abre o lo cierra, se respeta su elección (agregarAbierto) durante la sesión.
+  const agregarAbierto = typeof p.agregarAbierto==='boolean' ? p.agregarAbierto : !entradasVisibles.length;
+  // Días plegables en las vistas resumidas con muchas entradas (ver .plan-dia): con pocas se ven
+  // abiertas como siempre. Parte abierto solo el día de hoy; cada día se abre o cierra al tocarlo.
+  const diasPlegables = resumido && entradasVisibles.length > PLAN_ENTRADAS_SIN_PLEGAR;
+  const cantidadPorDia = new Map(datosPorDia.map(d=>[d.dia, d.cantidad]));
+  const diaAbierto = iso => { const v = (p.diasAbiertos||{})[iso]; return typeof v==='boolean' ? v : iso===hoyISO; };
 
-  return `
-    <div class="section-head">
-      <div><span class="eyebrow">Planificación</span><h2>Plan de conteo</h2></div>
-      <button class="btn btn-secondary" id="btn-exportar-plan" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${entradasVisibles.length?'':'disabled'}>${ICONS.download} Exportar PDF</button>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <div class="segmented" style="margin:0;flex:1;min-width:230px">
-        ${[['dia','Día'],['semana','Semana'],['mes','Mes'],['anio','Año']].map(([m,t])=>`<button type="button" class="segmented-btn${modo===m?' active':''}" id="plan-modo-${m}" data-plan-modo="${m}">${t}</button>`).join('')}
-      </div>
-      ${state.ciclos.length? `
-      <select id="plan-filtro-ciclo" aria-label="Período" style="width:auto;margin:0;flex:none${modo==='periodo'?';border-color:var(--amber);font-weight:600':''}">
-        <option value="" ${!p.cicloFiltro?'selected':''}>Período…</option>
-        ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${p.cicloFiltro===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
-      </select>
-      ` : ''}
-    </div>
-    ${modo==='dia'? `
-    <div class="hint" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span>Viendo solo <strong>${fmtFecha(p.diaFiltro)}</strong>.</span>
-      <button type="button" class="link-btn" id="btn-quitar-dia-filtro-plan">Ver toda la semana</button>
-    </div>
-    ` : ''}
-    ${modo==='periodo'? `
-    <div class="hint" style="margin-bottom:14px">Mostrando toda la planificación de <strong>${esc(ventana.etiqueta)}</strong>, de todas las semanas.</div>
-    ` : `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
-      <button class="btn btn-secondary" id="plan-${modo}-prev" aria-label="Anterior" style="width:auto;padding:8px 12px;flex:none">‹</button>
-      <span class="hint" style="margin:0;text-align:center">${esc(ventana.etiqueta)}</span>
-      <button class="btn btn-secondary" id="plan-${modo}-next" aria-label="Siguiente" style="width:auto;padding:8px 12px;flex:none">›</button>
-    </div>
-    `}
-    ${resumido? `
-    <div class="hint" style="margin-bottom:14px">Vista resumida: totales por entrada, sin listar los SKU. Para verlos o quitar alguno, usa Día o Semana. El PDF trae el listado completo.</div>
-    ` : ''}
-
-    ${entradasSinResponsable>0? `
-    <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span class="badge badge-warn">${entradasSinResponsable}</span>
-        <span>${entradasSinResponsable===1?'entrada planificada no tiene':'entradas planificadas no tienen'} responsable asignado${sufijoVentana}.</span>
-      </div>
-    </div>
-    ` : ''}
-
-    <div class="card">
-      <h3 style="margin:0 0 10px;font-size:15px">Agregar a la planificación</h3>
-      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" role="tablist" aria-label="Forma de agregar">
-        <button type="button" class="btn ${p.modoAgregar==='sku'?'btn-secondary':'btn-primary'}" id="p-modo-ubicacion" style="width:auto;padding:6px 12px;font-size:12.5px" aria-pressed="${p.modoAgregar!=='sku'}">Por ubicación</button>
-        <button type="button" class="btn ${p.modoAgregar==='sku'?'btn-primary':'btn-secondary'}" id="p-modo-sku" style="width:auto;padding:6px 12px;font-size:12.5px" aria-pressed="${p.modoAgregar==='sku'}">Por código de SKU</button>
-      </div>
-      <form id="form-plan">
-        <label for="p-fecha">Fecha</label>
-        <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${minFechaPlan? `min="${minFechaPlan}"` : ''} max="${maxFechaPlan}" required>
-        <div id="p-campos-sku" ${p.modoAgregar==='sku'? '' : 'style="display:none"'}>
-          <label for="p-sku-buscar">Buscar SKU por código o descripción</label>
-          <input type="text" id="p-sku-buscar" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" autocomplete="off" value="${esc(planSkuBusqueda.texto)}">
-          <div class="hint" style="margin:4px 0 0">Solo aparecen materiales pendientes de contar en este período. Enter elige el primero.</div>
-          <div id="p-sku-resultados" style="margin-top:10px">${p.modoAgregar==='sku'? htmlResultadosSkuPlan() : ''}</div>
-          ${(p.skusElegidos||[]).length? `
-            <div class="hint" style="margin:10px 0 0">${p.skusElegidos.length} SKU elegido${p.skusElegidos.length===1?'':'s'} · se crear${agruparSkusElegidosPorZona(p.skusElegidos).length===1?'á 1 entrada':'án '+agruparSkusElegidosPorZona(p.skusElegidos).length+' entradas'} (una por bodega + ubicación)</div>
-            <div class="plan-sku-chips">${p.skusElegidos.map(s=>`<span class="plan-sku-chip" title="${esc(zonaDeSku(s))}"><span class="mono">${esc(s.sku_code)}</span><button type="button" data-quitar-sku-plan="${esc(s.id)}" aria-label="Quitar ${esc(s.sku_code)}">×</button></span>`).join('')}</div>
-          ` : `<div class="hint" style="margin:10px 0 0">Aún no has elegido ningún SKU.</div>`}
-        </div>
-        <div id="p-campos-ubicacion" ${p.modoAgregar==='sku'? 'style="display:none"' : ''}>
-        <label for="p-bodega">Ubicación general</label>
-        <select id="p-bodega">
-          <option value="">Selecciona (opcional)</option>
-          ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
-          ${p.generales.map(o=> o.bodega===null
-            ? `<option value="${BODEGA_VACIA}">Sin bodega asignada (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
-            : `<option value="${esc(o.bodega)}">${esc(o.bodega)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
-          ).join('')}
-        </select>
-        <div class="row2">
-          <div><label for="p-ubic">Ubicación específica</label>
-            <select id="p-ubic" disabled>
-              <option value="">Elige ubicación general primero</option>
-            </select>
-          </div>
-          <div><label for="p-bin">Storage bin <span id="p-bin-resumen" style="font-weight:400;color:var(--text-faint)"></span></label>
-            <select id="p-bin" multiple size="6" disabled>
-              <option value="">Elige ubicación específica primero</option>
-            </select>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text-dim)">
-              <input type="checkbox" id="p-bin-todos" disabled>
-              Seleccionar todos
-            </label>
-            <div class="hint" id="p-bin-hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
-          </div>
-        </div>
-        </div>
-        <label for="p-responsable">Responsable</label>
-        <select id="p-responsable">
-          <option value="">Sin asignar</option>
-          ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
-        </select>
-        ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Invita a alguien de tu equipo desde Configuraciones para poder asignarlo aquí.</div>` : ''}
-        <label for="p-nota">Nota</label>
-        <input type="text" id="p-nota" placeholder="Opcional">
-        <div style="margin-top:14px">
-          <button type="submit" class="btn btn-primary">Agregar</button>
-        </div>
-      </form>
-    </div>
-
-    ${entradasVisibles.length? `
-      <div class="section-head"><h2 style="font-size:15px">${tituloResumen}</h2></div>
-      ${p.universoError? `
-      <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span>No se pudo calcular el SKU a contar de este plan (${esc(p.universoError)}). Los totales de abajo están incompletos.</span>
-          <button type="button" class="btn btn-secondary" id="btn-reintentar-universo" style="width:auto;padding:6px 12px;font-size:12px">Reintentar</button>
-        </div>
-      </div>
-      ` : ''}
-      <div class="card">
-        <div class="hint" style="margin-bottom:8px">SKU a contar por ${modo==='anio'?'mes':'día'} (${totalSemana} en total)</div>
-        ${renderBarChart(datosGrafico, 'cantidad', 'var(--amber)', modo==='anio'? fmtMesCorto : (modo==='semana'||modo==='dia')? abrevDiaSemana : fmtDiaCorto, true)}
-      </div>
-      <div class="card">
-        <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
-        ${renderRankedBarList(responsablesResumen)}
-      </div>
-    ` : ''}
-
-    ${entradasVisibles.length? `
-      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${p.seleccionados.length?'border-color:var(--danger)':''}">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin:0">
-          <input type="checkbox" id="chk-seleccionar-todo-plan" ${p.seleccionados.length && p.seleccionados.length===entradasVisibles.length?'checked':''}>
-          ${p.seleccionados.length? `${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}` : 'Seleccionar todo'}
-        </label>
-        ${p.seleccionados.length? `
-          <div style="display:flex;gap:8px;flex-wrap:wrap;flex:none">
-            <select id="plan-reasignar-select" style="width:auto">
-              <option value="__elegir__" selected>Reasignar a…</option>
-              <option value="">Sin asignar</option>
-              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
-            </select>
-            <button class="btn btn-secondary" id="btn-reasignar-seleccion-plan" style="width:auto;padding:8px 12px">Reasignar</button>
-            <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
-            <button class="btn" id="btn-borrar-seleccion-plan" style="width:auto;padding:8px 12px;background:var(--danger);color:#fff">${ICONS.papelera.replace('style="width:15px;height:15px"','style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Eliminar</button>
-          </div>
-        ` : ''}
-      </div>
-    ` : ''}
-
-    ${grupos.filter(d=>d.entradas.length).map(d=>`
-      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${modo==='semana'? ' · '+d.corta : ''}</h2></div>
-      <div class="card">
-        ${d.entradas.map(e=> p.editando===e.id ? `
+  // Una entrada del plan (o su formulario de edición). La usan la lista por día de siempre y los
+  // bloques plegables de las vistas resumidas con muchas entradas.
+  const htmlEntradaPlan = e => p.editando===e.id ? `
           <div class="plan-item" style="flex-direction:column;align-items:stretch;gap:0">
             <div class="plan-item-ubic" style="margin-bottom:8px">${esc(etiquetaUbicacionEntradaPlan(e))}</div>
             <label for="pe-fecha-${e.id}">Fecha</label>
@@ -12505,7 +12472,187 @@ function renderPlanificacion(){
               <button class="icon-btn" data-borrar-plan="${e.id}" aria-label="Eliminar entrada completa" title="Eliminar toda esta entrada del plan (ubicación, responsable y nota)" style="color:var(--danger)">${ICONS.papelera}</button>
             </div>
           </div>
-        `).join('')}
+        `;
+  // Un día plegable (ver diasPlegables): encabezado con sus totales y, abierto, sus entradas.
+  const htmlDiaPlegable = d => {
+    const abierto = diaAbierto(d.iso);
+    const sinResp = d.entradas.filter(e=>!e.responsable_id).length;
+    const sku = cantidadPorDia.get(d.iso)||0;
+    return `
+      <div class="card plan-dia">
+        <button type="button" class="plan-dia-toggle" data-plan-dia="${esc(d.iso)}" aria-expanded="${abierto}">
+          <svg class="plan-dia-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          <span class="plan-dia-textos">
+            <span class="plan-dia-titulo">${esc(d.label)}</span>
+            <span class="plan-dia-meta">${d.entradas.length} entrada${d.entradas.length===1?'':'s'} · ${sku} SKU${sinResp? ` · <span class="plan-dia-sin-resp">${sinResp} sin responsable</span>` : ''}</span>
+          </span>
+        </button>
+        ${abierto? `<div class="plan-dia-cuerpo">${d.entradas.map(htmlEntradaPlan).join('')}</div>` : ''}
+      </div>
+    `;
+  };
+
+  return `
+    <div class="section-head">
+      <div><span class="eyebrow">Planificación</span><h2>Plan de conteo</h2></div>
+      <button class="btn btn-secondary" id="btn-exportar-plan" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${entradasVisibles.length?'':'disabled'}>${ICONS.download} Exportar PDF</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div class="segmented" style="margin:0;flex:1;min-width:230px">
+        ${[['dia','Día'],['semana','Semana'],['mes','Mes'],['anio','Año']].map(([m,t])=>`<button type="button" class="segmented-btn${modo===m?' active':''}" id="plan-modo-${m}" data-plan-modo="${m}">${t}</button>`).join('')}
+      </div>
+      ${state.ciclos.length? `
+      <select id="plan-filtro-ciclo" aria-label="Período" style="width:auto;margin:0;flex:none${modo==='periodo'?';border-color:var(--amber);font-weight:600':''}">
+        <option value="" ${!p.cicloFiltro?'selected':''}>Período…</option>
+        ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${p.cicloFiltro===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
+      </select>
+      ` : ''}
+    </div>
+    ${modo==='dia'? `
+    <div class="hint" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>Viendo solo <strong>${fmtFecha(p.diaFiltro)}</strong>.</span>
+      <button type="button" class="link-btn" id="btn-quitar-dia-filtro-plan">Ver toda la semana</button>
+    </div>
+    ` : ''}
+    ${modo==='periodo'? `
+    <div class="hint" style="margin-bottom:14px">Mostrando toda la planificación de <strong>${esc(ventana.etiqueta)}</strong>, de todas las semanas.</div>
+    ` : `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
+      <button class="btn btn-secondary" id="plan-${modo}-prev" aria-label="Anterior" style="width:auto;padding:8px 12px;flex:none">‹</button>
+      <span class="hint" style="margin:0;text-align:center">${esc(ventana.etiqueta)}</span>
+      <button class="btn btn-secondary" id="plan-${modo}-next" aria-label="Siguiente" style="width:auto;padding:8px 12px;flex:none">›</button>
+    </div>
+    `}
+    ${resumido? `
+    <div class="hint" style="margin-bottom:14px">Vista resumida: totales por entrada, sin listar los SKU. Para verlos o quitar alguno, usa Día o Semana. El PDF trae el listado completo.</div>
+    ` : ''}
+
+    ${entradasSinResponsable>0? `
+    <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="badge badge-warn">${entradasSinResponsable}</span>
+        <span style="flex:1;min-width:180px">${entradasSinResponsable===1?'entrada planificada no tiene':'entradas planificadas no tienen'} responsable asignado${sufijoVentana}.</span>
+        ${p.responsables.length? `<button type="button" class="btn btn-secondary" id="btn-asignar-sin-responsable" style="width:auto;padding:6px 12px;font-size:12.5px;flex:none">Asignar</button>` : ''}
+      </div>
+    </div>
+    ` : ''}
+
+    ${entradasVisibles.length? `
+      <div class="section-head"><h2 style="font-size:15px">${tituloResumen}</h2></div>
+      ${p.universoError? `
+      <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span>No se pudo calcular el SKU a contar de este plan (${esc(p.universoError)}). Los totales de abajo están incompletos.</span>
+          <button type="button" class="btn btn-secondary" id="btn-reintentar-universo" style="width:auto;padding:6px 12px;font-size:12px">Reintentar</button>
+        </div>
+      </div>
+      ` : ''}
+
+      <div class="card">
+        <div class="hint" style="margin-bottom:8px">SKU a contar por ${modo==='anio'?'mes':'día'} (${totalSemana} en total)</div>
+        ${renderBarChart(datosGrafico, 'cantidad', 'var(--amber)', modo==='anio'? fmtMesCorto : (modo==='semana'||modo==='dia')? abrevDiaSemana : fmtDiaCorto, true)}
+      </div>
+      <div class="card">
+        <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
+        ${renderRankedBarList(responsablesResumen)}
+      </div>
+    ` : ''}
+
+    <div class="card" id="plan-agregar-card">
+      ${agregarAbierto? `
+      <div class="plan-agregar-head" style="margin-bottom:10px">
+        <h3>Agregar a la planificación</h3>
+        <button type="button" class="link-btn" id="btn-toggle-agregar-plan" aria-expanded="true" aria-controls="plan-agregar-cuerpo">Cerrar</button>
+      </div>
+      ` : `
+      <button type="button" class="btn btn-primary" id="btn-toggle-agregar-plan" aria-expanded="false" aria-controls="plan-agregar-cuerpo">+ Agregar a la planificación</button>
+      `}
+      <div id="plan-agregar-cuerpo" ${agregarAbierto? '' : 'hidden'}>
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" role="tablist" aria-label="Forma de agregar">
+        <button type="button" class="btn ${p.modoAgregar==='sku'?'btn-secondary':'btn-primary'}" id="p-modo-ubicacion" style="width:auto;padding:6px 12px;font-size:12.5px" aria-pressed="${p.modoAgregar!=='sku'}">Por ubicación</button>
+        <button type="button" class="btn ${p.modoAgregar==='sku'?'btn-primary':'btn-secondary'}" id="p-modo-sku" style="width:auto;padding:6px 12px;font-size:12.5px" aria-pressed="${p.modoAgregar==='sku'}">Por código de SKU</button>
+      </div>
+      <form id="form-plan">
+        <label for="p-fecha">Fecha</label>
+        <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${minFechaPlan? `min="${minFechaPlan}"` : ''} max="${maxFechaPlan}" required>
+        <div id="p-campos-sku" ${p.modoAgregar==='sku'? '' : 'style="display:none"'}>
+          <label for="p-sku-buscar">Buscar SKU por código o descripción</label>
+          <input type="text" id="p-sku-buscar" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" autocomplete="off" value="${esc(planSkuBusqueda.texto)}">
+          <div class="hint" style="margin:4px 0 0">Solo aparecen materiales pendientes de contar en este período. Enter elige el primero.</div>
+          <div id="p-sku-resultados" style="margin-top:10px">${p.modoAgregar==='sku'? htmlResultadosSkuPlan() : ''}</div>
+          ${(p.skusElegidos||[]).length? `
+            <div class="hint" style="margin:10px 0 0">${p.skusElegidos.length} SKU elegido${p.skusElegidos.length===1?'':'s'} · se crear${agruparSkusElegidosPorZona(p.skusElegidos).length===1?'á 1 entrada':'án '+agruparSkusElegidosPorZona(p.skusElegidos).length+' entradas'} (una por bodega + ubicación)</div>
+            <div class="plan-sku-chips">${p.skusElegidos.map(s=>`<span class="plan-sku-chip" title="${esc(zonaDeSku(s))}"><span class="mono">${esc(s.sku_code)}</span><button type="button" data-quitar-sku-plan="${esc(s.id)}" aria-label="Quitar ${esc(s.sku_code)}">×</button></span>`).join('')}</div>
+          ` : `<div class="hint" style="margin:10px 0 0">Aún no has elegido ningún SKU.</div>`}
+        </div>
+        <div id="p-campos-ubicacion" ${p.modoAgregar==='sku'? 'style="display:none"' : ''}>
+        <label for="p-bodega">Ubicación general</label>
+        <select id="p-bodega">
+          <option value="">Selecciona (opcional)</option>
+          ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
+          ${p.generales.map(o=> o.bodega===null
+            ? `<option value="${BODEGA_VACIA}">Sin bodega asignada (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
+            : `<option value="${esc(o.bodega)}">${esc(o.bodega)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
+          ).join('')}
+        </select>
+        <div class="row2 row2-plan-sitio">
+          <div><label for="p-ubic">Ubicación específica</label>
+            <select id="p-ubic" disabled>
+              <option value="">Elige ubicación general primero</option>
+            </select>
+          </div>
+          <div><label for="p-bin">Storage bin <span id="p-bin-resumen" style="font-weight:400;color:var(--text-faint)"></span></label>
+            <select id="p-bin" multiple size="${PLAN_BIN_FILAS_VACIA}" disabled>
+              <option value="">Elige ubicación específica primero</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text-dim)">
+              <input type="checkbox" id="p-bin-todos" disabled>
+              Seleccionar todos
+            </label>
+            <div class="hint" id="p-bin-hint" style="margin:4px 0 0">Puedes elegir uno, varios o todos. Sin selección = todos.</div>
+          </div>
+        </div>
+        </div>
+        <label for="p-responsable">Responsable</label>
+        <select id="p-responsable">
+          <option value="">Sin asignar</option>
+          ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+        </select>
+        ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Invita a alguien de tu equipo desde Configuraciones para poder asignarlo aquí.</div>` : ''}
+        <label for="p-nota">Nota</label>
+        <input type="text" id="p-nota" placeholder="Opcional">
+        <div style="margin-top:14px">
+          <button type="submit" class="btn btn-primary">Agregar</button>
+        </div>
+      </form>
+      </div>
+    </div>
+
+    ${entradasVisibles.length? `
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${p.seleccionados.length?'border-color:var(--danger)':''}">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin:0">
+          <input type="checkbox" id="chk-seleccionar-todo-plan" ${p.seleccionados.length && p.seleccionados.length===entradasVisibles.length?'checked':''}>
+          ${p.seleccionados.length? `${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}` : 'Seleccionar todo'}
+        </label>
+        ${p.seleccionados.length? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;flex:none">
+            <select id="plan-reasignar-select" style="width:auto">
+              <option value="__elegir__" selected>Reasignar a…</option>
+              <option value="">Sin asignar</option>
+              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+            </select>
+            <button class="btn btn-secondary" id="btn-reasignar-seleccion-plan" style="width:auto;padding:8px 12px">Reasignar</button>
+            <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
+            <button class="btn" id="btn-borrar-seleccion-plan" style="width:auto;padding:8px 12px;background:var(--danger);color:#fff">${ICONS.papelera.replace('style="width:15px;height:15px"','style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')} Eliminar</button>
+          </div>
+        ` : ''}
+      </div>
+    ` : ''}
+
+    ${grupos.filter(d=>d.entradas.length).map(d=> diasPlegables ? htmlDiaPlegable(d) : `
+      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${modo==='semana'? ' · '+d.corta : ''}</h2></div>
+      <div class="card">
+        ${d.entradas.map(htmlEntradaPlan).join('')}
       </div>
     `).join('')}
   `;
@@ -16191,6 +16338,33 @@ function bind(){
     // Reintento del cálculo del universo cuando falló (ver el catch de cargarPlanSemanal).
     const btnReintentarUniverso = document.getElementById('btn-reintentar-universo');
     if(btnReintentarUniverso) btnReintentarUniverso.addEventListener('click', ()=>{ cargarPlanSemanal(); });
+    // "+ Agregar a la planificación" / "Cerrar": el formulario siempre está en la página (oculto
+    // cuando está cerrado), así que lo que se haya elegido en él se conserva al cerrarlo y abrirlo.
+    const btnToggleAgregar = document.getElementById('btn-toggle-agregar-plan');
+    if(btnToggleAgregar) btnToggleAgregar.addEventListener('click', ()=>{
+      const abrir = btnToggleAgregar.getAttribute('aria-expanded')!=='true';
+      setState({plan:{...state.plan, agregarAbierto: abrir}});
+      if(abrir){ const fecha = document.getElementById('p-fecha'); if(fecha && fecha.scrollIntoView) fecha.scrollIntoView({block:'center'}); }
+    });
+    // Días plegables (vistas resumidas con muchas entradas).
+    document.querySelectorAll('[data-plan-dia]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const iso = btn.dataset.planDia;
+        const abierto = btn.getAttribute('aria-expanded')==='true';
+        setState({plan:{...state.plan, diasAbiertos:{...(state.plan.diasAbiertos||{}), [iso]: !abierto}}});
+      });
+    });
+    // "Asignar" en el aviso de entradas sin responsable: las deja seleccionadas para la
+    // reasignación masiva que ya existía ("Reasignar a…") y lleva la pantalla hasta ese selector.
+    const btnAsignarSinResp = document.getElementById('btn-asignar-sin-responsable');
+    if(btnAsignarSinResp) btnAsignarSinResp.addEventListener('click', ()=>{
+      const p = state.plan;
+      const visibles = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
+      const ids = visibles.filter(e=>!e.responsable_id).map(e=>e.id);
+      setState({plan:{...state.plan, seleccionados: ids}});
+      const sel = document.getElementById('plan-reasignar-select');
+      if(sel){ if(sel.scrollIntoView) sel.scrollIntoView({block:'center'}); if(sel.focus) sel.focus(); }
+    });
     const inputFechaPlan = document.getElementById('p-fecha');
     if(inputFechaPlan) inputFechaPlan.addEventListener('change', e=>{
       const nueva = e.target.value;
@@ -16200,6 +16374,9 @@ function bind(){
     });
     document.getElementById('form-plan').addEventListener('submit', async e=>{
       e.preventDefault();
+      // Quien está agregando suele agregar varias seguidas: el formulario queda abierto aunque
+      // haya partido abierto solo porque no había nada planificado.
+      state.plan.agregarAbierto = true;
       if(state.plan.modoAgregar==='sku'){
         await agregarPlanPorSku({
           fecha: document.getElementById('p-fecha').value,
@@ -16278,6 +16455,7 @@ function bind(){
       const resumenBin = document.getElementById('p-bin-resumen');
       selBin.innerHTML = '<option value="">Elige ubicación específica primero</option>';
       selBin.disabled = true;
+      selBin.size = PLAN_BIN_FILAS_VACIA;
       selBin.dataset.modo = 'bins';
       delete selBin.dataset.opciones;
       delete selBin.dataset.totalSkuModoSkus;
@@ -16361,6 +16539,7 @@ function bind(){
         // todos" para que el submit siga mandando el comodín sin filtro (ver el comentario del
         // submit de #form-plan), no la lista exhaustiva de bins de este momento.
         if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = true; });
+        selBin.size = PLAN_BIN_FILAS_LLENA;
         chkTodos.checked = true;
         hintBin.textContent = 'Vienen todos los storage bin marcados. Puedes dejarlos así o desmarcar los que no quieras incluir.';
         // Aclara que "12 elementos" (resumen nativo del navegador para el <select multiple>) son
@@ -16407,11 +16586,13 @@ function bind(){
           selBin.innerHTML = skus.map(s=>`<option value="${esc(s.sku_code)}">${esc(s.sku_code)} — ${esc(s.descripcion||'')}</option>`).join('');
           // Misma lógica que la lista de storage bin: carga con todos los SKU ya marcados.
           if(selBin.options) [...selBin.options].forEach(o=>{ o.selected = true; });
+          selBin.size = PLAN_BIN_FILAS_LLENA;
           chkTodos.checked = true;
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación: puedes elegir SKU puntuales. Vienen todos marcados; desmarca los que no quieras incluir.';
           actualizarResumenBin();
         }else{
           selBin.innerHTML = '';
+          selBin.size = PLAN_BIN_FILAS_VACIA;
           delete selBin.dataset.opciones;
           delete selBin.dataset.totalSkuModoSkus;
           resumenBin.textContent = '';

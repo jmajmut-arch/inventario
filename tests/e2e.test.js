@@ -257,6 +257,68 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Planificación en el celular (Joel, 29/09): días plegables, "Agregar" plegado, Asignar =====
+  // Con el navegador real a 420 px: con muchas entradas en Mes cada día es un bloque (solo hoy
+  // abierto), el resumen va antes del formulario, "+ Agregar" abre el formulario con Ubicación
+  // específica y Storage bin uno bajo el otro, la lista de bins crece al llenarse, "Asignar"
+  // lleva a la reasignación con las entradas sin responsable ya elegidas, y la barra de abajo
+  // muestra cada pestaña en una sola línea.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('planificacion: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    const hoy = await page.evaluate(() => fechaISO(new Date()));
+    const mes = hoy.slice(0,8);
+    const entradas = Array.from({length:50}, (_,i) => ({
+      id:'pl'+i, fecha: i===0 ? hoy : mes+String(1+(i%10)).padStart(2,'0'), bodega:'Nave Mina', ubicacion:'Pasillo '+(i%5), storage_bin:null,
+      responsable_id: i%4===0 ? null : 'r1', responsable_nombre: i%4===0 ? null : 'Pedro Soto', ciclo_nombre:null, nota:null, skus_excluidos:[], por_sku:false,
+    }));
+    let cuerpoPlan = null;
+    await page.route('**/rest/v1/rpc/plan_ventana_pantalla**', route => {
+      cuerpoPlan = JSON.parse(route.request().postData());
+      const lista = entradas.filter(e => !cuerpoPlan.p_desde || (e.fecha>=cuerpoPlan.p_desde && e.fecha<=cuerpoPlan.p_hasta));
+      const cuerpo = {entradas: lista};
+      if(cuerpoPlan.p_resumido) cuerpo.resumen = lista.map(e => ({plan_id:e.id, total:12, propios:12}));
+      else cuerpo.universo = {};
+      route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(cuerpo) });
+    });
+    await page.route('**/rest/v1/usuarios?activo=eq.true&rol=eq.operador**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{id:'r1', nombre:'Pedro Soto'}, {id:'r2', nombre:'María Rojas'}]) }));
+    await page.route('**/rest/v1/ubicaciones_generales**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', cantidad_skus:40, cantidad_pendiente:30}]) }));
+    await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:8, cantidad_pendiente:6}]) }));
+    await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:4}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-02', cantidad_skus:4}]) }));
+    await page.evaluate(() => { setState({view:'plan'}); cambiarModoPlan('mes'); });
+    await page.waitForSelector('.plan-dia-toggle', { timeout:ESPERA });
+    assert(cuerpoPlan && cuerpoPlan.p_resumido === true && cuerpoPlan.p_desde === mes+'01', 'Mes pide plan_ventana_pantalla resumido desde el día 1, obtuvo '+JSON.stringify(cuerpoPlan));
+    const dias = await page.evaluate(() => [...document.querySelectorAll('.plan-dia-toggle')].map(b => ({iso:b.dataset.planDia, abierto:b.getAttribute('aria-expanded')==='true'})));
+    assert(dias.length === new Set(entradas.map(e=>e.fecha)).size && dias.filter(d=>d.abierto).length === 1 && dias.find(d=>d.abierto).iso === hoy, 'un bloque por día y solo hoy abierto, obtuvo '+JSON.stringify(dias));
+    const orden = await page.evaluate(() => { const r = document.querySelector('.section-head h2'); const heads = [...document.querySelectorAll('.section-head h2')].map(h=>h.textContent); const res = [...document.querySelectorAll('.section-head h2')].find(h=>/Resumen del mes/.test(h.textContent)); const card = document.getElementById('plan-agregar-card'); return !!res && !!card && (res.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING) ? 'ok' : heads.join('|'); });
+    assert(orden === 'ok', 'el resumen va antes de "Agregar a la planificación", obtuvo '+orden);
+    const otro = dias.find(d=>!d.abierto).iso;
+    await page.click(`[data-plan-dia="${otro}"]`);
+    await page.waitForFunction(iso => document.querySelector(`[data-plan-dia="${iso}"]`).getAttribute('aria-expanded') === 'true', otro, { timeout:ESPERA });
+    // "Asignar": quedan elegidas las entradas sin responsable y se llega a "Reasignar a…".
+    await page.click('#btn-asignar-sin-responsable');
+    await page.waitForSelector('#plan-reasignar-select', { timeout:ESPERA });
+    const asignar = await page.evaluate(() => ({ n: state.plan.seleccionados.length, foco: document.activeElement && document.activeElement.id }));
+    assert(asignar.n === entradas.filter(e=>!e.responsable_id).length && asignar.foco === 'plan-reasignar-select', 'Asignar elige las sin responsable y enfoca "Reasignar a…", obtuvo '+JSON.stringify(asignar));
+    await page.click('#btn-cancelar-seleccion-plan');
+    // "+ Agregar": el formulario aparece; Ubicación específica y Storage bin apilados; bins crece.
+    assert(!(await page.isVisible('#form-plan')), 'con entradas, el formulario parte oculto');
+    await page.click('#btn-toggle-agregar-plan');
+    await page.waitForSelector('#form-plan', { state:'visible', timeout:ESPERA });
+    const binVacio = await page.evaluate(() => document.getElementById('p-bin').size);
+    await page.selectOption('#p-bodega', 'Nave Mina');
+    await page.waitForFunction(() => [...document.querySelectorAll('#p-bin option')].some(o=>o.value==='A-01'), null, { timeout:ESPERA });
+    const sitio = await page.evaluate(() => { const u = document.getElementById('p-ubic').getBoundingClientRect(), b = document.getElementById('p-bin').getBoundingClientRect(); return { apilados: b.top >= u.bottom, anchoIgual: Math.abs(u.width-b.width) < 2, binLleno: document.getElementById('p-bin').size }; });
+    assert(binVacio === 2 && sitio.binLleno === 6 && sitio.apilados && sitio.anchoIgual, 'a 420 px Ubicación específica y Storage bin van apilados y la lista de bins crece al llenarse, obtuvo '+JSON.stringify({binVacio, ...sitio}));
+    const tabs = await page.evaluate(() => [...document.querySelectorAll('.tabbar .tab')].map(t => t.clientHeight));
+    assert(tabs.length && Math.max(...tabs) === Math.min(...tabs) && Math.max(...tabs) < 60, 'cada pestaña de la barra de abajo en una sola línea (misma altura, sin partirse), obtuvo '+JSON.stringify(tabs));
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px Planificación no desborda, obtuvo '+desborde);
+    await context.close();
+  }
+
   // ===== Landing: honeypot silencioso (bot) no debe llamar a la red =====
   {
     const context = await browser.newContext();
