@@ -5390,7 +5390,7 @@ function toggleSeleccionTodosBusqueda(ids, marcar){
    (app/lib/pdf-lib.min.js, MIT, cargado recién al exportar) la app escribe el PDF punto por
    punto: mismas hojas en cualquier dispositivo, 2 fichas en la primera (lleva el título) y 3 en
    las siguientes, logo de la empresa en todas, pie con la página. Papel carta. */
-const PDF_FICHAS = { ancho:612, alto:792, margen:36, fichaAlto:218, fila:13, foto:150, etiqueta:105, primeraHoja:2, porHoja:3 };
+const PDF_FICHAS = { ancho:612, alto:792, margen:36, fichaAlto:218, fila:13, foto:150, etiqueta:105, porHoja:3 };
 const FOTO_PDF_TRANSFORM = {width:FOTO_PDF_LADO_PX, height:FOTO_PDF_LADO_PX, resize:'cover', quality:70};
 
 const scriptsCargados = {};
@@ -5509,13 +5509,17 @@ async function logoParaPdf(){
 
 // Las 13 filas de la ficha: [etiqueta, valor, destacar en rojo, puede ocupar dos líneas].
 // Quién contó va en la misma línea que la fecha (pedido de Joel), así la ficha mide lo mismo.
-function filasFichaPdf(r, ocultarMagnitud){
+function estadoTextoPdf(r, ocultarMagnitud){
   const contado = !!r.conteo_id;
   const tieneDiferencia = contado && r.diferencia && Number(r.diferencia)!==0;
-  const estadoTexto = !contado ? 'No contado'
+  return !contado ? 'No contado'
     : tieneDiferencia ? (ocultarMagnitud ? 'Con diferencia' : `Diferencia ${r.diferencia>0?'+':''}${r.diferencia}`)
     : r.estado==='pendiente_revision' ? 'Pendiente'
     : r.estado==='aprobado' ? 'Cuadrado' : (r.estado || 'ok');
+}
+function filasFichaPdf(r, ocultarMagnitud){
+  const contado = !!r.conteo_id;
+  const estadoTexto = estadoTextoPdf(r, ocultarMagnitud);
   return [
     ['Descripción', r.descripcion || '—', false, true],
     ['Ubicación general', r.bodega || '—'],
@@ -5559,11 +5563,99 @@ function dibujarFichaPdf(page, r, imagen, yTope, t){
   }
 }
 
-// Reparte las filas en hojas: 2 en la primera (lleva el título), 3 en las siguientes.
+// Reparte las filas en hojas: la primera no lleva fichas (es el resumen, ver dibujarResumenPdf);
+// desde la segunda van 3 por hoja. Pedido de Joel (29/09): "agregar los resultados que salen en
+// la página (cuadrado, etc. y quién contó) en la primera hoja; desde la hoja dos, seguir de 3".
 function hojasFichasPdf(filas){
-  const hojas = [filas.slice(0, PDF_FICHAS.primeraHoja)];
-  for(let i=PDF_FICHAS.primeraHoja; i<filas.length; i+=PDF_FICHAS.porHoja) hojas.push(filas.slice(i, i+PDF_FICHAS.porHoja));
+  const hojas = [[]];
+  for(let i=0; i<filas.length; i+=PDF_FICHAS.porHoja) hojas.push(filas.slice(i, i+PDF_FICHAS.porHoja));
   return hojas;
+}
+
+// Colores del PDF (pdf-lib no sabe de CSS): los mismos que usan los gráficos de Buscar en el
+// tema claro, para que el papel diga lo mismo que la pantalla.
+const COLOR_PDF = { ok:[0.30,0.69,0.43], warn:[0.88,0.70,0.24], danger:[0.88,0.33,0.29], steel:[0.36,0.56,0.69], amber:[0.96,0.66,0], faint:[0.62,0.62,0.62] };
+const COLOR_PDF_ESTADO = { 'No contado':'faint', 'Cuadrado':'ok', 'Diferencia':'warn', 'Diferencia positiva':'warn', 'Diferencia negativa':'danger', 'Pendiente':'steel' };
+const COLOR_PDF_QUIEN_CONTO = ['steel','amber','ok','warn','danger'];
+const PDF_RESUMEN = { radio:50, leyendaX:126, leyendaFila:14, tablaFila:12.5 };
+
+// Torta en pdf-lib: cada porción es un path SVG (centro, borde, arco, cierre) con origen en el
+// centro. En SVG la y crece hacia abajo, y pdf-lib ya lo traduce al papel: con las mismas
+// fórmulas que renderPieChart la torta arranca arriba y gira en sentido horario, igual que en
+// pantalla. Una sola porción es un círculo completo (un arco no puede describir 360°).
+function dibujarTortaPdf(page, porciones, colorDe, cx, cy, r){
+  const total = porciones.reduce((s,d)=>s+d.n, 0);
+  if(!total) return;
+  if(porciones.length===1){ page.drawCircle({x:cx, y:cy, size:r, color:colorDe(porciones[0],0)}); return; }
+  let ang = -Math.PI/2;
+  porciones.forEach((d,i)=>{
+    const fin = ang + d.n/total*2*Math.PI;
+    const p = a => `${(r*Math.cos(a)).toFixed(2)} ${(r*Math.sin(a)).toFixed(2)}`;
+    page.drawSvgPath(`M 0 0 L ${p(ang)} A ${r} ${r} 0 ${d.n/total>0.5?1:0} 1 ${p(fin)} Z`, {x:cx, y:cy, color:colorDe(d,i), borderWidth:0});
+    ang = fin;
+  });
+}
+
+// Torta + leyenda (cuadrado de color, nombre, cantidad y porcentaje). Devuelve cuánto alto ocupó.
+function dibujarTortaConLeyendaPdf(page, datos, etiquetaDe, colorDe, yTope, t){
+  const C = PDF_FICHAS, R = PDF_RESUMEN;
+  const porciones = datos.filter(d=>d.n>0);
+  const total = porciones.reduce((s,d)=>s+d.n, 0);
+  dibujarTortaPdf(page, porciones, colorDe, C.margen + R.radio + 6, yTope - R.radio - 4, R.radio);
+  let y = yTope - 12;
+  porciones.forEach((d,i)=>{
+    page.drawRectangle({x: C.margen + R.leyendaX, y: y-1, width:8, height:8, color:colorDe(d,i)});
+    page.drawText(textoPdf(`${etiquetaDe(d)} · ${d.n} (${Math.round(d.n/total*100)}%)`), {x: C.margen + R.leyendaX + 13, y, size:8.5, font:t.fuente, color:t.negro});
+    y -= R.leyendaFila;
+  });
+  return Math.max(2*R.radio + 12, yTope - y + 4);
+}
+
+// Primera hoja del PDF de Buscar: lo mismo que muestra la pantalla sobre los materiales
+// exportados -- Resumen por estado (con su lectura), Quién contó y la lista de materiales con
+// su resultado -- para que quien reciba el documento entienda el conjunto antes de las fichas.
+function dibujarResumenPdf(page, filas, yTope, t){
+  const C = PDF_FICHAS, R = PDF_RESUMEN, x = C.margen;
+  const rgbDe = clave => t.rgb(...(COLOR_PDF[clave] || COLOR_PDF.faint));
+  const separarSigno = !t.ocultar;
+  const estado = resumenEstadoBusqueda(filas, separarSigno);
+  const quienConto = resumenQuienConto(filas);
+  const titulo = (texto, y) => { page.drawText(textoPdf(texto), {x, y, size:11, font:t.negrita, color:t.negro}); page.drawLine({start:{x, y:y-5}, end:{x:x+t.anchoUtil, y:y-5}, thickness:0.6, color:t.linea}); };
+  let y = yTope;
+
+  titulo('Resumen por estado', y); y -= 22;
+  y -= dibujarTortaConLeyendaPdf(page, estado, d=>d.dia, d=>rgbDe(COLOR_PDF_ESTADO[d.dia]), y, t);
+  const lectura = partesLecturaResumenEstado(estado, separarSigno).join(' ');
+  if(lectura){
+    partirPdf(lectura, t.fuente, 8.5, t.anchoUtil, 3).forEach(l=>{ page.drawText(l, {x, y, size:8.5, font:t.fuente, color:t.gris}); y -= 12; });
+  }
+  y -= 14;
+
+  titulo('Quién contó', y); y -= 22;
+  if(quienConto.length){
+    y -= dibujarTortaConLeyendaPdf(page, quienConto, d=>d.nombre, (d,i)=>rgbDe(COLOR_PDF_QUIEN_CONTO[i]), y, t);
+  }else{
+    page.drawText('Ningún material contado todavía.', {x, y, size:8.5, font:t.fuente, color:t.gris}); y -= 12;
+  }
+  y -= 14;
+
+  titulo(`Materiales en este documento (${filas.length})`, y); y -= 20;
+  const cols = [['SKU', x, 84], ['Descripción', x+90, 160], ['Contado', x+258, 40, 'num'], ['Estado', x+306, 84], ['Contado por', x+396, t.anchoUtil-396]];
+  cols.forEach(([k, cx, w, num])=> page.drawText(textoPdf(k).toUpperCase(), {x: num ? cx + w - t.fuente.widthOfTextAtSize(textoPdf(k).toUpperCase(), 7) : cx, y, size:7, font:t.fuente, color:t.gris}));
+  y -= R.tablaFila;
+  const yMinimo = 48;
+  let i = 0;
+  for(; i<filas.length && y > yMinimo + R.tablaFila; i++){
+    const r = filas[i], contado = !!r.conteo_id;
+    const celdas = [r.sku_code, r.descripcion || '—', contado ? String(r.cantidad_contada) : '—', estadoTextoPdf(r, t.ocultar), contado ? `${r.contado_por || 'Sin asignar'} · ${fmtFechaHora(r.fecha_conteo)}` : '—'];
+    cols.forEach(([k, cx, w, num], c)=>{
+      const font = c===0 ? t.mono : t.fuente, texto = recortarPdf(celdas[c], font, 8, w);
+      page.drawText(texto, {x: num ? cx + w - font.widthOfTextAtSize(texto, 8) : cx, y, size:8, font, color:t.negro});
+    });
+    page.drawLine({start:{x, y:y-4}, end:{x:x+t.anchoUtil, y:y-4}, thickness:0.3, color:t.linea});
+    y -= R.tablaFila;
+  }
+  if(i<filas.length) page.drawText(textoPdf(`… y ${filas.length-i} más: ver las fichas siguientes.`), {x, y, size:8, font:t.fuente, color:t.gris});
 }
 
 async function generarPdfFichasBusqueda(filas, fotos, opciones){
@@ -5571,7 +5663,7 @@ async function generarPdfFichasBusqueda(filas, fotos, opciones){
   const doc = await PDFDocument.create();
   doc.setTitle('Detalle de materiales'); doc.setProducer('InventIA'); doc.setCreator('InventIA');
   const [fuente, negrita, mono] = await Promise.all([doc.embedFont(StandardFonts.Helvetica), doc.embedFont(StandardFonts.HelveticaBold), doc.embedFont(StandardFonts.CourierBold)]);
-  const t = { fuente, negrita, mono, gris: rgb(0.33,0.33,0.33), negro: rgb(0,0,0), rojo: rgb(0.76,0.23,0.18), linea: rgb(0.8,0.8,0.8),
+  const t = { fuente, negrita, mono, rgb, gris: rgb(0.33,0.33,0.33), negro: rgb(0,0,0), rojo: rgb(0.76,0.23,0.18), linea: rgb(0.8,0.8,0.8),
     anchoUtil: PDF_FICHAS.ancho - 2*PDF_FICHAS.margen, ocultar: !!(opciones && opciones.ocultarMagnitud) };
   const incrustar = async img => { if(!imagenIncrustable(img)) return null; try{ return img.tipo==='image/png' ? await doc.embedPng(img.bytes) : await doc.embedJpg(img.bytes); }catch(e){ return null; } };
   const logo = await incrustar(opciones && opciones.logo);
@@ -5591,11 +5683,12 @@ async function generarPdfFichasBusqueda(filas, fotos, opciones){
     if(h===0){
       page.drawText('Detalle de materiales', {x:C.margen, y:y-13, size:13, font:negrita, color:t.negro});
       page.drawText(textoPdf(`${filas.length} material${filas.length===1?'':'es'} · Generado ${generado}`), {x:C.margen, y:y-26, size:8, font:fuente, color:t.gris});
-      y -= 44;
+      y -= 52;
+      dibujarResumenPdf(page, filas, y, t);
     }else{
       y -= 36;
+      grupo.forEach(r=>{ dibujarFichaPdf(page, r, imagenes[indice++], y, t); y -= C.fichaAlto; });
     }
-    grupo.forEach(r=>{ dibujarFichaPdf(page, r, imagenes[indice++], y, t); y -= C.fichaAlto; });
     page.drawText(textoPdf(`Generado ${generado} · InventIA`), {x:C.margen, y:22, size:7, font:fuente, color:t.gris});
     const pie = `Página ${h+1} de ${hojas.length}`;
     page.drawText(textoPdf(pie), {x: C.ancho - C.margen - fuente.widthOfTextAtSize(textoPdf(pie), 7), y:22, size:7, font:fuente, color:t.gris});
@@ -9432,14 +9525,22 @@ function resumenEstadoBusqueda(resultados, separarSigno){
 // sobrante. Solo cuenta filas: no suma diferencias, porque son cantidades de materiales distintos
 // y sumarlas no significa nada. Sin nada contado no hay nada que leer.
 function lecturaResumenEstadoBusqueda(resumen, separarSigno){
+  const partes = partesLecturaResumenEstado(resumen, separarSigno, x=>`<strong style="color:var(--text)">${x}</strong>`);
+  if(!partes.length) return '';
+  return `<div class="hint" style="margin-top:10px;text-align:center">${partes.join(' ')}</div>`;
+}
+// Las frases de esa lectura, como texto plano: `destacar(x)` envuelve la parte principal (en
+// pantalla va en negrita; en el PDF de Buscar va tal cual). Sin nada contado no hay frases.
+function partesLecturaResumenEstado(resumen, separarSigno, destacar){
+  destacar = destacar || (x=>x);
   const n = Object.fromEntries(resumen.map(d=>[d.dia, d.n]));
   const contados = resumen.reduce((s,d)=> s + (d.dia==='No contado'? 0 : d.n), 0);
-  if(!contados) return '';
+  if(!contados) return [];
   const cuadrados = n['Cuadrado']||0;
   // Cada parte lleva su porcentaje sobre lo contado (pedido de Joel, 27/09): antes solo lo
   // llevaba "cuadraron" y había que calcular el resto a mano.
   const pct = x => Math.round(x/contados*100);
-  const partes = [`De ${contados.toLocaleString('es-CL')} contado${contados===1?'':'s'}, <strong style="color:var(--text)">${cuadrados.toLocaleString('es-CL')} cuadr${cuadrados===1?'ó':'aron'} (${pct(cuadrados)}%)</strong>.`];
+  const partes = [`De ${contados.toLocaleString('es-CL')} contado${contados===1?'':'s'}, ${destacar(`${cuadrados.toLocaleString('es-CL')} cuadr${cuadrados===1?'ó':'aron'} (${pct(cuadrados)}%)`)}.`];
   if(separarSigno){
     const neg = n['Diferencia negativa']||0, pos = n['Diferencia positiva']||0;
     if(neg || pos) partes.push(`${neg.toLocaleString('es-CL')} con faltante (${pct(neg)}%) · ${pos.toLocaleString('es-CL')} con sobrante (${pct(pos)}%).`);
@@ -9447,7 +9548,7 @@ function lecturaResumenEstadoBusqueda(resumen, separarSigno){
     partes.push(`${n['Diferencia'].toLocaleString('es-CL')} con diferencia (${pct(n['Diferencia'])}%).`);
   }
   if(n['Pendiente']) partes.push(`${n['Pendiente'].toLocaleString('es-CL')} pendiente${n['Pendiente']===1?'':'s'} de revisión (${pct(n['Pendiente'])}%).`);
-  return `<div class="hint" style="margin-top:10px;text-align:center">${partes.join(' ')}</div>`;
+  return partes;
 }
 
 // Leyenda chica de colores para un gráfico apilado o de torta (ver renderBarChartApilado /
