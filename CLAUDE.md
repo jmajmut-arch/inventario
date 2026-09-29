@@ -48,6 +48,13 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   detectó ninguna migración ni advisor — se supo por Sentry (JAVASCRIPT-7). Por eso existe
   `gucs_invalidos_en_funciones()`, que prueba cada valor de verdad y devuelve los que Postgres
   rechazaría.
+- **En una función, `empresa_actual()` o `ciclo_actual()` a secas se evalúan fila por fila.** Son
+  STABLE y SECURITY DEFINER (no se inlinean): escritas en un WHERE o un JOIN como
+  `c.ciclo_id = ciclo_actual()`, Postgres las llama por cada fila que examina. Envueltas en
+  `(select ciclo_actual())` se evalúan una vez por consulta. Las vistas y las políticas ya venían
+  así; el 29/09/2026 se corrigieron siete funciones de lectura (ranking_responsable pasó de 185 a
+  ~5 ms; el Dashboard de 0,56 a 0,41 s; resumen_plan_grupos de 224 a 121 ms). Toda función nueva
+  que las use en un filtro va con `(select ...)`.
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
