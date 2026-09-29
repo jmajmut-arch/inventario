@@ -56,6 +56,8 @@ let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeg
 let contarCriticosDistintosFixture = 0; // respuesta del RPC contar_criticos_distintos (ver cargarGrupos)
 let posicionesGrupoFixture = {}; // por grupo_id: {materiales, posiciones} (RPC posiciones_por_grupo, ver cargarGrupos)
 let resumenPlanGruposFixture = {}; // por grupo_id: {entradas, desde, hasta, por_venir, skus_por_contar} (RPC resumen_plan_grupos)
+let avanceGruposFixture = {}; // por grupo_id: {materiales, contados_ciclo, nunca_contados} (RPC avance_por_grupo)
+let avanceGruposFalla = null; // mensaje de error de avance_por_grupo; null = responde bien
 let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
@@ -455,6 +457,14 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/resumen_plan_grupos')){
     const ids = opts && opts.body ? JSON.parse(opts.body).p_grupo_ids : [];
     const filas = ids.filter(id=>resumenPlanGruposFixture[id]).map(id=>({grupo_id:id, ...resumenPlanGruposFixture[id]}));
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
+  // avance_por_grupo: barra "N de M contados en este ciclo" en la lista de Grupos (una llamada
+  // para todos; el inicio de cada ciclo viaja en p_inicios, calculado por la app).
+  if(path.startsWith('/rest/v1/rpc/avance_por_grupo')){
+    if(avanceGruposFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: avanceGruposFalla}) };
+    const inicios = opts && opts.body ? JSON.parse(opts.body).p_inicios : {};
+    const filas = Object.keys(inicios).filter(id=>avanceGruposFixture[id]).map(id=>({grupo_id:id, ...avanceGruposFixture[id]}));
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/rpc/posiciones_por_grupo')){
@@ -6238,6 +6248,43 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlFichaPlan.includes('Plan generado: 8 entradas') && htmlFichaPlan.includes('Generar de nuevo reemplaza esas entradas'), 'la ficha del grupo debe mostrar el mismo resumen del plan, obtuvo: '+htmlFichaPlan);
   ctx.__appstate.grupos.grupoAbierto = null;
   resumenPlanGruposFixture = {};
+
+  // Avance del grupo en la lista (pedido de Joel: ver de un vistazo cuál va atrasado). Una sola
+  // llamada para todos; el inicio del ciclo viaja como medianoche LOCAL de fecha_inicio (la misma
+  // regla que el seguimiento de la ficha). Con ritmo parejo, a esta altura "irían" N.
+  {
+    const listaAntes = gruposConteoFixture;
+    const hoyG = new Date(); hoyG.setHours(0,0,0,0);
+    const hace21 = new Date(hoyG); hace21.setDate(hace21.getDate()-21);
+    const inicioG = ctx.fechaISO(hace21); // día 22 del ciclo
+    gruposConteoFixture = [{id:'grupo-1', nombre:'5S', frecuencia_dias:60, fecha_inicio: inicioG, activo:true, miembros:[{count:9}]}];
+    avanceGruposFixture = {'grupo-1': {materiales:9, contados_ciclo:1, nunca_contados:6}};
+    calls.length = 0;
+    await ctx.cargarGrupos();
+    await new Promise(r=>setTimeout(r, 20));
+    const rpcAvance = calls.filter(c=>c.url.includes('/rpc/avance_por_grupo'));
+    const cuerpoAvance = rpcAvance.length ? JSON.parse(rpcAvance[0].opts.body) : null;
+    assert(rpcAvance.length===1 && cuerpoAvance.p_inicios['grupo-1']===new Date(inicioG+'T00:00:00').toISOString(), 'cargarGrupos debe pedir el avance en UNA llamada con el inicio del ciclo a medianoche local, obtuvo: '+JSON.stringify(cuerpoAvance));
+    const htmlAvance = ctx.renderGrupos();
+    assert(/class="progress-track"[^>]*aria-valuenow="1"[^>]*><div class="progress-fill" style="width:11%;min-width:4px"><\/div><\/div>/.test(htmlAvance) && htmlAvance.includes('1 de 9 contados en este ciclo') && htmlAvance.includes('a esta altura irían 3'), 'la lista debe mostrar la barra y "1 de 9 contados en este ciclo · a esta altura irían 3", obtuvo: '+(htmlAvance.match(/grupo-avance[\s\S]{0,400}/)||[''])[0]);
+    // Al día con el ritmo: sin aviso de atraso.
+    avanceGruposFixture = {'grupo-1': {materiales:9, contados_ciclo:4, nunca_contados:2}};
+    await ctx.cargarGrupos();
+    await new Promise(r=>setTimeout(r, 20));
+    const htmlAlDia = ctx.renderGrupos();
+    assert(htmlAlDia.includes('4 de 9 contados en este ciclo') && !htmlAlDia.includes('a esta altura irían'), 'al día con el ritmo no debe marcarse atraso, obtuvo: '+(htmlAlDia.match(/grupo-avance[\s\S]{0,300}/)||[''])[0]);
+    // Si el avance falla, la lista sigue y el error se avisa (no se esconde).
+    const toastRootGrupos = elements['toast-root'];
+    const hijosAntesG = toastRootGrupos ? toastRootGrupos.hijos.length : 0;
+    avanceGruposFalla = 'canceling statement due to statement timeout';
+    await ctx.cargarGrupos();
+    await new Promise(r=>setTimeout(r, 20));
+    avanceGruposFalla = null;
+    const hijosG = toastRootGrupos ? toastRootGrupos.hijos : [];
+    assert(ctx.__appstate.grupos.lista.length===1 && hijosG.length>hijosAntesG && /avance de los grupos: canceling statement/.test(hijosG[hijosG.length-1].textContent), 'si falla el avance, la lista se mantiene y se avisa el error, obtuvo: '+(hijosG.length? hijosG[hijosG.length-1].textContent : '(sin aviso)'));
+    avanceGruposFixture = {};
+    gruposConteoFixture = listaAntes;
+  }
   await ctx.cargarGrupos();
   await new Promise(r=>setTimeout(r, 20));
   assert(htmlGrupos.includes('data-ver-grupo="grupo-1"'), 'debe ofrecer un botón para ver el detalle de cada grupo, obtuvo: '+htmlGrupos);
