@@ -65,13 +65,23 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
 - **Los buscadores comparan con `ilike`, no con `position()` ni `lower() like`.** `skus` tiene
   índices GIN de trigramas en `sku_code`, `descripcion`, `batch` y `storage_bin` (extensión
   `pg_trgm`, esquema `extensions`), y solo `ilike` los usa: `position()` obliga a leer el maestro
-  completo. Medido en Escondida: buscar "FILTRO" pasó de 355 ms a 4 ms. Dos cosas más que hay que
-  saber: con **menos de 3 caracteres** no hay trigrama y Postgres recorre la tabla igual (la app
-  exige 2, así que ese caso sigue costando lo de antes, no más); y si un `or=(...)` incluye una
-  columna **sin** índice de trigramas, Postgres descarta el plan por índice y recorre la tabla
-  completa igual — por eso están las cuatro columnas y no solo dos. El costo está del lado de la
-  escritura: insertar materiales es un 41% más lento (una carga de 63.000 tarda unos 4 s más);
-  actualizar stock no cambia, porque el índice no se toca si el texto no cambia.
+  completo. Dos cosas más que hay que saber: con **menos de 3 caracteres** no hay trigrama y
+  Postgres recorre la tabla igual (la app exige 2, así que ese caso sigue costando lo de antes, no
+  más); y si un `or=(...)` incluye una columna **sin** índice de trigramas, Postgres descarta el
+  plan por índice y recorre la tabla completa igual — por eso están las cuatro columnas y no solo
+  dos. El costo está del lado de la escritura: insertar materiales es un 41% más lento (una carga
+  de 63.000 tarda unos 4 s más); actualizar stock no cambia, porque el índice no se toca si el
+  texto no cambia.
+- **Bajo RLS, `ilike` no usa el índice de trigramas aunque exista.** Postgres no considera
+  *leakproof* a `ILIKE`, así que con una política activa aplica primero la política (empresa) y
+  recién después el texto: recorre todo el maestro de la empresa. Medido el 29/09/2026 en Escondida
+  por `pg_stat_statements`: 2.282 búsquedas de Contar a 177 ms de promedio y hasta 3 s, con
+  `skus_descripcion_trgm_idx` usado 28 veces en tres semanas. La medición "355 -> 4 ms" que había
+  acá se hizo sin RLS y no valía en producción. Por eso los buscadores por texto (Contar, Bodega,
+  Mover, Planificación por código, candidatos de grupo) van por `buscar_skus_lectura`, SECURITY
+  DEFINER con filtro explícito por `empresa_actual()`, que sí usa los trigramas: ~20 ms por
+  búsqueda. Una consulta directa a `skus_lectura` con `or=(sku_code.ilike...)` vuelve al recorrido
+  completo, aunque la prueba unitaria pase.
 - **RLS siempre**: cada empresa ve solo lo suyo. Las vistas nuevas llevan `security_invoker=true`;
   las funciones nuevas evitan `SECURITY DEFINER` salvo que haya una razón explícita, y en ese caso
   se les revoca `EXECUTE` a `public` y `anon` y se les fija `search_path`.

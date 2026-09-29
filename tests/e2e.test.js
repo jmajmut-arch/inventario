@@ -823,7 +823,7 @@ async function loguear(page, perfil){
     perfilBodega.empresas.modulo_bodega_habilitado = true;
     await mockearSupabaseApp(page, perfilBodega);
     // Con latencia, como un servidor real: es en esa ventana donde se perdía lo tecleado.
-    await page.route('**/rest/v1/skus_lectura**', async route => {
+    await page.route('**/rest/v1/rpc/buscar_skus_lectura**', async route => {
       await new Promise(r => setTimeout(r, 120));
       return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
         { id:'s1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Bodega Central', ubicacion:null,

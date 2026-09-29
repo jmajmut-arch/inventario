@@ -248,8 +248,11 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Planificar por código: buscador (skus_planificables con or=ilike) + marca de "ya en el plan"
   // (skus_disponibles_planificar por id). ROD-2 ya está cubierto por otra entrada.
-  if(path.startsWith('/rest/v1/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin&or=(sku_code.ilike.')){
-    const t = decodeURIComponent((path.match(/sku_code\.ilike\.\*([^*]*)\*/)||[])[1]||'').toLowerCase();
+  // Buscador por texto (ver buscar_skus_lectura): misma respuesta que daba la vista, pero la
+  // consulta va por RPC con el texto en el cuerpo y las columnas en ?select=.
+  const cuerpoBusqueda = () => (opts && opts.method==='POST' && opts.body) ? JSON.parse(opts.body) : {};
+  if(path.startsWith('/rest/v1/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin') && cuerpoBusqueda().p_planificables===true){
+    const t = String(cuerpoBusqueda().p_texto||'').toLowerCase();
     const todos = [
       {id:'rod-1', sku_code:'ROD-1', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01'},
       {id:'rod-2', sku_code:'ROD-2', descripcion:'Rodamiento 6206', bodega:'Nave Mina', ubicacion:'Patio', storage_bin:null},
@@ -460,7 +463,7 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Buscador de candidatos para agregar a un grupo (ver buscarCandidatosGrupo) -- dos filas con
   // el mismo código+bodega a propósito, para probar que se deduplican.
-  if(path.startsWith('/rest/v1/skus?activo=eq.true&select=sku_code,descripcion,bodega')){
+  if(path.startsWith('/rest/v1/rpc/buscar_skus_lectura?select=sku_code,descripcion,bodega')){
     const filas = candidatosGrupoFixture || [
       {sku_code:'SKU-CAND-1', descripcion:'Correa transportadora', bodega:'B501'},
       {sku_code:'SKU-CAND-1', descripcion:'Correa transportadora', bodega:'B501'},
@@ -1165,7 +1168,7 @@ const fakeFetchImpl = async (url, opts) => {
     if(opts && (opts.method==='POST' || opts.method==='PATCH')) return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'per-1', nombre:'Juan Retira', area:'Mantención', activo:true}]) };
   }
-  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=')){
+  if(path.startsWith('/rest/v1/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material')){
     if(buscadorBodegaFalla) return { status:400, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: buscadorBodegaFalla}) };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([{id:'sku-b1', sku_code:'BOD-001', descripcion:'Filtro', bodega:'Central', ubicacion:'0100', storage_bin:'R-1', batch:null, stock_sistema:3, costo_unitario:1000, tipo_material:'Repuesto', unidad_medida:'UN'}]) };
   }
@@ -1280,7 +1283,7 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // Buscador de la pestaña Mover: mismo criterio que Contar, pero solo con lo que hace falta para
   // decidir a dónde se mueve el material.
-  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch&or=(sku_code.ilike')){
+  if(path === '/rest/v1/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch'){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
       {id:'id-libre-1', sku_code:'FIL-1001', descripcion:'Filtro de aceite', bodega:'Nave Mina', ubicacion:'Pasillo 2', storage_bin:'B-04', batch:null},
       {id:'id-libre-2', sku_code:'FIL-2002', descripcion:'Filtro de aire', bodega:null, ubicacion:null, storage_bin:null, batch:'NEW'},
@@ -1341,9 +1344,9 @@ const fakeFetchImpl = async (url, opts) => {
   }
   // buscarSkusLibre (Contar > "Agregar algo fuera del plan"): busca en el servidor contra el
   // maestro completo, no en state.skus (los primeros 500 precargados) — ver escribirBuscadorLibre.
-  if(path.startsWith('/rest/v1/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida') && path.includes('or=(sku_code.ilike')){
+  if(path.startsWith('/rest/v1/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico')){
     // Mismo código dos veces, como lo manda el ERP: la fila del bin y la del tránsito sin ubicación.
-    if(path.includes('10001022')){
+    if(String(cuerpoBusqueda().p_texto||'').includes('10001022')){
       return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
         {id:'dup-bin', sku_code:'10001022', descripcion:'Valvula', bodega:'B501', ubicacion:'0100', storage_bin:'N1E-242-H1', stock_sistema:46, unidad_medida:'EA', total_transito_1:10},
         {id:'dup-fantasma', sku_code:'10001022', descripcion:'Valvula', bodega:'B501', ubicacion:null, storage_bin:null, stock_sistema:0, unidad_medida:'EA', total_transito_1:10},
@@ -5394,7 +5397,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.buscarMaterialParaMover('F');
   assert(calls.length===0, 'con una sola letra no se consulta al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   await ctx.buscarMaterialParaMover('FIL');
-  assert(calls.some(c=>c.url.includes('/skus_lectura') && c.url.includes('or=(sku_code.ilike')), 'busca por código o descripción en el servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura') && c.opts && JSON.parse(c.opts.body).p_texto==='FIL' && JSON.parse(c.opts.body).p_limite===20), 'busca por código o descripción en el servidor (buscar_skus_lectura, 20 como máximo), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.mover.resultados.length>0 && ctx.__appstate.mover.yaBuscado===true, 'los resultados quedan en el estado, obtuvo: '+JSON.stringify(ctx.__appstate.mover));
   const htmlMover = ctx.renderMover();
   assert(htmlMover.includes('data-mover-sku="id-libre-1"') && htmlMover.includes('Hoy en'), 'cada resultado muestra dónde está hoy y ofrece moverlo, obtuvo: '+htmlMover);
@@ -6209,9 +6212,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.escribirCandidatoTextoGrupo('correa');
   assert(ctx.__appstate.grupos.buscandoCandidatos===true, 'con 2+ letras debe marcar "buscando" de inmediato en el estado, obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
   assert(elements['candidatos-grupo-resultados'].innerHTML.includes('Buscando…'), 'el contenedor de resultados (#candidatos-grupo-resultados) debe repintarse solo con el hint "Buscando…" mientras se resuelve, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
-  assert(!calls.some(c=>c.url.includes('sku_code.ilike')), 'no debe disparar la consulta de inmediato: el debounce todavía no se cumplió, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const busquedasCandidatos = () => calls.filter(c=>c.url.includes('/rpc/buscar_skus_lectura')).map(c=>JSON.parse(c.opts.body));
+  assert(busquedasCandidatos().length===0, 'no debe disparar la consulta de inmediato: el debounce todavía no se cumplió, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   await new Promise(r=>setTimeout(r, 400));
-  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('sku_code.ilike.*correa*')), 'tras el debounce debe filtrar por el texto ingresado, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(busquedasCandidatos().some(b=>b.p_texto==='correa' && b.p_limite===200 && b.p_bodega===null), 'tras el debounce debe filtrar por el texto ingresado (buscar_skus_lectura, 200 como máximo), obtuvo: '+JSON.stringify(busquedasCandidatos()));
   assert(ctx.__appstate.grupos.candidatos.length===2, 'debe deduplicar candidatos repetidos por código+bodega (2 filas de SKU-CAND-1 -> 1, más SKU-CAND-2), obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
   assert(ctx.__appstate.grupos.buscandoCandidatos===false, 'al llegar la respuesta debe salir de "buscando", obtuvo: '+ctx.__appstate.grupos.buscandoCandidatos);
   assert(elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-1') && elements['candidatos-grupo-resultados'].innerHTML.includes('SKU-CAND-2'), 'el contenedor de resultados debe reflejar los candidatos encontrados, obtuvo: '+elements['candidatos-grupo-resultados'].innerHTML);
@@ -6241,7 +6245,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.escribirCandidatoTextoGrupo('cor');
   ctx.escribirCandidatoTextoGrupo('corx');
   await new Promise(r=>setTimeout(r, 400));
-  assert(calls.filter(c=>c.url.includes('sku_code.ilike')).length===1, 'debe descartar las búsquedas intermedias y disparar una sola consulta tras dejar de tipear, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(busquedasCandidatos().length===1 && busquedasCandidatos()[0].p_texto==='corx', 'debe descartar las búsquedas intermedias y disparar una sola consulta tras dejar de tipear, obtuvo: '+JSON.stringify(busquedasCandidatos()));
   assert(ctx.__appstate.grupos.candidatos.length===1 && ctx.__appstate.grupos.candidatos[0].sku_code==='SKU-COR-X', 'debe quedarse con el resultado de la última búsqueda tipeada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
   candidatosGrupoFixture = null;
 
@@ -6251,7 +6255,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.escribirCandidatoTextoGrupo('');
   ctx.escribirCandidatoBodegaGrupo('B501');
   await new Promise(r=>setTimeout(r, 400));
-  assert(calls.some(c=>c.url.includes('/skus?activo=eq.true') && c.url.includes('bodega=ilike.*B501*') && !c.url.includes('sku_code.ilike')), 'buscar solo por bodega (sin texto) también debe disparar la consulta automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(busquedasCandidatos().some(b=>b.p_bodega==='B501' && b.p_texto===''), 'buscar solo por bodega (sin texto) también debe disparar la consulta automáticamente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   ctx.escribirCandidatoBodegaGrupo('');
 
   // Volver a buscar antes de agregar, para poder comprobar que el candidato agregado desaparece
@@ -8648,7 +8652,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:''};
     calls.length = 0;
     await ctx.buscarSkuBodega('BOD');
-    assert(calls.some(c=>c.url.includes('/skus_lectura')) && !calls.some(c=>c.url.includes('/rpc/buscar_skus_para_orden')), 'sin proveedor elegido se usa la consulta de siempre, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura')) && !calls.some(c=>c.url.includes('/rpc/buscar_skus_para_orden')), 'sin proveedor elegido se usa la consulta de siempre, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     const htmlSinProv = ctx.resultadosSkuBodegaHTML('ordenes');
     assert(!htmlSinProv.includes('Ya comprados a este proveedor') && !htmlSinProv.includes('Otros materiales'), 'y sin proveedor no se arman grupos');
 
@@ -8658,7 +8662,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.ordenes.form = {...ctx.__appstate.ordenes.form, proveedorId:'prov-1'};
     calls.length = 0;
     await ctx.buscarSkuBodega('BOD');
-    assert(!calls.some(c=>c.url.includes('/rpc/buscar_skus_para_orden')) && calls.some(c=>c.url.includes('/skus_lectura')), 'en Ingreso manda la vista, no el formulario que quedó abierto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/rpc/buscar_skus_para_orden')) && calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura')), 'en Ingreso manda la vista, no el formulario que quedó abierto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(!ctx.resultadosSkuBodegaHTML('ingreso').includes('Ya comprados a este proveedor'), 'ni la pantalla de Ingreso dibuja los grupos de la orden de compra');
 
     // Se deja el formulario como estaba para lo que sigue.
@@ -10081,11 +10085,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.buscadorLibre.buscando===true, 'con 2+ letras debe marcar buscando:true de inmediato, sin esperar la respuesta del servidor, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
   const htmlBuscando = ctx.renderConteo();
   assert(htmlBuscando.includes('Buscando…'), 'mientras espera la respuesta del servidor debe mostrar "Buscando…", obtuvo: '+htmlBuscando);
-  assert(!calls.some(c=>c.url.includes('sku_code.ilike')), 'no debe disparar la consulta de inmediato: el debounce todavía no se cumplió, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const busquedasLibres = () => calls.filter(c=>c.url.includes('/rpc/buscar_skus_lectura')).map(c=>({url:c.url, body:JSON.parse(c.opts.body)}));
+  assert(busquedasLibres().length===0, 'no debe disparar la consulta de inmediato: el debounce todavía no se cumplió, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   await new Promise(resolve=>setTimeout(resolve, 400));
-  const callBusquedaLibre = calls.find(c=>c.url.includes('sku_code.ilike.*fil*'));
-  assert(!!callBusquedaLibre && callBusquedaLibre.url.includes('/rest/v1/skus_lectura?activo=eq.true'), 'tras el debounce debe consultar /skus_lectura (maestro completo, con el stock ya enmascarado si corresponde) con ilike sobre el texto escrito, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const callBusquedaLibre = busquedasLibres().find(b=>b.body.p_texto==='fil');
+  assert(!!callBusquedaLibre && callBusquedaLibre.body.p_limite===8 && callBusquedaLibre.url.includes('select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,') && callBusquedaLibre.url.includes('total_en_proveedor'), 'tras el debounce debe consultar buscar_skus_lectura (filas de skus_lectura: maestro completo, con el stock ya enmascarado si corresponde) con el texto escrito, 8 como máximo y las mismas columnas de siempre, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.buscadorLibre.resultados.length===2 && ctx.__appstate.buscadorLibre.resultados[0].sku_code==='FIL-1001', 'debe guardar los resultados que devuelve el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre.resultados));
   assert(ctx.__appstate.buscadorLibre.buscando===false, 'tras responder debe apagar el indicador de "buscando", obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
 
@@ -10110,8 +10115,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.escribirBuscadorLibre('fil');
   ctx.escribirBuscadorLibre('filx');
   await new Promise(resolve=>setTimeout(resolve, 400));
-  const callsIlikeCoalescidas = calls.filter(c=>c.url.includes('sku_code.ilike'));
-  assert(callsIlikeCoalescidas.length===1 && callsIlikeCoalescidas[0].url.includes('*filx*'), 'teclear varias veces seguidas debe coalescer en una sola consulta con el último texto, no una por tecla, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const callsIlikeCoalescidas = busquedasLibres();
+  assert(callsIlikeCoalescidas.length===1 && callsIlikeCoalescidas[0].body.p_texto==='filx', 'teclear varias veces seguidas debe coalescer en una sola consulta con el último texto, no una por tecla, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   // Borrar el texto (menos de 2 letras) debe limpiar los resultados de inmediato, sin esperar
   // al servidor.
@@ -12116,10 +12121,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // los ya cubiertos por otra entrada (ROD-2) sin sacarlos de la lista.
     calls.length = 0;
     await ctx.buscarSkuParaPlan('r');
-    assert(!calls.some(c=>c.url.includes('/skus_planificables')), 'con menos de 2 caracteres no debe consultar el servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura')), 'con menos de 2 caracteres no debe consultar el servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     const resultadosEl = makeEl('p-sku-resultados');
     await ctx.buscarSkuParaPlan('rod');
-    assert(calls.some(c=>c.url.includes('/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin&or=(sku_code.ilike.*rod*,descripcion.ilike.*rod*)')), 'debe buscar por código o descripción en skus_planificables (solo pendientes del período), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin') && c.opts && JSON.parse(c.opts.body).p_texto==='rod' && JSON.parse(c.opts.body).p_planificables===true && JSON.parse(c.opts.body).p_limite===20), 'debe buscar por código o descripción en skus_planificables (solo pendientes del período), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar?select=id&id=in.(rod-1,rod-2,rod-3,rod-4)')), 'debe cruzar los resultados contra skus_disponibles_planificar por id para marcar los ya planificados, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     // Mismo formato que el buscador libre de Contar (.sku-pick con .code/.desc y botón "Elegir").
     assert(resultadosEl.innerHTML.includes('<div class="sku-pick" data-plan-sku="rod-1">') && resultadosEl.innerHTML.includes('<span class="code">ROD-1</span><span class="desc">Rodamiento 6205 · Nave Mina · Interior Nave · Bin A-01</span>') && resultadosEl.innerHTML.includes('data-elegir-sku-plan="rod-1" >Elegir</button>'), 'la lista debe usar el formato del buscador de Contar: código, descripción · zona y botón Elegir, obtuvo: '+resultadosEl.innerHTML);
