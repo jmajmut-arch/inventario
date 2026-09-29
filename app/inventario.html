@@ -3139,6 +3139,7 @@ async function cargarGrupos(){
     }));
     setState({grupos: {...state.grupos, lista: rows, pausados, cargado:true, cargando:false}});
     cargarResumenPlanGrupos(todos.map(g=>g.id));
+    cargarAvanceGrupos(rows);
   }catch(e){
     setState({grupos: {...state.grupos, cargando:false}});
     toast(e.message,'err');
@@ -3300,6 +3301,46 @@ async function cargarSeguimientoGrupo(grupoId){
 // todas las entradas de todos los grupos en una sola ejecución (~2 s con los 332 entradas reales
 // de Escondida), y la lista no tiene por qué esperarlo. Si falla, la línea simplemente no sale.
 let cargarResumenPlanGruposSecuencia = 0;
+// Avance de cada grupo activo en su ciclo, para la lista (pedido de Joel: ver de un vistazo cuál va
+// atrasado sin entrar grupo por grupo). Una sola llamada para todos (avance_por_grupo), con la
+// misma regla que el seguimiento de la ficha (cargarSeguimientoGrupo): el inicio del ciclo es la
+// medianoche LOCAL de fecha_inicio y viaja calculado desde acá, así lista y ficha dan igual.
+let cargarAvanceGruposSecuencia = 0;
+async function cargarAvanceGrupos(grupos){
+  if(!grupos.length) return;
+  const miSecuencia = ++cargarAvanceGruposSecuencia;
+  const inicios = {};
+  grupos.forEach(g=>{ inicios[g.id] = calcularCicloGrupo(g) ? new Date(g.fecha_inicio+'T00:00:00').toISOString() : null; });
+  try{
+    const filas = await rest('/rpc/avance_por_grupo', {method:'POST', body:{p_inicios: inicios}}) || [];
+    if(miSecuencia !== cargarAvanceGruposSecuencia) return; // ya hubo otra recarga de grupos
+    const porGrupo = new Map(filas.map(f=>[f.grupo_id, f]));
+    setState({grupos: {...state.grupos, lista: (state.grupos.lista||[]).map(g=>{
+      const f = porGrupo.get(g.id);
+      return f ? {...g, avance: {materiales:Number(f.materiales)||0, contadosCiclo:Number(f.contados_ciclo)||0, nuncaContados:Number(f.nunca_contados)||0}} : g;
+    })}});
+  }catch(e){
+    // La lista ya está en pantalla y sigue sirviendo; pero no se esconde el error.
+    if(miSecuencia === cargarAvanceGruposSecuencia) toast(`No se pudo calcular el avance de los grupos: ${e.message}`, 'warn');
+  }
+}
+
+// Barra de avance de un grupo en la lista: contados en su ciclo sobre el total, y cuántos
+// "deberían" ir si el ritmo fuera parejo a lo largo del ciclo (sin contar el día de hoy, para que
+// el primer día no aparezca atrasado). Sin ciclo definido: contados alguna vez.
+function htmlAvanceGrupo(grupo){
+  const a = grupo && grupo.avance;
+  if(!a || !a.materiales) return '';
+  const ciclo = calcularCicloGrupo(grupo);
+  const contados = ciclo ? a.contadosCiclo : a.materiales - a.nuncaContados;
+  const pct = Math.min(100, Math.round(100*contados/a.materiales));
+  const esperados = ciclo ? Math.floor(a.materiales*(ciclo.dia-1)/ciclo.totalDias) : 0;
+  const atrasado = ciclo && contados < esperados;
+  const texto = ciclo
+    ? `${contados.toLocaleString('es-CL')} de ${a.materiales.toLocaleString('es-CL')} contados en este ciclo${atrasado? ` · <span style="color:var(--warn);font-weight:600">a esta altura irían ${esperados.toLocaleString('es-CL')}</span>` : ''}`
+    : `${contados.toLocaleString('es-CL')} de ${a.materiales.toLocaleString('es-CL')} contados alguna vez`;
+  return `<div class="grupo-avance"><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="${a.materiales}" aria-valuenow="${contados}" aria-label="Avance de ${esc(grupo.nombre)}"><div class="progress-fill" style="width:${pct}%${contados>0?';min-width:4px':''}"></div></div><div class="hint" style="margin-top:3px">${texto}</div></div>`;
+}
 async function cargarResumenPlanGrupos(grupoIds){
   if(!grupoIds.length) return;
   const miSecuencia = ++cargarResumenPlanGruposSecuencia;
@@ -13031,6 +13072,7 @@ function renderGrupos(){
             <div class="plan-item-ubic" style="font-weight:500">${esc(grupo.nombre)}</div>
             <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}${grupo.planResumen? '' : descripcionEntradas}</div>
             ${descripcionPlanGrupo(grupo)? `<div class="hint" style="margin-top:2px">${esc(descripcionPlanGrupo(grupo))}</div>` : ''}
+            ${htmlAvanceGrupo(grupo)}
           </div>
           <button type="button" class="btn btn-secondary" data-ver-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver</button>
         </div>
