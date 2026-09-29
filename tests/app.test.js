@@ -2289,7 +2289,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSinDetalle = ctx.renderPlanificacion();
   assert(!/id="btn-exportar-plan"[^>]*disabled/.test(htmlSinDetalle), 'Exportar PDF debe habilitarse cuando hay conteos planificados, obtuvo: '+htmlSinDetalle.match(/<button[^>]*btn-exportar-plan[^>]*>/));
   assert(htmlSinDetalle.includes('Responsable: Ana Torres'), 'La tarjeta debe mostrar el nombre del responsable asignado');
-  assert(htmlSinDetalle.includes('Responsable: Sin asignar'), 'La tarjeta debe mostrar "Sin asignar" cuando la entrada no tiene responsable');
+  // "Sin asignar" va resaltado en ámbar (plan-sin-resp) para que se vea al pasar.
+  assert(htmlSinDetalle.includes('Responsable: <span class="plan-sin-resp">Sin asignar</span>'), 'La tarjeta debe mostrar "Sin asignar" resaltado cuando la entrada no tiene responsable');
   assert(htmlSinDetalle.includes('data-editar-plan="e1"'), 'debe existir un botón para editar cada entrada, obtuvo: '+htmlSinDetalle);
   assert(/data-borrar-plan="e1"[^>]*title="Eliminar toda esta entrada del plan/.test(htmlSinDetalle), 'el botón de eliminar la entrada completa debe tener un title distintivo, obtuvo: '+htmlSinDetalle);
   const botonBorrarEntrada = (htmlSinDetalle.match(/<button class="icon-btn" data-borrar-plan="e1"[^>]*>[\s\S]*?<\/button>/)||[])[0] || '';
@@ -12268,6 +12269,35 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // En Semana (con detalle) nunca se pliega, aunque haya muchas entradas.
     ctx.__appstate.plan = {...basePlan, rango:'semana', semanaInicio: ctx.fechaISO(ctx.inicioSemana(new Date())), agregarAbierto: undefined};
     assert(!ctx.renderPlanificacion().includes('plan-dia-toggle'), 'en Semana no debe plegarse por día');
+
+    // Menos ruido: en Período no se repite "Período: …" en cada entrada del mismo período; en
+    // Semana sí se muestra, como siempre.
+    const conCiclo = muchas.map(e=>({...e, ciclo_id:'ciclo-1', ciclo_nombre:'T1 2027'}));
+    ctx.__appstate.plan = {...basePlan, rango:'semana', mesInicio:null, cicloFiltro:'ciclo-1', entradas: conCiclo.slice(0,5), agregarAbierto: undefined};
+    const htmlPeriodo = ctx.renderPlanificacion();
+    assert(!htmlPeriodo.includes('Período: T1 2027') && htmlPeriodo.includes('Responsable: <span class="plan-sin-resp">Sin asignar</span>'), 'en Período no debe repetirse la línea "Período:" y "Sin asignar" va resaltado, obtuvo: '+(htmlPeriodo.match(/Período: [^<]*/g)||[]).join(' | '));
+    ctx.__appstate.plan = {...basePlan, rango:'semana', mesInicio:null, cicloFiltro:'', semanaInicio: ctx.fechaISO(ctx.inicioSemana(new Date())), entradas: conCiclo.slice(0,5).map(e=>({...e, fecha: ctx.fechaISO(new Date())})), agregarAbierto: undefined};
+    assert(ctx.renderPlanificacion().includes('Período: T1 2027'), 'en Semana se sigue mostrando el período de cada entrada');
+
+    // Gráfico de Mes/Período: fechas en dos líneas (día / mes), no "01-sept02-sept…" montado.
+    ctx.__appstate.plan = {...basePlan};
+    const htmlGrafico = ctx.renderPlanificacion();
+    assert(/<tspan[^>]*>01<\/tspan><tspan[^>]*>[a-z]+<\/tspan>/.test(htmlGrafico) && !/>01-[a-z]+</.test(htmlGrafico), 'en Mes las fechas del gráfico van en dos líneas (01 / mes), obtuvo: '+(htmlGrafico.match(/<text[^>]*>[^<]*(<tspan[^>]*>[^<]*<\/tspan>)*/g)||[]).slice(-3).join(' | '));
+
+    // Eliminar con días cerrados: el aviso dice de cuántos días son y cuántas no se ven.
+    ctx.__appstate.plan = {...basePlan, seleccionados: muchas.map(e=>e.id)};
+    confirmRespuesta = false;
+    confirmLlamadas.length = 0;
+    await ctx.confirmarYBorrarSeleccionPlan();
+    const diasSel = new Set(muchas.map(e=>e.fecha)).size;
+    const ocultasSel = muchas.filter(e=>e.fecha!==hoyPlan).length;
+    assert(confirmLlamadas.length===1 && confirmLlamadas[0].includes('¿Eliminar 60 entradas del plan, de '+diasSel+' días?') && confirmLlamadas[0].includes(ocultasSel+' de ellas están en días cerrados que no estás viendo'), 'el aviso de eliminar debe decir cuántas entradas, de cuántos días y cuántas no se ven, obtuvo: '+JSON.stringify(confirmLlamadas));
+    // Sin días plegados, el aviso queda como antes (sin la frase de días cerrados).
+    ctx.__appstate.plan = {...basePlan, entradas: muchas.slice(0,3), seleccionados: muchas.slice(0,3).map(e=>e.id)};
+    confirmLlamadas.length = 0;
+    await ctx.confirmarYBorrarSeleccionPlan();
+    assert(confirmLlamadas.length===1 && !confirmLlamadas[0].includes('días cerrados'), 'sin días plegados no debe hablar de días cerrados, obtuvo: '+JSON.stringify(confirmLlamadas));
+    confirmRespuesta = true;
     ctx.__appstate.plan = planAntes;
   }
 
