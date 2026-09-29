@@ -2188,7 +2188,10 @@ async function buscarSkusLibre(texto){
   const miPeticion = ++buscadorLibrePeticionId;
   const t = sanearTextoFiltro(texto);
   try{
-    const rows = t? await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`) : [];
+    // buscar_skus_lectura (ver migración): misma búsqueda por código o descripción sobre skus_lectura,
+    // ordenada por código y recortada a 8, pero por una función que sí usa los índices de
+    // trigramas -- bajo RLS, PostgREST recorría el maestro completo en cada tecleo (250 ms en Escondida).
+    const rows = t? await rest(`/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor`, {method:'POST', body:{p_texto: t, p_limite: 8}}) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
     state.buscadorLibre = { resultados: sinFilasNoContables(rows||[]), buscando: false };
     actualizarResultadosBuscadorLibreEnPantalla();
@@ -3437,12 +3440,11 @@ async function buscarCandidatosGrupo(){
   const miPeticion = ++candidatosGrupoPeticionId;
   const { candidatoTexto, candidatoBodega } = state.grupos;
   try{
-    let filtro = `/skus?activo=eq.true&select=sku_code,descripcion,bodega&order=sku_code.asc&limit=200`;
+    // Misma consulta de antes (activos, por código/descripción y/o bodega, ordenados por código,
+    // 200 como máximo), por buscar_skus_lectura para que use los índices de trigramas.
     const texto = sanearTextoFiltro(candidatoTexto);
-    if(texto) filtro += `&or=(sku_code.ilike.*${encodeURIComponent(texto)}*,descripcion.ilike.*${encodeURIComponent(texto)}*)`;
     const bodega = sanearTextoFiltro(candidatoBodega);
-    if(bodega) filtro += `&bodega=ilike.*${encodeURIComponent(bodega)}*`;
-    const rows = await rest(filtro) || [];
+    const rows = await rest('/rpc/buscar_skus_lectura?select=sku_code,descripcion,bodega', {method:'POST', body:{p_texto: texto || '', p_bodega: bodega || null, p_limite: 200}}) || [];
     if(miPeticion !== candidatosGrupoPeticionId) return; // respuesta obsoleta: se siguió escribiendo
     const porIdentidad = new Map();
     rows.forEach(r=> porIdentidad.set(`${r.sku_code}::${r.bodega||''}`, r));
@@ -4465,7 +4467,8 @@ async function buscarSkuParaPlan(texto){
   dibujarResultadosSkuPlan();
   try{
     const t = encodeURIComponent(texto);
-    const filas = await rest(`/skus_planificables?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin&or=(sku_code.ilike.*${t}*,descripcion.ilike.*${t}*)&order=sku_code.asc&limit=${PLAN_SKU_BUSQUEDA_LIMITE}`) || [];
+    // skus_planificables por buscar_skus_lectura (p_planificables), para que use los índices de trigramas.
+    const filas = await rest('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin', {method:'POST', body:{p_texto: t, p_limite: PLAN_SKU_BUSQUEDA_LIMITE, p_planificables: true}}) || [];
     if(seq!==planSkuBusqueda.secuencia) return;
     let disponibles = [];
     if(filas.length){
@@ -6388,7 +6391,7 @@ async function buscarSkuBodega(texto){
   try{
     const rows = (proveedorDeLaOrden
       ? await rest('/rpc/buscar_skus_para_orden', {method:'POST', body:{p_texto: t, p_proveedor_id: proveedorDeLaOrden, p_limite: 6}})
-      : await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=8`)) || [];
+      : await rest('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,costo_unitario,tipo_material', {method:'POST', body:{p_texto: t, p_limite: 8}})) || [];
     if(seq!==bodegaBusquedaSecuencia) return;
     // El texto se toma del estado, no del parámetro: entre que salió la consulta y volvió, la
     // persona pudo seguir escribiendo, y reponer el valor viejo le borraría esas teclas.
@@ -14164,7 +14167,7 @@ async function buscarMaterialParaMover(texto){
   }
   setState({mover:{...state.mover, texto, buscando:true, error:null}});
   try{
-    const filas = await rest(`/skus_lectura?activo=eq.true&select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*)&order=sku_code.asc&limit=20`) || [];
+    const filas = await rest('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch', {method:'POST', body:{p_texto: t, p_limite: 20}}) || [];
     if(seq!==moverBusquedaSecuencia) return; // llegó tarde: la persona ya siguió escribiendo
     setState({mover:{...state.mover, resultados:filas, buscando:false, yaBuscado:true, error:null}});
   }catch(e){
