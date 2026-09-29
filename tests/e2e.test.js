@@ -1062,7 +1062,7 @@ async function loguear(page, perfil){
   // ===== El PDF de Buscar lo arma la app con pdf-lib (real, en Chromium) =====
   // El doble de pdf-lib de app.test.js prueba la maqueta; acá se carga la librería de verdad desde
   // app/lib, se incrustan una foto JPEG y el logo PNG de la empresa, y se revisa que salga un PDF
-  // válido con las hojas que corresponden (4 fichas: 2 + 2).
+  // válido con las hojas que corresponden (4 fichas: resumen + 3 + 1).
   {
     const JPG_PRUEBA = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAQABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCpRRRXin0p/9k=', 'base64');
     const LOGO_PRUEBA_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAAgCAYAAADZubxIAAAAiElEQVR4nO3awQmDQBBA0RgsIaklvST12YvWYhGmAwOCET7vXWcPA5+57TC/H9uNrPvVC3AugeMEjhM4TuA4geMEjht/PXhN6z/24KDl89ydu+A4geMEjhM4TuA4geMEjhM4TuA4geMEjhM4TuA4geMEjhv8i25zwXECxwkcJ3CcwHECxwkc9wXWdgerkwIbJgAAAABJRU5ErkJggg==';
@@ -1104,7 +1104,7 @@ async function loguear(page, perfil){
       const texto = pdf.toString('latin1');
       assert(texto.startsWith('%PDF-1.'), 'el archivo empieza como PDF, obtuvo: '+texto.slice(0,10));
       const paginas = (texto.match(/\/Type \/Page(?!s)/g) || []).length;
-      assert(paginas === 2, `4 fichas son 2 hojas (2 + 2), salieron ${paginas}`);
+      assert(paginas === 3, `4 fichas son 3 hojas (resumen + 3 + 1), salieron ${paginas}`);
       assert((texto.match(/\/Subtype \/Image/g) || []).length === 2, 'lleva dos imágenes: la foto de una ficha y el logo (una vez, reutilizado en cada hoja), obtuvo: '+(texto.match(/\/Subtype \/Image/g) || []).length);
       assert(!resultado.exportando, 'al terminar, el botón vuelve a "Exportar a PDF"');
     }

@@ -11365,8 +11365,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
         embedFont: async () => fuentePdfFalsa,
         embedJpg: async (bytes) => { const im = { tipo:'jpg', bytes, scaleToFit:(w,h)=>({width:Math.min(w,400), height:Math.min(h,400)}) }; doc.imagenes.push(im); return im; },
         embedPng: async (bytes) => { const im = { tipo:'png', bytes, scaleToFit:(w,h)=>{ const e=Math.min(w/300,h/100); return {width:300*e, height:100*e}; } }; doc.imagenes.push(im); return im; },
-        addPage(size){ const pg = { size, textos:[], imagenes:[], lineas:0, rects:[],
-          drawText(t,o){ pg.textos.push({t, ...o}); }, drawImage(im,o){ pg.imagenes.push({im, ...o}); }, drawLine(){ pg.lineas++; }, drawRectangle(o){ pg.rects.push(o); } };
+        addPage(size){ const pg = { size, textos:[], imagenes:[], lineas:0, rects:[], porciones:[], circulos:[],
+          drawText(t,o){ pg.textos.push({t, ...o}); }, drawImage(im,o){ pg.imagenes.push({im, ...o}); }, drawLine(){ pg.lineas++; }, drawRectangle(o){ pg.rects.push(o); },
+          drawSvgPath(p,o){ pg.porciones.push({p, ...o}); }, drawCircle(o){ pg.circulos.push(o); } };
           doc.paginas.push(pg); return pg; },
         save: async (o) => { if(pdfFalso.fallarSave) throw new Error('No se pudo escribir el PDF'); doc.opciones = o; pdfFalso.docs.push(doc); return new Uint8Array([0x25,0x50,0x44,0x46]); },
       };
@@ -11379,8 +11380,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const textosDe = pg => pg.textos.map(x=>x.t);
   const skusEn = pg => textosDe(pg).filter(t=>/^SKU-EXP/.test(t));
 
-  // Dos seleccionados: una hoja con título, las 13 filas de cada uno, la foto del que tiene y
-  // "Sin foto" para el nunca contado; se entrega como archivo .pdf con la fecha en el nombre.
+  // Dos seleccionados: la primera hoja lleva el título y el resumen (pedido de Joel, 29/09: lo
+  // que muestra la pantalla -- estado, quién contó -- y la lista de materiales); la segunda, las
+  // 13 filas de cada uno, la foto del que tiene y "Sin foto" para el nunca contado; se entrega
+  // como archivo .pdf con la fecha en el nombre.
   const printInformeElBusqPrevio = makeEl('print-informe'); printInformeElBusqPrevio.innerHTML = '<h1>basura de un informe anterior</h1>';
   printCalled = 0; calls.length = 0; elements['toast-root'].hijos.length = 0;
   await ctx.exportarSeleccionadosBusquedaPDF();
@@ -11388,11 +11391,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(entregasPdf.length===1 && /^InventIA-materiales-\d{4}-\d{2}-\d{2}\.pdf$/.test(entregasPdf[0].nombre) && entregasPdf[0].bytes[0]===0x25, 'se entrega un archivo .pdf con la fecha en el nombre, obtuvo: '+JSON.stringify(entregasPdf.map(e=>e.nombre)));
   assert(JSON.stringify(elements['toast-root'].hijos).includes('PDF listo'), 'avisa que el PDF quedó listo, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
   let doc = ultimoPdf();
-  assert(doc.paginas.length===1 && doc.paginas[0].size[0]===612 && doc.paginas[0].size[1]===792, 'dos fichas caben en una hoja carta (612x792 pt), obtuvo: '+JSON.stringify(doc.paginas.map(p=>p.size)));
+  assert(doc.paginas.length===2 && doc.paginas.every(p=>p.size[0]===612 && p.size[1]===792), 'resumen + dos fichas son dos hojas carta (612x792 pt), obtuvo: '+JSON.stringify(doc.paginas.map(p=>p.size)));
   assert(doc.opciones && doc.opciones.useObjectStreams===false, 'se guarda sin object streams, legible por cualquier visor');
   {
-    const p1 = doc.paginas[0], t = textosDe(p1);
-    assert(t.includes('Detalle de materiales') && t.some(x=>/^2 materiales · Generado /.test(x)), 'la primera hoja lleva el título y el resumen, obtuvo: '+JSON.stringify(t.slice(0,4)));
+    // Primera hoja: título, resumen por estado (torta + leyenda + lectura), quién contó y la
+    // lista de los materiales del documento, sin fichas.
+    const p0 = doc.paginas[0], t0 = textosDe(p0);
+    assert(t0.includes('Detalle de materiales') && t0.some(x=>/^2 materiales · Generado /.test(x)), 'la primera hoja lleva el título y el total, obtuvo: '+JSON.stringify(t0.slice(0,4)));
+    assert(t0.includes('Resumen por estado') && t0.includes('Quién contó') && t0.includes('Materiales en este documento (2)'), 'la primera hoja lleva las tres secciones del resumen, obtuvo: '+JSON.stringify(t0));
+    assert(t0.includes('No contado · 1 (50%)') && t0.includes('Diferencia negativa · 1 (50%)'), 'la leyenda de estado dice cada grupo con su cantidad y porcentaje, obtuvo: '+JSON.stringify(t0.filter(x=>x.includes('%'))));
+    assert(p0.porciones.length===2 && p0.porciones.every(x=>/^M 0 0 L .* A 50 50 0 [01] 1 .* Z$/.test(x.p)), 'la torta de estado se dibuja como porciones (paths SVG) desde el centro, obtuvo: '+JSON.stringify(p0.porciones.map(x=>x.p)));
+    assert(p0.circulos.length===1 && t0.includes('Ana Torres · 1 (100%)'), 'con una sola persona, "Quién contó" es un círculo completo con su leyenda, obtuvo: '+JSON.stringify({circulos:p0.circulos.length, leyenda:t0.filter(x=>x.includes('Ana'))}));
+    assert(t0.some(x=>x.startsWith('De 1 contado, 0 cuadraron (0%).') && x.includes('1 con faltante (100%) · 0 con sobrante (0%).')), 'la lectura del estado va como texto plano, obtuvo: '+JSON.stringify(t0.filter(x=>x.startsWith('De '))));
+    assert(skusEn(p0).length===2 && t0.includes('Diferencia -2') && t0.includes('Nunca contado') && p0.textos.some(x=>x.size===8 && x.t.startsWith('Ana Torres · ')), 'la lista de materiales lleva SKU, descripción, estado y quién contó, obtuvo: '+JSON.stringify(t0));
+    assert(!t0.includes('UBICACIÓN GENERAL'), 'la primera hoja no lleva fichas');
+    assert(t0.includes('Página 1 de 2'), 'la primera hoja se numera, obtuvo: '+JSON.stringify(t0.slice(-3)));
+
+    const p1 = doc.paginas[1], t = textosDe(p1);
+    assert(!t.includes('Detalle de materiales'), 'la segunda hoja no repite el título');
     assert(JSON.stringify(skusEn(p1))===JSON.stringify(['SKU-EXP-1','SKU-EXP-4']), 'las dos fichas, en orden, obtuvo: '+JSON.stringify(skusEn(p1)));
     assert(t.includes('Rodamiento') && t.includes('Pasillo 2') && t.includes('B-04') && t.includes('Nunca contado'), 'cada ficha lleva su detalle, obtuvo: '+JSON.stringify(t));
     const etiquetas = p1.textos.filter(x=>x.size===7 && /^[A-ZÁÉÍÓÚÑ ]+$/.test(x.t) && x.t!=='SIN FOTO');
@@ -11400,7 +11416,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const criticos = p1.textos.filter(x=>x.t==='CRÍTICO');
     assert(criticos.length===2 && criticos.filter(x=>x.color.r>0.7).length===1, 'la etiqueta Crítico va en rojo solo para el material crítico (SKU-EXP-1), obtuvo: '+JSON.stringify(criticos.map(c=>c.color)));
     assert(t.filter(x=>x==='Sin foto').length===1 && p1.imagenes.length===1 && p1.imagenes[0].im.tipo==='jpg', 'SKU-EXP-1 lleva su foto incrustada y SKU-EXP-4 dice "Sin foto", obtuvo: '+JSON.stringify({sinFoto:t.filter(x=>x==='Sin foto').length, imagenes:p1.imagenes.length}));
-    assert(t.includes('Página 1 de 1') && t.some(x=>/^Generado .* · InventIA$/.test(x)), 'pie con la página y la fecha, obtuvo: '+JSON.stringify(t.slice(-3)));
+    assert(t.includes('Página 2 de 2') && t.some(x=>/^Generado .* · InventIA$/.test(x)), 'pie con la página y la fecha, obtuvo: '+JSON.stringify(t.slice(-3)));
     assert(p1.textos.some(x=>x.t==='Ana Torres · '+ctx.fmtFechaHora('2026-08-20T14:00:00Z')), 'Contado por: quién y cuándo en la misma línea, obtuvo: '+JSON.stringify(t.filter(x=>x.includes('Ana Torres'))));
     assert(p1.textos.some(x=>x.t==='—' && x.x>36) , 'el nunca contado deja "—" en Contado por');
   }
@@ -11453,15 +11469,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.exportarSeleccionadosBusquedaPDF();
   doc = ultimoPdf();
   assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([200,0,1200,1200,0,0,400,400]), 'sin transform intenta reducir en el navegador: recorte cuadrado central escalado a 400, obtuvo: '+JSON.stringify(canvasDibujos));
-  assert(doc.paginas[0].imagenes.length===1 && calls.some(c=>c.url.includes('/object/sign/fotos-inventario/a.jpg?token=fake') && !c.url.includes('transform')), 'la ficha igual lleva foto (la original firmada), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(doc.paginas[1].imagenes.length===1 && calls.some(c=>c.url.includes('/object/sign/fotos-inventario/a.jpg?token=fake') && !c.url.includes('transform')), 'la ficha igual lleva foto (la original firmada), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   // Sin canvas (navegador muy viejo), va la original.
   canvasMockDisponible = false; imagenMockCarga = null;
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(ultimoPdf().paginas[0].imagenes.length===1, 'sin canvas ni transform, la foto original igual se incrusta');
+  assert(ultimoPdf().paginas[1].imagenes.length===1, 'sin canvas ni transform, la foto original igual se incrusta');
   // Si la descarga de la foto falla, la ficha dice "Sin foto" y el PDF sale igual.
   fotoBytesFalla = true;
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(ultimoPdf().paginas[0].imagenes.length===0 && textosDe(ultimoPdf().paginas[0]).includes('Sin foto'), 'una foto que no se puede bajar no impide el PDF: la ficha dice "Sin foto"');
+  assert(ultimoPdf().paginas[1].imagenes.length===0 && textosDe(ultimoPdf().paginas[1]).includes('Sin foto'), 'una foto que no se puede bajar no impide el PDF: la ficha dice "Sin foto"');
   fotoBytesFalla = false; fallarFirmaConTransform = false;
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4']};
 
@@ -11508,8 +11524,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     canvasMockDisponible = false; imagenMockCarga = null;
   }
 
-  // Hojas: la primera lleva el título y 2 fichas; las siguientes, 3. El logo de la empresa va
-  // en todas (pedido de Joel). Con 4 seleccionados: 2 + 2; con 6: 2 + 3 + 1.
+  // Hojas: la primera lleva el título y el resumen, sin fichas; las siguientes, 3 fichas. El logo
+  // de la empresa va en todas (pedido de Joel). Con 4 seleccionados: 0 + 3 + 1; con 6: 0 + 3 + 3.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1','sku-exp-4','sku-exp-2','sku-exp-3']};
   const htmlTodosSeleccionados = ctx.renderBuscar();
   assert(htmlTodosSeleccionados.includes('Quitar selección'), 'con los 4 cargados ya seleccionados, el botón debe ofrecer "Quitar selección" en vez de "Seleccionar todos", obtuvo: '+htmlTodosSeleccionados);
@@ -11518,11 +11534,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.exportarSeleccionadosBusquedaPDF();
   {
     const d = ultimoPdf();
-    assert(d.paginas.length===2, 'con 4 seleccionados salen dos hojas, obtuvo: '+d.paginas.length);
-    assert(JSON.stringify(skusEn(d.paginas[0]))==='["SKU-EXP-1","SKU-EXP-4"]' && textosDe(d.paginas[0]).includes('Detalle de materiales'), 'la primera hoja lleva el título y los 2 primeros, obtuvo: '+JSON.stringify(skusEn(d.paginas[0])));
-    assert(JSON.stringify(skusEn(d.paginas[1]))==='["SKU-EXP-2","SKU-EXP-3"]' && !textosDe(d.paginas[1]).includes('Detalle de materiales'), 'la segunda lleva el 3ro y el 4to, sin repetir el título, obtuvo: '+JSON.stringify(skusEn(d.paginas[1])));
+    assert(d.paginas.length===3, 'con 4 seleccionados salen tres hojas (resumen + 3 + 1), obtuvo: '+d.paginas.length);
+    assert(textosDe(d.paginas[0]).includes('Detalle de materiales') && textosDe(d.paginas[0]).includes('Materiales en este documento (4)') && !textosDe(d.paginas[0]).includes('UBICACIÓN GENERAL'), 'la primera hoja lleva el título y el resumen, sin fichas, obtuvo: '+JSON.stringify(textosDe(d.paginas[0])));
+    assert(textosDe(d.paginas[0]).includes('Cuadrado · 2 (50%)') && textosDe(d.paginas[0]).includes('No contado · 1 (25%)') && textosDe(d.paginas[0]).includes('Sin asignar · 2 (67%)') && textosDe(d.paginas[0]).includes('Ana Torres · 1 (33%)'), 'la leyenda de estado y la de quién contó cuentan sobre los 4 exportados, obtuvo: '+JSON.stringify(textosDe(d.paginas[0]).filter(x=>x.includes('%'))));
+    assert(JSON.stringify(skusEn(d.paginas[1]))==='["SKU-EXP-1","SKU-EXP-4","SKU-EXP-2"]' && !textosDe(d.paginas[1]).includes('Detalle de materiales'), 'la segunda lleva las 3 primeras fichas, sin repetir el título, obtuvo: '+JSON.stringify(skusEn(d.paginas[1])));
+    assert(JSON.stringify(skusEn(d.paginas[2]))==='["SKU-EXP-3"]', 'la tercera lleva la 4ta, obtuvo: '+JSON.stringify(skusEn(d.paginas[2])));
     assert(d.paginas.every(p=> p.imagenes.some(i=> i.im.tipo==='png' && i.y > 700)), 'cada hoja lleva el logo de la empresa arriba, obtuvo: '+JSON.stringify(d.paginas.map(p=>p.imagenes.map(i=>i.im.tipo))));
-    assert(textosDe(d.paginas[0]).includes('Página 1 de 2') && textosDe(d.paginas[1]).includes('Página 2 de 2'), 'el pie numera las hojas');
+    assert(textosDe(d.paginas[0]).includes('Página 1 de 3') && textosDe(d.paginas[2]).includes('Página 3 de 3'), 'el pie numera las hojas');
     // Tres fichas por hoja tienen que caber: la última termina por encima del pie.
     const yMin = Math.min(...d.paginas[1].textos.filter(x=>x.size!==7 || !/InventIA|Página/.test(x.t)).map(x=>x.y));
     assert(yMin > 40, 'las fichas no pisan el pie de página, la más baja termina en y='+yMin);
@@ -11531,7 +11549,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.concat(
     ctx.__appstate.busqueda.resultados.filter(r=> r.sku_id==='sku-exp-1' || r.sku_id==='sku-exp-4').map(r=> ({...r, sku_id:r.sku_id+'b', sku_code:r.sku_code+'B'})));
   await ctx.exportarSeleccionadosBusquedaPDF();
-  assert(JSON.stringify(ultimoPdf().paginas.map(p=>skusEn(p).length))==='[2,3,1]', 'con 6 seleccionados las hojas llevan 2, 3 y 1 fichas, obtuvo: '+JSON.stringify(ultimoPdf().paginas.map(p=>skusEn(p).length)));
+  assert(JSON.stringify(ultimoPdf().paginas.slice(1).map(p=>skusEn(p).length))==='[3,3]', 'con 6 seleccionados las hojas de fichas llevan 3 y 3, obtuvo: '+JSON.stringify(ultimoPdf().paginas.map(p=>skusEn(p).length)));
   ctx.__appstate.busqueda.resultados = ctx.__appstate.busqueda.resultados.filter(r=> !r.sku_id.endsWith('b'));
   ctx.__appstate.perfil.empresas.logo = logoAntesFichas;
 
@@ -11543,9 +11561,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, seleccionados:['sku-exp-1']};
   await ctx.exportarSeleccionadosBusquedaPDF();
   {
-    const t = textosDe(ultimoPdf().paginas[0]);
+    const t = textosDe(ultimoPdf().paginas[1]);
     const descripcion = t.filter(x=>x.startsWith('RODAMIENTO') || x.startsWith('CAMION') || /^[A-Z ]+…$/.test(x));
-    const lineasDesc = ultimoPdf().paginas[0].textos.filter(x=> x.size===8.5 && x.x>36 && (x.t.startsWith('RODAMIENTO') || x.t.endsWith('…')) && !x.t.startsWith('B-04'));
+    const lineasDesc = ultimoPdf().paginas[1].textos.filter(x=> x.size===8.5 && x.x>36 && (x.t.startsWith('RODAMIENTO') || x.t.endsWith('…')) && !x.t.startsWith('B-04'));
     assert(lineasDesc.length===2 && lineasDesc[1].t.endsWith('…'), 'la descripción larga usa dos líneas y la segunda termina en "…", obtuvo: '+JSON.stringify(lineasDesc.map(x=>x.t)));
     assert(t.some(x=> x.startsWith('B-04-PASILLO') && x.endsWith('…')) && !t.some(x=> x.endsWith('POSICION-27')), 'un valor largo de una línea se corta con "…", obtuvo: '+JSON.stringify(t.filter(x=>x.startsWith('B-04'))));
     assert(t.includes('Caja ? abierta ?'), 'lo que WinAnsi no sabe escribir sale como "?", obtuvo: '+JSON.stringify(t.filter(x=>x.startsWith('Caja'))));
