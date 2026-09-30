@@ -44,6 +44,8 @@ let filasVencidasGrupoFixture = null; // filas que devuelve la consulta de venci
 let universoZonaGrupoFixture = null; // universo de BGRP/UGRP (ver confirmarVistaPreviaComoPlan)
 let universoZonaSinUbicacionFixture = null; // universo de BSINUBIC (bodega conocida, ubicación IS NULL)
 let universoZonaGiganteLen = 0;
+let crearPlanGrupoRespuesta = null; // respuesta de rpc/crear_plan_grupo (ver confirmarVistaPreviaComoPlan)
+let crearPlanGrupoFalla = null; // mensaje de error simulado de rpc/crear_plan_grupo
 let bodegaRpcFalla = false; // simula sin conexión al registrar un documento de bodega
 let anularBodegaFalla = false; // anular_movimiento_bodega / anular_documento_bodega: simular rechazo del servidor
 let buscadorBodegaFalla = null; // mensaje de error a devolver en el buscador de bodega
@@ -478,6 +480,12 @@ const fakeFetchImpl = async (url, opts) => {
   // los grupos). Solo devuelve filas para los ids que tenga el fixture.
   // resumen_plan_grupos: "Plan generado: 8 entradas · 47 SKU por contar · 14 sep – 9 nov · 3 por
   // venir" (una sola llamada para todos los grupos, en segundo plano tras mostrar la lista).
+  // Creación del plan de un grupo en el servidor (una transacción): devuelve el resumen que la
+  // app muestra en el toast; crearPlanGrupoFalla simula un error de la base (ej. statement timeout).
+  if(path.startsWith('/rest/v1/rpc/crear_plan_grupo')){
+    if(crearPlanGrupoFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:crearPlanGrupoFalla}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(crearPlanGrupoRespuesta || {creadas:0, omitidas:0, omitidos_materiales:0, eliminadas:0}) };
+  }
   if(path.startsWith('/rest/v1/rpc/resumen_plan_grupos')){
     const ids = opts && opts.body ? JSON.parse(opts.body).p_grupo_ids : [];
     const filas = ids.filter(id=>resumenPlanGruposFixture[id]).map(id=>({grupo_id:id, ...resumenPlanGruposFixture[id]}));
@@ -6656,11 +6664,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlSinFrecuencia.includes('btn-calcular-vista-previa'), 'sin frecuencia, no debe ofrecer el botón de calcular vista previa, obtuvo: '+htmlSinFrecuencia);
 
   // ===== Confirmar la vista previa como plan real (confirmarVistaPreviaComoPlan) =====
+  // Desde el 30/09/2026 la creación va en UNA llamada al servidor (rpc/crear_plan_grupo, una sola
+  // transacción): la app manda las entradas ya repartidas (fecha, zona, códigos del grupo) y la
+  // base arma exclusiones y fotos. Antes era entrada por entrada desde el navegador: con datos
+  // reales (Escondida, "Criticos") tardó 10 minutos, el iPad suspendió la página a la mitad y el
+  // plan quedó incompleto sin aviso, y 3 entradas quedaron sin exclusiones cubriendo el bin entero.
+  const rpcCrearPlan = () => calls.filter(c=>c.url.includes('/rpc/crear_plan_grupo'));
+  const cuerpoCrearPlan = () => { const c = rpcCrearPlan()[0]; return c ? JSON.parse(c.opts.body) : null; };
 
   // Zona "sin ubicación específica" (bodega conocida, ubicación IS NULL) -- a pedido de Joel, ya
-  // NO se excluye del plan real: se acota con el filtro explícito ubicacionEsNula (bodega=eq.X&
-  // ubicacion=is.null), nunca con "sin filtro de ubicación" (que traería TODAS las ubicaciones de
-  // esa bodega -- justo la inseguridad que hacía que antes se dejara fuera).
+  // NO se excluye del plan real: viaja con ubicacion_nula=true (el servidor filtra bodega=X y
+  // ubicacion IS NULL), nunca como "sin filtro de ubicación" (que traería TODAS las ubicaciones).
   gruposConteoFixture = [{id:'grupo-sin-ubic', nombre:'Grupo Sin Ubicación', frecuencia_dias:30, activo:true, miembros:[{count:2}]}];
   gruposMiembrosFixture = { 'grupo-sin-ubic': [
     {id:'gsu1', sku_code:'SU-A', bodega:'BSINUBIC'},
@@ -6670,127 +6684,88 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     {sku_code:'SU-A', bodega:'BSINUBIC', ubicacion:null, storage_bin:null, ultimo_conteo_fecha:null},
     {sku_code:'SU-B', bodega:'BSINUBIC', ubicacion:null, storage_bin:null, ultimo_conteo_fecha:null},
   ];
-  universoZonaSinUbicacionFixture = [
-    {id:'usu1', sku_code:'SU-A', bodega:'BSINUBIC', ubicacion:null, storage_bin:null},
-    {id:'usu2', sku_code:'SU-B', bodega:'BSINUBIC', ubicacion:null, storage_bin:null},
-    {id:'usu3', sku_code:'SU-OTRO', bodega:'BSINUBIC', ubicacion:null, storage_bin:null}, // no es del grupo -> debe excluirse
-  ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-sin-ubic');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20; ctx.__appstate.grupos.desdePlan = '2026-10-05';
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2, 'los dos materiales de la zona sin ubicación deben contar como pendientes, obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
 
   confirmRespuesta = true;
   calls.length = 0;
+  crearPlanGrupoRespuesta = {creadas:1, omitidas:0, omitidos_materiales:0, eliminadas:0};
   await ctx.confirmarVistaPreviaComoPlan();
-  assert(calls.some(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BSINUBIC') && c.url.includes('ubicacion=is.null')), 'debe pedir el universo con el filtro explícito de ubicación nula, no un comodín sin filtro de ubicación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const postPlanSinUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
-  assert(!!postPlanSinUbic, 'debe crear la entrada de plan_semanal para la zona sin ubicación específica, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const cuerpoPlanSinUbic = JSON.parse(postPlanSinUbic.opts.body)[0];
-  assert(cuerpoPlanSinUbic.bodega==='BSINUBIC' && cuerpoPlanSinUbic.ubicacion===null && cuerpoPlanSinUbic.ubicacion_nula===true && cuerpoPlanSinUbic.solo_sin_ubicacion===false, 'la entrada debe marcar bodega conocida + ubicación nula explícitamente (no soloSinUbicacion, que exige bodega también nula), obtuvo: '+JSON.stringify(cuerpoPlanSinUbic));
-  const postExclusionSinUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
-  assert(!!postExclusionSinUbic && JSON.parse(postExclusionSinUbic.opts.body).map(f=>f.sku_code).includes('SU-OTRO'), 'debe excluir del universo lo que no es del grupo (SU-OTRO), obtuvo: '+JSON.stringify(postExclusionSinUbic && postExclusionSinUbic.opts.body));
+  assert(rpcCrearPlan().length===1 && !calls.some(c=>c.url.includes('/skus_planificables') || (c.opts && c.opts.method==='POST' && /\/plan_semanal(\?|$)/.test(c.url))), 'debe crear el plan con UNA llamada a rpc/crear_plan_grupo, sin pedir universos ni escribir plan_semanal desde el navegador, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const cuerpoSinUbic = cuerpoCrearPlan();
+  assert(cuerpoSinUbic.p_nota==='Generado automáticamente por el grupo "Grupo Sin Ubicación"' && cuerpoSinUbic.p_reemplazar===false && cuerpoSinUbic.p_limite_exclusiones===3000, 'el RPC debe llevar la nota del grupo, sin reemplazo (no había generación previa) y el tope de exclusiones, obtuvo: '+JSON.stringify(cuerpoSinUbic));
+  assert(cuerpoSinUbic.p_entradas.length===1 && JSON.stringify(cuerpoSinUbic.p_entradas[0])===JSON.stringify({fecha:'2026-10-05', bodega:'BSINUBIC', ubicacion:null, storage_bin:null, solo_sin_ubicacion:false, ubicacion_nula:true, sku_codes:['SU-A','SU-B']}), 'la entrada debe marcar bodega conocida + ubicación nula explícitamente (no solo_sin_ubicacion, que exige bodega también nula), con los códigos del grupo, obtuvo: '+JSON.stringify(cuerpoSinUbic.p_entradas));
 
   // Zona totalmente sin bodega NI ubicación (ambas null): sigue cubierta por el mecanismo YA
-  // EXISTENTE y seguro "SKU sin ubicación" (soloSinUbicacion) -- también se incluye en el plan
-  // real ahora, en vez de omitirse junto con el caso anterior.
+  // EXISTENTE y seguro "SKU sin ubicación" (solo_sin_ubicacion).
   gruposConteoFixture = [{id:'grupo-total-suelto', nombre:'Grupo Total Suelto', frecuencia_dias:30, activo:true, miembros:[{count:1}]}];
   gruposMiembrosFixture = { 'grupo-total-suelto': [{id:'gts1', sku_code:'TS-A', bodega:null}] };
   filasVencidasGrupoFixture = [{sku_code:'TS-A', bodega:null, ubicacion:null, storage_bin:null, ultimo_conteo_fecha:null}];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-total-suelto');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20; ctx.__appstate.grupos.desdePlan = '2026-10-05';
   await ctx.calcularVistaPreviaPlanGrupo();
   confirmRespuesta = true;
   calls.length = 0;
   await ctx.confirmarVistaPreviaComoPlan();
-  const postPlanTotalSuelto = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal') && !c.url.includes('exclusiones'));
-  assert(!!postPlanTotalSuelto, 'debe crear la entrada para la zona totalmente sin bodega ni ubicación, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const cuerpoTotalSuelto = JSON.parse(postPlanTotalSuelto.opts.body)[0];
-  assert(cuerpoTotalSuelto.solo_sin_ubicacion===true && cuerpoTotalSuelto.bodega===null && cuerpoTotalSuelto.ubicacion===null && cuerpoTotalSuelto.ubicacion_nula===false, 'sin bodega ni ubicación debe usar el mecanismo existente soloSinUbicacion, no ubicacionEsNula, obtuvo: '+JSON.stringify(cuerpoTotalSuelto));
+  const cuerpoTotalSuelto = cuerpoCrearPlan().p_entradas[0];
+  assert(cuerpoTotalSuelto.solo_sin_ubicacion===true && cuerpoTotalSuelto.bodega===null && cuerpoTotalSuelto.ubicacion===null && cuerpoTotalSuelto.storage_bin===null && cuerpoTotalSuelto.ubicacion_nula===false && JSON.stringify(cuerpoTotalSuelto.sku_codes)==='["TS-A"]', 'sin bodega ni ubicación debe usar el mecanismo existente solo_sin_ubicacion, no ubicacion_nula, obtuvo: '+JSON.stringify(cuerpoTotalSuelto));
 
   // Camino real: dos materiales del grupo (VENC-A, VENC-B) vencidos en BGRP/UGRP, cada uno en su
-  // propio storage bin (A-01/A-02), compartido con otro material que NO es del grupo (OTRO-1 en
-  // el mismo bin que VENC-A, OTRO-2 en el mismo bin que VENC-B) -- estos últimos deben quedar
-  // excluidos, no contados dentro del grupo. Bug real con datos de Escondida: antes se pedía el
-  // universo de TODA la bodega+ubicación para armar la exclusión (inviable si esa zona tiene
-  // decenas de miles de SKU, ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO) -- ahora cada material del
-  // grupo genera su propia entrada acotada a SU storage bin, así que la exclusión queda acotada a
-  // lo que comparte ESE bin, no a lo que comparte la bodega+ubicación entera.
-  gruposConteoFixture = [{id:'grupo-plan-real', nombre:'Grupo Plan Real', frecuencia_dias:30, activo:true, miembros:[{count:2}]}];
+  // propio storage bin (A-01/A-02): una entrada POR bin, cada una con sus propios códigos (el
+  // servidor excluye lo demás de ESE bin, no de toda la bodega+ubicación -- bug real de
+  // B501/0100 con 32.711 SKU, ver LIMITE_EXCLUSIONES_PLAN_AUTOMATICO). Un material del grupo SIN
+  // bin cargado (VENC-C) va en su propia entrada de toda la bodega+ubicación.
+  gruposConteoFixture = [{id:'grupo-plan-real', nombre:'Grupo Plan Real', frecuencia_dias:30, activo:true, miembros:[{count:3}]}];
   gruposMiembrosFixture = { 'grupo-plan-real': [
     {id:'gm1', sku_code:'VENC-A', bodega:'BGRP'},
     {id:'gm2', sku_code:'VENC-B', bodega:'BGRP'},
+    {id:'gm3', sku_code:'VENC-C', bodega:'BGRP'},
   ]};
   filasVencidasGrupoFixture = [
     {sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01', ultimo_conteo_fecha:null},
     {sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02', ultimo_conteo_fecha:null},
-  ];
-  universoZonaGrupoFixture = [
-    {id:'u1', sku_code:'VENC-A', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01'},
-    // OTRO-1 con DOS filas (dos batch) en el mismo bin -- bug real reportado por Joel: sin
-    // deduplicar por código, el POST a plan_semanal_exclusiones mandaba 'OTRO-1' dos veces y
-    // violaba la restricción única (plan_id, sku_code), tirando abajo esa entrada entera.
-    {id:'u1b', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01', batch:'LOTE-1'},
-    {id:'u1c', sku_code:'OTRO-1', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-01', batch:'LOTE-2'},
-    {id:'u2', sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
-    {id:'u2b', sku_code:'OTRO-2', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02'},
+    // Mismo código con dos batch en el mismo bin: en la entrada va UNA vez (sku_codes es un set).
+    {sku_code:'VENC-B', bodega:'BGRP', ubicacion:'UGRP', storage_bin:'A-02', batch:'LOTE-2', ultimo_conteo_fecha:null},
+    {sku_code:'VENC-C', bodega:'BGRP', ubicacion:'UGRP', storage_bin:null, ultimo_conteo_fecha:null},
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-plan-real');
   ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20; ctx.__appstate.grupos.desdePlan = '2026-10-05';
   await ctx.calcularVistaPreviaPlanGrupo();
-  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2 && ctx.__appstate.grupos.vistaPreviaDias.length===1 && ctx.__appstate.grupos.vistaPreviaDias[0].fecha==='2026-10-05', 'la vista previa de este escenario debe dar 2 materiales en 1 día, el elegido en "Desde", obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaDias));
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===4 && ctx.__appstate.grupos.vistaPreviaDias.length===1 && ctx.__appstate.grupos.vistaPreviaDias[0].fecha==='2026-10-05', 'la vista previa de este escenario debe dar 4 filas en 1 día, el elegido en "Desde", obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaDias));
 
   // Si la persona cancela el confirm(), no debe escribirse nada.
   confirmRespuesta = false;
   calls.length = 0;
   await ctx.confirmarVistaPreviaComoPlan();
-  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'al cancelar el confirm(), no debe crear ninguna entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(!rpcCrearPlan().length, 'al cancelar el confirm(), no debe llamar al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.vistaPreviaDias!==null, 'al cancelar, la vista previa calculada debe seguir disponible (no se descarta), obtuvo: '+ctx.__appstate.grupos.vistaPreviaDias);
 
-  // Confirmando de verdad: debe pedir el universo de cada storage bin (no el de toda la zona) y
-  // crear DOS entradas de plan_semanal (una por bin), sin responsable, con nota indicando el
-  // grupo, cada una excluyendo solo al material que NO es del grupo en SU bin -- nunca a
-  // VENC-A/VENC-B, y nunca mezclando la exclusión de un bin con la del otro.
+  // Confirmando de verdad: una sola llamada con TRES entradas (A-01, A-02 y la de VENC-C sin bin),
+  // cada una con los códigos del grupo que cubre, en la fecha del día de la vista previa, y la
+  // pantalla avisa que está creando mientras espera.
   confirmRespuesta = true;
   calls.length = 0;
-  // Barra de progreso (a pedido de Joel: con un grupo grande, como "Críticos" en producción con
-  // cientos de storage bin, esto puede tardar varios minutos sin nada más que "Creando…" en
-  // pantalla). El total se precalcula ANTES del primer await (2 bins acá: A-01 y A-02), así que
-  // debe verse ya listo apenas se llama, sin esperar nada -- y limpio (null) al terminar.
+  crearPlanGrupoRespuesta = {creadas:3, omitidas:0, omitidos_materiales:0, eliminadas:0};
   const promesaConfirmar = ctx.confirmarVistaPreviaComoPlan();
-  assert(ctx.__appstate.grupos.progresoPlan && ctx.__appstate.grupos.progresoPlan.total===2 && ctx.__appstate.grupos.progresoPlan.hechos===0, 'el total de pasos (2 storage bin) debe quedar precalculado desde el arranque, antes de crear la primera entrada, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.progresoPlan));
-  const htmlMientrasCrea = ctx.renderGrupos();
-  assert(htmlMientrasCrea.includes('0 de 2 entradas') && htmlMientrasCrea.includes('Creando…'), 'mientras crea, debe mostrar la barra de progreso con el conteo actual, obtuvo: '+htmlMientrasCrea);
+  assert(ctx.__appstate.grupos.generandoPlan===true && ctx.renderGrupos().includes('Creando el plan en el servidor'), 'mientras espera al servidor debe avisar que está creando, obtuvo: '+ctx.__appstate.grupos.generandoPlan);
   await promesaConfirmar;
-  assert(ctx.__appstate.grupos.progresoPlan===null, 'al terminar, la barra de progreso debe limpiarse, obtuvo: '+ctx.__appstate.grupos.progresoPlan);
-  assert(/Grupo Plan Real/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe mencionar el nombre del grupo, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
-  // Perf (#140): el universo de los DOS bins de la zona se pide en UNA sola consulta (in.(...)),
-  // solo con id/código/bin, y no se vuelve a pedir para la foto de cada entrada -- antes eran dos
-  // consultas de 15 columnas por bin (con 322 entradas reales, cerca de 1.000 viajes al servidor).
-  const universosZona = calls.filter(c=>c.url.includes('/skus_planificables') && c.url.includes('bodega=eq.BGRP') && c.url.includes('ubicacion=eq.UGRP'));
-  assert(universosZona.length===1 && decodeURIComponent(universosZona[0].url).includes('storage_bin=in.("A-01","A-02")') && universosZona[0].url.includes('select=id,sku_code,storage_bin&'), 'debe pedir el universo de los bins A-01 y A-02 en UNA consulta in.(...) con solo id/código/bin (y no repetirla para la foto), obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/skus_planificables')).map(c=>c.url)));
-  const postsPlanGrupo = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal'));
-  assert(postsPlanGrupo.length===2, 'debe crear una entrada de plan_semanal POR storage bin (no una para toda la zona), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const cuerposPlanGrupo = postsPlanGrupo.map(c=>JSON.parse(c.opts.body)[0]);
-  const binsCreados = cuerposPlanGrupo.map(c=>c.storage_bin).sort();
-  assert(JSON.stringify(binsCreados)===JSON.stringify(['A-01','A-02']), 'las dos entradas deben quedar acotadas a los storage bin A-01 y A-02, obtuvo: '+JSON.stringify(binsCreados));
-  cuerposPlanGrupo.forEach(c=>{
-    assert(c.bodega==='BGRP' && c.ubicacion==='UGRP', 'cada entrada debe quedar en la zona correcta, obtuvo: '+JSON.stringify(c));
-    assert(c.responsable_id===null, 'la entrada generada NO debe traer responsable asignado -- el reparto es manual, a pedido de Joel, obtuvo: '+JSON.stringify(c));
-    assert(/Grupo Plan Real/.test(c.nota||''), 'la nota debe indicar que viene del grupo, para que quede trazable en Planificación, obtuvo: '+JSON.stringify(c));
-    assert(c.fecha==='2026-10-05', 'la fecha de cada entrada debe ser la del día que le tocó en la vista previa (el "Desde" elegido), no el lunes de esta semana, obtuvo: '+c.fecha);
+  assert(ctx.__appstate.grupos.generandoPlan===false, 'al terminar, debe dejar de avisar que está creando');
+  assert(/Grupo Plan Real/.test(confirmLlamadas[confirmLlamadas.length-1]) && /3 entradas/.test(confirmLlamadas[confirmLlamadas.length-1]) && /4 materiales/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe mencionar el grupo, las 3 entradas y los 4 materiales, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
+  assert(rpcCrearPlan().length===1, 'debe ser UNA sola llamada al servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const entradasReal = cuerpoCrearPlan().p_entradas;
+  const porBinReal = Object.fromEntries(entradasReal.map(e=>[e.storage_bin===null ? '(sin bin)' : e.storage_bin, e]));
+  assert(entradasReal.length===3 && JSON.stringify(Object.keys(porBinReal).sort())===JSON.stringify(['(sin bin)','A-01','A-02']), 'debe mandar una entrada POR storage bin más una para el material sin bin, obtuvo: '+JSON.stringify(entradasReal));
+  assert(JSON.stringify(porBinReal['A-01'].sku_codes)==='["VENC-A"]' && JSON.stringify(porBinReal['A-02'].sku_codes)==='["VENC-B"]' && JSON.stringify(porBinReal['(sin bin)'].sku_codes)==='["VENC-C"]', 'cada entrada lleva solo los códigos del grupo en SU bin (VENC-B una sola vez aunque tenga dos batch), obtuvo: '+JSON.stringify(entradasReal));
+  entradasReal.forEach(e=>{
+    assert(e.bodega==='BGRP' && e.ubicacion==='UGRP' && e.solo_sin_ubicacion===false && e.ubicacion_nula===false, 'cada entrada debe quedar en la zona correcta, obtuvo: '+JSON.stringify(e));
+    assert(e.fecha==='2026-10-05', 'la fecha de cada entrada debe ser la del día que le tocó en la vista previa (el "Desde" elegido), no el lunes de esta semana, obtuvo: '+e.fecha);
   });
-  const postsExclusionGrupo = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
-  assert(postsExclusionGrupo.length===2, 'debe excluir por separado en cada bin lo que no pertenece al grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  postsExclusionGrupo.forEach(c=>{
-    const codigos = JSON.parse(c.opts.body).map(f=>f.sku_code);
-    assert(codigos.length===1 && (codigos[0]==='OTRO-1' || codigos[0]==='OTRO-2'), 'cada bin debe excluir exactamente a su propio material ajeno al grupo (uno por bin), nunca a VENC-A/VENC-B, obtuvo: '+JSON.stringify(codigos));
-  });
-  const todosExcluidosGrupo = postsExclusionGrupo.flatMap(c=>JSON.parse(c.opts.body).map(f=>f.sku_code)).sort();
-  assert(JSON.stringify(todosExcluidosGrupo)===JSON.stringify(['OTRO-1','OTRO-2']), 'entre ambos bines deben excluirse exactamente OTRO-1 y OTRO-2, obtuvo: '+JSON.stringify(todosExcluidosGrupo));
+  assert(!('responsable_id' in entradasReal[0]), 'la entrada no lleva responsable: el reparto es manual (lo pone el servidor en null)');
 
   // Tras confirmar, la vista previa se limpia (para no volver a crearla dos veces sin recalcular).
   assert(ctx.__appstate.grupos.vistaPreviaDias===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaDias));
@@ -6798,9 +6773,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Regenerar el plan de un grupo que YA tiene entradas de una generación anterior (bug real
   // reportado por Joel: regeneró el plan automático de "Críticos" más de una vez y Planificación
   // mostró el doble de SKU a contar para el mismo día que el Calendario -- las entradas viejas
-  // convivían con las nuevas, cada una sumando su propio universo). confirmarVistaPreviaComoPlan
-  // debe detectar las entradas previas de este grupo (mismo nota) y, si la persona lo confirma,
-  // eliminarlas ANTES de crear las nuevas -- nunca dejarlas conviviendo.
+  // convivían con las nuevas). confirmarVistaPreviaComoPlan avisa cuántas hay y, si la persona
+  // confirma, el servidor las elimina en la MISMA transacción que crea las nuevas (p_reemplazar).
   entradasPlanGrupoFixture = {'Grupo Plan Real': 3}; // simula 3 entradas de una generación anterior
   // grupo.entradasPlan (usado por confirmarVistaPreviaComoPlan para detectar la generación previa)
   // viene de cargarGrupos, no de calcularVistaPreviaPlanGrupo -- hay que refrescarlo, igual que
@@ -6809,16 +6783,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.abrirGrupo('grupo-plan-real');
   ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo(); // la vista previa se limpió al confirmar arriba -- recalcularla
-  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2, 'la vista previa recalculada debe volver a dar 2 materiales, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===4, 'la vista previa recalculada debe volver a dar 4 filas, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
   confirmRespuesta = true;
   calls.length = 0;
+  crearPlanGrupoRespuesta = {creadas:3, omitidas:0, omitidos_materiales:0, eliminadas:3};
   await ctx.confirmarVistaPreviaComoPlan();
   assert(/3 entrada/.test(confirmLlamadas[confirmLlamadas.length-1]) && /generación anterior/.test(confirmLlamadas[confirmLlamadas.length-1]), 'el confirm() debe avisar cuántas entradas de una generación anterior ya existen, obtuvo: '+confirmLlamadas[confirmLlamadas.length-1]);
-  const idxDelete = calls.findIndex(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?nota=eq.') && decodeURIComponent(c.url).includes('Grupo Plan Real'));
-  const idxPrimerPost = calls.findIndex(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal'));
-  assert(idxDelete>=0, 'debe eliminar las entradas de la generación anterior del grupo antes de crear las nuevas, obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
-  assert(idxPrimerPost>idxDelete, 'el borrado de las entradas previas debe ocurrir ANTES de crear las nuevas (nunca conviviendo ambas), obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
-  assert(calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal')).length===2, 'debe seguir creando las 2 entradas nuevas normalmente, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(cuerpoCrearPlan().p_reemplazar===true && !calls.some(c=>c.opts && c.opts.method==='DELETE'), 'con generación previa, el reemplazo viaja al servidor (p_reemplazar) y no se borra nada desde el navegador, obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
 
   // Si la persona cancela el confirm() al ver el aviso de entradas previas, no debe borrar NI crear
   // nada -- ni las viejas conviviendo con nada nuevo, ni perder las viejas sin generar las nuevas.
@@ -6827,36 +6798,48 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   confirmRespuesta = false;
   calls.length = 0;
   await ctx.confirmarVistaPreviaComoPlan();
-  assert(!calls.some(c=>c.opts && (c.opts.method==='DELETE' || c.opts.method==='POST') && c.url.includes('/plan_semanal')), 'al cancelar el confirm() con entradas previas, no debe borrar ni crear nada, obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
+  assert(!rpcCrearPlan().length && !calls.some(c=>c.opts && (c.opts.method==='DELETE' || c.opts.method==='POST') && c.url.includes('/plan_semanal')), 'al cancelar el confirm() con entradas previas, no debe borrar ni crear nada, obtuvo: '+JSON.stringify(calls.map(c=>({m:c.opts&&c.opts.method, u:c.url}))));
   entradasPlanGrupoFixture = {};
 
-  // Tope de seguridad LIMITE_EXCLUSIONES_PLAN_AUTOMATICO: un material del grupo SIN storage bin
-  // cargado, en una bodega+ubicación con un universo gigante (3005 SKU, más que el límite de
-  // 3000) -- la entrada debe OMITIRSE (avisando) en vez de crearse con una lista de exclusión tan
-  // grande que después no se pueda ni leer (ver el bug real de B501/0100 con 32.711 SKU y el 431
-  // "Request Header Fields Too Large" confirmado en terreno).
-  gruposConteoFixture = [{id:'grupo-zona-gigante', nombre:'Grupo Zona Gigante', frecuencia_dias:30, activo:true, miembros:[{count:1}]}];
-  gruposMiembrosFixture = { 'grupo-zona-gigante': [
-    {id:'gm1', sku_code:'GRUPOGIGANTE-1', bodega:'BHUGE'},
-  ]};
-  filasVencidasGrupoFixture = [
-    {sku_code:'GRUPOGIGANTE-1', bodega:'BHUGE', ubicacion:'UHUGE', storage_bin:null, ultimo_conteo_fecha:null},
-  ];
-  universoZonaGiganteLen = 3005;
-  await ctx.cargarGrupos();
-  await ctx.abrirGrupo('grupo-zona-gigante');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
-  await ctx.calcularVistaPreviaPlanGrupo();
-  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===1, 'la vista previa debe mostrar el único material vencido del grupo, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
-  confirmRespuesta = true;
-  calls.length = 0;
-  const toastRootGigante = elements['toast-root'];
-  const toastsAntesGigante = toastRootGigante ? toastRootGigante.hijos.length : 0;
-  await ctx.confirmarVistaPreviaComoPlan();
-  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/plan_semanal')), 'con un universo a excluir por encima del límite de seguridad, NO debe crearse la entrada (quedaría inservible al leerla de vuelta), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones')), 'tampoco debe intentar escribir la lista de exclusión gigante, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  const toastsGigante = toastRootGigante.hijos.slice(toastsAntesGigante);
-  assert(toastsGigante.length===1 && toastsGigante[0].className==='toast warn' && /1 material/.test(toastsGigante[0].textContent), 'debe avisar (warn) que el material quedó sin planificar automáticamente, obtuvo: '+JSON.stringify(toastsGigante.map(t=>({clase:t.className, texto:t.textContent}))));
+  // Tope de seguridad LIMITE_EXCLUSIONES_PLAN_AUTOMATICO (lo aplica el servidor): la respuesta
+  // trae cuántos materiales quedaron sin planificar por eso, y la app lo avisa como advertencia,
+  // sin esconderlo dentro de un "Plan generado" a secas.
+  {
+    await ctx.calcularVistaPreviaPlanGrupo();
+    confirmRespuesta = true;
+    calls.length = 0;
+    crearPlanGrupoRespuesta = {creadas:2, omitidas:1, omitidos_materiales:1, eliminadas:0};
+    const toastRootGigante = elements['toast-root'];
+    const toastsAntesGigante = toastRootGigante ? toastRootGigante.hijos.length : 0;
+    await ctx.confirmarVistaPreviaComoPlan();
+    const toastsGigante = toastRootGigante.hijos.slice(toastsAntesGigante);
+    assert(toastsGigante.length===1 && toastsGigante[0].className==='toast warn' && /2 entradas creadas/.test(toastsGigante[0].textContent) && /1 material no se pudo planificar/.test(toastsGigante[0].textContent), 'debe avisar (warn) cuántas entradas se crearon y que un material quedó sin planificar automáticamente, obtuvo: '+JSON.stringify(toastsGigante.map(t=>({clase:t.className, texto:t.textContent}))));
+  }
+
+  // Si el servidor falla, la transacción entera se revirtió: la app lo dice como error (no como
+  // estado vacío ni plan a medias), deja la vista previa para reintentar y no queda "Creando…".
+  {
+    await ctx.calcularVistaPreviaPlanGrupo();
+    confirmRespuesta = true;
+    calls.length = 0;
+    crearPlanGrupoRespuesta = null;
+    crearPlanGrupoFalla = 'canceling statement due to statement timeout';
+    const toastRootFalla = elements['toast-root'];
+    const toastsAntesFalla = toastRootFalla.hijos.length;
+    await ctx.confirmarVistaPreviaComoPlan();
+    crearPlanGrupoFalla = null;
+    const toastsFalla = toastRootFalla.hijos.slice(toastsAntesFalla);
+    assert(toastsFalla.length===1 && toastsFalla[0].className==='toast err' && /No se creó el plan/.test(toastsFalla[0].textContent) && /statement timeout/.test(toastsFalla[0].textContent), 'un error del servidor debe verse como error, con su mensaje, obtuvo: '+JSON.stringify(toastsFalla.map(t=>({clase:t.className, texto:t.textContent}))));
+    assert(ctx.__appstate.grupos.generandoPlan===false && ctx.__appstate.grupos.vistaPreviaDias!==null, 'tras el error debe soltar "Creando…" y conservar la vista previa para reintentar, obtuvo: '+JSON.stringify({generando:ctx.__appstate.grupos.generandoPlan, previa:!!ctx.__appstate.grupos.vistaPreviaDias}));
+  }
+
+  // entradasParaCrearPlanGrupo: la zona sin bodega asignada pero con ubicación (skus.bodega IS
+  // NULL) viaja con bodega '' -- convención de la app para distinguirla del comodín "cualquier
+  // bodega" (ver filtroBodega); el servidor la traduce a bodega IS NULL.
+  {
+    const entradasVacia = ctx.entradasParaCrearPlanGrupo([{fecha:'2026-10-06', materiales:2, zonas:[{bodega:null, ubicacion:'PATIO', materiales:[{sku_code:'PV-1', storage_bin:'P-1'}, {sku_code:'PV-2', storage_bin:null}]}]}]);
+    assert(entradasVacia.length===2 && entradasVacia.every(e=>e.bodega==='' && e.ubicacion==='PATIO' && e.fecha==='2026-10-06') && entradasVacia.map(e=>e.storage_bin).join(',')==='P-1,', 'sin bodega asignada pero con ubicación, cada entrada lleva bodega vacía y su bin (o ninguno), obtuvo: '+JSON.stringify(entradasVacia));
+  }
 
   // ===== Seguimiento del grupo (cargarSeguimientoGrupo) =====
   // A pedido de Joel: cada grupo tiene su propio ciclo cerrado (fecha de inicio propia + su
