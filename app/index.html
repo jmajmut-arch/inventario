@@ -756,7 +756,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], pausados:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorDia:2, ritmoPorHora:15, diasSemanaPlan:[true,true,true,true,true,true,true], desdePlan:'', vistaPreviaCalculando:false, vistaPreviaDias:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, progresoPlan:null, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
+  grupos: { cargado:false, cargando:false, lista:[], pausados:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorDia:2, ritmoPorHora:15, diasSemanaPlan:[true,true,true,true,true,true,true], desdePlan:'', vistaPreviaCalculando:false, vistaPreviaDias:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -930,6 +930,9 @@ const UMBRAL_ABORTAR_GUARDADO_MS = 15000;
 // su error, en vez de abortar antes desde el cliente y mostrar "No se pudo conectar" (bug real
 // reportado por Joel al agregar ~900 SKU al plan).
 const TIMEOUT_UNIVERSO_PLAN_MS = 25000;
+// Crear el plan de un grupo en el servidor (crear_plan_grupo): ~3 s con 304 entradas reales; el
+// statement_timeout del rol es 20 s, así que 30 s del lado del cliente alcanza para ver el error real.
+const TIMEOUT_CREAR_PLAN_GRUPO_MS = 30000;
 // Períodos de conteo: si alguien pre-crea un período futuro, activar_periodos_programados()
 // (cron diario) lo activa solo en cuanto llega su fecha de inicio -- lo que de paso cierra el
 // actual y genera su informe. Este umbral es solo para el aviso previo en renderCiclos: cuántos
@@ -2021,7 +2024,7 @@ async function ingresarConCodigo(email, codigo){
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
   reiniciarBannerMfa(); // el próximo ingreso vuelve a mostrar el aviso de MFA sus 15 segundos
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -3856,33 +3859,56 @@ function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
   return semanas;
 }
 
-// Convierte la vista previa YA CALCULADA en entradas reales de plan_semanal -- una por zona (o
-// fragmento de zona, si armarVistaPreviaSemanasGrupo la partió entre semanas) reutilizando
-// crearPlanEntrada (misma función que usa el formulario manual de Planificación, con el mismo
-// refresco de plan/calendario) en vez de escribir la tabla a mano. Cubre SOLO los materiales del
-// grupo en esa zona: se pide el universo completo (skusDeUbicacion, la misma función que ya usa
-// Planificación) y se excluye todo lo que NO sea del grupo -- igual mecánica que "Storage bin"
-// con SKU puntuales en el formulario manual (ver el submit de #form-plan). Sin responsable
-// asignado -- a pedido de Joel, el reparto entre personas queda manual.
+// Convierte la vista previa YA CALCULADA en entradas reales de plan_semanal, en UNA llamada al
+// servidor (crear_plan_grupo, ver supabase/migrations/20260930_crear_plan_grupo.sql): la app manda
+// la lista de entradas (fecha, zona y los códigos del grupo que cubre cada una) y la base crea
+// filas, exclusiones y fotos en una sola transacción. Historia: hasta el 30/09/2026 esto se hacía
+// entrada por entrada desde el navegador (la fila, después sus exclusiones, después su foto): con
+// datos reales tardaba unos 10 minutos y pasaron dos cosas en Escondida el 29/09: el iPad suspendió
+// la página a los 6 minutos y el plan quedó incompleto sin aviso (327 materiales afuera), y en 3
+// entradas falló el paso de exclusiones después de crear la fila, que quedó viva cubriendo el bin
+// completo (N1E-340-A1: 1 crítico, 60 SKU). Ahora entra todo o no entra nada, en ~3 s (304
+// entradas medidas con el plan real de Criticos).
 //
-// Bug real encontrado con datos de Escondida: un grupo con pocos materiales (ej. "5S", 9 SKU)
-// puede tener todos esos materiales desperdigados en una bodega+ubicación con decenas de miles de
-// SKU (B501/0100 tiene 32.711 activos). Excluir "todo lo que no sea del grupo" ahí generaba una
-// lista de más de 30.000 códigos -- que después, al leerla de vuelta en Contar, Supabase la
-// rechazaba con 431 "Request Header Fields Too Large" (confirmado en terreno). La entrada se creaba
-// pero quedaba inservible. Fix: cuando la bodega+ubicación son conocidas, la entrada se acota al
-// storage bin puntual de cada material (igual mecánica que ya usa "Storage bin" en el formulario
-// manual) -- ahí el universo a excluir es solo lo que comparte ESE bin (decenas, no decenas de
-// miles). Los pocos materiales sin storage bin cargado siguen la lógica anterior (exclusión sobre
-// toda la bodega+ubicación), con un tope de seguridad (LIMITE_EXCLUSIONES_PLAN_AUTOMATICO): si el
-// universo a excluir lo supera, esa entrada se omite (avisando) en vez de crear una que después no
-// se pueda leer.
+// Qué cubre cada entrada (misma regla de siempre): sin bodega ni ubicación -> "SKU sin ubicación"
+// (solo_sin_ubicacion); bodega conocida sin ubicación específica -> ubicacion_nula (sin ese filtro
+// explícito, pedir la bodega traería TODAS sus ubicaciones); bodega + ubicación conocidas -> una
+// entrada POR storage bin (bug real: acotar la exclusión al bin y no a la bodega+ubicación, que en
+// B501/0100 son 32.711 SKU y daba 431 "Request Header Fields Too Large" al leerla de vuelta). Los
+// materiales del grupo sin storage bin cargado van en una entrada de toda la bodega+ubicación. El
+// tope LIMITE_EXCLUSIONES_PLAN_AUTOMATICO lo aplica el servidor: la entrada cuya exclusión lo
+// supere se omite y se avisa. bodega null (skus.bodega IS NULL) viaja como '' -- convención de
+// esta app para "el grupo sin bodega asignada" (ver filtroBodega/BODEGA_VACIA). Sin responsable
+// -- a pedido de Joel, el reparto entre personas queda manual.
+function entradasParaCrearPlanGrupo(dias){
+  const entradas = [];
+  const codigos = m => [...new Set(m.map(x=>x.sku_code))];
+  (dias||[]).forEach(dia => dia.zonas.forEach(z=>{
+    const bodegaConocida = z.bodega!==null && z.bodega!==undefined;
+    const bodegaParaZona = bodegaConocida ? z.bodega : '';
+    const sinBodegaNiUbicacion = !bodegaConocida && !z.ubicacion;
+    const ubicacionEsNula = bodegaConocida && !z.ubicacion;
+    if(sinBodegaNiUbicacion || ubicacionEsNula){
+      entradas.push({fecha: dia.fecha, bodega: sinBodegaNiUbicacion ? null : bodegaParaZona, ubicacion: null, storage_bin: null,
+        solo_sin_ubicacion: sinBodegaNiUbicacion, ubicacion_nula: ubicacionEsNula, sku_codes: codigos(z.materiales)});
+      return;
+    }
+    const porBin = new Map();
+    z.materiales.forEach(m=>{ const bin = m.storage_bin || ''; if(!porBin.has(bin)) porBin.set(bin, []); porBin.get(bin).push(m); });
+    for(const [bin, materialesBin] of porBin){
+      entradas.push({fecha: dia.fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storage_bin: bin || null,
+        solo_sin_ubicacion: false, ubicacion_nula: false, sku_codes: codigos(materialesBin)});
+    }
+  }));
+  return entradas;
+}
+
 async function confirmarVistaPreviaComoPlan(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
   if(!grupo || !g.vistaPreviaDias || !g.vistaPreviaDias.length || !perfilCargado()) return;
 
-  const totalZonas = g.vistaPreviaDias.reduce((n,s)=>n+s.zonas.length, 0);
+  const entradas = entradasParaCrearPlanGrupo(g.vistaPreviaDias);
   const totalMateriales = g.vistaPreviaDias.reduce((n,s)=>n+s.materiales, 0);
   const nota = `Generado automáticamente por el grupo "${grupo.nombre}"`;
   // Si ya existen entradas de una generación anterior de este mismo grupo, avisar y ofrecer
@@ -3891,129 +3917,31 @@ async function confirmarVistaPreviaComoPlan(){
   // conviviendo con las nuevas -- ambas cubren el mismo SKU, así que Planificación (que suma el
   // universo por entrada) muestra el doble de lo que corresponde para ese día, aunque el
   // Calendario siga mostrando el pendiente correcto (deduplica por SKU en el servidor). No se
-  // borra nada sin preguntar: si la persona cancela acá, no se crea nada nuevo tampoco, para no
-  // dejarlas conviviendo con las viejas. Reusa grupo.entradasPlan (ya cargado por cargarGrupos, ver
-  // más arriba) en vez de otro viaje al servidor -- se llega acá siempre desde la lista de Grupos,
-  // así que ya viene fresco.
+  // borra nada sin preguntar: si la persona cancela acá, no se crea nada nuevo tampoco. El borrado
+  // lo hace el servidor en la misma transacción que crea las nuevas (p_reemplazar): si algo falla,
+  // las viejas siguen ahí. Reusa grupo.entradasPlan (ya cargado por cargarGrupos) en vez de otro
+  // viaje al servidor -- se llega acá siempre desde la lista de Grupos, así que ya viene fresco.
   const previas = grupo.entradasPlan || 0;
   const avisoPrevias = previas
     ? ` Ya existen ${previas} entrada${previas===1?'':'s'} de una generación anterior de este grupo -- se eliminarán antes de crear las nuevas, para no duplicar el SKU a contar.`
     : '';
-  if(!confirm(`¿Crear ${totalZonas} entrada${totalZonas===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})? Quedan sin responsable asignado -- lo repartes tú después.${avisoPrevias}`)) return;
-  if(previas){
-    try{ await rest(`/plan_semanal?nota=eq.${encodeURIComponent(nota)}`, {method:'DELETE', prefer:'return=minimal'}); }
-    catch(e){ toast('No se pudieron eliminar las entradas anteriores: '+e.message, 'err'); return; }
-  }
+  if(!confirm(`¿Crear ${entradas.length} entrada${entradas.length===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})? Quedan sin responsable asignado -- lo repartes tú después.${avisoPrevias}`)) return;
 
-  // Barra de progreso (a pedido de Joel: con un grupo grande -- ej. "Críticos" con cientos de
-  // storage bin distintos -- esto tarda varios minutos, uno por uno, y sin nada en pantalla más
-  // que "Creando…" parece trabado). El total de pasos es el mismo conteo (1 por zona sin
-  // ubicación/bodega+ubicación nula, o 1 por storage bin distinto dentro de una zona conocida)
-  // que hace el loop de más abajo -- se precalcula acá para no duplicar la lógica de conteo con
-  // la de creación real.
-  let pasosTotales = 0;
-  g.vistaPreviaDias.forEach(dia => dia.zonas.forEach(z=>{
-    const bodegaConocida = z.bodega!==null && z.bodega!==undefined;
-    const sinUbicacionEspecifica = !bodegaConocida && !z.ubicacion || bodegaConocida && !z.ubicacion;
-    pasosTotales += sinUbicacionEspecifica ? 1 : new Set(z.materiales.map(m=>m.storage_bin||'')).size;
-  }));
-  setState({grupos: {...state.grupos, generandoPlan:true, progresoPlan:{hechos:0, total:pasosTotales}}});
+  setState({grupos: {...state.grupos, generandoPlan:true}});
   try{
-    let creadas = 0;
-    let materialesOmitidos = 0;
-    let entradasFallidas = 0;
-    const avanzarProgreso = () => setState({grupos: {...state.grupos, progresoPlan: {...state.grupos.progresoPlan, hechos: state.grupos.progresoPlan.hechos+1}}});
-    // crearPlanEntrada se llama en silencioso:true acá -- puede ser una llamada por cada storage
-    // bin del grupo (varias decenas), así que muestra su propio toast/refresca Planificación y
-    // Calendario UNA sola vez al final, no una vez por bin. Un error de un bin puntual (ver más
-    // abajo el caso real: sku_code repetido por tener más de un batch en el mismo bin, que sin
-    // deduplicar violaba la restricción única de plan_semanal_exclusiones) no aborta el resto --
-    // se cuenta aparte y se avisa en el resumen final, en vez de perder lo demás.
-    for(let i=0; i<g.vistaPreviaDias.length; i++){
-      const fecha = g.vistaPreviaDias[i].fecha;
-      for(const z of g.vistaPreviaDias[i].zonas){
-        // bodega null (skus.bodega IS NULL) se manda como '' -- convención de esta app para
-        // distinguir "el grupo sin bodega asignada" de "sin filtro, cualquier bodega" (ver
-        // filtroBodega/BODEGA_VACIA, ya usado en Planificación manual).
-        const bodegaConocida = z.bodega!==null && z.bodega!==undefined;
-        const bodegaParaZona = bodegaConocida ? z.bodega : '';
-        // Sin bodega Y sin ubicación: ya cubierto de forma segura por el mecanismo existente
-        // "SKU sin ubicación" (soloSinUbicacion). Bodega conocida pero sin ubicación específica
-        // dentro de ella (a pedido de Joel: antes esta zona quedaba fuera del plan real): necesita
-        // el filtro explícito "ubicación IS NULL" (ubicacionEsNula) -- sin él, pedir el universo
-        // de solo la bodega traería TODAS sus ubicaciones, justo lo que hacía insegura a esta
-        // zona antes. Ninguno de estos dos casos llega a los volúmenes de "bodega+ubicación
-        // completa" que motivaron el límite de abajo, así que siguen con exclusión de zona.
-        const sinBodegaNiUbicacion = !bodegaConocida && !z.ubicacion;
-        const ubicacionEsNula = bodegaConocida && !z.ubicacion;
-        if(sinBodegaNiUbicacion || ubicacionEsNula){
-          const universo = await skusDeUbicacion({
-            bodega: bodegaParaZona, ubicacion:'', storage_bin:'', excluidos:[],
-            soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula, campos:'id,sku_code,storage_bin',
-          });
-          const codigosDelGrupo = new Set(z.materiales.map(m=>m.sku_code));
-          // Set: un código ajeno al grupo puede aparecer más de una vez en el universo (más de un
-          // batch en la misma bodega+ubicación) -- sin deduplicar, se manda dos veces el mismo
-          // sku_code en el mismo POST a plan_semanal_exclusiones y viola su restricción única.
-          const skusExcluidos = [...new Set(universo.map(s=>s.sku_code).filter(code=>!codigosDelGrupo.has(code)))];
-          if(skusExcluidos.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += z.materiales.length; avanzarProgreso(); continue; }
-          try{
-            await crearPlanEntrada({
-              fecha, bodega: bodegaParaZona, ubicacion: null, storageBins:[], skusExcluidos,
-              soloSinUbicacion: sinBodegaNiUbicacion, ubicacionEsNula, cicloId:'', responsableId:'',
-              nota: `Generado automáticamente por el grupo "${grupo.nombre}"`, silencioso:true,
-            });
-            creadas++;
-          }catch(e){ entradasFallidas++; }
-          avanzarProgreso();
-          continue;
-        }
-        // Bodega+ubicación conocidas: una entrada POR storage bin (no una para toda la
-        // bodega+ubicación) -- ver el bug real explicado arriba. Los materiales del grupo sin
-        // storage bin cargado quedan en su propio grupo ('' como clave) y siguen la exclusión de
-        // zona completa, con el tope de seguridad.
-        const porBin = new Map();
-        z.materiales.forEach(m=>{
-          const bin = m.storage_bin || '';
-          if(!porBin.has(bin)) porBin.set(bin, []);
-          porBin.get(bin).push(m);
-        });
-        // El universo de TODOS los bins de la zona se pide en una sola consulta (in.(...), solo
-        // id/código/bin) y se reparte por bin; después cada entrada recibe su universo ya conocido
-        // para no volver a pedirlo al guardar la foto. Antes eran dos consultas de 15 columnas por
-        // bin: con datos reales, un grupo de 322 entradas hacía cerca de 1.000 viajes al servidor.
-        const baseZona = {bodega: bodegaParaZona, ubicacion: z.ubicacion, excluidos:[]};
-        let universosPorBin = new Map();
-        try{ universosPorBin = await skusDeUbicacionPorBins(baseZona, [...porBin.keys()]); }
-        catch(e){ entradasFallidas += porBin.size; for(let k=0; k<porBin.size; k++) avanzarProgreso(); continue; }
-        for(const [bin, materialesBin] of porBin){
-          const universoBin = bin
-            ? (universosPorBin.get(bin) || [])
-            : await skusDeUbicacion({...baseZona, storage_bin:'', campos:'id,sku_code,storage_bin'});
-          const codigosBin = new Set(materialesBin.map(m=>m.sku_code));
-          const skusExcluidosBin = [...new Set(universoBin.map(s=>s.sku_code).filter(code=>!codigosBin.has(code)))];
-          if(skusExcluidosBin.length > LIMITE_EXCLUSIONES_PLAN_AUTOMATICO){ materialesOmitidos += materialesBin.length; avanzarProgreso(); continue; }
-          try{
-            await crearPlanEntrada({
-              fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storageBins: bin ? [bin] : [], skusExcluidos: skusExcluidosBin,
-              soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId:'',
-              nota: `Generado automáticamente por el grupo "${grupo.nombre}"`, silencioso:true,
-              universoConocido: bin ? universoBin : undefined,
-            });
-            creadas++;
-          }catch(e){ entradasFallidas++; }
-          avanzarProgreso();
-        }
-      }
-    }
+    const r = await rest('/rpc/crear_plan_grupo', {method:'POST', body:{
+      p_nota: nota, p_reemplazar: previas > 0, p_entradas: entradas, p_limite_exclusiones: LIMITE_EXCLUSIONES_PLAN_AUTOMATICO,
+    }, timeoutMs: TIMEOUT_CREAR_PLAN_GRUPO_MS});
+    const creadas = Number(r && r.creadas) || 0;
+    const materialesOmitidos = Number(r && r.omitidos_materiales) || 0;
     if(creadas){ cargarPlanSemanal(); refrescarOpcionesUbicacion(); invalidarCalendario(); }
     const avisoOmitidos = materialesOmitidos ? ` -- ${materialesOmitidos} material${materialesOmitidos===1?'':'es'} no se pudo${materialesOmitidos===1?'':'ieron'} planificar (ubicación demasiado grande sin storage bin: cárgaselo y probá de nuevo)` : '';
-    const avisoFallidas = entradasFallidas ? ` -- ${entradasFallidas} entrada${entradasFallidas===1?'':'s'} ${entradasFallidas===1?'falló':'fallaron'} al guardarse, probá de nuevo` : '';
-    toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}${avisoFallidas}`, (materialesOmitidos || entradasFallidas) ? 'warn' : undefined);
-    setState({grupos: {...state.grupos, generandoPlan:false, progresoPlan:null, vistaPreviaDias:null, vistaPreviaTotalPendientes:0}});
+    toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}`, materialesOmitidos ? 'warn' : undefined);
+    setState({grupos: {...state.grupos, generandoPlan:false, vistaPreviaDias:null, vistaPreviaTotalPendientes:0}});
   }catch(e){
-    setState({grupos: {...state.grupos, generandoPlan:false, progresoPlan:null}});
-    toast(e.message,'err');
+    // Transacción única: si falló, no quedó nada a medias (ni borradas las anteriores).
+    setState({grupos: {...state.grupos, generandoPlan:false}});
+    toast('No se creó el plan (no quedó nada a medias): '+e.message, 'err');
   }
 }
 
@@ -13552,17 +13480,7 @@ function renderDetalleGrupo(){
         <div style="margin-top:12px">
           <button type="button" id="btn-confirmar-plan-grupo" class="btn btn-primary" style="width:auto;padding:8px 14px" ${g.generandoPlan?'disabled':''}>${g.generandoPlan? 'Creando…' : 'Confirmar y crear plan'}</button>
         </div>
-        ${g.generandoPlan && g.progresoPlan && g.progresoPlan.total ? (()=>{
-          const pct = Math.round(g.progresoPlan.hechos/g.progresoPlan.total*100);
-          return `
-        <div style="margin-top:10px">
-          <div class="hint" style="margin-bottom:4px">Creando… ${pct}% (${g.progresoPlan.hechos} de ${g.progresoPlan.total} entradas)</div>
-          <div style="height:6px;border-radius:3px;background:var(--line);overflow:hidden">
-            <div style="height:100%;width:${pct}%;background:var(--amber);transition:width .2s"></div>
-          </div>
-        </div>
-          `;
-        })() : ''}
+        ${g.generandoPlan ? `<div class="hint" style="margin-top:8px">Creando el plan en el servidor (todas las entradas de una vez, unos segundos)…</div>` : ''}
         <div class="hint" style="margin-top:8px;font-style:italic">Se crean sin responsable asignado -- lo repartes tú después en Planificación.</div>
         ` : `<div class="empty" style="padding:10px 8px">No hay materiales pendientes de contar en este grupo -- todos están dentro de la frecuencia definida.</div>`
       ) : `<div class="hint" style="margin-top:10px;font-style:italic">Calcula la vista previa primero -- no se crea nada en Planificación hasta que la confirmes.</div>`}
