@@ -6567,6 +6567,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ], 2);
   assert(zonaJusta.length===1 && zonaJusta[0].materiales===2, 'dos zonas de 1 material cada una con cupo 2 deben caber en una sola semana, obtuvo: '+JSON.stringify(zonaJusta));
 
+  // Reparto por día (Joel, 30/09: antes todo lo de una semana caía en su lunes). Cada bloque de
+  // cupo recibe un día, en orden desde "Desde", saltando los días de la semana desmarcados.
+  // 2026-10-02 es viernes: con sábado y domingo desmarcados, el 2.º bloque salta al lunes 05.
+  {
+    const bloques = ctx.armarVistaPreviaSemanasGrupo(Array.from({length:7}, (_,i)=>({sku_code:'D-'+i, bodega:'B1', ubicacion:'U1', storage_bin:'A-'+i})), 3);
+    const dias = ctx.asignarFechasPlanGrupo(bloques, '2026-10-02', [true,true,true,true,true,false,false]);
+    assert(dias.map(d=>d.fecha).join(',')==='2026-10-02,2026-10-05,2026-10-06' && dias.map(d=>d.materiales).join(',')==='3,3,1', 'asignarFechasPlanGrupo debe dar un día por bloque saltando sábado y domingo, obtuvo: '+JSON.stringify(dias.map(d=>[d.fecha,d.materiales])));
+    const soloMartes = ctx.asignarFechasPlanGrupo(bloques, '2026-10-02', [false,true,false,false,false,false,false]);
+    assert(soloMartes.map(d=>d.fecha).join(',')==='2026-10-06,2026-10-13,2026-10-20', 'con un solo día marcado, cada bloque cae en el martes siguiente, obtuvo: '+JSON.stringify(soloMartes.map(d=>d.fecha)));
+    // "Desde" vacío o inválido: parte mañana (hoy ya está en marcha en terreno).
+    const manana = ctx.fechaISO(ctx.sumarDias(new Date(), 1));
+    assert(ctx.desdePlanGrupo('')===manana && ctx.desdePlanGrupo('2026-13-45')===manana && ctx.desdePlanGrupo('2026-10-05')==='2026-10-05', 'desdePlanGrupo debe caer a mañana si la fecha viene vacía o inválida, obtuvo: '+[ctx.desdePlanGrupo(''), ctx.desdePlanGrupo('2026-13-45')]);
+    // Semanas para mostrar: lunes a domingo, con sus días adentro y el total de la semana.
+    const semanas = ctx.semanasVistaPreviaGrupo(dias);
+    assert(semanas.length===2 && semanas[0].inicio==='2026-09-28' && semanas[0].fin==='2026-10-04' && semanas[0].materiales===3 && semanas[1].dias.length===2 && semanas[1].materiales===4, 'semanasVistaPreviaGrupo debe agrupar los días por semana de lunes a domingo, obtuvo: '+JSON.stringify(semanas.map(s=>[s.inicio,s.fin,s.materiales,s.dias.length])));
+    assert(ctx.nombreDiaCorto('2026-10-01')==='Jue' && ctx.nombreDiaCorto('2026-10-05')==='Lun', 'nombreDiaCorto debe dar el día abreviado con mayúscula inicial y sin punto, obtuvo: '+[ctx.nombreDiaCorto('2026-10-01'), ctx.nombreDiaCorto('2026-10-05')]);
+    assert(ctx.textoCupoPlanGrupo({personasDisponibles:1, horasPorDia:2, ritmoPorHora:5, diasSemanaPlan:[true,true,true,true,true,false,false]})==='Cupo diario calculado: <strong>10</strong> materiales · 50 a la semana (5 días)', 'textoCupoPlanGrupo debe dar el cupo diario y el semanal según los días marcados, obtuvo: '+ctx.textoCupoPlanGrupo({personasDisponibles:1, horasPorDia:2, ritmoPorHora:5, diasSemanaPlan:[true,true,true,true,true,false,false]}));
+    assert(ctx.cupoDiarioPlanGrupo({personasDisponibles:2, horasPorDia:1.5, ritmoPorHora:10})===30 && ctx.cupoDiarioPlanGrupo({personasDisponibles:'', horasPorDia:'', ritmoPorHora:''})===20, 'cupoDiarioPlanGrupo: personas × horas al día × ritmo, con 20 si viene vacío, obtuvo: '+ctx.cupoDiarioPlanGrupo({personasDisponibles:2, horasPorDia:1.5, ritmoPorHora:10}));
+  }
+
   // calcularVistaPreviaPlanGrupo: de punta a punta contra el mock de red -- filtra por
   // código+bodega exactos (no solo código) y por vencimiento según la frecuencia del grupo.
   const haceMucho = new Date(Date.now() - 200*24*60*60*1000).toISOString(); // vencido para un grupo trimestral (90 días)
@@ -6586,18 +6606,43 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-trimestral');
   calls.length = 0;
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&sku_code=in.')), 'calcularVistaPreviaPlanGrupo debe consultar /skus por los códigos de los miembros, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===1, 'solo VENC-1::B501 debe contar como pendiente (vencido Y miembro real del grupo por código+bodega exactos), obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
-  assert(ctx.__appstate.grupos.vistaPreviaSemanas.length===1 && ctx.__appstate.grupos.vistaPreviaSemanas[0].zonas[0].bodega==='B501', 'la única semana debe cubrir la zona B501/0100, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+  assert(ctx.__appstate.grupos.vistaPreviaDias.length===1 && ctx.__appstate.grupos.vistaPreviaDias[0].zonas[0].bodega==='B501', 'la única semana debe cubrir la zona B501/0100, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaDias));
 
   // La vista previa debe ofrecer los tres campos de capacidad real (no un cupo puesto a ojo) y
   // mostrar el cupo ya calculado a partir de ellos -- a pedido de Joel.
   const htmlCapacidad = ctx.renderGrupos();
   assert(htmlCapacidad.includes('id="grupo-personas"') && htmlCapacidad.includes('id="grupo-horas"') && htmlCapacidad.includes('id="grupo-ritmo"'), 'debe ofrecer los tres campos de capacidad real (personas, horas, ritmo), obtuvo: '+htmlCapacidad);
-  assert(htmlCapacidad.includes('Cupo semanal calculado: <strong>20</strong>'), 'debe mostrar el cupo calculado a partir de los tres campos (1×1×20=20), obtuvo: '+htmlCapacidad);
+  assert(htmlCapacidad.includes('Cupo diario calculado: <strong>20</strong> materiales · 140 a la semana (7 días)'), 'debe mostrar el cupo diario calculado a partir de los tres campos (1×1×20=20) y su equivalente semanal con los 7 días marcados, obtuvo: '+htmlCapacidad);
+  assert([0,1,2,3,4,5,6].every(i=>htmlCapacidad.includes(`id="grupo-dia-${i}" checked`)) && htmlCapacidad.includes('id="grupo-desde"'), 'debe ofrecer las casillas de lunes a domingo (todas marcadas al inicio) y la fecha "Desde", obtuvo: '+htmlCapacidad);
   assert(!htmlCapacidad.includes('id="grupo-cupo-semanal"'), 'ya no debe existir el campo antiguo de "Materiales por semana" puesto a ojo, obtuvo: '+htmlCapacidad);
+
+  // Con todas las casillas de días desmarcadas no hay dónde repartir: avisa y no pide nada.
+  {
+    const diasAntes = ctx.__appstate.grupos.diasSemanaPlan;
+    ctx.__appstate.grupos.diasSemanaPlan = [false,false,false,false,false,false,false];
+    calls.length = 0;
+    const toastsAntes = elements['toast-root'].hijos.length;
+    await ctx.calcularVistaPreviaPlanGrupo();
+    const toastsDias = elements['toast-root'].hijos.slice(toastsAntes);
+    assert(!calls.length && toastsDias.length===1 && toastsDias[0].className==='toast err' && /al menos un día/.test(toastsDias[0].textContent), 'sin días marcados debe avisar y no consultar nada, obtuvo: '+JSON.stringify({calls:calls.map(c=>c.url), toasts:toastsDias.map(t=>t.textContent)}));
+    ctx.__appstate.grupos.diasSemanaPlan = diasAntes;
+  }
+  // La vista previa se muestra por semana con sus días adentro, cada día con su fecha y sus zonas.
+  {
+    const gAntes = {...ctx.__appstate.grupos};
+    ctx.__appstate.grupos.vistaPreviaDias = [
+      {fecha:'2026-10-02', materiales:2, zonas:[{bodega:'B501', ubicacion:'0099', materiales:[{},{}]}]},
+      {fecha:'2026-10-05', materiales:1, zonas:[{bodega:'B501', ubicacion:'0100', materiales:[{}]}]},
+    ];
+    ctx.__appstate.grupos.vistaPreviaTotalPendientes = 3; ctx.__appstate.grupos.vistaPreviaCupoUsado = 2;
+    const htmlDias = ctx.renderGrupos();
+    assert(htmlDias.includes('repartidos en 2 días (cupo usado: 2/día)') && (htmlDias.match(/grupo-semana-previa/g)||[]).length===2 && htmlDias.includes('data-fecha="2026-10-02"') && htmlDias.includes('data-fecha="2026-10-05"') && htmlDias.includes('B501 · 0099 (2)'), 'la vista previa debe listar cada semana con sus días y zonas, obtuvo: '+htmlDias);
+    Object.assign(ctx.__appstate.grupos, gAntes);
+  }
 
   // Sin frecuencia definida, no debe intentar calcular nada (no tiene con qué comparar).
   gruposConteoFixture = [{id:'grupo-sin-frecuencia', nombre:'Sin frecuencia', frecuencia_dias:null, activo:true, miembros:[{count:1}]}];
@@ -6632,7 +6677,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-sin-ubic');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2, 'los dos materiales de la zona sin ubicación deben contar como pendientes, obtuvo: '+ctx.__appstate.grupos.vistaPreviaTotalPendientes);
 
@@ -6655,7 +6700,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   filasVencidasGrupoFixture = [{sku_code:'TS-A', bodega:null, ubicacion:null, storage_bin:null, ultimo_conteo_fecha:null}];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-total-suelto');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   confirmRespuesta = true;
   calls.length = 0;
@@ -6694,16 +6739,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ];
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-plan-real');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20; ctx.__appstate.grupos.desdePlan = '2026-10-05';
   await ctx.calcularVistaPreviaPlanGrupo();
-  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2 && ctx.__appstate.grupos.vistaPreviaSemanas.length===1, 'la vista previa de este escenario debe dar 2 materiales en 1 semana, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
+  assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2 && ctx.__appstate.grupos.vistaPreviaDias.length===1 && ctx.__appstate.grupos.vistaPreviaDias[0].fecha==='2026-10-05', 'la vista previa de este escenario debe dar 2 materiales en 1 día, el elegido en "Desde", obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaDias));
 
   // Si la persona cancela el confirm(), no debe escribirse nada.
   confirmRespuesta = false;
   calls.length = 0;
   await ctx.confirmarVistaPreviaComoPlan();
   assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal')), 'al cancelar el confirm(), no debe crear ninguna entrada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.grupos.vistaPreviaSemanas!==null, 'al cancelar, la vista previa calculada debe seguir disponible (no se descarta), obtuvo: '+ctx.__appstate.grupos.vistaPreviaSemanas);
+  assert(ctx.__appstate.grupos.vistaPreviaDias!==null, 'al cancelar, la vista previa calculada debe seguir disponible (no se descarta), obtuvo: '+ctx.__appstate.grupos.vistaPreviaDias);
 
   // Confirmando de verdad: debe pedir el universo de cada storage bin (no el de toda la zona) y
   // crear DOS entradas de plan_semanal (una por bin), sin responsable, con nota indicando el
@@ -6736,7 +6781,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(c.bodega==='BGRP' && c.ubicacion==='UGRP', 'cada entrada debe quedar en la zona correcta, obtuvo: '+JSON.stringify(c));
     assert(c.responsable_id===null, 'la entrada generada NO debe traer responsable asignado -- el reparto es manual, a pedido de Joel, obtuvo: '+JSON.stringify(c));
     assert(/Grupo Plan Real/.test(c.nota||''), 'la nota debe indicar que viene del grupo, para que quede trazable en Planificación, obtuvo: '+JSON.stringify(c));
-    assert(c.fecha===ctx.fechaISO(ctx.inicioSemana(new Date())), 'la fecha de la semana 1 debe ser el inicio de esta semana, obtuvo: '+c.fecha+' esperado: '+ctx.fechaISO(ctx.inicioSemana(new Date())));
+    assert(c.fecha==='2026-10-05', 'la fecha de cada entrada debe ser la del día que le tocó en la vista previa (el "Desde" elegido), no el lunes de esta semana, obtuvo: '+c.fecha);
   });
   const postsExclusionGrupo = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_exclusiones'));
   assert(postsExclusionGrupo.length===2, 'debe excluir por separado en cada bin lo que no pertenece al grupo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
@@ -6748,7 +6793,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(JSON.stringify(todosExcluidosGrupo)===JSON.stringify(['OTRO-1','OTRO-2']), 'entre ambos bines deben excluirse exactamente OTRO-1 y OTRO-2, obtuvo: '+JSON.stringify(todosExcluidosGrupo));
 
   // Tras confirmar, la vista previa se limpia (para no volver a crearla dos veces sin recalcular).
-  assert(ctx.__appstate.grupos.vistaPreviaSemanas===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaSemanas));
+  assert(ctx.__appstate.grupos.vistaPreviaDias===null, 'tras generar el plan, la vista previa debe limpiarse, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaDias));
 
   // Regenerar el plan de un grupo que YA tiene entradas de una generación anterior (bug real
   // reportado por Joel: regeneró el plan automático de "Críticos" más de una vez y Planificación
@@ -6762,7 +6807,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // pasaría de verdad al volver a la lista de Grupos antes de regenerar.
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-plan-real');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo(); // la vista previa se limpió al confirmar arriba -- recalcularla
   assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===2, 'la vista previa recalculada debe volver a dar 2 materiales, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
   confirmRespuesta = true;
@@ -6800,7 +6845,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   universoZonaGiganteLen = 3005;
   await ctx.cargarGrupos();
   await ctx.abrirGrupo('grupo-zona-gigante');
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(ctx.__appstate.grupos.vistaPreviaTotalPendientes===1, 'la vista previa debe mostrar el único material vencido del grupo, obtuvo: '+JSON.stringify(ctx.__appstate.grupos));
   confirmRespuesta = true;
@@ -7149,7 +7194,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // calcularVistaPreviaPlanGrupo para un grupo automático: debe leer directo de skus.critico=true
   // (sin pasar por skus_grupos_conteo) y filtrar vencidos exactamente igual que uno curado a mano.
   calls.length = 0;
-  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorPersona = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
+  ctx.__appstate.grupos.personasDisponibles = 1; ctx.__appstate.grupos.horasPorDia = 1; ctx.__appstate.grupos.ritmoPorHora = 20;
   await ctx.calcularVistaPreviaPlanGrupo();
   assert(!calls.some(c=>c.url.includes('/skus_grupos_conteo')), 'la vista previa de un grupo automático no debe consultar skus_grupos_conteo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(calls.some(c=>c.url.includes('/skus?activo=eq.true&critico=eq.true&select=')), 'la vista previa de un grupo automático debe consultar skus.critico=true, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
