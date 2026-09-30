@@ -278,7 +278,7 @@
     <ul class="checks">
       <li>Crear grupos manuales o el automático de críticos (<code>automatico_critico</code>): incluye siempre todos los SKU activos marcados como Crítico</li>
       <li>Contar posiciones reales: "N materiales · M posiciones" (RPC <code>posiciones_por_grupo</code>): un código puede estar en varias bodegas o bins</li>
-      <li>Vista previa por capacidad: personas × horas × materiales por hora = cupo semanal; reparte los pendientes en semanas y zonas, sin crear nada hasta confirmar</li>
+      <li>Vista previa por capacidad: personas × horas al día × materiales por hora = cupo diario; reparte los pendientes por día (días marcados, desde la fecha elegida) y por zona, sin crear nada hasta confirmar</li>
       <li>Generar el plan: una entrada por storage bin, con exclusiones para los materiales de la zona que no son del grupo, sin responsable (se reparte en Plan). Generar de nuevo reemplaza las entradas anteriores del grupo</li>
       <li>Resumen del plan generado por grupo en una llamada (RPC <code>resumen_plan_grupos</code>): entradas, SKU por contar, rango de fechas y entradas por venir</li>
       <li>Cierre automático de ciclo: cron diario <code>cerrar_ciclos_grupo_vencidos</code> (05:00 UTC). Cuando <code>fecha_inicio + frecuencia</code> ya pasó, guarda en <code>historial_ciclos_grupo</code> quién quedó contado y quién no entre la fecha de inicio y el día anterior al cierre; el ciclo nuevo parte el día del cierre con todo pendiente. Un re-cierre de la misma fecha de inicio reemplaza la foto anterior</li>

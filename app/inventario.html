@@ -756,7 +756,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], pausados:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorPersona:10, ritmoPorHora:15, vistaPreviaCalculando:false, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, progresoPlan:null, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
+  grupos: { cargado:false, cargando:false, lista:[], pausados:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorDia:2, ritmoPorHora:15, diasSemanaPlan:[true,true,true,true,true,true,true], desdePlan:'', vistaPreviaCalculando:false, vistaPreviaDias:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, progresoPlan:null, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -2021,7 +2021,7 @@ async function ingresarConCodigo(email, codigo){
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
   reiniciarBannerMfa(); // el próximo ingreso vuelve a mostrar el aviso de MFA sus 15 segundos
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorPersona:10,ritmoPorHora:15,vistaPreviaCalculando:false,vistaPreviaSemanas:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,progresoPlan:null,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -3213,12 +3213,12 @@ async function crearGrupo(nombre, frecuenciaDias, automaticoCritico, fechaInicio
 }
 
 function abrirGrupo(id){
-  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[]}});
+  setState({grupos: {...state.grupos, grupoAbierto:id, miembros:[], ...resetCandidatosGrupo(), vistaPreviaDias:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[]}});
   return Promise.all([cargarMiembrosGrupo(id), cargarSeguimientoGrupo(id), cargarHistorialCiclosGrupo(id)]);
 }
 
 function volverAListaGrupos(){
-  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaSemanas:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[], editandoFechaInicioId:null}});
+  setState({grupos: {...state.grupos, grupoAbierto:null, miembros:[], ...resetCandidatosGrupo(), vistaPreviaDias:null, seguimiento:null, historial:[], historialAbierto:null, historialDetalle:[], editandoFechaInicioId:null}});
 }
 
 // Ciclo PROPIO del grupo (a pedido de Joel: 5S cada 60 días, Críticos cada 90, cada uno con su
@@ -3721,6 +3721,7 @@ async function calcularVistaPreviaPlanGrupo(){
   const grupoId = state.grupos.grupoAbierto;
   const grupo = state.grupos.lista.find(g=>g.id===grupoId);
   if(!grupo || !grupo.frecuencia_dias) return;
+  if(!diasMarcadosPlanGrupo(state.grupos.diasSemanaPlan).length){ toast('Marca al menos un día de la semana para repartir el plan','err'); return; }
   setState({grupos: {...state.grupos, vistaPreviaCalculando:true}});
   try{
     let filas;
@@ -3742,26 +3743,84 @@ async function calcularVistaPreviaPlanGrupo(){
     }
     const limiteMs = Date.now() - grupo.frecuencia_dias*24*60*60*1000;
     const filasVencidas = filas.filter(f=> !f.ultimo_conteo_fecha || new Date(f.ultimo_conteo_fecha).getTime() < limiteMs);
-    // Cupo semanal por capacidad real (a pedido de Joel), no un número puesto a ojo: personas
-    // disponibles × horas que cuenta cada una a la semana × ritmo estimado de conteo (materiales
-    // por hora). Si algún campo queda vacío/inválido, cae a 20 en vez de trabar el cálculo.
-    const capacidad = Math.round((Number(state.grupos.personasDisponibles)||0) * (Number(state.grupos.horasPorPersona)||0) * (Number(state.grupos.ritmoPorHora)||0));
-    const cupoSemanal = capacidad > 0 ? capacidad : 20;
-    const semanas = armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal);
-    setState({grupos: {...state.grupos, vistaPreviaCalculando:false, vistaPreviaSemanas:semanas, vistaPreviaTotalPendientes:filasVencidas.length, vistaPreviaCupoUsado:cupoSemanal}});
+    // Cupo DIARIO por capacidad real (a pedido de Joel), no un número puesto a ojo: personas
+    // disponibles × horas que cuenta cada una al día × ritmo estimado de conteo (materiales por
+    // hora). Si algún campo queda vacío/inválido, cae a 20 en vez de trabar el cálculo.
+    const cupoDiario = cupoDiarioPlanGrupo(state.grupos);
+    const bloques = armarVistaPreviaSemanasGrupo(filasVencidas, cupoDiario);
+    const dias = asignarFechasPlanGrupo(bloques, state.grupos.desdePlan, state.grupos.diasSemanaPlan);
+    setState({grupos: {...state.grupos, vistaPreviaCalculando:false, vistaPreviaDias:dias, vistaPreviaTotalPendientes:filasVencidas.length, vistaPreviaCupoUsado:cupoDiario}});
   }catch(e){
     setState({grupos: {...state.grupos, vistaPreviaCalculando:false}});
     toast(e.message,'err');
   }
 }
 
+// Cupo diario del plan por grupo: personas × horas por persona al día × materiales por hora.
+// Hasta el 30/09/2026 el cupo era semanal y todo lo de la semana caía en su lunes; a pedido de
+// Joel ahora se reparte día a día (ver asignarFechasPlanGrupo), así "Mi plan del día" de Contar
+// tiene trabajo todos los días y el atraso se mide por día real.
+function cupoDiarioPlanGrupo(g){
+  const capacidad = Math.round((Number(g.personasDisponibles)||0) * (Number(g.horasPorDia)||0) * (Number(g.ritmoPorHora)||0));
+  return capacidad > 0 ? capacidad : 20;
+}
+// Índices (0=lunes … 6=domingo) de los días marcados en las casillas L M M J V S D.
+function diasMarcadosPlanGrupo(diasSemana){
+  const d = Array.isArray(diasSemana) && diasSemana.length===7 ? diasSemana : [true,true,true,true,true,true,true];
+  return d.map((v,i)=> v ? i : -1).filter(i=>i>=0);
+}
+// Fecha de inicio del reparto: la elegida en "Desde" o, si viene vacía o inválida, mañana. Hoy no:
+// lo de hoy ya está en marcha en terreno y un plan generado a media tarde no se alcanza a contar.
+function desdePlanGrupo(desde){
+  if(desde && /^\d{4}-\d{2}-\d{2}$/.test(desde) && !isNaN(new Date(desde+'T00:00:00').getTime())) return desde;
+  return fechaISO(sumarDias(new Date(), 1));
+}
+// Pone fecha a cada bloque de cupo: uno por día, en orden, saltando los días de la semana que no
+// están marcados. Devuelve [{fecha, materiales, zonas}] listo para mostrar y para crear las entradas.
+function asignarFechasPlanGrupo(bloques, desde, diasSemana){
+  const permitidos = new Set(diasMarcadosPlanGrupo(diasSemana));
+  let d = new Date(desdePlanGrupo(desde)+'T00:00:00');
+  const dias = [];
+  bloques.forEach(b=>{
+    while(!permitidos.has((d.getDay()+6)%7)) d = sumarDias(d, 1);
+    dias.push({fecha: fechaISO(d), materiales: b.materiales, zonas: b.zonas});
+    d = sumarDias(d, 1);
+  });
+  return dias;
+}
+// "Jue", "Vie": día de la semana abreviado con inicial mayúscula (es-CL lo da en minúscula y sin
+// punto final en Chromium, con punto en Safari: se quita).
+function nombreDiaCorto(iso){
+  const t = new Date(iso+'T00:00:00').toLocaleDateString('es-CL',{weekday:'short'}).replace('.','');
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+// Texto del cupo bajo los campos de capacidad; se actualiza al escribir sin repintar la pantalla
+// (ver el bind de #btn-calcular-vista-previa), para no reemplazar el input que se está tecleando.
+function textoCupoPlanGrupo(g){
+  const cupo = cupoDiarioPlanGrupo(g), dias = diasMarcadosPlanGrupo(g.diasSemanaPlan).length;
+  return `Cupo diario calculado: <strong>${cupo}</strong> materiales · ${cupo*dias} a la semana (${dias} día${dias===1?'':'s'})`;
+}
+// Agrupa los días de la vista previa por semana (lunes a domingo) para mostrarlos: cada semana con
+// su rango, su total y sus días adentro.
+function semanasVistaPreviaGrupo(dias){
+  const semanas = [];
+  (dias||[]).forEach(dia=>{
+    const inicio = fechaISO(inicioSemana(new Date(dia.fecha+'T00:00:00')));
+    let s = semanas[semanas.length-1];
+    if(!s || s.inicio!==inicio){ s = {inicio, fin: fechaISO(sumarDias(new Date(inicio+'T00:00:00'), 6)), materiales:0, dias:[]}; semanas.push(s); }
+    s.dias.push(dia);
+    s.materiales += dia.materiales;
+  });
+  return semanas;
+}
+
 // Agrupa los materiales vencidos por bodega+ubicación (misma zona física = misma visita) y los
-// reparte en semanas respetando un cupo. A pedido de Joel: PARTE una zona entre dos semanas
-// cuando no cabe completa en lo que queda de cupo, en vez de dejarla entera en una sola semana --
-// eso empareja el tamaño de las semanas, al costo de que la persona puede tener que volver a esa
-// misma zona física la semana siguiente para terminarla. Dentro de cada zona (y de cada fragmento,
-// si se parte), ordenados por storage bin -- ahí sigue el orden físico real de la bodega, según
-// confirmó Joel, así que sirve como orden de recorrido sin inventar nada.
+// reparte en bloques de un cupo (hoy: un bloque por día; antes, por semana). A pedido de Joel:
+// PARTE una zona entre dos bloques cuando no cabe completa en lo que queda de cupo, en vez de
+// dejarla entera en uno solo -- eso empareja el tamaño de los bloques, al costo de que la persona
+// puede tener que volver a esa misma zona física al día siguiente para terminarla. Dentro de cada
+// zona (y de cada fragmento, si se parte), ordenados por storage bin -- ahí sigue el orden físico
+// real de la bodega, según confirmó Joel, así que sirve como orden de recorrido sin inventar nada.
 function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
   const zonas = new Map();
   filasVencidas.forEach(f=>{
@@ -3821,10 +3880,10 @@ function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
 async function confirmarVistaPreviaComoPlan(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
-  if(!grupo || !g.vistaPreviaSemanas || !g.vistaPreviaSemanas.length || !perfilCargado()) return;
+  if(!grupo || !g.vistaPreviaDias || !g.vistaPreviaDias.length || !perfilCargado()) return;
 
-  const totalZonas = g.vistaPreviaSemanas.reduce((n,s)=>n+s.zonas.length, 0);
-  const totalMateriales = g.vistaPreviaSemanas.reduce((n,s)=>n+s.materiales, 0);
+  const totalZonas = g.vistaPreviaDias.reduce((n,s)=>n+s.zonas.length, 0);
+  const totalMateriales = g.vistaPreviaDias.reduce((n,s)=>n+s.materiales, 0);
   const nota = `Generado automáticamente por el grupo "${grupo.nombre}"`;
   // Si ya existen entradas de una generación anterior de este mismo grupo, avisar y ofrecer
   // reemplazarlas antes de crear las nuevas. Bug real reportado por Joel: regenerar el plan de un
@@ -3853,13 +3912,12 @@ async function confirmarVistaPreviaComoPlan(){
   // que hace el loop de más abajo -- se precalcula acá para no duplicar la lógica de conteo con
   // la de creación real.
   let pasosTotales = 0;
-  g.vistaPreviaSemanas.forEach(semana => semana.zonas.forEach(z=>{
+  g.vistaPreviaDias.forEach(dia => dia.zonas.forEach(z=>{
     const bodegaConocida = z.bodega!==null && z.bodega!==undefined;
     const sinUbicacionEspecifica = !bodegaConocida && !z.ubicacion || bodegaConocida && !z.ubicacion;
     pasosTotales += sinUbicacionEspecifica ? 1 : new Set(z.materiales.map(m=>m.storage_bin||'')).size;
   }));
   setState({grupos: {...state.grupos, generandoPlan:true, progresoPlan:{hechos:0, total:pasosTotales}}});
-  const inicioHoy = inicioSemana(new Date());
   try{
     let creadas = 0;
     let materialesOmitidos = 0;
@@ -3871,9 +3929,9 @@ async function confirmarVistaPreviaComoPlan(){
     // abajo el caso real: sku_code repetido por tener más de un batch en el mismo bin, que sin
     // deduplicar violaba la restricción única de plan_semanal_exclusiones) no aborta el resto --
     // se cuenta aparte y se avisa en el resumen final, en vez de perder lo demás.
-    for(let i=0; i<g.vistaPreviaSemanas.length; i++){
-      const fecha = fechaISO(sumarDias(inicioHoy, i*7));
-      for(const z of g.vistaPreviaSemanas[i].zonas){
+    for(let i=0; i<g.vistaPreviaDias.length; i++){
+      const fecha = g.vistaPreviaDias[i].fecha;
+      for(const z of g.vistaPreviaDias[i].zonas){
         // bodega null (skus.bodega IS NULL) se manda como '' -- convención de esta app para
         // distinguir "el grupo sin bodega asignada" de "sin filtro, cualquier bodega" (ver
         // filtroBodega/BODEGA_VACIA, ya usado en Planificación manual).
@@ -3952,7 +4010,7 @@ async function confirmarVistaPreviaComoPlan(){
     const avisoOmitidos = materialesOmitidos ? ` -- ${materialesOmitidos} material${materialesOmitidos===1?'':'es'} no se pudo${materialesOmitidos===1?'':'ieron'} planificar (ubicación demasiado grande sin storage bin: cárgaselo y probá de nuevo)` : '';
     const avisoFallidas = entradasFallidas ? ` -- ${entradasFallidas} entrada${entradasFallidas===1?'':'s'} ${entradasFallidas===1?'falló':'fallaron'} al guardarse, probá de nuevo` : '';
     toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}${avisoFallidas}`, (materialesOmitidos || entradasFallidas) ? 'warn' : undefined);
-    setState({grupos: {...state.grupos, generandoPlan:false, progresoPlan:null, vistaPreviaSemanas:null, vistaPreviaTotalPendientes:0}});
+    setState({grupos: {...state.grupos, generandoPlan:false, progresoPlan:null, vistaPreviaDias:null, vistaPreviaTotalPendientes:0}});
   }catch(e){
     setState({grupos: {...state.grupos, generandoPlan:false, progresoPlan:null}});
     toast(e.message,'err');
@@ -13451,30 +13509,44 @@ function renderDetalleGrupo(){
       <div class="hint" style="margin-bottom:8px">Vista previa del plan (según la frecuencia del grupo)</div>
       ${descripcionPlanGrupo(grupo)? `<div class="hint" style="margin-bottom:8px;padding:8px 10px;background:var(--surface-2);border-radius:8px">${esc(descripcionPlanGrupo(grupo))}. Generar de nuevo reemplaza esas entradas.</div>` : ''}
       ${!grupo || !grupo.frecuencia_dias ? `<div class="empty" style="padding:10px 8px">Este grupo no tiene una frecuencia definida todavía.</div>` : `
-      <div class="hint" style="margin-bottom:6px">Capacidad semanal real -- de esto sale el cupo, en vez de un número puesto a ojo.</div>
+      <div class="hint" style="margin-bottom:6px">Capacidad diaria real -- de esto sale el cupo, en vez de un número puesto a ojo.</div>
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
         <div>
           <label for="grupo-personas">Personas</label>
           <input type="number" id="grupo-personas" min="1" value="${esc(g.personasDisponibles||1)}" style="width:90px">
         </div>
         <div>
-          <label for="grupo-horas">Horas c/u por semana</label>
-          <input type="number" id="grupo-horas" min="1" value="${esc(g.horasPorPersona||10)}" style="width:110px">
+          <label for="grupo-horas">Horas c/u por día</label>
+          <input type="number" id="grupo-horas" min="1" step="0.5" value="${esc(g.horasPorDia||2)}" style="width:110px">
         </div>
         <div>
           <label for="grupo-ritmo">Materiales por hora</label>
           <input type="number" id="grupo-ritmo" min="1" value="${esc(g.ritmoPorHora||15)}" style="width:110px">
         </div>
       </div>
-      <div class="hint" style="margin:8px 0">Cupo semanal calculado: <strong>${(Number(g.personasDisponibles)||0)*(Number(g.horasPorPersona)||0)*(Number(g.ritmoPorHora)||0)}</strong> materiales</div>
+      <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:8px">
+        <div>
+          <label>Días en que se cuenta</label>
+          <div class="grupo-dias-semana" style="display:flex;gap:4px;flex-wrap:wrap">
+            ${['lunes','martes','miércoles','jueves','viernes','sábado','domingo'].map((nombre,i)=>`<label for="grupo-dia-${i}" title="${nombre}" style="display:flex;align-items:center;gap:4px;margin:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="grupo-dia-${i}" ${(g.diasSemanaPlan||[])[i]!==false?'checked':''} style="margin:0">${DOW_CORTOS[i]}</label>`).join('')}
+          </div>
+        </div>
+        <div>
+          <label for="grupo-desde">Desde</label>
+          <input type="date" id="grupo-desde" value="${esc(desdePlanGrupo(g.desdePlan))}" style="width:150px">
+        </div>
+      </div>
+      <div class="hint" id="grupo-cupo-hint" style="margin:8px 0">${textoCupoPlanGrupo(g)}</div>
       <button type="button" id="btn-calcular-vista-previa" class="btn btn-secondary" style="width:auto;padding:8px 14px">Calcular vista previa</button>
-      ${g.vistaPreviaCalculando? `<div class="hint" style="text-align:center;padding:16px 0">Calculando…</div>` : g.vistaPreviaSemanas? (
-        g.vistaPreviaSemanas.length? `
-        <div class="hint" style="margin:10px 0">${g.vistaPreviaTotalPendientes} material${g.vistaPreviaTotalPendientes===1?'':'es'} pendiente${g.vistaPreviaTotalPendientes===1?'':'s'} de contar, repartidos en ${g.vistaPreviaSemanas.length} semana${g.vistaPreviaSemanas.length===1?'':'s'} (cupo usado: ${g.vistaPreviaCupoUsado}/semana).</div>
-        ${g.vistaPreviaSemanas.map((semana,i)=>`
-          <div class="plan-item" style="padding:8px 0;align-items:flex-start;gap:4px;flex-direction:column">
-            <div style="font-weight:500">Semana ${i+1} — ${semana.materiales} material${semana.materiales===1?'':'es'}</div>
-            <div class="hint">${semana.zonas.map(z=>`${esc(z.bodega||'Sin bodega')} · ${esc(z.ubicacion||'Sin ubicación')} (${z.materiales.length})`).join(', ')}</div>
+      ${g.vistaPreviaCalculando? `<div class="hint" style="text-align:center;padding:16px 0">Calculando…</div>` : g.vistaPreviaDias? (
+        g.vistaPreviaDias.length? `
+        <div class="hint" style="margin:10px 0">${g.vistaPreviaTotalPendientes} material${g.vistaPreviaTotalPendientes===1?'':'es'} pendiente${g.vistaPreviaTotalPendientes===1?'':'s'} de contar, repartidos en ${g.vistaPreviaDias.length} día${g.vistaPreviaDias.length===1?'':'s'} (cupo usado: ${g.vistaPreviaCupoUsado}/día), del ${fmtDiaCorto(g.vistaPreviaDias[0].fecha)} al ${fmtDiaCorto(g.vistaPreviaDias[g.vistaPreviaDias.length-1].fecha)}.</div>
+        ${semanasVistaPreviaGrupo(g.vistaPreviaDias).map((semana,i)=>`
+          <div class="plan-item grupo-semana-previa" style="padding:8px 0;align-items:flex-start;gap:4px;flex-direction:column">
+            <div style="font-weight:500">Semana ${i+1} · ${fmtDiaCorto(semana.inicio)} – ${fmtDiaCorto(semana.fin)} — ${semana.materiales} material${semana.materiales===1?'':'es'}</div>
+            ${semana.dias.map(dia=>`
+              <div class="hint grupo-dia-previa" data-fecha="${dia.fecha}" style="padding-left:10px"><strong>${esc(nombreDiaCorto(dia.fecha))} ${fmtDiaCorto(dia.fecha)}</strong> — ${dia.materiales}: ${dia.zonas.map(z=>`${esc(z.bodega||'Sin bodega')} · ${esc(z.ubicacion||'Sin ubicación')} (${z.materiales.length})`).join(', ')}</div>
+            `).join('')}
           </div>
         `).join('')}
         <div style="margin-top:12px">
@@ -15841,14 +15913,23 @@ function bind(){
       if(candidatoBodega) candidatoBodega.addEventListener('input', e=> escribirCandidatoBodegaGrupo(e.target.value));
       bindResultadosCandidatosGrupo();
       const btnCalcularVistaPrevia = document.getElementById('btn-calcular-vista-previa');
-      if(btnCalcularVistaPrevia) btnCalcularVistaPrevia.addEventListener('click', ()=>{
-        setState({grupos:{...state.grupos,
+      if(btnCalcularVistaPrevia){
+        const leerCapacidadGrupo = () => ({
           personasDisponibles: document.getElementById('grupo-personas').value,
-          horasPorPersona: document.getElementById('grupo-horas').value,
+          horasPorDia: document.getElementById('grupo-horas').value,
           ritmoPorHora: document.getElementById('grupo-ritmo').value,
-        }});
-        calcularVistaPreviaPlanGrupo();
-      });
+          diasSemanaPlan: [0,1,2,3,4,5,6].map(i=> !!document.getElementById('grupo-dia-'+i).checked),
+          desdePlan: document.getElementById('grupo-desde').value,
+        });
+        // El cupo se recalcula al escribir o marcar un día, sin render(): solo cambia el texto.
+        ['grupo-personas','grupo-horas','grupo-ritmo','grupo-dia-0','grupo-dia-1','grupo-dia-2','grupo-dia-3','grupo-dia-4','grupo-dia-5','grupo-dia-6'].forEach(id=>{
+          document.getElementById(id).addEventListener('input', ()=>{ const h = document.getElementById('grupo-cupo-hint'); if(h) h.innerHTML = textoCupoPlanGrupo(leerCapacidadGrupo()); });
+        });
+        btnCalcularVistaPrevia.addEventListener('click', ()=>{
+          setState({grupos:{...state.grupos, ...leerCapacidadGrupo()}});
+          calcularVistaPreviaPlanGrupo();
+        });
+      }
       const btnConfirmarPlanGrupo = document.getElementById('btn-confirmar-plan-grupo');
       if(btnConfirmarPlanGrupo) btnConfirmarPlanGrupo.addEventListener('click', confirmarVistaPreviaComoPlan);
       document.querySelectorAll('[data-editar-fecha-inicio-grupo]').forEach(btn=>{
