@@ -114,6 +114,7 @@ let fotoBytesFalla = false; // simula que la descarga de una foto firmada falla
 let imagenMockCarga = null;
 let canvasMockDisponible = false;
 let canvasDibujos = [];
+let canvasOps = []; // operaciones de dibujo del editor de fotos sobre el canvas falso
 class ImageMock {
   set src(v){
     this._src = v;
@@ -128,7 +129,12 @@ let canvasBlobSize = 300*1024; // tamaño del JPEG que "produce" el canvas falso
 let blobFotoDescargadaSize = 3*1024*1024; // tamaño de la foto que devuelve la descarga de una URL firmada
 function crearCanvasFalso(){
   const c = { width:0, height:0 };
-  c.getContext = ()=> ({ drawImage(){ canvasDibujos.push(Array.from(arguments).slice(1)); } });
+  // Además de drawImage, registra los trazos del editor de fotos (ver dibujarMarcasFoto) en canvasOps.
+  c.getContext = ()=> ({
+    drawImage(){ canvasDibujos.push(Array.from(arguments).slice(1)); },
+    beginPath(){ canvasOps.push(['beginPath']); }, moveTo(x,y){ canvasOps.push(['moveTo',Math.round(x),Math.round(y)]); }, lineTo(x,y){ canvasOps.push(['lineTo',Math.round(x),Math.round(y)]); },
+    stroke(){ canvasOps.push(['stroke', this.lineWidth, this.strokeStyle]); }, save(){}, restore(){}, clearRect(){},
+  });
   c.toDataURL = (tipo, calidad)=> `data:${tipo};base64,FAKE-${c.width}x${c.height}-q${calidad}`;
   c.toBlob = (cb, tipo, calidad)=> cb({ size: canvasBlobSize, type: tipo, calidad, canvas: `${c.width}x${c.height}` });
   return c;
@@ -13030,6 +13036,84 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(await ctx.comprimirFoto(rara)===rara, 'si el navegador no puede decodificar la foto, debe subirse la original');
     imagenMockCarga = {w:4000, h:3000};
     ctx.createImageBitmap = async (file)=> ({ width: file.ancho||4000, height: file.alto||3000, close(){} });
+
+    // ===== Marcar la foto con rayas y flechas antes de guardarla (Joel, 30/09) =====
+    {
+      // Punta de flecha: dos alas de `largo` px, detrás de la punta, a 180/7 grados del eje.
+      const alas = ctx.puntosFlecha([0,0], [100,0], 10);
+      assert(alas.length===2 && alas.every(a=> Math.abs(a[0]-91)<0.5 && Math.abs(Math.abs(a[1])-4.34)<0.05) && alas[0][1]*alas[1][1] < 0, 'puntosFlecha debe dar las dos alas simétricas detrás de la punta, obtuvo: '+JSON.stringify(alas));
+      assert(ctx.grosorMarcaFoto(1600,1200)===10 && ctx.grosorMarcaFoto(320,240)===4, 'el grosor del trazo va con el tamaño de la foto (10 px a 1600, mínimo 4), obtuvo: '+[ctx.grosorMarcaFoto(1600,1200), ctx.grosorMarcaFoto(320,240)]);
+
+      // dibujarMarcasFoto: un trazo es una polilínea; una flecha, la línea más las dos alas.
+      canvasOps = [];
+      const ctx2d = crearCanvasFalso().getContext('2d');
+      ctx.dibujarMarcasFoto(ctx2d, [{tipo:'trazo', puntos:[[10,10],[20,12],[30,15]]}, {tipo:'flecha', desde:[0,0], hasta:[100,0]}], 1600, 1200);
+      const ops = canvasOps.map(o=>o.join(':')).join(' ');
+      assert(ops==='beginPath moveTo:10:10 lineTo:20:12 lineTo:30:15 stroke:10:#ff2d2d beginPath moveTo:0:0 lineTo:100:0 stroke:10:#ff2d2d beginPath moveTo:71:14 lineTo:100:0 lineTo:71:-14 stroke:10:#ff2d2d', 'dibujarMarcasFoto debe pintar la polilínea y la flecha con sus alas en rojo, obtuvo: '+ops);
+      assert((()=>{ try{ ctx.dibujarMarcasFoto({}, [{tipo:'trazo', puntos:[[1,1]]}], 10, 10); return true; }catch(e){ return false; } })(), 'con un contexto sin funciones de dibujo no debe romper');
+
+      // Abrir el editor desde la miniatura: guarda la foto sin marcas en `base` y copia los trazos.
+      const FileReaderAntes = ctx.FileReader;
+      ctx.FileReader = class { readAsDataURL(f){ Promise.resolve().then(()=>{ if(this.onload) this.onload({target:{result:'data:image/jpeg;base64,PREVIEW-'+(f.name||'sin-nombre')}}); }); } };
+      const fotoBase = { name:'IMG_7.jpg', type:'image/jpeg', size: 200*1024 };
+      ctx.__appstate.conteoFotos = [{file: fotoBase, preview:'data:image/jpeg;base64,ORIGINAL', bytesOriginal: fotoBase.size, preparando:false}];
+      ctx.__appstate.skuSeleccionado = {id:'sku-ef', sku_code:'EF-1', descripcion:'x', bodega:'B', ubicacion:'U'};
+      ctx.__appstate.view = 'conteo';
+      const htmlContar = ctx.renderConteo();
+      assert(htmlContar.includes('data-marcar-foto="0"') && !htmlContar.includes('foto-preview-marcada'), 'la miniatura lista debe ofrecer "Marcar" y no decir "Marcada" todavía, obtuvo: '+htmlContar.slice(htmlContar.indexOf('foto-preview-grid'), htmlContar.indexOf('foto-preview-grid')+600));
+      ctx.__appstate.conteoFotos.push({file:{name:'p.jpg'}, preview:null, preparando:true});
+      assert(!ctx.renderConteo().includes('data-marcar-foto="1"'), 'una foto que todavía se está preparando no ofrece "Marcar"');
+      ctx.__appstate.conteoFotos.pop();
+      ctx.abrirEditorFoto(0);
+      const ed = ctx.__appstate.editorFoto;
+      assert(ed && ed.indice===0 && ed.herramienta==='trazo' && ed.trazos.length===0 && ctx.__appstate.conteoFotos[0].base===fotoBase, 'abrirEditorFoto debe abrir el editor con Trazo elegido, sin trazos, guardando la foto sin marcas en base, obtuvo: '+JSON.stringify(ed));
+      const htmlEditor = ctx.renderEditorFotoModal();
+      assert(htmlEditor.includes('id="editor-foto-canvas"') && htmlEditor.includes('id="editor-foto-trazo" ') === false && /id="editor-foto-trazo"[^>]*class="[^"]*activa/.test(htmlEditor.replace(/class="([^"]*)" id="editor-foto-trazo"/, 'id="editor-foto-trazo" class="$1"')) && /id="editor-foto-deshacer" disabled/.test(htmlEditor) && htmlEditor.includes('id="editor-foto-listo"'), 'el editor debe mostrar el canvas, Trazo activo, Deshacer deshabilitado sin trazos y Listo, obtuvo: '+htmlEditor);
+
+      // Listo con trazos: aplana base + trazos en un JPEG del tamaño de la foto, guarda los trazos
+      // y renueva la miniatura; la entrada queda en fotosEnProceso hasta terminar.
+      canvasMockDisponible = true; canvasDibujos = []; canvasOps = []; canvasBlobSize = 120*1024;
+      imagenMockCarga = {w:1600, h:1200};
+      ed.trazos.push({tipo:'trazo', puntos:[[100,100],[300,120]]});
+      const cierre = ctx.cerrarEditorFoto(true);
+      // Sin esperar el cierre: esperarFotosEnProceso (lo que hace "Guardar conteo") debe esperar
+      // a que la foto marcada termine de aplanarse -- si no estuviera en fotosEnProceso, volvería
+      // al tiro y los trazos todavía no estarían guardados.
+      await ctx.esperarFotosEnProceso();
+      assert(ctx.__appstate.conteoFotos[0].trazos && ctx.__appstate.conteoFotos[0].trazos.length===1, 'mientras aplana, la foto debe estar en fotosEnProceso para que "Guardar conteo" espere, obtuvo: '+JSON.stringify(ctx.__appstate.conteoFotos[0].trazos));
+      await cierre;
+      const entradaMarcada = ctx.__appstate.conteoFotos[0];
+      assert(ctx.__appstate.editorFoto===null, 'al terminar, el editor se cierra');
+      assert(JSON.stringify(canvasDibujos[0])===JSON.stringify([0,0,1600,1200]) && entradaMarcada.file.canvas==='1600x1200' && entradaMarcada.file.calidad===0.82 && entradaMarcada.file.type==='image/jpeg', 'debe aplanar sobre un canvas del tamaño real de la foto y guardar JPEG con la misma calidad que la compresión, obtuvo: '+JSON.stringify({dibujos:canvasDibujos, file:entradaMarcada.file}));
+      assert(canvasOps.some(o=>o[0]==='stroke') && entradaMarcada.trazos.length===1 && entradaMarcada.base===fotoBase && String(entradaMarcada.preview).startsWith('data:image/jpeg;base64,PREVIEW-'), 'debe pintar el trazo, conservar la base y los trazos, y renovar la miniatura, obtuvo: '+JSON.stringify({ops:canvasOps.length, trazos:entradaMarcada.trazos, base:entradaMarcada.base===fotoBase, preview:entradaMarcada.preview}));
+      assert(ctx.renderConteo().includes('foto-preview-marcada'), 'la miniatura debe decir "Marcada" cuando la foto tiene trazos');
+
+      // Volver a abrir: parte de los trazos guardados (copia, no la misma referencia); Cancelar no toca nada.
+      ctx.abrirEditorFoto(0);
+      assert(ctx.__appstate.editorFoto.trazos.length===1 && ctx.__appstate.editorFoto.trazos!==entradaMarcada.trazos && ctx.__appstate.editorFoto.trazos[0].puntos!==entradaMarcada.trazos[0].puntos, 'al reabrir, el editor parte de una copia de los trazos guardados, obtuvo: '+JSON.stringify(ctx.__appstate.editorFoto));
+      ctx.__appstate.editorFoto.trazos.push({tipo:'flecha', desde:[0,0], hasta:[50,50]});
+      await ctx.cerrarEditorFoto(false);
+      assert(ctx.__appstate.editorFoto===null && entradaMarcada.trazos.length===1, 'Cancelar cierra sin guardar el trazo nuevo, obtuvo: '+JSON.stringify(entradaMarcada.trazos));
+
+      // Borrar todo + Listo: vuelve la foto sin marcas y la miniatura deja de decir "Marcada".
+      ctx.abrirEditorFoto(0);
+      ctx.__appstate.editorFoto.trazos = [];
+      canvasDibujos = [];
+      await ctx.cerrarEditorFoto(true);
+      assert(entradaMarcada.file===fotoBase && entradaMarcada.trazos.length===0 && canvasDibujos.length===0 && !ctx.renderConteo().includes('foto-preview-marcada'), 'sin trazos, Listo deja la foto original tal cual (sin volver a comprimirla), obtuvo: '+JSON.stringify({mismoArchivo: entradaMarcada.file===fotoBase, trazos: entradaMarcada.trazos}));
+
+      // Si el navegador no puede aplanar (sin canvas), el error se ve como error y la foto original sigue.
+      ctx.abrirEditorFoto(0);
+      ctx.__appstate.editorFoto.trazos.push({tipo:'trazo', puntos:[[1,1],[2,2]]});
+      canvasMockDisponible = false;
+      const toastsAntesEditor = elements['toast-root'].hijos.length;
+      await ctx.cerrarEditorFoto(true);
+      const toastsEditor = elements['toast-root'].hijos.slice(toastsAntesEditor);
+      assert(toastsEditor.length===1 && toastsEditor[0].className==='toast err' && entradaMarcada.file===fotoBase, 'si no se puede dibujar, avisa como error y conserva la foto original, obtuvo: '+JSON.stringify(toastsEditor.map(t=>t.textContent)));
+      canvasMockDisponible = true; canvasBlobSize = 300*1024; imagenMockCarga = {w:4000, h:3000}; canvasDibujos = [];
+      ctx.FileReader = FileReaderAntes;
+      ctx.__appstate.conteoFotos = []; ctx.__appstate.skuSeleccionado = null; ctx.__appstate.editorFoto = null;
+    }
 
     // Comprimir fotos existentes (Configuraciones, admin): baja cada foto, la comprime y la
     // sobrescribe en la misma ruta; las chicas se saltan; el resumen queda en el estado.
