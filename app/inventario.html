@@ -2604,9 +2604,11 @@ async function resumenEntradasPlan(planIds){
 // segundo no podía partir hasta que volviera el primero. Verificado con datos reales que cada
 // parte es idéntica a lo que devolvían las dos consultas. La ventana viaja igual que antes: por
 // período (ciclo_id) o por rango de fechas.
-async function planVentanaPantalla(ventana, resumido, semanaDesde, semanaHasta){
+async function planVentanaPantalla(ventana, resumido, semanaDesde, semanaHasta, cicloId){
+  // cicloId + ventana.modo 'rango': cualquier tramo dentro de un período (ver cargarAtrasoPlan).
   const rango = ventana.modo==='periodo' ? {p_ciclo_id: state.plan.cicloFiltro}
     : ventana.modo==='semana' ? {p_desde: semanaDesde, p_hasta: semanaHasta}
+    : ventana.modo==='rango' ? {...(ventana.desde? {p_desde: ventana.desde} : {}), ...(ventana.hasta? {p_hasta: ventana.hasta} : {}), ...(cicloId? {p_ciclo_id: cicloId} : {})}
     : {p_desde: ventana.desde, p_hasta: ventana.hasta};
   const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1/rpc/plan_ventana_pantalla`, {
     method: 'POST',
@@ -2794,6 +2796,7 @@ async function cargarPlanSemanal(){
       const rows = conjunto.entradas;
       const {universos, detalle, propios} = totalesEntradasPlan(rows, resumido, resumido ? conjunto.resumen : conjunto.universo);
       setState({plan: {...state.plan, semanaInicio: inicio, entradas: rows, seleccionados:[], universos, detalle, propios, universoError:null}});
+      cargarAtrasoPlan();
       return;
     }
     const rows = ventana.modo==='dia'
@@ -2828,6 +2831,7 @@ async function cargarPlanSemanal(){
       if(miSecuencia !== cargarPlanSemanalSecuencia) return; // idem: descarta la respuesta si ya quedó obsoleta
       const {universos, detalle, propios} = totalesEntradasPlan(rows||[], resumido, datos);
       setState({plan: {...state.plan, universos, detalle, propios, universoError:null}});
+      cargarAtrasoPlan();
     }catch(e){
       if(miSecuencia !== cargarPlanSemanalSecuencia) return;
       // Ya no es silencioso: bug real reportado por Joel -- con el período completo, la segunda
@@ -4319,12 +4323,16 @@ function leerSeleccionPlanDiaCache(usuarioId, fecha, bodega, ubicacion){
 }
 
 // "Mi plan del día" en Contar: qué le corresponde hoy (o el día elegido) a la cuenta
-// logueada — responsable_id en plan_semanal ya es directamente el id de la cuenta.
+// logueada — responsable_id en plan_semanal ya es directamente el id de la cuenta — y además las
+// entradas del día SIN responsable (pedido de Joel, 30/09: el plan que genera Grupos queda sin
+// asignar y, medido en Escondida, 334 de 384 entradas del período no le aparecían a nadie en
+// Contar). Las sin asignar las puede contar cualquiera del equipo; lo que alguien ya contó deja de
+// estar pendiente para los demás (el universo del plan excluye lo contado en el período).
 async function cargarPlanDeHoy(fecha){
   if(!state.perfil) return;
   setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false}});
   try{
-    const entradas = await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&responsable_id=eq.${state.perfil.id}&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || [];
+    const entradas = await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&or=(responsable_id.eq.${state.perfil.id},responsable_id.is.null)&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || [];
     setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas, desdeCache:false}});
     guardarPlanDiaCacheBase(state.perfil.id, fecha, entradas);
   }catch(e){
@@ -4815,6 +4823,72 @@ function alternarSeleccionTodoPlan(){
   const todos = visibles.map(e=>e.id);
   const yaTodosSeleccionados = todos.length>0 && state.plan.seleccionados.length===todos.length;
   setState({plan: {...state.plan, seleccionados: yaTodosSeleccionados ? [] : todos}});
+}
+
+/* ---- Atrasado (pedido de Joel, 30/09) ------------------------------------------------------
+   Entradas del período actual con fecha ya pasada que todavía tienen SKU sin contar. Medido en
+   Escondida ese día: 2.443 SKU planificados para días que ya pasaron y nada en la pantalla lo decía.
+   En la vista Período del período actual (la que abre por defecto) sale de lo que la pantalla ya
+   tiene, sin otra consulta; en las demás vistas, de una sola llamada a plan_ventana_pantalla
+   (entradas hasta ayer, resumidas). El universo de una entrada es lo que falta contar, así que una
+   entrada con total 0 ya está al día y no cuenta como atrasada. */
+let cargarAtrasoPlanSecuencia = 0;
+// Fuera de la vista Período el atraso sale de una consulta aparte: no se repite en cada cambio de
+// semana o mes (no depende de la ventana que se mire), solo si pasó PLAN_REFRESCO_MIN_MS desde la
+// última, cambió el día o se fuerza (al pasar entradas a hoy).
+let atrasoPlanCargadoEn = 0;
+let atrasoPlanCargadoDia = null;
+function ayerISO(){ return fechaISO(sumarDias(new Date(fechaISO(new Date())+'T00:00:00'), -1)); }
+async function cargarAtrasoPlan(forzar){
+  const miSecuencia = ++cargarAtrasoPlanSecuencia;
+  const actual = (state.ciclos||[]).find(c=>c.es_actual);
+  if(!actual){ if(state.plan.atraso) setState({plan:{...state.plan, atraso:null}}); return; }
+  const hoy = fechaISO(new Date());
+  const p = state.plan;
+  let atrasadas;
+  if(modoPlan(p)==='periodo' && p.cicloFiltro===actual.id && !p.universoError){
+    atrasadas = p.entradas.filter(e=> e.fecha < hoy && (p.universos[e.id]||0) > 0)
+      .map(e=>({id:e.id, fecha:e.fecha, skus: p.propios[e.id]!==undefined ? p.propios[e.id] : p.universos[e.id]}));
+  }else{
+    const fresco = state.plan.atraso && !state.plan.atraso.error && atrasoPlanCargadoDia===hoy && Date.now()-atrasoPlanCargadoEn < PLAN_REFRESCO_MIN_MS;
+    if(fresco && !forzar) return;
+    try{
+      const datos = await planVentanaPantalla({modo:'rango', desde:null, hasta:ayerISO()}, true, null, null, actual.id);
+      atrasoPlanCargadoEn = Date.now();
+      atrasoPlanCargadoDia = hoy;
+      if(miSecuencia !== cargarAtrasoPlanSecuencia) return;
+      const porPlan = new Map(datos.resumen.map(f=>[f.plan_id, f]));
+      atrasadas = datos.entradas.map(e=>{ const f = porPlan.get(e.id); return {id:e.id, fecha:e.fecha, total: f? Number(f.total)||0 : 0, skus: f? Number(f.propios)||0 : 0}; })
+        .filter(e=> e.total > 0).map(({id,fecha,skus})=>({id,fecha,skus}));
+    }catch(e){
+      // No bloquea el plan, pero no se esconde: sin el dato no se puede decir que no hay atraso.
+      if(miSecuencia === cargarAtrasoPlanSecuencia) setState({plan:{...state.plan, atraso:{entradas:[], error:e.message}}});
+      return;
+    }
+  }
+  if(miSecuencia !== cargarAtrasoPlanSecuencia) return;
+  setState({plan:{...state.plan, atraso:{entradas: atrasadas, error:null}}});
+}
+
+// "Pasar a hoy": las entradas atrasadas quedan con fecha de hoy, con su responsable y su nota. De a
+// 100 ids por pedido para no armar una URL que el servidor rechace (mismo cuidado que otros lotes).
+async function pasarAtrasoAHoy(){
+  const a = state.plan.atraso;
+  if(!a || !a.entradas.length) return;
+  const ids = a.entradas.map(e=>e.id);
+  const skus = a.entradas.reduce((s,e)=> s+(e.skus||0), 0);
+  const dias = new Set(a.entradas.map(e=>e.fecha)).size;
+  if(!confirm(`¿Pasar al día de hoy ${ids.length} entrada${ids.length===1?'':'s'} atrasada${ids.length===1?'':'s'} de ${dias} día${dias===1?'':'s'} (${skus.toLocaleString('es-CL')} SKU sin contar)? Conservan su responsable y su nota.`)) return;
+  const hoy = fechaISO(new Date());
+  try{
+    for(let i=0; i<ids.length; i+=100){
+      await rest(`/plan_semanal?id=in.(${ids.slice(i, i+100).join(',')})`, {method:'PATCH', body:{fecha: hoy}, prefer:'return=minimal'});
+    }
+    toast(`${ids.length} entrada${ids.length===1?' pasó':'s pasaron'} a hoy`);
+    atrasoPlanCargadoEn = 0;
+    cargarPlanSemanal();
+    invalidarCalendario();
+  }catch(e){ toast(e.message,'err'); cargarPlanSemanal(); }
 }
 
 async function borrarPlanEntradas(ids){
@@ -11559,6 +11633,7 @@ function renderPlanDelDia(){
     <div class="card">
       <label for="contar-fecha">Día</label>
       <input type="date" id="contar-fecha" value="${cp.fecha}">
+      ${!cp.cargando && cp.entradas.some(e=>!e.responsable_id)? `<div class="hint" style="margin-top:8px">${(()=>{ const n = cp.entradas.filter(e=>!e.responsable_id).length; return n===cp.entradas.length ? `${n===1?'La entrada de este día no tiene':`Las ${n} entradas de este día no tienen`} responsable: las puede contar cualquiera del equipo.` : `Incluye ${n} entrada${n===1?'':'s'} sin responsable, que puede contar cualquiera del equipo.`; })()}</div>` : ''}
       ${cp.desdeCache? `<div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:8px">${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')} Sin conexión: mostrando el plan guardado la última vez que hubo señal</div>` : ''}
       ${cp.cargando? `<div class="empty" style="padding:14px 8px;margin-top:10px"><span class="spinner"></span> Cargando…</div>` :
         !cp.entradas.length? `<div class="empty" style="padding:14px 8px;margin-top:10px">Sin nada planificado para ti este día.</div>` : `
@@ -12391,6 +12466,30 @@ function imprimirInformeGuardado(id){
 /* =======================================================================
    RENDER — Planificación semanal (por bodega, ubicación específica y storage bin)
    ======================================================================= */
+// Tarjeta "Atrasado" de Planificación (ver cargarAtrasoPlan): cuántas entradas de días pasados
+// siguen con SKU sin contar, de qué días, y el botón para pasarlas a hoy.
+function htmlAtrasoPlan(p){
+  const a = p.atraso;
+  if(!a) return '';
+  if(a.error) return `<div class="card" style="margin-bottom:14px;border-color:var(--warn)"><div class="hint" style="margin:0">No se pudo revisar si hay entradas atrasadas (${esc(a.error)}).</div></div>`;
+  if(!a.entradas.length) return '';
+  const skus = a.entradas.reduce((s,e)=> s+(e.skus||0), 0);
+  const porDia = new Map();
+  a.entradas.forEach(e=> porDia.set(e.fecha, (porDia.get(e.fecha)||0) + (e.skus||0)));
+  const dias = Array.from(porDia.entries()).sort((x,y)=> x[0]<y[0]?-1:1);
+  const MAX_DIAS = 6;
+  const listaDias = dias.slice(0, MAX_DIAS).map(([f,n])=>`${fmtDiaCorto(f)} (${n.toLocaleString('es-CL')})`).join(' · ') + (dias.length>MAX_DIAS? ` · y ${dias.length-MAX_DIAS} día${dias.length-MAX_DIAS===1?'':'s'} más` : '');
+  return `
+    <div class="card" id="plan-atraso" style="margin-bottom:14px;border-color:var(--warn)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="badge badge-warn">Atrasado</span>
+        <span style="flex:1;min-width:180px"><strong>${a.entradas.length}</strong> entrada${a.entradas.length===1?'':'s'} de días pasados con <strong>${skus.toLocaleString('es-CL')}</strong> SKU sin contar.</span>
+        <button type="button" class="btn btn-secondary" id="btn-atraso-a-hoy" style="width:auto;padding:6px 12px;font-size:12.5px;flex:none">Pasar a hoy</button>
+      </div>
+      <div class="hint" style="margin:6px 0 0">${esc(listaDias)}</div>
+    </div>`;
+}
+
 function renderPlanificacion(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
@@ -12612,6 +12711,7 @@ function renderPlanificacion(){
     <div class="hint" style="margin-bottom:14px">Vista resumida: totales por entrada, sin listar los SKU. Para verlos o quitar alguno, usa Día o Semana. El PDF trae el listado completo.</div>
     ` : ''}
 
+    ${htmlAtrasoPlan(p)}
     ${entradasSinResponsable>0? `
     <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -16427,6 +16527,8 @@ function bind(){
     // que se elige para agregar sea la misma que se ve. Solo aplica en modo día: en modo
     // semana/período la lista ya muestra todas las fechas del rango.
     // Reintento del cálculo del universo cuando falló (ver el catch de cargarPlanSemanal).
+    const btnAtrasoAHoy = document.getElementById('btn-atraso-a-hoy');
+    if(btnAtrasoAHoy) btnAtrasoAHoy.addEventListener('click', pasarAtrasoAHoy);
     const btnReintentarUniverso = document.getElementById('btn-reintentar-universo');
     if(btnReintentarUniverso) btnReintentarUniverso.addEventListener('click', ()=>{ cargarPlanSemanal(); });
     // "+ Agregar a la planificación" / "Cerrar": el formulario siempre está en la página (oculto

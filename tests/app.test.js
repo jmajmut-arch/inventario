@@ -58,6 +58,7 @@ let posicionesGrupoFixture = {}; // por grupo_id: {materiales, posiciones} (RPC 
 let resumenPlanGruposFixture = {}; // por grupo_id: {entradas, desde, hasta, por_venir, skus_por_contar} (RPC resumen_plan_grupos)
 let sinBinFixture = {'Nave Mina|Interior Nave': 72, 'Nave Mina|': 18224}; // pendientes sin storage bin por "bodega|ubicación" (contarPendientesSinBin)
 let sinBinFalla = null; // mensaje de error del conteo sin bin; null = responde bien
+let sinAsignarPlanDiaFixture = []; // entradas sin responsable que se suman a "mi plan del día" (cargarPlanDeHoy)
 let avanceGruposFixture = {}; // por grupo_id: {materiales, contados_ciclo, nunca_contados} (RPC avance_por_grupo)
 let avanceGruposFalla = null; // mensaje de error de avance_por_grupo; null = responde bien
 let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
@@ -231,7 +232,7 @@ const fakeFetchImpl = async (url, opts) => {
     if(planVentanaPantallaFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: planVentanaPantallaFalla}) };
     const b = opts && opts.body ? JSON.parse(opts.body) : {};
     const base = `${u.origin}/rest/v1`;
-    const filtro = b.p_ciclo_id ? `ciclo_id=eq.${b.p_ciclo_id}`
+    const filtro = b.p_ciclo_id ? `ciclo_id=eq.${b.p_ciclo_id}${b.p_desde? `&fecha=gte.${b.p_desde}` : ''}${b.p_hasta? `&fecha=lte.${b.p_hasta}` : ''}`
       : b.p_desde===b.p_hasta ? `fecha=eq.${b.p_desde}`
       : `fecha=gte.${b.p_desde}&fecha=lte.${b.p_hasta}`;
     const rEntradas = await ctx.fetch(`${base}/plan_semanal_detalle?${filtro}&order=fecha.asc`, {__interno:true});
@@ -251,6 +252,18 @@ const fakeFetchImpl = async (url, opts) => {
     // ubicación" (solo_sin_ubicacion, que no cascadea por bodega/ubicación/bin) y una con
     // bodega:'' ("Sin bodega asignada": bodega IS NULL, pero con ubicación específica — bug real
     // reportado: esta entrada quedaba inalcanzable en el <select>, ver renderPlanDelDia).
+    // Mis entradas y las sin responsable del día (or=(responsable_id.eq.yo,responsable_id.is.null)).
+    // sinAsignarPlanDiaFixture agrega entradas sin responsable a ese día (vacío por defecto).
+    if(path.includes('responsable_id.eq.resp-yo') && path.includes('responsable_id.is.null')){
+      if(path.includes('fecha=eq.2026-08-24')) return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
+        {id:'mp1', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
+        {id:'mp2', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
+        {id:'mp3', fecha:'2026-08-24', bodega:null, ubicacion:null, storage_bin:null, solo_sin_ubicacion:true, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
+        {id:'mp4', fecha:'2026-08-24', bodega:'', ubicacion:'Piso', storage_bin:null, solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
+        ...sinAsignarPlanDiaFixture,
+      ]) };
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]' };
+    }
     if(path.includes('responsable_id=eq.resp-yo')){
       const filas = path.includes('fecha=eq.2026-08-24') ? [
         {id:'mp1', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', solo_sin_ubicacion:false, responsable_id:'resp-yo', ciclo_nombre:null, skus_excluidos:[]},
@@ -6108,7 +6121,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   calls.length = 0;
   await ctx.cargarCiclos();
   assert(ctx.__appstate.plan.cicloFiltro==='', 'ya inicializado, cargarCiclos no debe volver a pisar la elección de la persona, obtuvo: '+JSON.stringify(ctx.__appstate.plan.cicloFiltro));
-  assert(!calls.some(c=>c.url.includes('/plan_semanal_detalle?ciclo_id=eq.')), 'sin reinicializar el filtro, no debe volver a pedir el plan por período, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  // (la revisión de "Atrasado" sí consulta el período actual hasta ayer: se distingue por fecha=lte.)
+  assert(!calls.some(c=>c.url.includes('/plan_semanal_detalle?ciclo_id=eq.') && !c.url.includes('fecha=lte.')), 'sin reinicializar el filtro, no debe volver a pedir el plan por período, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
   const htmlCiclos = ctx.renderCiclos();
   assert(htmlCiclos.includes('T1 2027') && htmlCiclos.includes('T4 2026'), 'Períodos (renderCiclos) debe listar los ciclos existentes, obtuvo: '+htmlCiclos);
@@ -10565,7 +10579,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.cargarPlanDeHoy('2026-08-24');
   assert(ctx.__appstate.contarPlan.entradas.length===4, 'cargarPlanDeHoy debe traer mis 4 entradas del día, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.entradas));
   const callMiPlan = calls.find(c=>c.url.includes('/plan_semanal_detalle'));
-  assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('responsable_id=eq.resp-yo'), 'debe filtrar plan_semanal_detalle por fecha y por mi propio id de cuenta, obtuvo: '+JSON.stringify(callMiPlan));
+  // Mis entradas y también las sin responsable del día (Joel, 30/09: 334 de 384 entradas del
+  // período no le aparecían a nadie en Contar porque el plan de Grupos queda sin asignar).
+  assert(!!callMiPlan && callMiPlan.url.includes('fecha=eq.2026-08-24') && callMiPlan.url.includes('or=(responsable_id.eq.resp-yo,responsable_id.is.null)'), 'debe traer mis entradas y las sin responsable de ese día, obtuvo: '+JSON.stringify(callMiPlan));
+  assert(!ctx.renderPlanDelDia().includes('sin responsable'), 'sin entradas sin asignar no debe aparecer el aviso');
+  sinAsignarPlanDiaFixture = [{id:'mp5', fecha:'2026-08-24', bodega:'Nave Mina', ubicacion:'Rack', storage_bin:null, solo_sin_ubicacion:false, responsable_id:null, ciclo_nombre:null, skus_excluidos:[]}];
+  await ctx.cargarPlanDeHoy('2026-08-24');
+  const htmlSinAsignar = ctx.renderPlanDelDia();
+  assert(ctx.__appstate.contarPlan.entradas.length===5 && htmlSinAsignar.includes('Incluye 1 entrada sin responsable, que puede contar cualquiera del equipo.') && htmlSinAsignar.includes('<option value="Nave Mina"'), 'las entradas sin asignar del día deben aparecer en Contar con su aviso, obtuvo: '+(htmlSinAsignar.match(/<div class="hint"[^>]*>[^<]*sin responsable[^<]*<\/div>/)||[''])[0]);
+  sinAsignarPlanDiaFixture = [];
+  await ctx.cargarPlanDeHoy('2026-08-24');
 
   // Modo offline para "Plan del día" (a pedido de Joel, acotado solo al plan asignado a la
   // persona -- NO al universo completo de SKU de la empresa, que puede superar las 50 mil filas
@@ -12372,6 +12395,51 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.confirmarYBorrarSeleccionPlan();
     assert(confirmLlamadas.length===1 && !confirmLlamadas[0].includes('días cerrados'), 'sin días plegados no debe hablar de días cerrados, obtuvo: '+JSON.stringify(confirmLlamadas));
     confirmRespuesta = true;
+
+    // ===== Atrasado (Joel, 30/09: 2.443 SKU planificados para días que ya pasaron y nada lo decía) =====
+    const ciclosAntesAtraso = ctx.__appstate.ciclos;
+    ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T1 2027', es_actual:true}];
+    const ayerA = ctx.fechaISO(new Date(Date.now()-86400000));
+    const anteayerA = ctx.fechaISO(new Date(Date.now()-2*86400000));
+    const hoyA = ctx.fechaISO(new Date());
+    const entradasA = [
+      {id:'a1', fecha: anteayerA, bodega:'B501', ubicacion:'0100', responsable_id:null, ciclo_id:'ciclo-1'},
+      {id:'a2', fecha: ayerA, bodega:'B501', ubicacion:'0101', responsable_id:null, ciclo_id:'ciclo-1'},
+      {id:'a3', fecha: ayerA, bodega:'B501', ubicacion:'0102', responsable_id:null, ciclo_id:'ciclo-1'}, // ya contada: universo 0
+      {id:'a4', fecha: hoyA, bodega:'B501', ubicacion:'0103', responsable_id:null, ciclo_id:'ciclo-1'},  // hoy: no es atraso
+    ];
+    // Vista Período del período actual: sale de lo que la pantalla ya tiene, sin otra consulta.
+    ctx.__appstate.plan = {...basePlan, rango:'semana', mesInicio:null, cicloFiltro:'ciclo-1', entradas: entradasA, universos:{a1:5, a2:3, a3:0, a4:7}, propios:{a1:5, a2:2, a3:0, a4:7}, universoError:null, atraso:null};
+    calls.length = 0;
+    await ctx.cargarAtrasoPlan();
+    assert(calls.length===0 && JSON.stringify(ctx.__appstate.plan.atraso.entradas.map(e=>e.id))==='["a1","a2"]', 'en la vista Período el atraso debe salir de la pantalla, sin consultas, y solo con días pasados que tengan SKU sin contar, obtuvo: '+JSON.stringify({calls:calls.map(c=>c.url), atraso:ctx.__appstate.plan.atraso}));
+    const htmlAtraso = ctx.renderPlanificacion();
+    assert(htmlAtraso.includes('id="plan-atraso"') && /<strong>2<\/strong> entradas de días pasados con <strong>7<\/strong> SKU sin contar/.test(htmlAtraso) && htmlAtraso.includes(`${ctx.fmtDiaCorto(anteayerA)} (5) · ${ctx.fmtDiaCorto(ayerA)} (2)`) && htmlAtraso.includes('id="btn-atraso-a-hoy"'), 'debe mostrarse la tarjeta Atrasado con entradas, SKU y días, obtuvo: '+(htmlAtraso.match(/id="plan-atraso"[\s\S]{0,700}/)||[''])[0]);
+    // "Pasar a hoy": confirma y deja esas entradas con la fecha de hoy.
+    confirmRespuesta = true;
+    confirmLlamadas.length = 0;
+    calls.length = 0;
+    await ctx.pasarAtrasoAHoy();
+    const patchAtraso = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(a1,a2)'));
+    assert(confirmLlamadas.length===1 && confirmLlamadas[0].includes('2 entradas atrasadas de 2 días (7 SKU sin contar)') && !!patchAtraso && JSON.parse(patchAtraso.opts.body).fecha===hoyA, 'Pasar a hoy debe confirmar y actualizar la fecha de esas entradas a hoy, obtuvo: '+JSON.stringify({confirm:confirmLlamadas, patch: patchAtraso && [patchAtraso.url, patchAtraso.opts.body]}));
+    await new Promise(r=>setTimeout(r, 20));
+    // Otras vistas: UNA consulta al período actual hasta ayer (plan_ventana_pantalla resumido).
+    ctx.__appstate.plan = {...basePlan, rango:'semana', mesInicio:null, cicloFiltro:'', semanaInicio:'2026-08-10', atraso:null};
+    calls.length = 0;
+    await ctx.cargarAtrasoPlan(true);
+    const rpcAtraso = calls.find(c=>c.url.includes('/rpc/plan_ventana_pantalla') && !(c.opts && c.opts.__interno));
+    assert(!!rpcAtraso && JSON.stringify(JSON.parse(rpcAtraso.opts.body))===JSON.stringify({p_hasta: ayerA, p_ciclo_id:'ciclo-1', p_resumido:true}), 'fuera de la vista Período debe consultar el período actual hasta ayer, resumido, obtuvo: '+JSON.stringify(rpcAtraso && rpcAtraso.opts.body));
+    assert(Array.isArray(ctx.__appstate.plan.atraso.entradas) && ctx.__appstate.plan.atraso.error===null, 'debe quedar el atraso calculado, obtuvo: '+JSON.stringify(ctx.__appstate.plan.atraso));
+    // Recién consultado: navegar no lo vuelve a pedir.
+    calls.length = 0;
+    await ctx.cargarAtrasoPlan();
+    assert(!calls.some(c=>c.url.includes('/rpc/plan_ventana_pantalla')), 'no debe repetir la consulta de atraso al navegar, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // Si falla, se dice en la pantalla (no se da por hecho que no hay atraso).
+    planVentanaPantallaFalla = 'canceling statement due to statement timeout';
+    await ctx.cargarAtrasoPlan(true);
+    planVentanaPantallaFalla = null;
+    assert(ctx.renderPlanificacion().includes('No se pudo revisar si hay entradas atrasadas (canceling statement due to statement timeout)'), 'un error al revisar el atraso debe verse en la pantalla');
+    ctx.__appstate.ciclos = ciclosAntesAtraso;
     ctx.__appstate.plan = planAntes;
   }
 
@@ -12393,7 +12461,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // Un solo viaje real: plan_ventana_pantalla con el rango del mes y p_resumido (las otras URL
     // de arriba son las que el servidor resuelve por dentro, ver el simulacro {__interno:true}).
     // Devuelve un solo jsonb, así que ya no hay tope de 1.000 filas que paginar con Range.
-    const viajesMes = calls.filter(c=>!(c.opts && c.opts.__interno));
+    // Sin la consulta de "Atrasado" (período actual hasta ayer), que va aparte y en segundo plano.
+    const viajesMes = calls.filter(c=>!(c.opts && c.opts.__interno) && !(c.opts && c.opts.body && JSON.parse(c.opts.body).p_ciclo_id && JSON.parse(c.opts.body).p_hasta));
     const rpcMes = viajesMes.find(c=>c.url.includes('/rpc/plan_ventana_pantalla'));
     assert(!!rpcMes && JSON.stringify(JSON.parse(rpcMes.opts.body))===JSON.stringify({p_desde:'2026-08-01', p_hasta:'2026-08-31', p_resumido:true}), 'en modo Mes debe pedirse plan_ventana_pantalla con el mes completo y resumido, obtuvo: '+JSON.stringify(viajesMes.map(c=>[c.url, c.opts && c.opts.body])));
     assert(viajesMes.filter(c=>c.url.includes('/plan_semanal_detalle') || c.url.includes('/rpc/resumen_entradas_plan') || c.url.includes('/rpc/plan_ventana_pantalla')).length===1, 'entradas y totales deben llegar en UN solo viaje, obtuvo: '+JSON.stringify(viajesMes.map(c=>c.url)));
