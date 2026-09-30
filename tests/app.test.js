@@ -2372,6 +2372,46 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.alternarSeleccionTodoPlan();
   assert(ctx.__appstate.plan.seleccionados.length===0, 'alternarSeleccionTodoPlan debe deseleccionar todo si ya estaba todo seleccionado, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
 
+  // resumenSeleccionPlan (pedido de Joel, 30/09): la barra de selección dice cuántos SKU y cuántas
+  // posiciones de storage bin abarcan las entradas marcadas, sin consultas.
+  {
+    const pBase = {
+      entradas: [
+        {id:'s1', bodega:'B1', ubicacion:'U1', storage_bin:'A-01'},
+        {id:'s2', bodega:'B1', ubicacion:'U1', storage_bin:'A-01'},   // mismo bin en otro día: una sola posición
+        {id:'s3', bodega:'B1', ubicacion:'U2', storage_bin:'A-01'},   // mismo nombre de bin en otra ubicación: otra posición
+        {id:'s4', bodega:'B1', ubicacion:'U1', storage_bin:null},     // ubicación completa
+        {id:'s5', bodega:'B1', ubicacion:null, storage_bin:'Z-9', por_sku:true}, // por código
+        {id:'s6', bodega:'B1', ubicacion:'U3', storage_bin:'C-03'},   // no seleccionada
+      ],
+      universos: {s1:2, s2:2, s3:1, s4:7, s5:3, s6:50},
+      detalle: {s1:[{id:'k1'},{id:'k2'}], s2:[{id:'k1'},{id:'k2'}], s3:[{id:'k3'}], s5:[{id:'k2'},{id:'k4'},{id:'k5'}]},
+      propios: {},
+    };
+    const r = ctx.resumenSeleccionPlan(pBase, ['s1','s2','s3','s4','s5']);
+    // SKU: k1,k2,k3 + s4 sin detalle (universo 7) + k4,k5 (k2 ya contado) = 3 + 7 + 2 = 12.
+    assert(r.skus===12 && r.bins===2 && r.sinBin===2, 'resumenSeleccionPlan debe contar SKU distintos y posiciones de bin distintas (bodega+ubicación+bin), obtuvo: '+JSON.stringify(r));
+    // Vista resumida (sin detalle): usa "propios" del servidor, ya deduplicado.
+    const rRes = ctx.resumenSeleccionPlan({...pBase, detalle:{}, propios:{s1:2, s2:0, s3:1, s4:5, s5:1}}, ['s1','s2','s3','s4','s5']);
+    assert(rRes.skus===9, 'en la vista resumida debe sumar los propios del servidor, obtuvo: '+JSON.stringify(rRes));
+    assert(JSON.stringify(ctx.resumenSeleccionPlan(pBase, []))===JSON.stringify({skus:0, bins:0, sinBin:0}), 'sin selección todo en cero');
+
+    const planOriginal = ctx.__appstate.plan;
+    ctx.__appstate.plan = {...planOriginal, semanaInicio:'2026-08-10', diaFiltro:null, cicloFiltro:null, responsableFiltro:'',
+      entradas: pBase.entradas.map(e=>({...e, fecha:'2026-08-11', responsable_id:null, responsable_nombre:null, nota:''})),
+      universos: {...pBase.universos, s6:1}, detalle: {...pBase.detalle, s6:[{id:'k9'}]}, propios: {}, responsables: [], editando: null,
+      seleccionados: ['s1','s2','s3','s4','s5']};
+    const htmlBarra = ctx.renderPlanificacion();
+    const barra = (htmlBarra.match(/<span class="plan-seleccion-resumen"[^>]*>([^<]*)<\/span>/)||[])[1];
+    assert(htmlBarra.includes('5 entradas seleccionadas') && barra==='12 SKU · 2 storage bin · 2 entradas sin storage bin fijo', 'la barra de selección debe decir SKU y storage bin de lo seleccionado, obtuvo: '+barra);
+    ctx.__appstate.plan = {...ctx.__appstate.plan, seleccionados:['s1']};
+    const barraUna = (ctx.renderPlanificacion().match(/<span class="plan-seleccion-resumen"[^>]*>([^<]*)<\/span>/)||[])[1];
+    assert(barraUna==='2 SKU · 1 storage bin', 'con todas las seleccionadas en un bin, no debe aparecer la parte "sin storage bin fijo", obtuvo: '+barraUna);
+    ctx.__appstate.plan = {...ctx.__appstate.plan, seleccionados:[]};
+    assert(!ctx.renderPlanificacion().includes('plan-seleccion-resumen'), 'sin selección no debe mostrarse el resumen');
+    ctx.__appstate.plan = planOriginal;
+  }
+
   // alternarSeleccionPlan agrega/quita ids del set de seleccionados.
   ctx.alternarSeleccionPlan('e1');
   assert(JSON.stringify(ctx.__appstate.plan.seleccionados)===JSON.stringify(['e1']), 'alternarSeleccionPlan debe agregar el id a seleccionados, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));

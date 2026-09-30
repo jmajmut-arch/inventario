@@ -315,6 +315,10 @@ async function loguear(page, perfil){
     await page.waitForSelector('#plan-reasignar-select', { timeout:ESPERA });
     const asignar = await page.evaluate(() => ({ n: state.plan.seleccionados.length, foco: document.activeElement && document.activeElement.id }));
     assert(asignar.n === entradas.filter(e=>!e.responsable_id).length && asignar.foco === 'plan-reasignar-select', 'Asignar elige las sin responsable y enfoca "Reasignar a…", obtuvo '+JSON.stringify(asignar));
+    // Barra de selección (Joel, 30/09): dice SKU y storage bin de lo elegido, y sus botones no se
+    // salen de la pantalla (antes "Eliminar" quedaba 60 px fuera a 420 px).
+    const barraSel = await page.evaluate(() => ({ resumen: document.querySelector('.plan-seleccion-resumen').textContent, derecha: Math.max(...['plan-reasignar-select','btn-reasignar-seleccion-plan','btn-cancelar-seleccion-plan','btn-borrar-seleccion-plan'].map(id => document.getElementById(id).getBoundingClientRect().right)), ancho: window.innerWidth }));
+    assert(barraSel.resumen === '156 SKU · 0 storage bin · 13 entradas sin storage bin fijo' && barraSel.derecha <= barraSel.ancho, 'la barra de selección resume SKU y bins y sus botones caben a 420 px, obtuvo '+JSON.stringify(barraSel));
     await page.click('#btn-cancelar-seleccion-plan');
     // "+ Agregar": el formulario aparece; Ubicación específica y Storage bin apilados; bins crece.
     assert(!(await page.isVisible('#form-plan')), 'con entradas, el formulario parte oculto');
