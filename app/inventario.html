@@ -818,7 +818,7 @@ const ACCION_AUDITORIA_LABEL = { INSERT:'Creado', UPDATE:'Modificado', DELETE:'E
 const CAMPOS_AUDITADOS = {
   usuarios: [['nombre','Nombre'], ['rol','Rol'], ['activo','Activo']],
   empresas: [['nombre','Nombre'], ['activo','Activo'], ['flow_subscription_status','Estado de suscripción']],
-  conteos: [['cantidad_contada','Cantidad'], ['ubicacion_contada','Ubicación contada'], ['bodega','Ubicación general'], ['ubicacion_distinta','Ubicación distinta'], ['estado','Estado'], ['observacion','Observación']],
+  conteos: [['cantidad_contada','Cantidad'], ['ubicacion_contada','Ubicación contada'], ['bodega','Ubicación general'], ['ubicacion_distinta','Ubicación distinta'], ['estado','Estado'], ['observacion','Observación'], ['motivo_correccion','Motivo de corrección']],
   skus: [['descripcion','Descripción'], ['stock_sistema','Stock sistema'], ['costo_unitario','Costo unitario'], ['bodega','Ubicación general'], ['ubicacion','Ubicación específica'], ['activo','Activo']],
 };
 
@@ -10375,10 +10375,13 @@ function botonCorregirConteo(c, cantidad, estilo){
   return `<button type="button" class="btn btn-secondary" data-corregir-conteo="${esc(c.conteo_id)}" data-corregir-sku="${esc(c.sku_code)}" data-corregir-cantidad="${cantidad==null?'':cantidad}" data-corregir-observacion="${esc(c.observacion||'')}" data-corregir-fecha="${esc(c.capturado_en||c.fecha_conteo||'')}" data-corregir-original="${c.cantidad_original==null?'':c.cantidad_original}" style="${estilo}">Editar</button>`;
 }
 // Marca visible de que el conteo fue corregido: la cantidad que se ve es la corregida, y acá se
-// dice cuál era la original y por qué (el motivo va en el title, para no ensanchar la tabla).
+// dice cuál era la original y por qué. El motivo va como texto (pedido de Joel, 30/09: antes iba
+// solo en el title, que en el iPad y el celular no existe); quién corrigió y cuándo queda en
+// Auditoría de cambios (Configuraciones), que ya muestra al actor de cada cambio.
 function marcaConteoCorregido(c){
   if(!c || !c.corregido_en) return '';
-  return `<div class="hint" style="font-size:10px;margin:2px 0 0;white-space:nowrap" title="${esc(c.motivo_correccion||'')}">corregido · antes ${c.cantidad_original==null?'—':c.cantidad_original}</div>`;
+  const motivo = (c.motivo_correccion||'').trim();
+  return `<div class="hint" style="font-size:10px;margin:2px 0 0;min-width:150px;max-width:220px;white-space:normal;text-align:left" title="${esc(motivo)}">corregido · antes ${c.cantidad_original==null?'—':c.cantidad_original}${motivo? ` · motivo: ${esc(motivo)}` : ''}</div>`;
 }
 async function corregirConteo(){
   const m = state.corregirConteoModal;
