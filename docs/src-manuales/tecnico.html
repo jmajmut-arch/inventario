@@ -206,7 +206,7 @@
       <li>Ver el stock de sistema ni el stock por tipo con Conteo ciego activo</li>
     </ul>
   </div>
-  <div class="box new"><div class="tag">Nuevo · Origen "Plan" también al tipear o escanear</div>Al elegir un SKU desde el buscador libre o el escáner, la app evalúa si está cubierto por alguna entrada del plan del día del responsable (misma regla de cobertura que el servidor: bodega, ubicación, bin, "sin ubicación", "sin bodega", exclusiones). Si lo está, el conteo se guarda con <code>fuera_de_plan = false</code>. La regla es "mismo día": un SKU planificado para otra fecha sigue siendo fuera de plan.</div>
+  <div class="box new"><div class="tag">Nuevo · "Fuera de plan" lo decide la base</div>El trigger <code>marcar_fuera_de_plan</code> (BEFORE INSERT en <code>conteos</code>) evalúa con <code>sku_en_plan_del_periodo</code> si el material está en alguna entrada del período, con las mismas reglas de cobertura que el universo (bodega, ubicación, bin, "sin ubicación", "sin bodega", por código, exclusiones, stock 0). Da lo mismo desde qué pantalla se contó o para qué día estaba planificado. Si el cálculo fallara, el conteo se guarda igual con lo que mandó la app y queda un WARNING.</div>
   <div class="box new"><div class="tag">Nuevo · Una sola llamada para el universo del día</div>El universo de SKU de todas las entradas activas se pide en un solo RPC (<code>universo_entradas_plan_contar</code>, jsonb agrupado por entrada), y las fotos de <code>plan_semanal_skus</code> en una consulta por tandas de 100 entradas. Antes era una llamada por entrada: con 29 entradas reales, de 641 ms acumulados y 29 viajes de red a 38 ms y un viaje. El mismo RPC alimenta el PDF "Mi plan del día".</div>
   <div class="foot-note">Esta sección no repite captura de pantalla: las etapas 07 y 08 del Manual de usuario muestran las mismas pantallas con el detalle paso a paso.</div>
 </section>
@@ -246,11 +246,11 @@
   <div class="two">
     <ul class="checks">
       <li>Cinco ventanas: Día, Semana, Mes, Año y Período (selector). Día y Semana traen el detalle de SKU por entrada; Mes, Año y Período, solo totales. Todo en una llamada: <code>plan_ventana_pantalla</code></li>
-      <li>Un mismo SKU cubierto por dos entradas se cuenta una sola vez en los totales de la ventana (regla "gana la entrada más temprana por fecha y creación", igual en cliente y servidor)</li>
+      <li>Un SKU cubierto por dos entradas se cuenta una vez en los totales (gana la entrada más temprana, igual en cliente y servidor)</li>
       <li>Aviso de solapamiento antes de agregar: cuántos SKU de la entrada nueva ya están planificados en el período (<code>skus_planificables</code> vs <code>skus_disponibles_planificar</code>)</li>
       <li>Exclusiones puntuales por entrada (<code>plan_semanal_exclusiones</code>) resueltas en el servidor: nunca viajan por la URL</li>
       <li>Entradas por código de SKU (<code>por_sku</code> + lista exacta en <code>plan_semanal_incluidos</code>), agrupadas por bodega y ubicación; las resuelven las mismas funciones que el resto (universo, calendario, disponibles)</li>
-      <li>Exportar PDF con el listado completo de la ventana en una sola llamada (<code>universo_entradas_plan_hoja</code>)</li>
+      <li>Exportar PDF de la ventana en una llamada (<code>universo_entradas_plan_hoja</code>); bloque Atrasado reprogramable por días; la selección dice SKU y bins distintos</li>
     </ul>
     <ul class="checks no">
       <li>Dos períodos "actuales" a la vez (marcar uno nuevo desmarca el anterior)</li>
@@ -347,7 +347,8 @@
       <ul class="checks">
         <li>Buscar por código, descripción, batch o storage bin; filtrar por bodega, estado (con diferencia positiva y negativa por separado, igual que el gráfico), período, crítico, Clase ABC, "solo con fotos" y "solo fuera de plan"; ordenar por cualquier columna</li>
         <li>El título y los gráficos muestran el total real que cumple los filtros (RPC <code>contar_busqueda_skus</code>), no solo las filas traídas al navegador</li>
-        <li>Columna Origen: "Plan" o "Fuera de plan", coherente con la regla del mismo día de Contar</li>
+        <li>Columna Origen: "Plan" o "Fuera de plan", decidido por la base al guardar (<code>sku_en_plan_del_periodo</code>)</li>
+        <li>Corregir un conteo (<code>corregir_conteo</code>): guarda cantidad original, motivo, quién y cuándo; la fila muestra "corregido · antes N · motivo" y Auditoría el cambio con su motivo</li>
         <li>Exportar a Excel los resultados filtrados, o un rango de fechas completo (un renglón por conteo) para un ERP; exportar seleccionados a PDF con foto, observación y detalle</li>
         <li>Gráfico interactivo "Quién contó" y resumen por estado, reactivos a los filtros</li>
         <li>Conteos capturados sin señal muestran la hora real de captura (<code>capturado_en</code>) además de la de sincronización</li>
