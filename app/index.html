@@ -480,6 +480,18 @@ textarea{resize:vertical;min-height:60px;}
 .foto-preview-item img{width:100%;height:100%;object-fit:cover;display:block;}
 .foto-preview-remove{position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.65);border:none;color:#fff;display:flex;align-items:center;justify-content:center;padding:0;}
 .foto-preview-remove svg{width:11px;height:11px;}
+.foto-preview-marcar{position:absolute;left:3px;bottom:3px;height:22px;padding:0 8px 0 6px;border-radius:11px;background:rgba(0,0,0,.65);border:none;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px;}
+.foto-preview-marcar svg{width:11px;height:11px;stroke:#fff;}
+.foto-preview-marcada{position:absolute;left:3px;top:3px;pointer-events:none;font-size:10px;font-weight:700;color:#fff;background:#d62828;border-radius:9px;padding:2px 6px;}
+/* Editor para marcar una foto (rayas y flechas) antes de guardarla -- ver abrirEditorFoto. */
+.editor-foto-card{display:flex;flex-direction:column;gap:10px;max-width:min(96vw,900px);width:100%;}
+.editor-foto-barra{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center;}
+.editor-foto-barra .btn{width:auto;padding:8px 12px;font-size:13px;}
+.editor-foto-barra .btn.activa{background:var(--amber);color:#1a1a1a;border-color:var(--amber);}
+.editor-foto-lienzo{display:flex;justify-content:center;align-items:center;min-height:120px;}
+.editor-foto-lienzo canvas{max-width:96vw;max-height:60vh;display:block;border-radius:8px;background:#000;touch-action:none;cursor:crosshair;}
+.editor-foto-hint{color:#e6e6e6;font-size:12.5px;text-align:center;}
+@media (max-width:480px){ .foto-modal-backdrop.editor-foto-fondo{padding:10px;} .editor-foto-lienzo canvas{max-height:56vh;} }
 
 .tema-opcion{display:flex;align-items:center;gap:12px;padding:12px;border:1.5px solid var(--line);border-radius:var(--radius);background:var(--surface);margin-bottom:10px;cursor:pointer;}
 .tema-opcion.activo{border-color:var(--amber);}
@@ -703,6 +715,7 @@ let state = {
   // de Joel ("un filtro que permita separar los críticos y el resto").
   resumenGeneral: { criticidad:'', tipoGrafico:'torta', datos:null, cargando:false },
   fotoModal: null,        // {urls:[...], index:0}
+  editorFoto: null,       // {indice, herramienta, trazos} -- foto de Contar que se está marcando (ver abrirEditorFoto)
   descartarReconteoModal: null, // {conteoId, skuCode, motivo, guardando}
   reconteosSeleccionados: [], // conteo_id marcados en la tabla de Reconteo (acciones en lote, solo admin)
   cerrarLoteErpModal: null, // {filas:[{conteoId, skuCode, diferencia, veces}], referencia, motivo, guardando, resultado}
@@ -1479,6 +1492,194 @@ async function esperarFotosEnProceso(){
   if(!fotosEnProceso.length) return;
   await Promise.all(fotosEnProceso.map(p=> p.catch(()=>{})));
 }
+/* ---- Marcar una foto antes de guardarla (pedido de Joel, 30/09/2026): rayas y flechas con el
+   dedo para señalar "este cajón". Se dibuja sobre un canvas del tamaño real de la foto ya
+   comprimida (≤1600 px), en coordenadas de la imagen, y al tocar Listo el dibujo se aplana en un
+   JPEG nuevo que reemplaza la foto de la entrada: lo que se sube es una sola imagen, igual que
+   siempre (galería, PDF e informes no cambian). La foto sin marcas queda en entrada.base y los
+   trazos en entrada.trazos, así se puede volver a abrir y seguir editando (deshacer incluido)
+   hasta guardar el conteo. Solo canvas, sin librerías; sin cambios en la base. ---- */
+const MARCA_FOTO_COLOR = '#ff2d2d';
+let editorFotoImagen = null; // {entrada, img} -- imagen decodificada de la foto abierta (se reusa entre renders)
+let editorFotoEnCurso = null; // trazo que se está dibujando ahora (entre pointerdown y pointerup)
+function grosorMarcaFoto(w, h){ return Math.max(4, Math.round(Math.max(w||0, h||0) / 160)); }
+// Las dos alas de la punta de una flecha de `desde` a `hasta`, con `largo` px de ala.
+function puntosFlecha(desde, hasta, largo){
+  const ang = Math.atan2(hasta[1]-desde[1], hasta[0]-desde[0]);
+  const a = Math.PI / 7;
+  return [
+    [hasta[0] - largo*Math.cos(ang-a), hasta[1] - largo*Math.sin(ang-a)],
+    [hasta[0] - largo*Math.cos(ang+a), hasta[1] - largo*Math.sin(ang+a)],
+  ];
+}
+// Pinta los trazos (en coordenadas de la imagen) sobre un contexto 2D ya del tamaño de la imagen.
+function dibujarMarcasFoto(ctx, trazos, w, h){
+  if(!ctx || typeof ctx.beginPath !== 'function') return;
+  const grosor = grosorMarcaFoto(w, h);
+  ctx.save();
+  ctx.strokeStyle = MARCA_FOTO_COLOR; ctx.fillStyle = MARCA_FOTO_COLOR;
+  ctx.lineWidth = grosor; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  (trazos||[]).forEach(t=>{
+    if(t.tipo==='flecha'){
+      if(!t.desde || !t.hasta) return;
+      ctx.beginPath(); ctx.moveTo(t.desde[0], t.desde[1]); ctx.lineTo(t.hasta[0], t.hasta[1]); ctx.stroke();
+      const [a, b] = puntosFlecha(t.desde, t.hasta, grosor*3.2);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(t.hasta[0], t.hasta[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }else{
+      const pts = t.puntos || [];
+      if(!pts.length) return;
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+      if(pts.length===1) ctx.lineTo(pts[0][0]+0.1, pts[0][1]); // un toque solo: un punto
+      for(let i=1; i<pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.stroke();
+    }
+  });
+  ctx.restore();
+}
+function abrirEditorFoto(indice){
+  const entrada = state.conteoFotos[indice];
+  if(!entrada || entrada.preparando || !entrada.preview) return;
+  if(!entrada.base) entrada.base = entrada.file; // la foto sin marcas, para volver a dibujar desde cero
+  editorFotoEnCurso = null;
+  setState({editorFoto:{indice, herramienta:'trazo', trazos:(entrada.trazos||[]).map(t=> t.tipo==='flecha' ? {...t} : {...t, puntos:t.puntos.slice()})}});
+}
+// Aplana base + trazos en un JPEG nuevo (o vuelve a la base si no quedó ningún trazo) y deja la
+// entrada lista para subirse: file, preview y trazos. Corre dentro de fotosEnProceso para que
+// "Guardar conteo" espere si la persona toca Listo y Guardar seguidos.
+async function aplanarFotoMarcada(entrada, trazos){
+  const base = entrada.base || entrada.file;
+  const previewDesde = archivo => new Promise(resolve=>{
+    const reader = new FileReader();
+    reader.onload = ev=>{ entrada.preview = ev.target.result; resolve(); };
+    reader.onerror = ()=> resolve();
+    reader.readAsDataURL(archivo);
+  });
+  if(!trazos || !trazos.length){
+    entrada.file = base; entrada.trazos = [];
+    await previewDesde(base);
+    return;
+  }
+  const canvas = document.createElement('canvas');
+  if(!canvas || typeof canvas.getContext !== 'function' || typeof canvas.toBlob !== 'function') throw new Error('Este navegador no puede dibujar sobre la foto');
+  const img = await decodificarImagen(base);
+  if(!img) throw new Error('No se pudo leer la foto para marcarla');
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  dibujarMarcasFoto(ctx, trazos, w, h);
+  if(typeof img.close === 'function') img.close();
+  const blob = await new Promise(resolve=> canvas.toBlob(resolve, 'image/jpeg', FOTO_CALIDAD_JPEG));
+  if(!blob) throw new Error('No se pudo guardar la foto marcada');
+  const nombre = nombreFotoJpg(base.name);
+  let salida = blob;
+  if(typeof File === 'function'){ try{ salida = new File([blob], nombre, {type:'image/jpeg'}); }catch(e){ salida = blob; } }
+  entrada.file = salida; entrada.trazos = trazos;
+  await previewDesde(salida);
+}
+async function cerrarEditorFoto(guardar){
+  const ed = state.editorFoto;
+  if(!ed) return;
+  const entrada = state.conteoFotos[ed.indice];
+  editorFotoEnCurso = null;
+  if(guardar && entrada){
+    const tarea = aplanarFotoMarcada(entrada, ed.trazos).catch(e=> toast(e.message, 'err'))
+      .finally(()=>{ fotosEnProceso = fotosEnProceso.filter(t=>t!==tarea); });
+    fotosEnProceso.push(tarea);
+    await tarea;
+  }
+  if(editorFotoImagen && editorFotoImagen.img && typeof editorFotoImagen.img.close === 'function') editorFotoImagen.img.close();
+  editorFotoImagen = null;
+  state.editorFoto = null;
+  conservandoCamposConteo(render);
+}
+function renderEditorFotoModal(){
+  const ed = state.editorFoto;
+  if(!ed) return '';
+  const hayTrazos = ed.trazos.length > 0;
+  return `<div class="foto-modal-backdrop editor-foto-fondo" id="editor-foto-backdrop">
+    <div class="editor-foto-card">
+      <div class="editor-foto-barra">
+        <button type="button" class="btn btn-secondary ${ed.herramienta==='trazo'?'activa':''}" id="editor-foto-trazo">✎ Trazo</button>
+        <button type="button" class="btn btn-secondary ${ed.herramienta==='flecha'?'activa':''}" id="editor-foto-flecha">➜ Flecha</button>
+        <button type="button" class="btn btn-secondary" id="editor-foto-deshacer" ${hayTrazos?'':'disabled'}>Deshacer</button>
+        <button type="button" class="btn btn-secondary" id="editor-foto-borrar" ${hayTrazos?'':'disabled'}>Borrar todo</button>
+      </div>
+      <div class="editor-foto-lienzo"><canvas id="editor-foto-canvas" aria-label="Foto para marcar"></canvas></div>
+      <div class="editor-foto-hint">Dibuja con el dedo sobre la foto${ed.herramienta==='flecha'? ': arrastra desde donde parte la flecha hasta lo que quieres señalar' : ''}.</div>
+      <div class="editor-foto-barra">
+        <button type="button" class="btn btn-secondary" id="editor-foto-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="editor-foto-listo">Listo</button>
+      </div>
+    </div>
+  </div>`;
+}
+// Pinta la foto y los trazos en el canvas del editor y ata el dibujo con el dedo o el mouse. Se
+// llama en cada bind mientras el editor está abierto (un render() de fondo rehace el canvas).
+async function prepararCanvasEditorFoto(){
+  const ed = state.editorFoto;
+  const canvas = document.getElementById('editor-foto-canvas');
+  if(!ed || !canvas || typeof canvas.getContext !== 'function') return;
+  const entrada = state.conteoFotos[ed.indice];
+  if(!entrada) return;
+  if(!editorFotoImagen || editorFotoImagen.entrada !== entrada){
+    const img = await decodificarImagen(entrada.base || entrada.file);
+    if(!img || state.editorFoto !== ed) return;
+    editorFotoImagen = {entrada, img};
+  }
+  const img = editorFotoImagen.img;
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const repintar = ()=>{
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    dibujarMarcasFoto(ctx, editorFotoEnCurso ? ed.trazos.concat([editorFotoEnCurso]) : ed.trazos, w, h);
+  };
+  repintar();
+  // Coordenadas del puntero -> píxeles de la imagen (el canvas se muestra escalado por CSS).
+  const punto = ev=>{
+    const r = canvas.getBoundingClientRect();
+    return [Math.max(0, Math.min(w, (ev.clientX - r.left) * w / r.width)), Math.max(0, Math.min(h, (ev.clientY - r.top) * h / r.height))];
+  };
+  canvas.onpointerdown = ev=>{
+    ev.preventDefault();
+    try{ canvas.setPointerCapture(ev.pointerId); }catch(e){ /* navegadores viejos */ }
+    const p = punto(ev);
+    editorFotoEnCurso = ed.herramienta==='flecha' ? {tipo:'flecha', desde:p, hasta:p} : {tipo:'trazo', puntos:[p]};
+    repintar();
+  };
+  canvas.onpointermove = ev=>{
+    if(!editorFotoEnCurso) return;
+    ev.preventDefault();
+    const p = punto(ev);
+    if(editorFotoEnCurso.tipo==='flecha') editorFotoEnCurso.hasta = p; else editorFotoEnCurso.puntos.push(p);
+    repintar();
+  };
+  const terminar = ev=>{
+    if(!editorFotoEnCurso) return;
+    if(ev) ev.preventDefault();
+    ed.trazos.push(editorFotoEnCurso);
+    editorFotoEnCurso = null;
+    // Solo cambia lo que hay que habilitar (Deshacer / Borrar todo): sin render(), para no rehacer el canvas.
+    ['editor-foto-deshacer','editor-foto-borrar'].forEach(id=>{ const b = document.getElementById(id); if(b) b.disabled = false; });
+    repintar();
+  };
+  canvas.onpointerup = terminar;
+  canvas.onpointercancel = terminar;
+}
+function bindEditorFoto(){
+  if(!state.editorFoto) return;
+  const ed = state.editorFoto;
+  prepararCanvasEditorFoto();
+  document.getElementById('editor-foto-trazo').addEventListener('click', ()=>{ editorFotoEnCurso = null; ed.herramienta = 'trazo'; conservandoCamposConteo(render); });
+  document.getElementById('editor-foto-flecha').addEventListener('click', ()=>{ editorFotoEnCurso = null; ed.herramienta = 'flecha'; conservandoCamposConteo(render); });
+  document.getElementById('editor-foto-deshacer').addEventListener('click', ()=>{ editorFotoEnCurso = null; ed.trazos.pop(); conservandoCamposConteo(render); });
+  document.getElementById('editor-foto-borrar').addEventListener('click', ()=>{ editorFotoEnCurso = null; ed.trazos = []; conservandoCamposConteo(render); });
+  document.getElementById('editor-foto-cancelar').addEventListener('click', ()=> cerrarEditorFoto(false));
+  document.getElementById('editor-foto-listo').addEventListener('click', ()=> cerrarEditorFoto(true));
+}
+
 function rutaFotoDesdeUrl(fotoUrlORuta){
   const marcador = `/object/public/${BUCKET}/`;
   const idx = String(fotoUrlORuta||'').indexOf(marcador);
@@ -2024,7 +2225,7 @@ async function ingresarConCodigo(email, codigo){
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
   reiniciarBannerMfa(); // el próximo ingreso vuelve a mostrar el aviso de MFA sus 15 segundos
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -11842,6 +12043,8 @@ function renderConteo(){
             <div class="foto-preview-item">
               ${f.preview? `<img src="${f.preview}">` : `<div class="hint" style="display:flex;align-items:center;justify-content:center;height:100%;min-height:72px;margin:0">Preparando…</div>`}
               <button type="button" class="foto-preview-remove" data-quitar-foto="${i}" aria-label="Quitar foto">${ICONS.x}</button>
+              ${f.preview && !f.preparando? `<button type="button" class="foto-preview-marcar" data-marcar-foto="${i}" aria-label="Marcar esta foto con rayas o flechas">${ICONS.editar} Marcar</button>` : ''}
+              ${f.trazos && f.trazos.length? `<span class="foto-preview-marcada">Marcada</span>` : ''}
             </div>
           `).join('')}</div>` : ''}
 
@@ -15018,7 +15221,7 @@ function renderDom(){
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCerrarLoteErpModal() + renderDescartarLoteModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderEditorFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCerrarLoteErpModal() + renderDescartarLoteModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
 }
@@ -15115,6 +15318,7 @@ function bind(){
   if(btnBannerMfa) btnBannerMfa.addEventListener('click', ()=> setState({view:'config'}));
   if(adminSinMfa() && mfaObligatoriaVigente() && state.view!=='config') bindSeccionMfa();
   if(!(state.view==='conteo' && !state.skuSeleccionado)) conteoBuscadorFueEnfocado = false;
+  bindEditorFoto();
   if(state.fotoModal){
     document.getElementById('foto-modal-close').addEventListener('click', ()=> setState({fotoModal:null}));
     document.getElementById('foto-modal-backdrop').addEventListener('click', e=>{
@@ -16211,6 +16415,7 @@ function bind(){
           conservandoCamposConteo(render);
         });
       });
+      document.querySelectorAll('[data-marcar-foto]').forEach(btn=> btn.addEventListener('click', ()=> abrirEditorFoto(Number(btn.dataset.marcarFoto))));
       document.getElementById('c-otra-ubic').addEventListener('change', e=> alternarOtraUbicacionConteo(e.target.checked));
       document.getElementById('form-conteo').addEventListener('submit', e=>{
         e.preventDefault();

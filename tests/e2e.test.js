@@ -357,6 +357,66 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Contar: marcar la foto con rayas y flechas antes de guardarla (Joel, 30/09) =====
+  // Con el navegador real: se adjunta una foto blanca, "Marcar" abre el editor, se dibuja un trazo
+  // con el mouse y una flecha, y al tocar Listo la foto de la entrada queda reemplazada por un JPEG
+  // con el dibujo aplanado (píxel rojo donde pasó el trazo, blanco donde no), la miniatura dice
+  // "Marcada" y los trazos siguen editables (deshacer). A 420 px el editor no desborda.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('editor-foto: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.evaluate(() => setState({ view:'conteo', skuSeleccionado:{ id:'sku-ef-1', sku_code:'EF-001', descripcion:'Filtro de prueba', bodega:'Nave', ubicacion:'Pasillo 1', storage_bin:'A-01', stock_sistema:3, unidad_medida:'UN' } }));
+    await page.waitForSelector('#c-foto', { timeout:ESPERA });
+    // Foto blanca de 320x240 generada en la propia página (PNG sin comprimir, ~KB), como archivo.
+    const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 240; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0,0,320,240); return c.toDataURL('image/png'); });
+    await page.setInputFiles('#c-foto', { name:'cajon.png', mimeType:'image/png', buffer: Buffer.from(png.split(',')[1], 'base64') });
+    await page.waitForSelector('[data-marcar-foto="0"]', { timeout:ESPERA });
+    await page.click('[data-marcar-foto="0"]');
+    await page.waitForSelector('#editor-foto-canvas', { timeout:ESPERA });
+    await page.waitForFunction(() => document.getElementById('editor-foto-canvas').width === 320, null, { timeout:ESPERA });
+    const caja = await page.locator('#editor-foto-canvas').boundingBox();
+    // Trazo horizontal por el centro (de 20% a 80% del ancho, a media altura).
+    await page.mouse.move(caja.x + caja.width*0.2, caja.y + caja.height*0.5);
+    await page.mouse.down();
+    await page.mouse.move(caja.x + caja.width*0.5, caja.y + caja.height*0.5, { steps:5 });
+    await page.mouse.move(caja.x + caja.width*0.8, caja.y + caja.height*0.5, { steps:5 });
+    await page.mouse.up();
+    await page.click('#editor-foto-flecha');
+    await page.waitForSelector('#editor-foto-flecha.activa', { timeout:ESPERA });
+    const caja2 = await page.locator('#editor-foto-canvas').boundingBox();
+    await page.mouse.move(caja2.x + caja2.width*0.2, caja2.y + caja2.height*0.15);
+    await page.mouse.down();
+    await page.mouse.move(caja2.x + caja2.width*0.6, caja2.y + caja2.height*0.3, { steps:5 });
+    await page.mouse.up();
+    const trazos = await page.evaluate(() => state.editorFoto.trazos.map(t => t.tipo));
+    assert(JSON.stringify(trazos)==='["trazo","flecha"]', 'debe registrar un trazo y una flecha, obtuvo '+JSON.stringify(trazos));
+    const desbordeEditor = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeEditor <= 0, 'a 420 px el editor no desborda, obtuvo '+desbordeEditor);
+    await page.click('#editor-foto-listo');
+    await page.waitForFunction(() => !state.editorFoto && state.conteoFotos[0] && state.conteoFotos[0].trazos && state.conteoFotos[0].trazos.length === 2, null, { timeout:ESPERA });
+    const resultado = await page.evaluate(async () => {
+      const f = state.conteoFotos[0];
+      const img = new Image(); img.src = f.preview; await img.decode();
+      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+      const px = (fx, fy) => Array.from(x.getImageData(Math.round(c.width*fx), Math.round(c.height*fy), 1, 1).data).slice(0,3);
+      return { ancho: c.width, alto: c.height, tipo: f.file.type, nombre: f.file.name, tieneBase: !!f.base, centro: px(0.5, 0.5), esquina: px(0.05, 0.95), marcada: document.querySelector('.foto-preview-marcada') !== null };
+    });
+    assert(resultado.ancho===320 && resultado.alto===240 && resultado.tipo==='image/jpeg' && resultado.nombre==='cajon.jpg' && resultado.tieneBase && resultado.marcada, 'la foto marcada debe ser un JPEG del mismo tamaño, con la base guardada y la miniatura marcada, obtuvo '+JSON.stringify(resultado));
+    assert(resultado.centro[0] > 180 && resultado.centro[1] < 90 && resultado.centro[2] < 90, 'donde pasó el trazo el píxel debe ser rojo, obtuvo '+JSON.stringify(resultado.centro));
+    assert(resultado.esquina.every(v => v > 230), 'donde no se dibujó la foto sigue blanca, obtuvo '+JSON.stringify(resultado.esquina));
+    // Volver a abrir: los trazos siguen ahí y Deshacer quita el último; Listo con uno solo.
+    await page.click('[data-marcar-foto="0"]');
+    await page.waitForSelector('#editor-foto-deshacer:not([disabled])', { timeout:ESPERA });
+    await page.click('#editor-foto-deshacer');
+    await page.waitForFunction(() => state.editorFoto && state.editorFoto.trazos.length === 1, null, { timeout:ESPERA });
+    await page.click('#editor-foto-listo');
+    await page.waitForFunction(() => !state.editorFoto && state.conteoFotos[0].trazos.length === 1, null, { timeout:ESPERA });
+    await context.close();
+  }
+
   // ===== Landing: honeypot silencioso (bot) no debe llamar a la red =====
   {
     const context = await browser.newContext();
