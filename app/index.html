@@ -1856,7 +1856,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,foto_obligatoria_conteo,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,foto_obligatoria_conteo,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,max_admins,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -13209,7 +13209,7 @@ function renderSuperAdmin(){
     </div>
     <div class="section-head"><div><span class="eyebrow">Nueva cuenta</span><h2 style="font-size:15px">Invitar persona</h2></div></div>
     <div class="card">
-      <div class="hint" style="margin-bottom:10px">Invita a una persona a una empresa. Le llegará un correo para crear su contraseña.</div>
+      <div class="hint" style="margin-bottom:10px">Invita a una persona a una empresa. Le llegará un correo para crear su contraseña. En los planes Básico y Profesional cabe un solo administrador por empresa (tope <code>max_admins</code> del plan; la base lo hace cumplir).</div>
       <form id="form-invitar-persona-sa">
         <label for="invitar-nombre">Nombre completo</label>
         <input type="text" id="invitar-nombre" placeholder="Ej. Ana Torres" required>

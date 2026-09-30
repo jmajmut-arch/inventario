@@ -366,13 +366,13 @@
 <section class="page">
   <div class="kicker">11 · Planes y límites</div>
   <h2 class="title">Aplicado en la base de datos, no solo en la pantalla</h2>
-  <p class="intro">Los límites de bodegas y usuarios están en triggers de Postgres (<code>trg_limite_bodegas</code>, <code>trg_limite_usuarios</code>): no se pueden sortear llamando a la API directamente. Las funciones por plan se leen de la tabla <code>planes</code> y la app falla "abierta" solo en la interfaz; el límite real está en la base.</p>
+  <p class="intro">Los límites de bodegas, operadores y administradores están en triggers de Postgres (<code>trg_limite_bodegas</code>, <code>trg_limite_usuarios</code>, <code>trg_limite_admins</code>): no se pueden sortear llamando a la API directamente. Las funciones por plan se leen de la tabla <code>planes</code> y la app falla "abierta" solo en la interfaz; el límite real está en la base.</p>
   <table class="t">
     <tr><th></th><th>Básico</th><th>Profesional</th><th>Empresa</th></tr>
     <tr><td>Precio neto</td><td>USD 160/mes</td><td>USD 300/mes</td><td>A medida</td></tr>
     <tr><td>Cobro en tarjeta (Flow)</td><td>$187.000 CLP/mes, IVA incluido</td><td>$350.000 CLP/mes, IVA incluido</td><td>Según contrato</td></tr>
     <tr><td>Bodegas</td><td>Máximo 1</td><td>Máximo 2</td><td>Ilimitadas</td></tr>
-    <tr><td>Usuarios</td><td>1 operador (+ admin)</td><td>2 operadores (+ admin)</td><td>Ilimitados</td></tr>
+    <tr><td>Usuarios</td><td>1 admin + 1 operador</td><td>1 admin + 2 operadores</td><td>Ilimitados</td></tr>
     <tr><td>Dashboard Ejecutivo + Exactitud</td><td>No incluido</td><td>Incluido</td><td>Incluido</td></tr>
     <tr><td>Auditoría</td><td>No incluida</td><td>Incluida</td><td>Incluida</td></tr>
     <tr><td>Modo offline y escáner</td><td>No incluido</td><td>Incluido</td><td>Incluido</td></tr>

@@ -4039,6 +4039,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // encabezado "Super-admin", sin ninguna separación entre ellos).
   assert(htmlConfigSuperAdmin.includes('>Empresas</h2>'), 'debe existir un encabezado propio "Empresas" (crear/gestionar), obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.includes('Invitar persona</h2>'), 'debe existir un encabezado propio "Invitar persona", obtuvo: '+htmlConfigSuperAdmin);
+  // Tope de administradores por plan (Joel, 30/09): en Básico y Profesional cabe uno solo. Lo hace
+  // cumplir el trigger trg_limite_admins (planes.max_admins); acá solo se avisa antes de invitar.
+  assert(htmlConfigSuperAdmin.includes('cabe un solo administrador por empresa'), 'el formulario de invitar debe avisar el tope de administradores de Básico y Profesional, obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.includes('>Personas</h2>'), 'debe existir un encabezado propio "Personas", obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.includes('>Leads</h2>'), 'debe existir un encabezado propio "Leads", obtuvo: '+htmlConfigSuperAdmin);
   assert(htmlConfigSuperAdmin.indexOf('>Empresas</h2>') < htmlConfigSuperAdmin.indexOf('id="form-crear-empresa-sa"'), 'el encabezado "Empresas" debe ir antes de su formulario, obtuvo: '+htmlConfigSuperAdmin);
