@@ -7875,7 +7875,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const filaAjena = htmlCorr.slice(htmlCorr.indexOf('SKU-AJENO'));
     assert(filaMia.includes('data-corregir-conteo="c-mio"') && filaMia.includes('data-corregir-cantidad="12"') && filaMia.includes('data-corregir-observacion="ok"') && filaMia.includes('>Editar<'), 'el operador ve Editar en su conteo de hoy, con los datos para el modal, obtuvo: '+filaMia);
     assert(!filaAjena.includes('data-corregir-conteo'), 'el operador no ve Editar en el conteo de otra persona, obtuvo: '+filaAjena);
-    assert(filaAjena.includes('corregido · antes 8') && filaAjena.includes('title="tecleo"'), 'un conteo corregido muestra la cantidad original y el motivo, obtuvo: '+filaAjena);
+    assert(filaAjena.includes('corregido · antes 8 · motivo: tecleo'), 'un conteo corregido muestra la cantidad original y el motivo como texto (no solo en el title, que en el iPad no existe), obtuvo: '+filaAjena);
+    assert(ctx.marcaConteoCorregido({corregido_en:hoy, cantidad_original:3, motivo_correccion:''})==='<div class="hint" style="font-size:10px;margin:2px 0 0;min-width:150px;max-width:220px;white-space:normal;text-align:left" title="">corregido · antes 3</div>', 'sin motivo guardado, la marca no agrega "motivo:" vacío, obtuvo: '+ctx.marcaConteoCorregido({corregido_en:hoy, cantidad_original:3, motivo_correccion:''}));
     assert(!filaMia.includes('corregido · antes'), 'un conteo sin corregir no lleva la marca, obtuvo: '+filaMia);
     ctx.__appstate.perfil = ADMIN;
     htmlCorr = ctx.renderBuscar();
@@ -7886,6 +7887,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.reconteos = [{id:'s2', sku_code:'SKU-AJENO', descripcion:'De otro', bodega:'Nave', conteo_id:'c-ajeno', contado_por_id:'op-2', ultima_cantidad_contada:5, ultima_diferencia:-3, diferencia_abs:3, stock_sistema:8, ultimo_conteo_fecha:hoy, capturado_en:hoy, fotos:[], cantidad_original:8, corregido_en:hoy, motivo_correccion:'tecleo', observacion:'', veces_con_diferencia:1, causa_probable:'Sin patrón detectado', ubicacion_distinta:false}];
     const htmlRec = ctx.renderReconteo();
     assert(htmlRec.includes('data-corregir-conteo="c-ajeno"') && htmlRec.includes('data-corregir-cantidad="5"') && htmlRec.includes('corregido · antes 8'), 'Reconteo muestra Editar y la marca de corregido, obtuvo: '+htmlRec);
+    assert(htmlRec.includes('corregido · antes 8 · motivo: tecleo'), 'Reconteo también muestra el motivo de la corrección como texto, obtuvo: '+htmlRec);
+    // Auditoría de cambios: el motivo de la corrección entra en el resumen del cambio del conteo.
+    const resumenCorreccion = ctx.resumenCambioAuditoria({tabla:'conteos', accion:'UPDATE', datos_antes:{cantidad_contada:12, motivo_correccion:null}, datos_despues:{cantidad_contada:10, motivo_correccion:'mal digitado'}});
+    assert(resumenCorreccion==='Cantidad: 12 → 10 · Motivo de corrección: — → mal digitado', 'Auditoría debe mostrar el motivo de la corrección junto al cambio de cantidad, obtuvo: '+resumenCorreccion);
     ctx.__appstate.reconteos = reconteosAntesCorr;
     // El botón abre el modal con los datos de la fila (bind global: sirve en Buscar y Reconteo).
     ctx.__appstate.view = 'buscar';
