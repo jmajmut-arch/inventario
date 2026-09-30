@@ -2687,6 +2687,29 @@ function entradasVisiblesPlan(p){
   else if(r) v = v.filter(e=>e.responsable_id===r);
   return v;
 }
+// Qué abarcan las entradas seleccionadas (pedido de Joel, 30/09: ver en la barra de selección
+// cuántos SKU y cuántas posiciones de storage bin se van a reasignar o eliminar). Sin consultas:
+// sale de lo que ya está en pantalla. SKU con la misma regla que el total de arriba: distintos por
+// id donde hay detalle (Día / Semana), "propios" del servidor en las vistas resumidas, y el
+// universo de la entrada si todavía no llega nada. Storage bin: posiciones distintas
+// (bodega + ubicación + bin) de las entradas que apuntan a un bin; las demás (ubicación completa,
+// por código, sin ubicación) se cuentan aparte porque abarcan varios bins o ninguno.
+function resumenSeleccionPlan(p, ids){
+  const sel = new Set(ids||[]);
+  const vistos = new Set(), bins = new Set();
+  let skus = 0, sinBin = 0;
+  (p.entradas||[]).forEach(e=>{
+    if(!sel.has(e.id)) return;
+    const det = p.detalle && p.detalle[e.id];
+    if(det) det.forEach(s=>{ if(!vistos.has(s.id)){ vistos.add(s.id); skus++; } });
+    else if(p.propios && p.propios[e.id]!==undefined) skus += p.propios[e.id];
+    else skus += (p.universos && p.universos[e.id]) || 0;
+    const bin = (e.storage_bin||'').trim();
+    if(!e.por_sku && bin) bins.add(`${e.bodega||''}\u0000${e.ubicacion||''}\u0000${bin}`);
+    else sinBin++;
+  });
+  return {skus, bins: bins.size, sinBin};
+}
 // Personas para el filtro: el equipo asignable y cualquier otro responsable que aparezca en las
 // entradas cargadas (alguien desactivado o de un plan antiguo), por nombre.
 function opcionesResponsablePlan(p){
@@ -12895,10 +12918,14 @@ function renderPlanificacion(){
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${p.seleccionados.length?'border-color:var(--danger)':''}">
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin:0">
           <input type="checkbox" id="chk-seleccionar-todo-plan" ${p.seleccionados.length && p.seleccionados.length===entradasVisibles.length?'checked':''}>
-          ${p.seleccionados.length? `${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}` : 'Seleccionar todo'}
+          ${p.seleccionados.length? `<span>${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}${(()=>{
+            const r = resumenSeleccionPlan(p, p.seleccionados);
+            const n = x=> x.toLocaleString('es-CL');
+            return `<span class="plan-seleccion-resumen" style="display:block;font-weight:400;font-size:12px;color:var(--text-dim)">${n(r.skus)} SKU · ${n(r.bins)} storage bin${r.sinBin? ` · ${n(r.sinBin)} entrada${r.sinBin>1?'s':''} sin storage bin fijo` : ''}</span>`;
+          })()}</span>` : 'Seleccionar todo'}
         </label>
         ${p.seleccionados.length? `
-          <div style="display:flex;gap:8px;flex-wrap:wrap;flex:none">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;flex:1 1 auto;justify-content:flex-end;min-width:0">
             <select id="plan-reasignar-select" style="width:auto">
               <option value="__elegir__" selected>Reasignar a…</option>
               <option value="">Sin asignar</option>
