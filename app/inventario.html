@@ -2675,6 +2675,26 @@ async function restTodo(path){
    y sin ninguno de los dos se navega por calendario según `rango` (semana, mes o año). En las
    ventanas grandes (mes, año, período) la pantalla es RESUMIDA: totales por entrada sin listar
    SKU (ver esResumenPlan / resumenEntradasPlan). Día y Semana siguen con el detalle completo. */
+// Filtro "Responsable" de Planificación (pedido de Joel, 30/09: si alguien no vino, reasignar de
+// una vez sus entradas del día o de varios días, sin marcar una por una las de los demás). Filtra en
+// la pantalla lo ya cargado, sin consultas: la lista, los totales, "Seleccionar todo" y el PDF pasan
+// a ser solo de esa persona. '' = todos; PLAN_SIN_RESPONSABLE = las sin asignar.
+const PLAN_SIN_RESPONSABLE = '__sin_responsable__';
+function entradasVisiblesPlan(p){
+  let v = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
+  const r = p.responsableFiltro || '';
+  if(r===PLAN_SIN_RESPONSABLE) v = v.filter(e=>!e.responsable_id);
+  else if(r) v = v.filter(e=>e.responsable_id===r);
+  return v;
+}
+// Personas para el filtro: el equipo asignable y cualquier otro responsable que aparezca en las
+// entradas cargadas (alguien desactivado o de un plan antiguo), por nombre.
+function opcionesResponsablePlan(p){
+  const m = new Map((p.responsables||[]).map(u=>[u.id, u.nombre]));
+  (p.entradas||[]).forEach(e=>{ if(e.responsable_id && !m.has(e.responsable_id)) m.set(e.responsable_id, e.responsable_nombre || 'Sin nombre'); });
+  return Array.from(m.entries()).sort((a,b)=> a[1].localeCompare(b[1], 'es'));
+}
+
 // Hasta esta cantidad de entradas, las vistas resumidas se listan abiertas como siempre; por
 // encima, cada día es un bloque plegable (ver .plan-dia y diasPlegables en renderPlanificacion).
 const PLAN_ENTRADAS_SIN_PLEGAR = 40;
@@ -4819,7 +4839,7 @@ function alternarSeleccionPlan(id){
 function alternarSeleccionTodoPlan(){
   // Con diaFiltro activo (ver cal-ir-plan), "seleccionar todo" debe abarcar solo lo que se ve en
   // pantalla (ese día), no toda la semana oculta detrás del filtro.
-  const visibles = state.plan.diaFiltro ? state.plan.entradas.filter(e=>e.fecha===state.plan.diaFiltro) : state.plan.entradas;
+  const visibles = entradasVisiblesPlan(state.plan);
   const todos = visibles.map(e=>e.id);
   const yaTodosSeleccionados = todos.length>0 && state.plan.seleccionados.length===todos.length;
   setState({plan: {...state.plan, seleccionados: yaTodosSeleccionados ? [] : todos}});
@@ -4908,7 +4928,7 @@ async function confirmarYBorrarSeleccionPlan(){
   // Con los días plegados, "Seleccionar todo" también marca entradas de días cerrados: el aviso
   // dice de cuántos días son y cuántas no se están viendo, para no borrar a ciegas.
   const p = state.plan;
-  const visibles = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
+  const visibles = entradasVisiblesPlan(p);
   const elegidas = p.entradas.filter(e=>ids.includes(e.id));
   const dias = new Set(elegidas.map(e=>e.fecha)).size;
   const ocultas = planDiasPlegables(p, visibles) ? elegidas.filter(e=>!planDiaAbierto(p, e.fecha)).length : 0;
@@ -12234,7 +12254,7 @@ async function imprimirPlan(){
   const meta = modo==='dia' ? generado
     : modo==='semana' ? `Semana ${ventana.etiqueta} · ${generado}`
     : `${esc(ventana.etiqueta)} · ${generado}`;
-  const entradasVisibles = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
+  const entradasVisibles = entradasVisiblesPlan(p);
   const porDia = (modo==='dia'
     ? [p.diaFiltro]
     : modo==='semana'
@@ -12507,7 +12527,7 @@ function renderPlanificacion(){
   // Al venir de un día puntual del Calendario (ver cal-ir-plan), diaFiltro acota TODO lo de acá
   // abajo a ese solo día -- a pedido de Joel: "que muestre ese día, no toda la planificación".
   // Se limpia solo (bind()) al navegar de semana o cambiar de período.
-  const entradasVisibles = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
+  const entradasVisibles = entradasVisiblesPlan(p);
 
   // En modo período se agrupa por cada fecha que realmente tenga algo planificado (no hay una
   // semana de referencia). En modo semana antes se armaban los 8 días de la semana elegida
@@ -12691,7 +12711,20 @@ function renderPlanificacion(){
         ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${p.cicloFiltro===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
       </select>
       ` : ''}
+      ${p.entradas.length? `
+      <select id="plan-filtro-responsable" aria-label="Responsable" style="width:auto;margin:0;flex:none${p.responsableFiltro?';border-color:var(--amber);font-weight:600':''}">
+        <option value="" ${!p.responsableFiltro?'selected':''}>Responsable: todos</option>
+        <option value="${PLAN_SIN_RESPONSABLE}" ${p.responsableFiltro===PLAN_SIN_RESPONSABLE?'selected':''}>Sin asignar</option>
+        ${opcionesResponsablePlan(p).map(([id,nombre])=>`<option value="${esc(id)}" ${p.responsableFiltro===id?'selected':''}>${esc(nombre)}</option>`).join('')}
+      </select>
+      ` : ''}
     </div>
+    ${p.responsableFiltro? `
+    <div class="hint" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>Viendo solo ${p.responsableFiltro===PLAN_SIN_RESPONSABLE? 'las entradas <strong>sin asignar</strong>' : `las entradas de <strong>${esc((opcionesResponsablePlan(p).find(([id])=>id===p.responsableFiltro)||[null,'esa persona'])[1])}</strong>`} (${entradasVisibles.length}). Para pasarlas a otra persona: Seleccionar todo → Reasignar a…</span>
+      <button type="button" class="link-btn" id="btn-quitar-filtro-responsable">Ver todos</button>
+    </div>
+    ` : ''}
     ${modo==='dia'? `
     <div class="hint" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span>Viendo solo <strong>${fmtFecha(p.diaFiltro)}</strong>.</span>
@@ -16527,6 +16560,10 @@ function bind(){
     // que se elige para agregar sea la misma que se ve. Solo aplica en modo día: en modo
     // semana/período la lista ya muestra todas las fechas del rango.
     // Reintento del cálculo del universo cuando falló (ver el catch de cargarPlanSemanal).
+    const selFiltroResp = document.getElementById('plan-filtro-responsable');
+    if(selFiltroResp) selFiltroResp.addEventListener('change', e=> setState({plan:{...state.plan, responsableFiltro: e.target.value, seleccionados:[]}}));
+    const btnQuitarFiltroResp = document.getElementById('btn-quitar-filtro-responsable');
+    if(btnQuitarFiltroResp) btnQuitarFiltroResp.addEventListener('click', ()=> setState({plan:{...state.plan, responsableFiltro:'', seleccionados:[]}}));
     const btnAtrasoAHoy = document.getElementById('btn-atraso-a-hoy');
     if(btnAtrasoAHoy) btnAtrasoAHoy.addEventListener('click', pasarAtrasoAHoy);
     const btnReintentarUniverso = document.getElementById('btn-reintentar-universo');
@@ -16552,7 +16589,7 @@ function bind(){
     const btnAsignarSinResp = document.getElementById('btn-asignar-sin-responsable');
     if(btnAsignarSinResp) btnAsignarSinResp.addEventListener('click', ()=>{
       const p = state.plan;
-      const visibles = p.diaFiltro ? p.entradas.filter(e=>e.fecha===p.diaFiltro) : p.entradas;
+      const visibles = entradasVisiblesPlan(p);
       const ids = visibles.filter(e=>!e.responsable_id).map(e=>e.id);
       setState({plan:{...state.plan, seleccionados: ids}});
       const sel = document.getElementById('plan-reasignar-select');

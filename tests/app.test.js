@@ -12396,6 +12396,36 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(confirmLlamadas.length===1 && !confirmLlamadas[0].includes('días cerrados'), 'sin días plegados no debe hablar de días cerrados, obtuvo: '+JSON.stringify(confirmLlamadas));
     confirmRespuesta = true;
 
+    // ===== Filtro "Responsable" (Joel, 30/09: si alguien no vino, reasignar de una vez sus entradas) =====
+    const pocasF = muchas.slice(0,12); // sin días plegados, para ver cada entrada
+    const dePedro = pocasF.filter(e=>e.responsable_id==='r1').map(e=>e.id);
+    const sinAsignarF = pocasF.filter(e=>!e.responsable_id).map(e=>e.id);
+    ctx.__appstate.plan = {...basePlan, entradas: pocasF, seleccionados:[], responsableFiltro:'r1'};
+    const htmlFiltro = ctx.renderPlanificacion();
+    assert(/<select id="plan-filtro-responsable"[^>]*>[\s\S]*<option value="r1" selected>Pedro Soto<\/option>/.test(htmlFiltro) && htmlFiltro.includes('Viendo solo las entradas de <strong>Pedro Soto</strong> ('+dePedro.length+')') && (htmlFiltro.match(/class="plan-item"/g)||[]).length===dePedro.length, 'con el filtro de Pedro deben verse solo sus entradas y el aviso, obtuvo: '+(htmlFiltro.match(/class="plan-item"/g)||[]).length+' de '+dePedro.length);
+    ctx.alternarSeleccionTodoPlan();
+    assert(JSON.stringify(ctx.__appstate.plan.seleccionados)===JSON.stringify(dePedro), '"Seleccionar todo" con el filtro debe marcar solo las entradas de esa persona, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+    // "Sin asignar" como filtro.
+    ctx.__appstate.plan = {...basePlan, entradas: pocasF, seleccionados:[], responsableFiltro: '__sin_responsable__'};
+    ctx.alternarSeleccionTodoPlan();
+    assert(JSON.stringify(ctx.__appstate.plan.seleccionados)===JSON.stringify(sinAsignarF) && ctx.renderPlanificacion().includes('Viendo solo las entradas <strong>sin asignar</strong>'), 'el filtro "Sin asignar" debe dejar solo las entradas sin responsable, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+    // Cambiar el filtro limpia la selección; "Ver todos" lo quita.
+    ctx.__appstate.plan = {...basePlan, entradas: pocasF, seleccionados:['m1'], responsableFiltro:''};
+    ctx.renderPlanificacion();
+    delete elements['plan-filtro-responsable'];
+    delete elements['btn-quitar-filtro-responsable'];
+    ctx.bind();
+    const selResp = elements['plan-filtro-responsable'];
+    selResp.value = 'r2';
+    selResp.dispatch('change', {target: selResp});
+    assert(ctx.__appstate.plan.responsableFiltro==='r2' && ctx.__appstate.plan.seleccionados.length===0, 'elegir una persona debe filtrar y limpiar la selección, obtuvo: '+JSON.stringify({f:ctx.__appstate.plan.responsableFiltro, sel:ctx.__appstate.plan.seleccionados}));
+    ctx.bind();
+    elements['btn-quitar-filtro-responsable'].dispatch('click');
+    assert(ctx.__appstate.plan.responsableFiltro==='', '"Ver todos" debe quitar el filtro');
+    // Sin filtro, todo como siempre.
+    ctx.__appstate.plan = {...basePlan, entradas: pocasF, seleccionados:[], responsableFiltro:''};
+    assert((ctx.renderPlanificacion().match(/class="plan-item"/g)||[]).length===pocasF.length, 'sin filtro deben verse todas las entradas');
+
     // ===== Atrasado (Joel, 30/09: 2.443 SKU planificados para días que ya pasaron y nada lo decía) =====
     const ciclosAntesAtraso = ctx.__appstate.ciclos;
     ctx.__appstate.ciclos = [{id:'ciclo-1', nombre:'T1 2027', es_actual:true}];
