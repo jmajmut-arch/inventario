@@ -4892,23 +4892,37 @@ async function cargarAtrasoPlan(forzar){
 
 // "Pasar a hoy": las entradas atrasadas quedan con fecha de hoy, con su responsable y su nota. De a
 // 100 ids por pedido para no armar una URL que el servidor rechace (mismo cuidado que otros lotes).
-async function pasarAtrasoAHoy(){
+// Reprogramar el atraso (pedido de Joel, 30/09): elegir qué días atrasados mover y a qué fecha,
+// para no cargar todo en un solo día (el 09-sept de Escondida solo tenía 1.789 SKU). dias: lista de
+// fechas atrasadas a mover; fecha: destino (hoy o después).
+async function reprogramarAtraso(dias, fecha){
   const a = state.plan.atraso;
-  if(!a || !a.entradas.length) return;
-  const ids = a.entradas.map(e=>e.id);
-  const skus = a.entradas.reduce((s,e)=> s+(e.skus||0), 0);
-  const dias = new Set(a.entradas.map(e=>e.fecha)).size;
-  if(!confirm(`¿Pasar al día de hoy ${ids.length} entrada${ids.length===1?'':'s'} atrasada${ids.length===1?'':'s'} de ${dias} día${dias===1?'':'s'} (${skus.toLocaleString('es-CL')} SKU sin contar)? Conservan su responsable y su nota.`)) return;
+  if(!a || !a.entradas.length || !dias.length || !fecha) return;
   const hoy = fechaISO(new Date());
+  if(fecha < hoy){ toast('Elige hoy o una fecha posterior','err'); return; }
+  const elegidas = a.entradas.filter(e=> dias.includes(e.fecha));
+  if(!elegidas.length) return;
+  const ids = elegidas.map(e=>e.id);
+  const skus = elegidas.reduce((s,e)=> s+(e.skus||0), 0);
+  const nDias = new Set(elegidas.map(e=>e.fecha)).size;
+  const destino = fecha===hoy ? `hoy (${fmtDiaCorto(fecha)})` : fmtDiaCorto(fecha);
+  if(!confirm(`¿Pasar a ${destino} ${ids.length} entrada${ids.length===1?'':'s'} atrasada${ids.length===1?'':'s'} de ${nDias} día${nDias===1?'':'s'} (${skus.toLocaleString('es-CL')} SKU sin contar)? Conservan su responsable y su nota.`)) return;
   try{
     for(let i=0; i<ids.length; i+=100){
-      await rest(`/plan_semanal?id=in.(${ids.slice(i, i+100).join(',')})`, {method:'PATCH', body:{fecha: hoy}, prefer:'return=minimal'});
+      await rest(`/plan_semanal?id=in.(${ids.slice(i, i+100).join(',')})`, {method:'PATCH', body:{fecha}, prefer:'return=minimal'});
     }
-    toast(`${ids.length} entrada${ids.length===1?' pasó':'s pasaron'} a hoy`);
+    toast(`${ids.length} entrada${ids.length===1?' pasó':'s pasaron'} a ${destino}`);
     atrasoPlanCargadoEn = 0;
+    setState({plan:{...state.plan, atrasoPanel:null}});
     cargarPlanSemanal();
     invalidarCalendario();
   }catch(e){ toast(e.message,'err'); cargarPlanSemanal(); }
+}
+// Todo el atraso a hoy (atajo; el botón de la tarjeta abre el panel para elegir días y fecha).
+async function pasarAtrasoAHoy(){
+  const a = state.plan.atraso;
+  if(!a || !a.entradas.length) return;
+  return reprogramarAtraso(Array.from(new Set(a.entradas.map(e=>e.fecha))), fechaISO(new Date()));
 }
 
 async function borrarPlanEntradas(ids){
@@ -12499,14 +12513,40 @@ function htmlAtrasoPlan(p){
   const dias = Array.from(porDia.entries()).sort((x,y)=> x[0]<y[0]?-1:1);
   const MAX_DIAS = 6;
   const listaDias = dias.slice(0, MAX_DIAS).map(([f,n])=>`${fmtDiaCorto(f)} (${n.toLocaleString('es-CL')})`).join(' · ') + (dias.length>MAX_DIAS? ` · y ${dias.length-MAX_DIAS} día${dias.length-MAX_DIAS===1?'':'s'} más` : '');
+  const hoy = fechaISO(new Date());
+  // Panel para reprogramar: casilla por día atrasado (todas marcadas al abrir) y fecha de destino.
+  const panel = p.atrasoPanel;
+  const htmlPanel = panel ? (()=>{
+    const marcados = dias.filter(([f])=> panel.dias[f]!==false);
+    const nEntradas = a.entradas.filter(e=> panel.dias[e.fecha]!==false).length;
+    const nSkus = marcados.reduce((s,[,n])=> s+n, 0);
+    const destino = panel.fecha===hoy ? `hoy (${fmtDiaCorto(hoy)})` : fmtDiaCorto(panel.fecha);
+    return `
+      <div id="plan-atraso-panel" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+        <label for="atraso-fecha">Pasar a la fecha</label>
+        <input type="date" id="atraso-fecha" value="${esc(panel.fecha)}" min="${hoy}">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
+          <span class="hint" style="margin:0">Días atrasados que se mueven:</span>
+          <span style="display:flex;gap:10px;font-size:12.5px"><button type="button" class="link-btn" data-atraso-todos="1">Todos</button><button type="button" class="link-btn" data-atraso-todos="0">Ninguno</button></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          ${dias.map(([f,n])=>`<label style="display:flex;align-items:center;gap:8px;margin:0;font-size:13.5px;cursor:pointer"><input type="checkbox" data-atraso-dia="${esc(f)}" ${panel.dias[f]!==false?'checked':''} style="margin:0"> ${esc(fmtDiaCorto(f))} <span class="hint" style="margin:0">(${n.toLocaleString('es-CL')} SKU)</span></label>`).join('')}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button type="button" class="btn btn-primary" id="btn-atraso-mover" style="width:auto;padding:8px 14px" ${marcados.length && panel.fecha>=hoy ? '' : 'disabled'}>Mover ${nEntradas} entrada${nEntradas===1?'':'s'} (${nSkus.toLocaleString('es-CL')} SKU) a ${esc(destino)}</button>
+          <button type="button" class="btn btn-secondary" id="btn-atraso-cancelar" style="width:auto;padding:8px 14px">Cancelar</button>
+        </div>
+      </div>`;
+  })() : '';
   return `
     <div class="card" id="plan-atraso" style="margin-bottom:14px;border-color:var(--warn)">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="badge badge-warn">Atrasado</span>
         <span style="flex:1;min-width:180px"><strong>${a.entradas.length}</strong> entrada${a.entradas.length===1?'':'s'} de días pasados con <strong>${skus.toLocaleString('es-CL')}</strong> SKU sin contar.</span>
-        <button type="button" class="btn btn-secondary" id="btn-atraso-a-hoy" style="width:auto;padding:6px 12px;font-size:12.5px;flex:none">Pasar a hoy</button>
+        ${panel? '' : `<button type="button" class="btn btn-secondary" id="btn-atraso-reprogramar" style="width:auto;padding:6px 12px;font-size:12.5px;flex:none">Reprogramar</button>`}
       </div>
-      <div class="hint" style="margin:6px 0 0">${esc(listaDias)}</div>
+      <div class="hint" style="margin:6px 0 0">Días atrasados: ${esc(listaDias)}</div>
+      ${htmlPanel}
     </div>`;
 }
 
@@ -16564,8 +16604,34 @@ function bind(){
     if(selFiltroResp) selFiltroResp.addEventListener('change', e=> setState({plan:{...state.plan, responsableFiltro: e.target.value, seleccionados:[]}}));
     const btnQuitarFiltroResp = document.getElementById('btn-quitar-filtro-responsable');
     if(btnQuitarFiltroResp) btnQuitarFiltroResp.addEventListener('click', ()=> setState({plan:{...state.plan, responsableFiltro:'', seleccionados:[]}}));
-    const btnAtrasoAHoy = document.getElementById('btn-atraso-a-hoy');
-    if(btnAtrasoAHoy) btnAtrasoAHoy.addEventListener('click', pasarAtrasoAHoy);
+    // Atrasado: "Reprogramar" abre el panel (fecha de destino = hoy, todos los días marcados).
+    const btnAtrasoReprogramar = document.getElementById('btn-atraso-reprogramar');
+    if(btnAtrasoReprogramar) btnAtrasoReprogramar.addEventListener('click', ()=> setState({plan:{...state.plan, atrasoPanel:{fecha: fechaISO(new Date()), dias:{}}}}));
+    const btnAtrasoCancelar = document.getElementById('btn-atraso-cancelar');
+    if(btnAtrasoCancelar) btnAtrasoCancelar.addEventListener('click', ()=> setState({plan:{...state.plan, atrasoPanel:null}}));
+    const inputAtrasoFecha = document.getElementById('atraso-fecha');
+    if(inputAtrasoFecha) inputAtrasoFecha.addEventListener('change', e=>{ if(state.plan.atrasoPanel && e.target.value) setState({plan:{...state.plan, atrasoPanel:{...state.plan.atrasoPanel, fecha: e.target.value}}}); });
+    document.querySelectorAll('[data-atraso-dia]').forEach(chk=>{
+      chk.addEventListener('change', ()=>{
+        const panel = state.plan.atrasoPanel; if(!panel) return;
+        setState({plan:{...state.plan, atrasoPanel:{...panel, dias:{...panel.dias, [chk.dataset.atrasoDia]: chk.checked}}}});
+      });
+    });
+    document.querySelectorAll('[data-atraso-todos]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const panel = state.plan.atrasoPanel; const a = state.plan.atraso; if(!panel || !a) return;
+        const marcar = btn.dataset.atrasoTodos==='1';
+        const dias = {}; a.entradas.forEach(e=>{ dias[e.fecha] = marcar; });
+        setState({plan:{...state.plan, atrasoPanel:{...panel, dias}}});
+      });
+    });
+    const btnAtrasoMover = document.getElementById('btn-atraso-mover');
+    if(btnAtrasoMover) btnAtrasoMover.addEventListener('click', ()=>{
+      const panel = state.plan.atrasoPanel; const a = state.plan.atraso;
+      if(!panel || !a) return;
+      const dias = Array.from(new Set(a.entradas.map(e=>e.fecha))).filter(f=> panel.dias[f]!==false);
+      reprogramarAtraso(dias, panel.fecha);
+    });
     const btnReintentarUniverso = document.getElementById('btn-reintentar-universo');
     if(btnReintentarUniverso) btnReintentarUniverso.addEventListener('click', ()=>{ cargarPlanSemanal(); });
     // "+ Agregar a la planificación" / "Cerrar": el formulario siempre está en la página (oculto

@@ -12444,8 +12444,39 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.cargarAtrasoPlan();
     assert(calls.length===0 && JSON.stringify(ctx.__appstate.plan.atraso.entradas.map(e=>e.id))==='["a1","a2"]', 'en la vista Período el atraso debe salir de la pantalla, sin consultas, y solo con días pasados que tengan SKU sin contar, obtuvo: '+JSON.stringify({calls:calls.map(c=>c.url), atraso:ctx.__appstate.plan.atraso}));
     const htmlAtraso = ctx.renderPlanificacion();
-    assert(htmlAtraso.includes('id="plan-atraso"') && /<strong>2<\/strong> entradas de días pasados con <strong>7<\/strong> SKU sin contar/.test(htmlAtraso) && htmlAtraso.includes(`${ctx.fmtDiaCorto(anteayerA)} (5) · ${ctx.fmtDiaCorto(ayerA)} (2)`) && htmlAtraso.includes('id="btn-atraso-a-hoy"'), 'debe mostrarse la tarjeta Atrasado con entradas, SKU y días, obtuvo: '+(htmlAtraso.match(/id="plan-atraso"[\s\S]{0,700}/)||[''])[0]);
-    // "Pasar a hoy": confirma y deja esas entradas con la fecha de hoy.
+    assert(htmlAtraso.includes('id="plan-atraso"') && /<strong>2<\/strong> entradas de días pasados con <strong>7<\/strong> SKU sin contar/.test(htmlAtraso) && htmlAtraso.includes(`Días atrasados: ${ctx.fmtDiaCorto(anteayerA)} (5) · ${ctx.fmtDiaCorto(ayerA)} (2)`) && htmlAtraso.includes('id="btn-atraso-reprogramar"'), 'debe mostrarse la tarjeta Atrasado con entradas, SKU y días, obtuvo: '+(htmlAtraso.match(/id="plan-atraso"[\s\S]{0,700}/)||[''])[0]);
+    // "Reprogramar" (Joel, 30/09: elegir qué días atrasados mover y a qué fecha, para no cargar
+    // todo en un solo día): abre un panel con la fecha (hoy por defecto) y una casilla por día.
+    ctx.__appstate.plan.atrasoPanel = {fecha: hoyA, dias:{}};
+    const htmlPanelA = ctx.renderPlanificacion();
+    assert(htmlPanelA.includes(`id="atraso-fecha" value="${hoyA}" min="${hoyA}"`) && htmlPanelA.includes(`data-atraso-dia="${anteayerA}" checked`) && htmlPanelA.includes(`data-atraso-dia="${ayerA}" checked`) && /Mover 2 entradas \(7 SKU\) a hoy/.test(htmlPanelA) && !htmlPanelA.includes('id="btn-atraso-reprogramar"'), 'el panel debe traer la fecha (desde hoy), los días marcados y el resumen de lo que se mueve, obtuvo: '+(htmlPanelA.match(/id="plan-atraso-panel"[\s\S]{0,900}/)||[''])[0]);
+    // Desmarcar un día y elegir otra fecha: solo se mueve lo marcado, a esa fecha.
+    const mananaA = ctx.fechaISO(new Date(Date.now()+86400000));
+    ctx.__appstate.plan.atrasoPanel = {fecha: mananaA, dias:{[anteayerA]: false}};
+    assert(/Mover 1 entrada \(2 SKU\) a /.test(ctx.renderPlanificacion()), 'el resumen del panel debe contar solo los días marcados');
+    // "Ninguno" desmarca todo (el botón Mover queda deshabilitado) y "Todos" vuelve a marcar.
+    const qsaAntesA = ctx.document.querySelectorAll;
+    const btnNinguno = makeEl('btn-atraso-ninguno-prueba'); btnNinguno.dataset = {atrasoTodos:'0'};
+    ctx.document.querySelectorAll = sel => sel==='[data-atraso-todos]' ? [btnNinguno] : qsaAntesA.call(ctx.document, sel);
+    ctx.bind();
+    ctx.document.querySelectorAll = qsaAntesA;
+    btnNinguno.dispatch('click');
+    assert(ctx.__appstate.plan.atrasoPanel.dias[anteayerA]===false && ctx.__appstate.plan.atrasoPanel.dias[ayerA]===false && /id="btn-atraso-mover"[^>]*disabled/.test(ctx.renderPlanificacion()), '"Ninguno" debe desmarcar todos los días y deshabilitar Mover');
+    confirmRespuesta = true;
+    confirmLlamadas.length = 0;
+    calls.length = 0;
+    await ctx.reprogramarAtraso([ayerA], mananaA);
+    const patchParcial = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(a2)'));
+    assert(confirmLlamadas.length===1 && confirmLlamadas[0].includes('1 entrada atrasada de 1 día (2 SKU sin contar)') && !!patchParcial && JSON.parse(patchParcial.opts.body).fecha===mananaA && !calls.some(c=>c.url.includes('a1')), 'debe mover solo el día elegido a la fecha elegida, obtuvo: '+JSON.stringify({confirm:confirmLlamadas, urls:calls.map(c=>c.url)}));
+    await new Promise(r=>setTimeout(r, 20));
+    // Una fecha pasada no se acepta.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, atraso:{entradas:[{id:'a1', fecha:anteayerA, skus:5}], error:null}};
+    calls.length = 0;
+    confirmLlamadas.length = 0;
+    await ctx.reprogramarAtraso([anteayerA], ayerA);
+    assert(!calls.some(c=>c.opts && c.opts.method==='PATCH') && confirmLlamadas.length===0, 'no debe reprogramar a una fecha pasada');
+    ctx.__appstate.plan = {...ctx.__appstate.plan, atraso:{entradas:[{id:'a1', fecha:anteayerA, skus:5},{id:'a2', fecha:ayerA, skus:2}], error:null}, atrasoPanel:null};
+    // Atajo "todo a hoy" (pasarAtrasoAHoy): confirma y deja esas entradas con la fecha de hoy.
     confirmRespuesta = true;
     confirmLlamadas.length = 0;
     calls.length = 0;
