@@ -460,6 +460,7 @@
       "etiqueta",
       "flow_plan_id",
       "id",
+      "max_admins",
       "max_bodegas",
       "max_usuarios",
       "nombre",
