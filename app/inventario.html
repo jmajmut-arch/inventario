@@ -5114,11 +5114,18 @@ async function opcionesEspecificas(bodega){
   }catch(e){ return []; }
 }
 
+// PostgREST entrega a lo más 1.000 filas por respuesta. La lista de storage bin no se pagina
+// completa a propósito: B501 tiene 12.226 filas y una sola ubicación 7.179 bins, y bajar todo eso
+// para un <select> haría lenta la pantalla en el celular. Se marca como `truncada` para que quien
+// la muestre no la presente como completa (ver cargarBinsPara en Planificación).
+const FILAS_POR_RESPUESTA = 1000;
 async function opcionesBins(bodega, ubicacion){
   if(!bodega) return [];
   try{
     if(ubicacion){
-      return await rest(`/ubicaciones_bins?${filtroBodegaOpciones(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
+      const filasUbic = await rest(`/ubicaciones_bins?${filtroBodegaOpciones(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
+      filasUbic.truncada = filasUbic.length >= FILAS_POR_RESPUESTA;
+      return filasUbic;
     }
     // "Todas" las ubicaciones específicas: el mismo storage_bin puede repetirse en más de
     // una (la vista viene agrupada por bodega+ubicacion+storage_bin), así que se suman antes
@@ -5130,8 +5137,32 @@ async function opcionesBins(bodega, ubicacion){
       acc.cantidad_skus += Number(f.cantidad_skus)||0;
       porBin.set(f.storage_bin, acc);
     }
-    return Array.from(porBin.values()).sort((a,b)=> a.storage_bin.localeCompare(b.storage_bin));
+    const lista = Array.from(porBin.values()).sort((a,b)=> a.storage_bin.localeCompare(b.storage_bin));
+    lista.truncada = filas.length >= FILAS_POR_RESPUESTA;
+    return lista;
   }catch(e){ return []; }
+}
+
+// Pendientes de planificar SIN storage bin en una bodega (o bodega + ubicación): un solo conteo
+// en el servidor (Range 0-0 + count=exact, sin bajar filas). No se puede deducir restando lo que
+// suman los bins de la lista, porque esa lista viene cortada en 1.000 filas: reportado por Joel,
+// B521 "Todas" decía "1929 sin storage bin" cuando eran 147.
+async function contarPendientesSinBin(bodega, ubicacion){
+  const filtro = `/skus_disponibles_planificar?activo=eq.true&${filtroBodegaOpciones(bodega)}${ubicacion? `&ubicacion=eq.${encodeURIComponent(ubicacion)}` : ''}&or=(storage_bin.is.null,storage_bin.eq.)&select=id`;
+  const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1${filtro}`, {
+    headers:{
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
+      'Range-Unit': 'items', 'Range': '0-0', 'Prefer': 'count=exact',
+    }
+  });
+  if(!res.ok){
+    const text = await res.text().catch(()=> '');
+    let data = null; try{ data = text ? JSON.parse(text) : null; }catch(e){ data = null; }
+    throw new Error((data && data.message) || res.statusText || 'Error de base de datos');
+  }
+  const range = res.headers.get('content-range');
+  return range && range.includes('/') ? Number(range.split('/')[1]) : null;
 }
 
 // El panel entero viaja en una sola llamada (función dashboard_ejecutivo). Antes eran 14
@@ -16520,6 +16551,8 @@ function bind(){
       delete selBin.dataset.opciones;
       delete selBin.dataset.totalSkuModoSkus;
       delete selBin.dataset.sinBin;
+      delete selBin.dataset.truncada;
+      delete selBin.dataset.conBinReal;
       chkTodos.checked = false;
       chkTodos.disabled = true;
       resumenBin.textContent = '';
@@ -16553,10 +16586,17 @@ function bind(){
       const sinBin = Number(selBin.dataset.sinBin||0);
       const chkTodosBin = document.getElementById('p-bin-todos');
       const entraSinBin = (chkTodosBin && chkTodosBin.checked) || seleccionados.length===0;
-      const textoSinBin = sinBin ? (entraSinBin ? ` · ${sinBin} sin storage bin` : ` · ${sinBin} sin storage bin quedan fuera`) : '';
+      const textoSinBin = sinBin ? (entraSinBin ? ` · ${sinBin.toLocaleString('es-CL')} sin storage bin` : ` · ${sinBin.toLocaleString('es-CL')} sin storage bin quedan fuera`) : '';
+      // Lista cortada (más de 1.000 filas): con todo elegido se dan los totales reales del sitio,
+      // no lo que suman los bins que alcanzaron a llegar; con elección puntual, lo elegido es exacto.
+      const truncada = selBin.dataset.truncada==='1';
+      if(truncada && esTodos && selBin.dataset.conBinReal!==undefined){
+        resumenBin.textContent = `(${Number(selBin.dataset.conBinReal).toLocaleString('es-CL')} SKU con storage bin${textoSinBin})`;
+        return;
+      }
       resumenBin.textContent = esTodos
-        ? `(${opciones.length} bin / ${totalSkus} SKU${textoSinBin})`
-        : `(${seleccionados.length} de ${opciones.length} bin / ${totalSkus} SKU${textoSinBin})`;
+        ? `(${truncada? 'primeros ' : ''}${opciones.length} bin / ${totalSkus} SKU${textoSinBin})`
+        : `(${seleccionados.length} de ${truncada? 'los primeros ' : ''}${opciones.length} bin / ${totalSkus} SKU${textoSinBin})`;
     }
     // Por arriba de esta cantidad de SKU sin bin, no tiene sentido listarlos uno a uno en el
     // <select> (se vuelve lento e inmanejable) — se deja solo el mensaje de "agregar igual".
@@ -16582,7 +16622,12 @@ function bind(){
       chkTodosInicial.checked = false;
       chkTodosInicial.disabled = true;
       resumenBinInicial.textContent = '';
-      const opciones = await opcionesBins(bodega, ubicacion);
+      // En paralelo, el conteo exacto de pendientes sin storage bin (ver contarPendientesSinBin): no
+      // agrega espera, y si falla se avisa sin trabar la lista de bins.
+      const [opciones, sinBinServidor] = await Promise.all([
+        opcionesBins(bodega, ubicacion),
+        contarPendientesSinBin(bodega, ubicacion).catch(e=>({error: e})),
+      ]);
       // Los elementos se buscan de nuevo ACÁ, después del await (y otra vez más abajo, tras el
       // segundo await): un render() de fondo puede haber reemplazado el formulario mientras
       // esperábamos la respuesta — mismo motivo que en cargarOpcionesEspecificasEnSelect. Escribir
@@ -16604,11 +16649,16 @@ function bind(){
         // mostraba "3 bin / 4 SKU"; los otros 32 no tienen bin y no salían en ninguna parte).
         // Entran con "Seleccionar todos" (la entrada cubre la ubicación completa) y quedan fuera si
         // se eligen bins puntuales: se muestran en el resumen y en la ayuda para que se sepa.
+        // El número sale del conteo del servidor, no de restar lo que suman los bins listados.
         let pendientesSitio = null;
         try{ const mapa = JSON.parse((document.getElementById('p-ubic')||{dataset:{}}).dataset.pendientes || '{}'); if(mapa[ubicacion||'']!==undefined) pendientesSitio = Number(mapa[ubicacion||'']); }catch(e){ pendientesSitio = null; }
-        const pendientesConBin = opciones.reduce((s,o)=> s+(Number(o.cantidad_skus)||0), 0);
-        const sinBin = pendientesSitio===null ? 0 : Math.max(0, pendientesSitio - pendientesConBin);
+        if(sinBinServidor && sinBinServidor.error) toast(`No se pudo contar los SKU sin storage bin: ${sinBinServidor.error.message}`, 'warn');
+        const sinBin = typeof sinBinServidor==='number' ? sinBinServidor : 0;
         if(sinBin) selBin.dataset.sinBin = String(sinBin); else delete selBin.dataset.sinBin;
+        // Lista cortada en 1.000 filas: el resumen no puede contar bins ni SKU sumando lo listado.
+        // Con el total de pendientes del sitio y el conteo sin bin sí se sabe cuántos SKU con bin hay.
+        if(opciones.truncada) selBin.dataset.truncada = '1'; else delete selBin.dataset.truncada;
+        if(opciones.truncada && pendientesSitio!==null && typeof sinBinServidor==='number') selBin.dataset.conBinReal = String(Math.max(0, pendientesSitio - sinBin)); else delete selBin.dataset.conBinReal;
         // A pedido: la lista carga con TODOS los storage bin ya marcados (visualmente explícito),
         // en vez de dejarla sin nada seleccionado confiando en la regla "sin selección = todos"
         // (que ya causó confusión — ver actualizarResumenBin). Se marca también "Seleccionar
@@ -16618,7 +16668,8 @@ function bind(){
         selBin.size = PLAN_BIN_FILAS_LLENA;
         chkTodos.checked = true;
         hintBin.textContent = 'Vienen todos los storage bin marcados. Puedes dejarlos así o desmarcar los que no quieras incluir.'
-          + (sinBin ? ` Con "Seleccionar todos" también entran los ${sinBin} SKU sin storage bin; si eliges bins puntuales, quedan fuera.` : '');
+          + (sinBin ? ` Con "Seleccionar todos" también entran los ${sinBin.toLocaleString('es-CL')} SKU sin storage bin; si eliges bins puntuales, quedan fuera.` : '')
+          + (opciones.truncada ? ` La lista muestra solo los primeros ${opciones.length.toLocaleString('es-CL')} storage bin (hay más); "Seleccionar todos" los incluye a todos.` : '');
         // Aclara que "12 elementos" (resumen nativo del navegador para el <select multiple>) son
         // storage bin, no SKU — bug real reportado: se entendía como 12 SKU y no cuadraba con el
         // total real, que suma los SKU de todos esos bins juntos (normalmente más que uno por bin).
@@ -16658,6 +16709,8 @@ function bind(){
         if(skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES){
           selBin.dataset.modo = 'skus';
           delete selBin.dataset.sinBin;
+          delete selBin.dataset.truncada;
+          delete selBin.dataset.conBinReal;
           selBin.dataset.skuCodes = JSON.stringify(skusUniversoCompleto.map(s=>s.sku_code));
           selBin.dataset.totalSkuModoSkus = String(skus.length);
           delete selBin.dataset.opciones;
@@ -16673,6 +16726,8 @@ function bind(){
           selBin.size = PLAN_BIN_FILAS_VACIA;
           delete selBin.dataset.opciones;
           delete selBin.dataset.sinBin;
+          delete selBin.dataset.truncada;
+          delete selBin.dataset.conBinReal;
           delete selBin.dataset.totalSkuModoSkus;
           resumenBin.textContent = '';
           hintBin.textContent = 'No hay storage bin cargado para esta ubicación. Puedes agregar igual: la planificación cubrirá toda la ubicación elegida.';

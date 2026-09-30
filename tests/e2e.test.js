@@ -285,8 +285,21 @@ async function loguear(page, perfil){
     });
     await page.route('**/rest/v1/usuarios?activo=eq.true&rol=eq.operador**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{id:'r1', nombre:'Pedro Soto'}, {id:'r2', nombre:'María Rojas'}]) }));
     await page.route('**/rest/v1/ubicaciones_generales**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', cantidad_skus:40, cantidad_pendiente:30}]) }));
-    await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:8, cantidad_pendiente:6}]) }));
-    await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:4}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-02', cantidad_skus:4}]) }));
+    await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:2600, cantidad_pendiente:2500}]) }));
+    // "Todas": 2 bins. Pasillo 3: 1.000 filas, el tope de PostgREST (la lista llega cortada).
+    await page.route('**/rest/v1/ubicaciones_bins**', route => {
+      const url = decodeURIComponent(route.request().url());
+      const filas = url.includes('ubicacion=eq.Pasillo 3')
+        ? Array.from({length:1000}, (_,i) => ({bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'B-'+String(i).padStart(4,'0'), cantidad_skus:2}))
+        : [{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:4}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-02', cantidad_skus:4}];
+      route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) });
+    });
+    // Pendientes sin storage bin: conteo exacto del servidor (content-range), no la resta.
+    await page.route(/skus_disponibles_planificar\?.*storage_bin\.is\.null/, route => {
+      const url = decodeURIComponent(route.request().url());
+      const n = url.includes('ubicacion=eq.Pasillo 3') ? 147 : 22;
+      route.fulfill({ status:200, contentType:'application/json', headers:{'content-range':`0-0/${n}`, 'access-control-expose-headers':'content-range', 'access-control-allow-origin':'*'}, body:'[]' });
+    });
     await page.evaluate(() => { setState({view:'plan'}); cambiarModoPlan('mes'); });
     await page.waitForSelector('.plan-dia-toggle', { timeout:ESPERA });
     assert(cuerpoPlan && cuerpoPlan.p_resumido === true && cuerpoPlan.p_desde === mes+'01', 'Mes pide plan_ventana_pantalla resumido desde el día 1, obtuvo '+JSON.stringify(cuerpoPlan));
@@ -323,6 +336,16 @@ async function loguear(page, perfil){
     await page.check('#p-bin-todos');
     const sinBinDeNuevo = await page.textContent('#p-bin-resumen');
     assert(sinBinDeNuevo === '(2 bin / 8 SKU · 22 sin storage bin)', 'al volver a "Seleccionar todos" los sin bin vuelven a entrar, obtuvo '+sinBinDeNuevo);
+    // Lista cortada en 1.000 filas (Joel, B521 "Todas": decía "1929 sin storage bin" y eran 147):
+    // el número sale del conteo del servidor y, con todo elegido, el resumen da los totales reales
+    // del sitio (2.500 pendientes − 147 sin bin), no lo que suman los bins que alcanzaron a llegar.
+    await page.selectOption('#p-ubic', 'Pasillo 3');
+    await page.waitForFunction(() => document.querySelectorAll('#p-bin option').length === 1000, null, { timeout:ESPERA });
+    const cortada = await page.evaluate(() => ({ resumen: document.getElementById('p-bin-resumen').textContent, hint: document.getElementById('p-bin-hint').textContent }));
+    assert(cortada.resumen === '(2.353 SKU con storage bin · 147 sin storage bin)' && cortada.hint.includes('también entran los 147 SKU sin storage bin') && cortada.hint.includes('primeros 1.000 storage bin (hay más)'), 'con la lista cortada, el resumen usa los totales reales y la ayuda lo dice, obtuvo '+JSON.stringify(cortada));
+    await page.selectOption('#p-bin', ['B-0000', 'B-0001']);
+    const cortadaParcial = await page.textContent('#p-bin-resumen');
+    assert(cortadaParcial === '(2 de los primeros 1000 bin / 4 SKU · 147 sin storage bin quedan fuera)', 'con elección puntual en lista cortada, lo elegido es exacto, obtuvo '+cortadaParcial);
     const tabs = await page.evaluate(() => [...document.querySelectorAll('.tabbar .tab')].map(t => t.clientHeight));
     assert(tabs.length && Math.max(...tabs) === Math.min(...tabs) && Math.max(...tabs) < 60, 'cada pestaña de la barra de abajo en una sola línea (misma altura, sin partirse), obtuvo '+JSON.stringify(tabs));
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
