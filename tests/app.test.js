@@ -56,6 +56,8 @@ let cicloActualFixture; // fila del ciclo actual con fecha_inicio (ver cargarSeg
 let contarCriticosDistintosFixture = 0; // respuesta del RPC contar_criticos_distintos (ver cargarGrupos)
 let posicionesGrupoFixture = {}; // por grupo_id: {materiales, posiciones} (RPC posiciones_por_grupo, ver cargarGrupos)
 let resumenPlanGruposFixture = {}; // por grupo_id: {entradas, desde, hasta, por_venir, skus_por_contar} (RPC resumen_plan_grupos)
+let sinBinFixture = {'Nave Mina|Interior Nave': 72, 'Nave Mina|': 18224}; // pendientes sin storage bin por "bodega|ubicación" (contarPendientesSinBin)
+let sinBinFalla = null; // mensaje de error del conteo sin bin; null = responde bien
 let avanceGruposFixture = {}; // por grupo_id: {materiales, contados_ciclo, nunca_contados} (RPC avance_por_grupo)
 let avanceGruposFalla = null; // mensaje de error de avance_por_grupo; null = responde bien
 let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
@@ -288,6 +290,15 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'rod-4', sku_code:'ROD-4', descripcion:'Rodamiento sin ubicación específica', bodega:'Nave Mina', ubicacion:null, storage_bin:null},
     ].filter(x=> x.sku_code.toLowerCase().includes(t) || (x.descripcion||'').toLowerCase().includes(t));
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(todos) };
+  }
+  // contarPendientesSinBin: pendientes sin storage bin de una bodega (o bodega + ubicación), un
+  // solo conteo en el servidor (Range 0-0 + count=exact). Por clave "bodega|ubicación".
+  if(path.startsWith('/rest/v1/skus_disponibles_planificar?') && path.includes('or=(storage_bin.is.null,storage_bin.eq.)')){
+    if(sinBinFalla) return { status:500, ok:false, statusText:'Internal Server Error', headers:{get:()=>null}, text: async()=>JSON.stringify({message: sinBinFalla}) };
+    const bod = decodeURIComponent((path.match(/bodega=eq\.([^&]*)/)||[])[1]||'');
+    const ubi = decodeURIComponent((path.match(/ubicacion=eq\.([^&]*)/)||[])[1]||'');
+    const n = sinBinFixture[`${bod}|${ubi}`];
+    return { status:200, ok:true, headers:{get:(h)=> h==='content-range' && n!==undefined ? `0-0/${n}` : null}, text: async()=>'[]' };
   }
   if(path.startsWith('/rest/v1/skus_disponibles_planificar?select=id&id=in.(')){
     const ids = decodeURIComponent((path.match(/id=in\.\(([^)]*)\)/)||[])[1]||'').split(',').filter(Boolean);
@@ -1803,7 +1814,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   });
   assert(binEl.disabled === false, 'p-bin debe seguir habilitado al elegir "Todas" en ubicación específica, obtuvo disabled='+binEl.disabled);
   assert(binEl.innerHTML.includes('A-01 — 7 SKU') && binEl.innerHTML.includes('A-02 — 3 SKU'), 'con "Todas" elegido, p-bin debe listar los bin de toda la bodega con las cantidades sumadas (A-01 aparece en dos ubicaciones: 5+2=7), obtuvo: '+binEl.innerHTML);
-  assert(elements['p-bin-resumen'].textContent === '(2 bin / 10 SKU · 18224 sin storage bin)', 'el resumen debe recalcularse con "Todas" (7+3=10; la bodega tiene 18.234 pendientes), obtuvo: '+elements['p-bin-resumen'].textContent);
+  assert(elements['p-bin-resumen'].textContent === '(2 bin / 10 SKU · 18.224 sin storage bin)', 'el resumen debe recalcularse con "Todas" (7+3=10; la bodega tiene 18.234 pendientes), obtuvo: '+elements['p-bin-resumen'].textContent);
   assert(chkTodosEl.checked === true, 'al recargar los storage bin de "Todas", "Seleccionar todos" debe volver a quedar marcado, obtuvo: '+chkTodosEl.checked);
   ubicEl.value = 'Interior Nave';
   await new Promise(resolve => {
@@ -2112,7 +2123,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(calls.some(c=>c.url.includes('/skus_disponibles_planificar')), 'la lista de SKU para elegir (sin bin) debe salir de skus_disponibles_planificar, no de skus_planificables, para no ofrecer SKU ya cubiertos por otra entrada del plan, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   // Perf (#140): la lista pide solo id/código/descripción con tope (MAX+1 filas, no toda la
   // ubicación paginada), y el universo completo (base de las exclusiones) solo el código.
-  const listaSinBin = calls.find(c=>c.url.includes('/skus_disponibles_planificar') && c.url.includes('ubicacion=eq.Piso'));
+  const listaSinBin = calls.find(c=>c.url.includes('/skus_disponibles_planificar') && c.url.includes('ubicacion=eq.Piso') && !c.url.includes('or=(storage_bin.is.null'));
   const universoSinBin = calls.find(c=>c.url.includes('/skus_planificables?') && c.url.includes('ubicacion=eq.Piso'));
   assert(!!listaSinBin && listaSinBin.url.includes('select=id,sku_code,descripcion&') && listaSinBin.opts.headers.Range==='0-300', 'la lista de SKU sin bin debe pedir columnas mínimas y solo hasta MAX+1 filas (Range 0-300), obtuvo: '+JSON.stringify(listaSinBin && {url:listaSinBin.url, range:listaSinBin.opts.headers.Range}));
   assert(!!universoSinBin && universoSinBin.url.includes('select=sku_code&'), 'el universo completo (base de exclusiones) debe pedir solo sku_code, obtuvo: '+JSON.stringify(universoSinBin && universoSinBin.url));
@@ -12243,6 +12254,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const hijosSinUbic = toastRootPlan ? toastRootPlan.hijos : [];
     assert(hijosSinUbic.length > hijosAntesSinUbic && /sin ubicación/.test(hijosSinUbic[hijosSinUbic.length-1].textContent) && /statement timeout/.test(hijosSinUbic[hijosSinUbic.length-1].textContent), 'el error al contar SKU sin ubicación debe avisarse con su mensaje, obtuvo: '+(hijosSinUbic.length ? hijosSinUbic[hijosSinUbic.length-1].textContent : '(sin aviso)'));
     assert(ctx.__appstate.plan.sinUbicacionCount===7, 'un error no debe pisar el conteo con 0, obtuvo: '+ctx.__appstate.plan.sinUbicacionCount);
+    // Conteo de pendientes sin storage bin: sale del servidor (Joel, B521: la resta contra la lista
+    // cortada en 1.000 filas daba 1929 y eran 147). Un error se lanza, no se vuelve 0.
+    const nSinBin = await ctx.contarPendientesSinBin('Nave Mina', 'Interior Nave');
+    assert(nSinBin===72 && calls.some(c=>c.url.includes('skus_disponibles_planificar?activo=eq.true&bodega=eq.Nave%20Mina&ubicacion=eq.Interior%20Nave&or=(storage_bin.is.null,storage_bin.eq.)') && c.opts.headers.Range==='0-0' && c.opts.headers.Prefer==='count=exact'), 'contarPendientesSinBin debe contar en el servidor sin bajar filas, obtuvo: '+nSinBin);
+    sinBinFalla = 'canceling statement due to statement timeout';
+    let errSinBin = null;
+    try{ await ctx.contarPendientesSinBin('Nave Mina', ''); }catch(e){ errSinBin = e; }
+    sinBinFalla = null;
+    assert(errSinBin && /statement timeout/.test(errSinBin.message), 'un error al contar sin bin debe lanzarse, no volverse 0, obtuvo: '+(errSinBin? errSinBin.message : 'sin error'));
+    // opcionesBins marca la lista como cortada cuando llega al tope de 1.000 filas.
+    const binsCortos = await ctx.opcionesBins('Nave Mina', 'Interior Nave');
+    assert(binsCortos.truncada===false, 'una lista corta no debe marcarse como cortada, obtuvo: '+binsCortos.truncada);
   }
 
   // ===== Planificación en el celular: resumen arriba, "Agregar" plegado, días plegables =====
