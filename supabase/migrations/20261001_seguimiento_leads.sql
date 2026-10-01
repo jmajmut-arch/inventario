@@ -5,8 +5,8 @@
 --   paso 1: 24 horas después de pedir la demo ("Una pregunta sobre tu bodega");
 --   paso 2: 3 días después del paso 1, si nadie detuvo el seguimiento ("¿Pudiste ver la demo?").
 -- Solo leads de demo (tipo 'demo' o null): quien escribe por Contacto espera la respuesta de Joel,
--- no un automático. Solo leads creados desde que existe esta función: a los antiguos no se les
--- escribe de golpe. Se salta las filas de prueba (empresa Escondida) y los correos inválidos.
+-- no un automático. Solo leads creados desde el 30/09/2026 (la víspera del estreno, a pedido de
+-- Joel): a los antiguos no se les escribe de golpe. Se salta las filas de prueba (empresa Escondida) y los correos inválidos.
 -- Nunca sale de noche: el cron corre cada hora, pero la función solo manda entre 08:00 y 20:00
 -- hora de Chile; lo que venció de madrugada sale a las 08:00.
 --
@@ -53,7 +53,7 @@ begin
       and l.seguimiento_detenido_en is null
       and l.email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'
       and coalesce(l.empresa, '') !~* '^escondida'
-      and l.creado_en >= timestamptz '2026-10-01 00:00:00-03'
+      and l.creado_en >= timestamptz '2026-09-30 00:00:00-03' -- desde el 30/09 para incluir el lead del día anterior al estreno (pedido de Joel)
       and (
         (l.seguimiento1_en is null and l.creado_en <= now() - interval '24 hours' and l.creado_en >= now() - interval '7 days')
         or (l.seguimiento1_en is not null and l.seguimiento2_en is null
