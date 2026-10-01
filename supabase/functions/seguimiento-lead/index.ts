@@ -12,7 +12,8 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // un tercero con el anon key es adelantar un paso que igual iba a salir.
 //
 // Remitente contacto@inventiapp.cl (dominio autenticado en Brevo), respuestas al mismo buzón, que
-// Cloudflare reenvía al Gmail de Joel. Secreto: BREVO_API_KEY (el mismo de notificar-lead).
+// Cloudflare reenvía al Gmail de Joel, y copia oculta a ese mismo buzón para que Joel vea cada
+// correo que salió. Secreto: BREVO_API_KEY (el mismo de notificar-lead).
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -100,6 +101,8 @@ Deno.serve(async (req: Request) => {
     body: JSON.stringify({
       sender: REMITENTE,
       to: [{ email, name: lead.nombre || undefined }],
+      // Copia oculta al buzón de contacto: así Joel ve en su Gmail cada correo que salió y cuándo.
+      bcc: [{ email: 'contacto@inventiapp.cl', name: 'InventIA (copia)' }],
       replyTo: { email: 'contacto@inventiapp.cl', name: 'Joel Majmut' },
       subject: asunto,
       htmlContent: html,
