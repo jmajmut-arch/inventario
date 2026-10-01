@@ -529,6 +529,33 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: los botones de precios abren el formulario de contacto con el mensaje puesto =====
+  // Antes eran enlaces mailto: dependían del correo del visitante y no dejaban registro ni aviso.
+  // Ahora abren el mismo modal "Escríbenos" con el mensaje prellenado, y el envío llega con
+  // tipo=contacto igual que el enlace del pie.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-contacto-precios: '+err.message));
+    await bloquearSentry(page);
+    let cuerpoEnviado = null;
+    await page.route('**/rest/v1/leads_demo', route => { cuerpoEnviado = route.request().postDataJSON(); route.fulfill({ status:201, body:'' }); });
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+    assert((await page.locator('a[href^="mailto:"]').count()) === 0, 'la página principal ya no debe tener enlaces mailto');
+    await page.click('[data-track-mailto="piloto_empresa"]');
+    await page.waitForSelector('#contacto-modal-backdrop.open', { timeout:ESPERA });
+    const mensajePrellenado = await page.inputValue('#contacto-mensaje');
+    assert(mensajePrellenado === 'Quiero solicitar un piloto de InventIA con mi bodega.', '"Solicitar piloto" abre el formulario de contacto con el mensaje puesto, obtuvo '+mensajePrellenado);
+    await page.fill('#contacto-nombre', 'Persona Real');
+    await page.fill('#contacto-email', 'piloto@example.com');
+    await page.fill('#contacto-empresa', 'Minera Ejemplo');
+    await page.waitForTimeout(2200);
+    await page.click('#contacto-submit-btn');
+    await page.waitForTimeout(300);
+    assert(!!cuerpoEnviado && cuerpoEnviado[0].tipo==='contacto' && cuerpoEnviado[0].mensaje==='Quiero solicitar un piloto de InventIA con mi bodega.' && cuerpoEnviado[0].empresa==='Minera Ejemplo', 'el envío desde precios llega como contacto con el mensaje prellenado, obtuvo '+JSON.stringify(cuerpoEnviado));
+    await context.close();
+  }
+
   // ===== Landing: el acordeón de preguntas frecuentes abre con un click real =====
   {
     const context = await browser.newContext();
