@@ -23,6 +23,7 @@ Code* en el dashboard).
 | `flow-cambiar-plan` | sí | Frontend (admin con suscripción activa) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `flow-sincronizar-suscripcion` | sí | Frontend (cualquier usuario activo, al iniciar sesión) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `notificar-lead` | sí (basta el anon key) | Trigger `trg_notificar_lead_demo` de la base, por pg_net, al insertarse un lead del sitio | `BREVO_API_KEY`; opcional `NOTIFICAR_LEADS_A` (destino, por omisión contacto@inventiapp.cl) |
+| `seguimiento-lead` | sí (basta el anon key) | Cron `seguimiento-leads-horario` de la base (`enviar_seguimientos_leads`, por pg_net): correo de seguimiento al lead de demo a las 24 h (paso 1) y 3 días después (paso 2) | `BREVO_API_KEY` |
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` las inyecta Supabase sola.
 `BREVO_API_KEY` es una API key de la misma cuenta de Brevo que manda las invitaciones de Auth
@@ -46,6 +47,7 @@ Con la CLI de Supabase (`npm i -g supabase` o `brew install supabase/tap/supabas
 # Las que validan el JWT (por omisión):
 supabase functions deploy invite-user --project-ref ncvwgsbcvklhbyvurxzz
 supabase functions deploy notificar-lead --project-ref ncvwgsbcvklhbyvurxzz
+supabase functions deploy seguimiento-lead --project-ref ncvwgsbcvklhbyvurxzz
 # Las tres que reciben llamadas sin sesión (landing y Flow) van sin verificación:
 supabase functions deploy crear-empresa-autoservicio --project-ref ncvwgsbcvklhbyvurxzz --no-verify-jwt
 supabase functions deploy flow-registro-callback    --project-ref ncvwgsbcvklhbyvurxzz --no-verify-jwt

@@ -868,6 +868,7 @@ const fakeFetchImpl = async (url, opts) => {
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/leads_demo')){
+    if(opts && opts.method==='PATCH') return { status:204, ok:true, headers:{get:()=>null}, text: async()=>'' };
     if(path.includes('offset=')){
       const offsetMatch = path.match(/offset=(\d+)/);
       const offset = Number(offsetMatch[1]);
@@ -4218,6 +4219,26 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.superadmin.leads.length===1 && ctx.__appstate.superadmin.leads[0].email==='pedro@clienteX.cl', 'debe guardar los leads devueltos por el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.superadmin.leads));
   const htmlConLeads = ctx.renderSuperAdmin();
   assert(htmlConLeads.includes('Pedro Soto') && htmlConLeads.includes('Clientes X SpA') && htmlConLeads.includes('pedro@clienteX.cl'), 'el panel de super-admin debe mostrar nombre, empresa y correo del lead, obtuvo: '+htmlConLeads);
+  // Seguimiento automático (Joel, 01/10): cada lead de demo muestra en qué paso va y una casilla
+  // para detenerlo (ya habló con la persona o no quiere más correos); un lead de Contacto no lo tiene.
+  ctx.__appstate.superadmin.leads = [
+    {id:'lead-a', nombre:'Ana', email:'ana@x.cl', tipo:'demo', creado_en:'2026-10-01T10:00:00Z'},
+    {id:'lead-b', nombre:'Beto', email:'beto@x.cl', tipo:'demo', creado_en:'2026-09-30T10:00:00Z', seguimiento1_en:'2026-10-01T12:00:00Z'},
+    {id:'lead-c', nombre:'Caro', email:'caro@x.cl', tipo:'demo', creado_en:'2026-09-28T10:00:00Z', seguimiento1_en:'2026-09-29T12:00:00Z', seguimiento2_en:'2026-10-02T12:00:00Z'},
+    {id:'lead-d', nombre:'Dani', email:'dani@x.cl', tipo:'demo', creado_en:'2026-09-30T10:00:00Z', seguimiento_detenido_en:'2026-10-01T09:00:00Z'},
+    {id:'lead-e', nombre:'Elo', email:'elo@x.cl', tipo:'contacto', mensaje:'hola', creado_en:'2026-10-01T10:00:00Z'},
+  ];
+  const htmlSeg = ctx.renderSuperAdmin();
+  assert(htmlSeg.includes('Seguimiento automático pendiente (24 h)') && htmlSeg.includes('Seguimiento 1 enviado') && htmlSeg.includes('Seguimiento 1 y 2 enviados') && htmlSeg.includes('Seguimiento detenido'), 'cada lead de demo muestra el estado de su seguimiento, obtuvo: '+htmlSeg);
+  assert((htmlSeg.match(/class="sa-lead-detener"/g)||[]).length===4 && /data-lead-id="lead-d"[^>]*checked/.test(htmlSeg) && !/data-lead-id="lead-a"[^>]*checked/.test(htmlSeg), 'la casilla "Detener seguimiento" va en los 4 leads de demo (no en el de Contacto) y marcada solo en el detenido, obtuvo: '+htmlSeg);
+  calls.length = 0;
+  await ctx.detenerSeguimientoLead('lead-a', true);
+  const patchLead = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/leads_demo?id=eq.lead-a'));
+  assert(!!patchLead && typeof JSON.parse(patchLead.opts.body).seguimiento_detenido_en==='string' && ctx.__appstate.superadmin.leads[0].seguimiento_detenido_en, 'detener el seguimiento hace PATCH a ese lead con la fecha y lo refleja en pantalla, obtuvo: '+JSON.stringify(patchLead && patchLead.opts.body));
+  calls.length = 0;
+  await ctx.detenerSeguimientoLead('lead-a', false);
+  const patchLeadOff = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/leads_demo?id=eq.lead-a'));
+  assert(!!patchLeadOff && JSON.parse(patchLeadOff.opts.body).seguimiento_detenido_en===null && !ctx.__appstate.superadmin.leads[0].seguimiento_detenido_en, 'desmarcar reactiva el seguimiento (null), obtuvo: '+JSON.stringify(patchLeadOff && patchLeadOff.opts.body));
   ctx.__appstate.superadmin.leads = [];
   assert(ctx.renderSuperAdmin().includes('Todavía no hay nadie'), 'sin leads debe mostrar un mensaje vacío, no una lista rota');
 
