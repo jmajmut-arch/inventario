@@ -13267,6 +13267,10 @@ function renderSuperAdmin(){
           </div>
           <div class="hint">${esc(l.email)}${l.telefono?' · '+esc(l.telefono):''}</div>
           ${l.mensaje?`<div class="hint" style="margin-top:4px;white-space:pre-wrap">${esc(l.mensaje)}</div>`:''}
+          ${(l.tipo||'demo')==='demo' ? `<div class="hint" style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            ${estadoSeguimientoLead(l)}
+            <label style="display:flex;align-items:center;gap:5px;margin:0;font-size:12px;cursor:pointer"><input type="checkbox" class="sa-lead-detener" data-lead-id="${esc(l.id)}" ${l.seguimiento_detenido_en?'checked':''} style="margin:0">Detener seguimiento (ya hablamos o no quiere más correos)</label>
+          </div>` : ''}
         </div>
       `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no hay nadie que haya pedido la demo o escrito.</div>`}
       ${sa.leadsHayMas? `<div style="text-align:center;margin-top:12px">
@@ -13274,6 +13278,26 @@ function renderSuperAdmin(){
       </div>` : ''}
     </div>
   `;
+}
+
+// Seguimiento automático por correo a quien pidió la demo (ver enviar_seguimientos_leads y la
+// Edge Function seguimiento-lead): paso 1 a las 24 h, paso 2 tres días después. Joel lo detiene
+// desde el panel cuando ya habló con la persona o esta pidió no recibir más correos.
+function estadoSeguimientoLead(l){
+  const f = iso => new Date(iso).toLocaleDateString('es-CL',{day:'2-digit',month:'short'}).replace('.','');
+  if(l.seguimiento_detenido_en) return `<span class="badge badge-neutral">Seguimiento detenido</span>`;
+  if(l.seguimiento2_en) return `<span class="badge badge-ok">Seguimiento 1 y 2 enviados · ${esc(f(l.seguimiento2_en))}</span>`;
+  if(l.seguimiento1_en) return `<span class="badge badge-ok">Seguimiento 1 enviado · ${esc(f(l.seguimiento1_en))}</span>`;
+  return `<span class="badge badge-neutral">Seguimiento automático pendiente (24 h)</span>`;
+}
+async function detenerSeguimientoLead(id, detener){
+  try{
+    await rest(`/leads_demo?id=eq.${id}`, {method:'PATCH', body:{seguimiento_detenido_en: detener ? new Date().toISOString() : null}, prefer:'return=minimal'});
+    const lead = state.superadmin.leads.find(l=>l.id===id);
+    if(lead) lead.seguimiento_detenido_en = detener ? new Date().toISOString() : null;
+    toast(detener ? 'Seguimiento detenido para ese lead' : 'Seguimiento reactivado');
+    render();
+  }catch(e){ toast(e.message,'err'); render(); }
 }
 
 function renderAuditoria(){
@@ -15948,6 +15972,7 @@ function bind(){
           actualizarPersonaSuperAdmin(id, {nombre: input.value.trim()});
         });
       });
+      document.querySelectorAll('.sa-lead-detener').forEach(chk=> chk.addEventListener('change', ()=> detenerSeguimientoLead(chk.dataset.leadId, chk.checked)));
       document.querySelectorAll('.sa-persona-rol').forEach(sel=>{
         sel.addEventListener('change', ()=> actualizarPersonaSuperAdmin(sel.dataset.personaId, {rol: sel.value}));
       });

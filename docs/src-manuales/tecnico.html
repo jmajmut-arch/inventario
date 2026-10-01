@@ -474,7 +474,7 @@
     <tr><th>Servicio</th><th></th><th>Para qué se usa</th></tr>
     <tr><td>Supabase</td><td>Producción</td><td>Backend completo: Postgres 17.6 (canal GA, compute Small, São Paulo), autenticación, almacenamiento de fotos, cron (pg_cron) y 8 Edge Functions: <code>invite-user</code>, <code>crear-empresa-autoservicio</code>, las 6 de Flow. Única pieza de infraestructura propia.</td></tr>
     <tr><td>Flow.cl</td><td>Producción</td><td>Pasarela de pago (Chile): registra la tarjeta y cobra la suscripción mensual. El estado se sincroniza consultando su API; el webhook queda como respaldo.</td></tr>
-    <tr><td>Brevo</td><td>Producción</td><td>SMTP que envía los correos de acceso (crear contraseña, restablecerla, código de 6 dígitos) a nombre de "InventIA".</td></tr>
+    <tr><td>Brevo</td><td>Producción</td><td>SMTP que envía los correos de acceso (crear contraseña, restablecerla, código de 6 dígitos) a nombre de "InventIA". Por su API transaccional salen el aviso de cada lead del sitio (<code>notificar-lead</code>) y el seguimiento automático al que pidió la demo (<code>seguimiento-lead</code>: a las 24 h y 3 días después, solo entre 08:00 y 20:00; el súper admin lo detiene desde Leads).</td></tr>
     <tr><td>Sentry</td><td>Producción</td><td>Monitoreo de errores: captura sola los errores de JavaScript del navegador, con stack trace, empresa y usuario afectado.</td></tr>
     <tr><td>GitHub</td><td>Producción</td><td>Control de versiones, integración continua (1.630 asserts unitarios y tests end-to-end con navegador real en cada cambio) y hosting del sitio bajo inventiapp.cl.</td></tr>
     <tr><td>Google Fonts</td><td>Producción</td><td>Sirve las tipografías de la interfaz (Barlow Condensed, Inter, IBM Plex Mono).</td></tr>
