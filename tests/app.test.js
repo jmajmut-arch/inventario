@@ -8548,6 +8548,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
         assert(iniciarSentryEn(fuente, 'https://app.inventiapp.cl/').enabled === true, `${archivo}: un host de producción nuevo debe seguir reportando`);
       });
 
+      // Sitio público: el código ajeno inyectado (todos los frames "<anonymous>") no se reporta.
+      // Bug real JAVASCRIPT-C / #538: "ab is not defined" desde un script inyectado en la landing.
+      // Un error con al menos un frame de un archivo nuestro sí se reporta, y uno sin stack también.
+      {
+        const op = iniciarSentryEn(leerConfigSentry('assets/sentry-config.js'), 'https://inventiapp.cl/');
+        assert(typeof op.beforeSend === 'function', 'la landing debe filtrar con beforeSend el código inyectado');
+        const evento = frames => ({exception:{values:[{type:'ReferenceError', value:'ab is not defined', stacktrace:{frames}}]}});
+        const inyectado = evento([{filename:'<anonymous>', lineno:1, colno:2446}]);
+        assert(op.beforeSend(inyectado) === null, 'un error cuyos frames son todos <anonymous> (código inyectado) no debe reportarse');
+        const propio = evento([{filename:'<anonymous>'}, {filename:'https://inventiapp.cl/assets/comun.js', lineno:40}]);
+        assert(op.beforeSend(propio) === propio, 'si algún frame viene de un archivo del sitio, el error se reporta igual');
+        const sinStack = {exception:{values:[{type:'Error', value:'algo'}]}};
+        assert(op.beforeSend(sinStack) === sinStack, 'un error sin stack trace se reporta igual (no se puede saber de dónde vino)');
+        const mensaje = {message:'aviso'};
+        assert(op.beforeSend(mensaje) === mensaje, 'un evento sin excepción se reporta igual');
+      }
+
       // Y los mensajes que la app muestra a propósito siguen filtrados (solo la app los emite).
       ['app/index.html', 'app/inventario.html'].forEach(archivo => {
         const opciones = iniciarSentryEn(leerConfigSentry(archivo), 'https://inventiapp.cl/app/index.html');
