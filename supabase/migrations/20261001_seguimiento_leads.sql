@@ -3,7 +3,8 @@
 -- Dos correos cortos, escritos para abrir conversación y entender la necesidad, no para
 -- insistir con la demo (textos en supabase/functions/seguimiento-lead):
 --   paso 1: 24 horas después de pedir la demo ("Una pregunta sobre tu bodega");
---   paso 2: 3 días después del paso 1, si nadie detuvo el seguimiento ("¿Pudiste ver la demo?").
+--   paso 2: 3 días después del paso 1, si nadie detuvo el seguimiento ("¿15 minutos para ver tu
+--   caso?"; hasta el 03/10/2026 era "¿Pudiste ver la demo?").
 -- Solo leads de demo (tipo 'demo' o null): quien escribe por Contacto espera la respuesta de Joel,
 -- no un automático. Solo leads creados desde el 30/09/2026 (la víspera del estreno, a pedido de
 -- Joel): a los antiguos no se les escribe de golpe. Se salta las filas de prueba (empresa Escondida) y los correos inválidos.
