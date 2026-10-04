@@ -78,11 +78,11 @@
     + '<form id="demo-form">'
     + '<label for="demo-nombre">Nombre</label><input type="text" id="demo-nombre" required autocomplete="name">'
     + '<label for="demo-email">Correo</label><input type="email" id="demo-email" required autocomplete="email">'
-    + '<label for="demo-telefono">Teléfono</label><input type="tel" id="demo-telefono" required autocomplete="tel" placeholder="+56 9 1234 5678">'
+    + '<label for="demo-telefono">Teléfono <span style="font-weight:400;color:var(--text-faint)">(solo para coordinar un piloto si te interesa)</span></label><input type="tel" id="demo-telefono" required autocomplete="tel" placeholder="+56 9 1234 5678">'
     + '<label for="demo-empresa">Empresa <span style="font-weight:400;color:var(--text-faint)">(opcional)</span></label>'
     + '<input type="text" id="demo-empresa" autocomplete="organization">'
     + trampa('demo-web')
-    + '<button type="submit" class="modal-submit" id="demo-submit-btn">Ver la demo</button>'
+    + '<button type="submit" class="modal-submit" id="demo-submit-btn">Entrar a la demo</button>'
     + '<div class="modal-error" id="demo-error" style="display:none"></div>'
     + '</form></div>'
     + '<div id="demo-modal-ok" class="modal-ok">'
@@ -202,7 +202,7 @@
     eventoApertura: 'demo_modal_open',
     paramsApertura: function (plan) { return { plan: plan || 'general' }; },
     tipoLead: 'demo',
-    textoBoton: 'Ver la demo',
+    textoBoton: 'Entrar a la demo',
     validar: function () {
       var digitos = $('demo-telefono').value.replace(/\D/g, '');
       if (digitos.length < 8) return 'Escribe un teléfono al que podamos llamarte (por ejemplo +56 9 1234 5678).';
