@@ -484,6 +484,25 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing Inventario (destino de Google Ads): el botón de la portada abre la demo y
+  // el formulario dice para qué se pide el teléfono, a 420 px =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:860 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-inventario: '+err.message));
+    await bloquearSentry(page);
+    await page.goto(`http://localhost:${PORT}/inventario.html`, { waitUntil:'networkidle' });
+    const cta = page.locator('.hero .cta');
+    assert((await cta.textContent()).includes('Probar la demo gratis'), 'el botón de la portada de Inventario debe decir "Probar la demo gratis"');
+    const caja = await cta.boundingBox();
+    assert(caja && caja.y + caja.height <= 860, 'a 420 px el botón de la demo debe verse sin bajar, quedó en y='+(caja && caja.y));
+    await cta.click();
+    assert(await page.isVisible('#demo-modal-backdrop.open'), 'el botón de la portada debe abrir el formulario de demo');
+    assert((await page.textContent('label[for="demo-telefono"]')).includes('coordinar un piloto'), 'el teléfono debe explicar para qué se pide');
+    assert((await page.textContent('#demo-submit-btn')).trim() === 'Entrar a la demo', 'el botón del formulario debe decir "Entrar a la demo"');
+    await context.close();
+  }
+
   // ===== Landing: formulario de contacto — honeypot silencioso no debe llamar a la red =====
   {
     const context = await browser.newContext();
