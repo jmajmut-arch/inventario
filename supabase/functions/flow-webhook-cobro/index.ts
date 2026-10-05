@@ -37,12 +37,21 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
+// Pago de una suscripción -> su subscriptionId. Forma real, medida en el cobro del 03/10/2026:
+// Flow avisa solo con un token, y payment/getStatus de ese token trae
+// commerceOrder = "sus_hc87191242_7663414_2026-10-03 06:10" (suscripción_factura_fecha).
+function suscripcionDesdeCommerceOrder(commerceOrder: unknown): string {
+  const m = /^(sus_[A-Za-z0-9]+)_\d+_/.exec(String(commerceOrder ?? ''));
+  return m ? m[1] : '';
+}
+
 // urlCallback configurado a nivel de Plan en Flow: se dispara en cada intento de cobro de
-// una suscripción a ese plan. El spec de Flow no documenta el shape exacto de este POST,
-// así que primero guardamos SIEMPRE el payload crudo (para no perder el dato real) y después
-// resolvemos el subscriptionId (directo, o vía invoiceId -> invoice/get) para preguntarle a
-// Flow el estado real de la suscripción. Usamos subscription.morose (no cada intento fallido
-// individual) porque es la señal de Flow de que ya agotó sus propios reintentos
+// una suscripción a ese plan. Primero guardamos SIEMPRE el payload crudo (para no perder el
+// dato real) y después resolvemos el subscriptionId para preguntarle a Flow el estado real de
+// la suscripción. En el primer aviso real (03/10/2026) Flow mandó solo {token}: se resuelve con
+// payment/getStatus (ver suscripcionDesdeCommerceOrder); subscriptionId directo e invoiceId ->
+// invoice/get quedan por si Flow los manda en otro caso. Usamos subscription.morose (no cada
+// intento fallido individual) porque es la señal de Flow de que ya agotó sus propios reintentos
 // (charges_retries_number, 3 por omisión) y sigue impaga — esa es la política acordada:
 // bloquear recién cuando Flow se da por vencido, no ante el primer intento fallido.
 Deno.serve(async (req: Request) => {
@@ -68,12 +77,18 @@ Deno.serve(async (req: Request) => {
       const invoice = await flowRequest('GET', '/invoice/get', { invoiceId: raw.invoiceId });
       subscriptionId = invoice.subscriptionId || '';
     }
+    let pago: { flowOrder?: unknown; status?: unknown; amount?: unknown } | null = null;
+    if (!subscriptionId && raw.token) {
+      const estadoPago = await flowRequest('GET', '/payment/getStatus', { token: raw.token });
+      pago = { flowOrder: estadoPago.flowOrder, status: estadoPago.status, amount: estadoPago.amount };
+      subscriptionId = suscripcionDesdeCommerceOrder(estadoPago.commerceOrder);
+    }
 
     if (!subscriptionId) {
       await serviceClient.from('flow_eventos').insert({
         empresa_id: null,
         tipo: 'cobro_suscripcion',
-        payload: { aviso: 'no se pudo resolver subscriptionId desde este callback (revisar payload crudo)', raw },
+        payload: { aviso: 'no se pudo resolver subscriptionId desde este callback (revisar payload crudo)', raw, pago },
       });
       return json({ ok: true });
     }
@@ -100,7 +115,7 @@ Deno.serve(async (req: Request) => {
     await serviceClient.from('flow_eventos').insert({
       empresa_id: empresa.id,
       tipo: 'cobro_suscripcion',
-      payload: { subscriptionId, morose: suscripcion.morose, status: suscripcion.status, nuevoEstado },
+      payload: { subscriptionId, morose: suscripcion.morose, status: suscripcion.status, nuevoEstado, pago },
     });
   } catch (e) {
     await serviceClient.from('flow_eventos').insert({
