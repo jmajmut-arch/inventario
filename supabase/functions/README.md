@@ -10,7 +10,7 @@ despliega desde acá. Si se edita en el dashboard de Supabase, hay que traer el 
 repo en el mismo momento (`get_edge_function` por MCP, o *Edge Functions → la función →
 Code* en el dashboard).
 
-## Las nueve funciones
+## Las funciones
 
 | Función | `verify_jwt` | Quién la llama | Variables de entorno propias |
 |---|---|---|---|
@@ -18,11 +18,12 @@ Code* en el dashboard).
 | `crear-empresa-autoservicio` | **no** | Landing (público, sin login) | — |
 | `flow-iniciar-suscripcion` | sí | Frontend (admin) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `flow-registro-callback` | **no** | Flow.cl (servidor a servidor) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
-| `flow-webhook-cobro` | **no** | Flow.cl (cada intento de cobro) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
+| `flow-webhook-cobro` | **no** | Flow.cl (cada intento de cobro). Flow manda solo `{token}`: la suscripción sale de `payment/getStatus` → `commerceOrder` (`sus_xxx_<factura>_<fecha>`), medido en el cobro real del 03-10-2026 | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `flow-cancelar-suscripcion` | sí | Frontend (admin) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `flow-cambiar-plan` | sí | Frontend (admin con suscripción activa) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `flow-sincronizar-suscripcion` | sí | Frontend (cualquier usuario activo, al iniciar sesión) | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `notificar-lead` | sí (basta el anon key) | Trigger `trg_notificar_lead_demo` de la base, por pg_net, al insertarse un lead del sitio | `BREVO_API_KEY`; opcional `NOTIFICAR_LEADS_A` (destino, por omisión contacto@inventiapp.cl) |
+| `flow-tarea-unica` | sí | Nadie: **inerte** (responde 410). Se usó una vez el 05-10-2026 para cancelar la suscripción de prueba de $500 de Minera Test y leer la forma real del cobro de Flow. Se puede borrar desde el dashboard | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `seguimiento-lead` | sí (basta el anon key) | Cron `seguimiento-leads-horario` de la base (`enviar_seguimientos_leads`, por pg_net): correo de seguimiento al lead de demo a las 24 h (paso 1) y 3 días después (paso 2), con copia oculta a contacto@inventiapp.cl | `BREVO_API_KEY` |
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` las inyecta Supabase sola.
