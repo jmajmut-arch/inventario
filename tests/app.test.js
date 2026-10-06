@@ -11353,6 +11353,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda.filtroContadoPor = null;
   ctx.__appstate.busqueda.filtroEstado = null;
 
+  // Pedido de Joel (06/10): con casillas marcadas, los gráficos, su lectura y el drill-down se
+  // calculan sobre lo seleccionado (lo mismo que va al PDF), con la etiqueta diciéndolo; la tabla
+  // sigue mostrando todo para poder marcar y desmarcar. Sin selección, todo igual que antes.
+  ctx.__appstate.busqueda.seleccionados = ['s1','s2'];
+  const htmlSeleccion = ctx.renderBuscar();
+  assert(htmlSeleccion.includes('2 seleccionados de 4 cargados') && !htmlSeleccion.includes('Resultados cargados'), 'con selección, los gráficos deben decir sobre cuántos seleccionados se arman, obtuvo: '+recorteEstado(htmlSeleccion));
+  assert(htmlSeleccion.includes('De 2 contados') && htmlSeleccion.includes('1 cuadró (50%)') && htmlSeleccion.includes('1 con faltante (50%) · 0 con sobrante (0%)'), 'la lectura bajo el gráfico debe ser sobre los 2 seleccionados (Ana: un cuadrado y un faltante), obtuvo: '+recorteEstado(htmlSeleccion));
+  assert(!htmlSeleccion.includes('data-estado-clave="Diferencia positiva"') && !htmlSeleccion.includes('Beto'), 'el sobrante de Beto (A-3, no seleccionado) no debe aparecer en ningún gráfico, obtuvo: '+recorteEstado(htmlSeleccion));
+  assert((htmlSeleccion.match(/<tr>\s*<td/g)||[]).length===4, 'la tabla debe seguir mostrando las 4 filas para poder marcar y desmarcar, obtuvo: '+((htmlSeleccion.match(/<tr>\s*<td/g)||[]).length));
+  ctx.__appstate.busqueda.filtroEstado = 'Cuadrado';
+  const htmlSeleccionFiltrada = ctx.renderBuscar();
+  assert((htmlSeleccionFiltrada.match(/<tr>\s*<td/g)||[]).length===1 && htmlSeleccionFiltrada.includes('>A-1<') && htmlSeleccionFiltrada.includes('1 de 2 seleccionados'), 'tocar una porción con selección activa filtra dentro de lo seleccionado, obtuvo: '+htmlSeleccionFiltrada.slice(htmlSeleccionFiltrada.indexOf('Filtrando por estado'), htmlSeleccionFiltrada.indexOf('Filtrando por estado')+200));
+  ctx.__appstate.busqueda.filtroEstado = null;
+  ctx.__appstate.busqueda.seleccionados = [];
+  const htmlVueltaSinSeleccion = ctx.renderBuscar();
+  assert(htmlVueltaSinSeleccion.includes('Resultados cargados') && htmlVueltaSinSeleccion.includes('De 3 contados'), 'al quitar la selección los gráficos vuelven a todo lo cargado, obtuvo: '+recorteEstado(htmlVueltaSinSeleccion));
+
   // Conteo ciego + operador: el badge no muestra el signo, y el gráfico tampoco puede delatarlo.
   ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
   const htmlEstadoCiego = ctx.renderBuscar();
