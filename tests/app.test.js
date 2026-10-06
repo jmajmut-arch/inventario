@@ -7279,6 +7279,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.plan.seleccionados = [];
   const htmlAvisoSinResponsable = ctx.renderPlanificacion();
   assert(htmlAvisoSinResponsable.includes('>2<') && htmlAvisoSinResponsable.includes('entradas planificadas no tienen responsable asignado'), 'con entradas sin responsable, debe mostrar un aviso destacado con la cantidad exacta, obtuvo: '+htmlAvisoSinResponsable);
+  // Fase 3 del rediseño (Plan): el aviso es una alerta accionable (.alert.warn con la cifra en
+  // .alert-n) dentro del bloque de alertas, y va antes del resumen y del formulario.
+  assert(/<div class="alert warn" id="plan-sin-responsable">\s*<div class="alert-n">2<\/div>/.test(htmlAvisoSinResponsable), 'el aviso de sin responsable debe ser una alerta del sistema con la cifra adelante, obtuvo: '+(htmlAvisoSinResponsable.match(/<div class="plan-alertas">[\s\S]{0,400}/)||[''])[0]);
+  assert(htmlAvisoSinResponsable.indexOf('id="plan-sin-responsable"') < htmlAvisoSinResponsable.indexOf('id="plan-resumen"') && htmlAvisoSinResponsable.indexOf('id="plan-resumen"') < htmlAvisoSinResponsable.indexOf('id="plan-agregar-card"'), 'el orden debe ser alerta → resumen plegable → Agregar, obtuvo índices: '+JSON.stringify({alerta:htmlAvisoSinResponsable.indexOf('id="plan-sin-responsable"'), resumen:htmlAvisoSinResponsable.indexOf('id="plan-resumen"'), agregar:htmlAvisoSinResponsable.indexOf('id="plan-agregar-card"')}));
+  assert(/<details class="plegable" id="plan-resumen" >/.test(htmlAvisoSinResponsable) && /plegable-sub">\d[\d.]* SKU a contar · \d+ entradas? · <span class="plan-dia-sin-resp">2 sin responsable<\/span>/.test(htmlAvisoSinResponsable), 'el resumen va plegado por defecto con su cifra en la línea, obtuvo: '+(htmlAvisoSinResponsable.match(/<details class="plegable"[\s\S]{0,500}/)||[''])[0]);
 
   ctx.__appstate.plan.entradas = [
     {id:'sr4', fecha:'2026-09-10', bodega:'B501', ubicacion:'0100', responsable_id:'resp-A', ciclo_nombre:null},
@@ -12828,6 +12833,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.plan = {...ctx.__appstate.plan, semanaInicio:'2026-08-10', diaFiltro:null, cicloFiltro:'', rango:'semana', entradas:[], universos:{}, detalle:{}, seleccionados:[], modoAgregar:'ubicacion', skusElegidos:[], responsables:[]};
     let htmlPlanModo = ctx.renderPlanificacion();
     assert(htmlPlanModo.includes('id="p-modo-ubicacion"') && htmlPlanModo.includes('id="p-modo-sku"'), 'el formulario debe ofrecer los dos modos (Por ubicación / Por código de SKU), obtuvo: '+htmlPlanModo.slice(0,400));
+    // Fase 3: el formulario va en tres bloques numerados (Qué y dónde · Cuándo · Quién) con el
+    // botón final de ancho completo; mismos ids y mismo <form id="form-plan">.
+    const bloques = htmlPlanModo.match(/<div class="plan-bloque-titulo"><span class="plan-bloque-n">\d<\/span>[^<]+/g)||[];
+    assert(bloques.length===3 && /1<\/span>Qué y dónde/.test(bloques[0]) && /2<\/span>Cuándo/.test(bloques[1]) && /3<\/span>Quién/.test(bloques[2]), 'el formulario debe ir en tres bloques en ese orden, obtuvo: '+JSON.stringify(bloques));
+    assert(htmlPlanModo.indexOf('id="p-bodega"') < htmlPlanModo.indexOf('id="p-fecha"') && htmlPlanModo.indexOf('id="p-fecha"') < htmlPlanModo.indexOf('id="p-responsable"'), 'ubicación (qué/dónde) va antes que la fecha (cuándo) y esta antes que el responsable (quién)');
+    assert(/<div class="plan-form-pie">\s*<button type="submit" class="btn btn-primary">Agregar a la planificación<\/button>/.test(htmlPlanModo), 'el botón de enviar va al pie con el nombre de la acción, obtuvo: '+(htmlPlanModo.match(/<div class="plan-form-pie">[\s\S]{0,200}/)||[''])[0]);
     assert(/id="p-campos-sku" style="display:none"/.test(htmlPlanModo) && !/id="p-campos-ubicacion" style="display:none"/.test(htmlPlanModo), 'en modo ubicación, los campos por código van ocultos y los de ubicación visibles');
 
     ctx.cambiarModoAgregarPlan('sku');
