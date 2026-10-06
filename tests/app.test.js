@@ -7375,7 +7375,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const temaIndustrial = ctx.__TEMAS.find(x=>x.id==='industrial');
   assert(temaIndustrial && temaIndustrial.nombre==='Negro y Ámbar' && temaIndustrial.colores.length===3, 'debe existir el tema industrial en la lista, obtuvo: '+JSON.stringify(ctx.__TEMAS.map(x=>x.id)));
   assert(ctx.__TEMAS.find(x=>x.id==='claro') && ctx.__TEMAS.find(x=>x.id==='alto_contraste'), 'los temas de siempre siguen disponibles');
-  assert(html.includes(':root[data-tema="industrial"]{') && html.includes(':root[data-tema="industrial"] .tabbar{background:#0b0b0b'), 'el tema industrial define sus variables y sus barras negras en el CSS');
+  assert(html.includes(':root[data-tema="industrial"]{') && html.includes('--nav-bg:#0b0b0b'), 'el tema industrial define sus variables y sus barras negras en el CSS (Fase 0: la barra sale del token --nav-bg)');
   // Predeterminado desde el 27/09 (decisión de Joel): sin preferencia guardada, arranca en Negro y Ámbar.
   assert(html.includes("localStorage.getItem('tema_app') || 'industrial'") && temaIndustrial.desc.includes('(predeterminado)') && !ctx.__TEMAS.find(x=>x.id==='claro').desc.includes('predeterminado'), 'el tema predeterminado es Negro y Ámbar y la lista lo dice');
   assert(ctx.colorBarraNavegadorTema('industrial')==='#0b0b0b' && ctx.colorBarraNavegadorTema('claro')==='#ffffff' && ctx.colorBarraNavegadorTema('ambar')==='#ffffff', 'la barra del navegador acompaña al tema industrial y no cambia para los demás');
@@ -7897,7 +7897,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(filaMia.includes('data-corregir-conteo="c-mio"') && filaMia.includes('data-corregir-cantidad="12"') && filaMia.includes('data-corregir-observacion="ok"') && filaMia.includes('>Editar<'), 'el operador ve Editar en su conteo de hoy, con los datos para el modal, obtuvo: '+filaMia);
     assert(!filaAjena.includes('data-corregir-conteo'), 'el operador no ve Editar en el conteo de otra persona, obtuvo: '+filaAjena);
     assert(filaAjena.includes('corregido · antes 8 · motivo: tecleo'), 'un conteo corregido muestra la cantidad original y el motivo como texto (no solo en el title, que en el iPad no existe), obtuvo: '+filaAjena);
-    assert(ctx.marcaConteoCorregido({corregido_en:hoy, cantidad_original:3, motivo_correccion:''})==='<div class="hint" style="font-size:10px;margin:2px 0 0;min-width:150px;max-width:220px;white-space:normal;text-align:left" title="">corregido · antes 3</div>', 'sin motivo guardado, la marca no agrega "motivo:" vacío, obtuvo: '+ctx.marcaConteoCorregido({corregido_en:hoy, cantidad_original:3, motivo_correccion:''}));
+    assert(ctx.marcaConteoCorregido({corregido_en:hoy, cantidad_original:3, motivo_correccion:''})==='<div class="hint" style="font-size:12px;margin:2px 0 0;min-width:150px;max-width:220px;white-space:normal;text-align:left" title="">corregido · antes 3</div>', 'sin motivo guardado, la marca no agrega "motivo:" vacío, obtuvo: '+ctx.marcaConteoCorregido({corregido_en:hoy, cantidad_original:3, motivo_correccion:''}));
     assert(!filaMia.includes('corregido · antes'), 'un conteo sin corregir no lleva la marca, obtuvo: '+filaMia);
     ctx.__appstate.perfil = ADMIN;
     htmlCorr = ctx.renderBuscar();
