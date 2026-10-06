@@ -17,9 +17,9 @@
       <div class="toc-row"><span><span class="n">01</span>Iniciar sesión y moverte por la app</span><span class="p">pág. 2</span></div>
       <div class="toc-row"><span><span class="n">09</span>Reconteo: corregir diferencias</span><span class="p">pág. 10</span></div>
       <div class="toc-row"><span><span class="n">02</span>Cargar materiales, uno por uno</span><span class="p">pág. 3</span></div>
-      <div class="toc-row"><span><span class="n">10</span>Ver el avance: Dashboard Ejecutivo</span><span class="p">pág. 11</span></div>
+      <div class="toc-row"><span><span class="n">10</span>Ver el avance: Panel Ejecutivo</span><span class="p">pág. 11</span></div>
       <div class="toc-row"><span><span class="n">03</span>Cargar materiales desde Excel</span><span class="p">pág. 4</span></div>
-      <div class="toc-row"><span><span class="n">11</span>Ver el avance: Dashboard Operativo</span><span class="p">pág. 12</span></div>
+      <div class="toc-row"><span><span class="n">11</span>Ver el avance: Panel Operativo</span><span class="p">pág. 12</span></div>
       <div class="toc-row"><span><span class="n">04</span>Planificar: día, semana, mes, año o período</span><span class="p">pág. 5</span></div>
       <div class="toc-row"><span><span class="n">12</span>Buscar cualquier material o conteo</span><span class="p">pág. 13</span></div>
       <div class="toc-row"><span><span class="n">05</span>Grupos de conteo: planificar por frecuencia</span><span class="p">pág. 6</span></div>
@@ -50,7 +50,7 @@
         <li><span class="num">4</span><div>¿No tienes cuenta todavía? Pide al administrador de tu empresa que te invite desde Configuraciones → Invitar equipo (ver etapa 14). No existe un formulario de alta abierto al público para operadores.</div></li>
       </ol>
       <div class="box new"><div class="tag">Nuevo · Contratar un plan desde el sitio</div>En inventiapp.cl, el botón <b>Suscribirme</b> de los planes Básico y Profesional abre la app en la pantalla "Crea tu cuenta": nombre de la empresa, tu nombre, correo y contraseña. Después registras la tarjeta en Flow y quedas dentro como administrador, sin coordinar con nadie. El detalle está en la etapa 15.</div>
-      <div class="box"><div class="tag">Cómo se navega</div>La barra inferior tiene <b>Dashboard, Carga, Períodos, Grupos, Plan, Contar</b> y <b>Reconteo</b>. Arriba a la derecha están <b>SKUs, Calendario, Buscar</b> y el engranaje de <b>Configuraciones</b>. Un operador ve las pestañas de administrador con un candado: puede reconocerlas, pero no entrar. Junto a tu nombre aparece tu rol (Operador, Admin o Super-admin).</div>
+      <div class="box upd"><div class="tag">Actualizado · Cómo se navega</div>La barra inferior tiene cinco posiciones: <b>Panel, Plan, Contar, Reconteo</b> y <b>Más</b>. En <b>Más</b> están <b>Carga, Períodos, Grupos, SKU, Calendario, Exportar</b> y <b>Salir</b>, con tu nombre y tu rol arriba. En la cabecera quedan solo la lupa de <b>Buscar</b> y el engranaje de <b>Configuraciones</b>; en Contar, un punto verde indica que todo está sincronizado (ámbar: cambios por enviar; rojo: sin señal). Un operador ve las pestañas de administrador con un candado: puede reconocerlas, pero no entrar.</div>
     </div>
     <div class="shot"><img src="img/login.png" alt="Pantalla de inicio de sesión"><div class="cap">Pantalla de inicio de sesión</div></div>
   </div>
@@ -93,7 +93,7 @@
       </ol>
       <div class="box"><div class="tag">Identidad de un material</div>Un SKU es único por código + bodega + batch + ubicación + storage bin. El mismo material puede vivir en varios lugares de la misma bodega: cada bin es su propia fila, con su propio stock. Dos filas idénticas en el archivo: se queda con la última, y antes de confirmar te dice cuántas son y cuáles. La fila sin ubicación, sin storage bin y con stock 0 (la línea que SAP agrega a nivel de bodega con lo que viene en camino) no se carga cuando el material ya viene con su bin: su tránsito pasa a esa fila y el total del material se ve igual. Si es la única fila del material, se carga. Y si el archivo trae la columna "Special Stock Type", la línea de consignación (K) de un bin se suma al stock de su línea propia y la tarjeta lo desglosa ("SOH x + SOH consignado y"); la línea O (material en poder del proveedor) no se carga como fila para contar y se muestra como "En prov." en la tarjeta.</div>
       <div class="box"><div class="tag">Stock por tipo (opcional)</div>Si tu ERP separa el stock por tipo, la carga puede mapear 4 columnas más: Bloqueado, SOH en tránsito 1 y 2 y Transferencia. Se muestran junto al stock en Contar, Reconteo y el maestro, sumando <b>todo el material</b> y no solo la ubicación al frente (el ERP deja el tránsito en una fila sin ubicación, que el buscador de Contar esconde). No cambian la diferencia y se ocultan con el conteo ciego.</div>
-      <div class="box new"><div class="tag">Agregar / complementar o Reemplazar completo: un ejemplo</div>Tu maestro tiene A, B y C; el Excel trae A, B y D. Con las dos opciones, A y B se actualizan y D se crea. La diferencia es <b>C</b>, lo que ya tenías y el archivo no trae. Con <b>Agregar / complementar</b>, C sigue activo y al terminar la app te dice "1 material ya no viene en este archivo", con <b>Revisar sobrantes</b> para desactivarlo tú (nunca toca los contados en el ciclo abierto). Con <b>Reemplazar completo</b>, C se desactiva solo y queda exactamente lo del Excel; antes de confirmar te avisa cuántos materiales con diferencia pendiente o contados en el ciclo saldrían de Reconteo y del Dashboard. Nada se borra: se reactiva desde SKU. Para la carga diaria: Agregar / complementar y luego Revisar sobrantes.</div>
+      <div class="box new"><div class="tag">Agregar / complementar o Reemplazar completo: un ejemplo</div>Tu maestro tiene A, B y C; el Excel trae A, B y D. Con las dos opciones, A y B se actualizan y D se crea. La diferencia es <b>C</b>, lo que ya tenías y el archivo no trae. Con <b>Agregar / complementar</b>, C sigue activo y al terminar la app te dice "1 material ya no viene en este archivo", con <b>Revisar sobrantes</b> para desactivarlo tú (nunca toca los contados en el ciclo abierto). Con <b>Reemplazar completo</b>, C se desactiva solo y queda exactamente lo del Excel; antes de confirmar te avisa cuántos materiales con diferencia pendiente o contados en el ciclo saldrían de Reconteo y del Panel. Nada se borra: se reactiva desde SKU. Para la carga diaria: Agregar / complementar y luego Revisar sobrantes.</div>
       <div class="box"><div class="tag">Si vuelves a cargar después de contar</div>El Reconteo compara contra el stock más reciente: si con el dato nuevo un material ya cuadra, sale solo de la lista de pendientes, y la fila muestra "antes: X" con la fecha del cambio (ver etapa 9).</div>
     </div>
     <div class="shot"><img src="img/carga.png" alt="Carga: mapeo de columnas"><div class="cap">Carga → mapeo de columnas</div></div>
@@ -110,8 +110,8 @@
     <div>
       <ol class="steps">
         <li><span class="num">1</span><div>Arriba elige la ventana: <b>Día, Semana, Mes</b> o <b>Año</b>, o un <b>Período</b> completo en el selector. Navega con las flechas ‹ ›. Desde Calendario o desde un día puntual puedes volver con "Ver toda la semana".</div></li>
-        <li><span class="num">2</span><div>Toca <b>+ Agregar a la planificación</b>, elige la Fecha y cómo agregar: <b>Por ubicación</b> (bodega, y si quieres Ubicación específica y uno, varios o todos los Storage bins; también "SKU sin ubicación") o <b>Por código de SKU</b>.</div></li>
-        <li><span class="num">3</span><div>Asigna un <b>Responsable</b> (opcional, solo de tu empresa) y una <b>Nota</b> si hace falta contexto, y toca <b>Agregar</b>.</div></li>
+        <li><span class="num">2</span><div>Toca <b>+ Agregar a la planificación</b>. El formulario va en tres bloques: <b>Qué y dónde</b> (<b>Por ubicación</b>: bodega, y si quieres Ubicación específica y uno, varios o todos los Storage bins, también "SKU sin ubicación"; o <b>Por código de SKU</b>), <b>Cuándo</b> (la fecha) y <b>Quién</b>.</div></li>
+        <li><span class="num">3</span><div>En <b>Quién</b> asigna un <b>Responsable</b> (opcional, solo de tu empresa) y una <b>Nota</b> si hace falta contexto, y toca <b>Agregar a la planificación</b>. Arriba de la lista, los avisos de <b>Atrasado</b> y <b>sin responsable</b> llevan su botón; el resumen del período se abre al tocarlo.</div></li>
         <li><span class="num">4</span><div>En Día y Semana ves el detalle de cada entrada y puedes quitar un SKU puntual. En Mes, Año y Período la vista es <b>resumida</b> (totales por entrada). El <b>Exportar PDF</b> trae siempre el listado completo.</div></li>
       </ol>
       <div class="box new"><div class="tag">Nuevo · Agregar por código de SKU</div>Escribe 2 o más caracteres del código o la descripción: aparecen solo los pendientes del período, con su ubicación; los ya planificados se marcan "Ya en el plan". Toca cada resultado (o Enter) y al presionar Agregar se crea una entrada por cada bodega + ubicación con exactamente esos materiales, visible como "Por código · bodega · ubicación" y bajo esa ubicación en Contar.</div>
@@ -176,8 +176,8 @@
   <div class="cols">
     <div>
       <ol class="steps">
-        <li><span class="num">1</span><div><b>Plan del día</b> muestra lo que tienes asignado ese día y las entradas sin responsable, que puede contar cualquiera del equipo. Elige bodega y ubicación y verás la lista de SKU pendientes de todas las entradas que calzan, incluidas las de distintos bins.</div></li>
-        <li><span class="num">2</span><div>Toca un material de la lista, escribe la <b>Cantidad contada</b>, agrega foto si corresponde y toca <b>Guardar conteo</b>. La foto se reduce sola antes de subirse; con <b>Marcar</b> le dibujas rayas o flechas con el dedo antes de guardarla. Si lo encontraste en otra ubicación, marca la casilla y corrige antes de guardar.</div></li>
+        <li><span class="num">1</span><div><b>Plan del día</b> muestra una tarjeta por lugar planificado para hoy (bodega · ubicación, con sus bins y su responsable), incluidas las entradas sin responsable, que puede contar cualquiera del equipo. Toca una y verás la lista de SKU pendientes agrupada por storage bin, con el escáner a mano. Para otro día o lugar, usa <b>Cambiar día o lugar</b>.</div></li>
+        <li><span class="num">2</span><div>Toca un material de la lista, escribe la <b>Cantidad contada</b> (o usa − / + y <b>Sin stock (0)</b>), agrega foto si corresponde y toca <b>Guardar conteo</b>. La foto se reduce sola antes de subirse; con <b>Marcar</b> le dibujas rayas o flechas con el dedo antes de guardarla. Si lo encontraste en otra ubicación, marca la casilla y corrige antes de guardar.</div></li>
         <li><span class="num">3</span><div>¿No está en tu plan? Usa <b>Agregar algo fuera del plan</b> y busca por código o descripción: la búsqueda corre contra todo el maestro.</div></li>
         <li><span class="num">4</span><div>Sin señal, todo sigue funcionando: el plan del día queda en caché y los conteos se guardan en el dispositivo hasta sincronizar solos al volver la conexión. Si la señal está lenta, el guardado reintenta solo y nunca duplica un conteo.</div></li>
       </ol>
@@ -186,7 +186,7 @@
       <div class="box"><div class="tag">Avisos al elegir un material</div>Si el mismo código vive en más de un lugar, cada ubicación y bin aparece como fila separada. Si ya fue contado en este período, verás "Ya contado X veces", con la fecha y hora del último conteo, quién lo hizo y cuánto contó (con conteo ciego, la cantidad no se muestra). Si llegaste desde <b>Recontar</b>, en vez de eso verás la fecha del conteo anterior y su diferencia: ahí ya se sabe que se contó. Si el maestro trae stock por tipo, aparece como referencia junto al Stock sistema.</div>
     </div>
     <div class="shot">
-      <img src="img/contar-repetido.png" alt="Contar: mismo código en dos ubicaciones"><div class="cap">Contar → mismo código en dos ubicaciones</div>
+      <img src="img/contar-lista.png" alt="Contar: lista de SKU pendientes del lugar, por storage bin"><div class="cap">Contar → lista del lugar, por storage bin</div>
       <img src="img/contar-aviso.png" alt="Contar: aviso de conteo repetido"><div class="cap">Contar → aviso de conteo repetido</div>
     </div>
   </div>
@@ -229,7 +229,7 @@
       </ol>
       <div class="box new"><div class="tag">Nuevo · Descartar (solo admin)</div>Cuando la diferencia se explica por un error del dato maestro (un stock mal digitado, por ejemplo) y no por algo que haya que verificar en bodega, un administrador puede tocar <b>Descartar</b> e indicar el motivo. El material sale de pendientes sin recontar, el motivo queda en Auditoría, y la lista se queda en la semana que estabas mirando. Si la diferencia es real y ya se corrigió en el ERP, usa <b>Ajustado en ERP</b>: pide el folio del ajuste, exige dos conteos si es una merma (un excedente se cierra con uno) y deja el stock de sistema en lo contado. Para varios a la vez, marca las casillas de las filas y usa <b>Cerrar N con ajuste en el ERP</b> o <b>Quitar N del reconteo</b>: una sola referencia o motivo para todos; lo que no se pueda cerrar (una merma contada una sola vez) queda pendiente y la app te dice cuál. Los cierres quedan en <b>Cerrados sin recontar</b>.</div>
       <div class="box"><div class="tag">Compara contra el stock actual</div>Si cargaste un Excel nuevo después del conteo y el stock cambió, la diferencia se recalcula sola contra el dato nuevo y la fila muestra "antes: X". Si ya calza, el material sale solo de la lista.</div>
-      <div class="box"><div class="tag">Por qué importa</div>El Reconteo separa un error de tipeo de una pérdida real, y alimenta la Valorización del Dashboard y el informe de cierre.</div>
+      <div class="box"><div class="tag">Por qué importa</div>El Reconteo separa un error de tipeo de una pérdida real, y alimenta la Valorización del Panel y el informe de cierre.</div>
     </div>
     <div class="shot"><img src="img/reconteo.png" alt="Reconteo: diferencias pendientes"><div class="cap">Reconteo → diferencias pendientes, con huella y stock por tipo</div></div>
   </div>
@@ -238,41 +238,41 @@
 <!-- 10 -->
 <section class="page">
   <div class="kicker">10 · Seguimiento</div>
-  <h2 class="title">Ver el avance: Dashboard Ejecutivo</h2>
-  <p class="intro">Pestaña Dashboard, toggle Ejecutivo. Pensado para quien necesita el resultado en plata y en riesgo, no el detalle operativo día a día. Todo se calcula sobre el período de conteo actual.</p>
+  <h2 class="title">Ver el avance: Panel Ejecutivo</h2>
+  <p class="intro">Pestaña Panel, toggle Ejecutivo. Pensado para quien necesita el resultado en plata y en riesgo, no el detalle operativo día a día. Todo se calcula sobre el período de conteo actual y se lee en tres bandas.</p>
   <span class="role admin">Admin (según plan de tu empresa)</span>
   <div class="cols">
     <div>
       <ol class="steps">
-        <li><span class="num">1</span><div><b>Avance por ubicación general</b> y <b>Proyección de término</b>, calculada al ritmo de conteo de los últimos 14 días.</div></li>
-        <li><span class="num">2</span><div><b>Adherencia al plan</b>: SKU planificados en el período contra los que aún faltan por contar.</div></li>
-        <li><span class="num">3</span><div><b>Exactitud</b> resume, sobre el último conteo de cada SKU, qué porcentaje no tuvo diferencia y qué porcentaje quedó en la ubicación correcta, con tendencia mes a mes y ranking por bodega.</div></li>
-        <li><span class="num">4</span><div><b>Valorización de diferencias</b> traduce excedentes y faltantes a pesos usando el costo unitario; más abajo, el Top 10 de pérdidas y excedentes con más impacto, <b>Clasificación ABC</b> con % contado por clase, <b>Ranking por responsable</b> y <b>SKU pendientes por ubicación general</b>.</div></li>
+        <li><span class="num">1</span><div><b>¿Cómo vamos?</b> Cuatro cifras: <b>Avance global</b>, <b>Exactitud de unidades</b> (sobre el último conteo de cada SKU, con su variación contra el mes anterior), <b>Adherencia al plan</b> del período elegido arriba e <b>Impacto neto</b> en pesos (pérdidas más excedentes, a costo unitario).</div></li>
+        <li><span class="num">2</span><div><b>¿Dónde hay problemas?</b> Peor primero: el Top 10 de pérdidas y de excedentes con más impacto, la exactitud y los SKU pendientes por ubicación general y la tendencia de exactitud mes a mes.</div></li>
+        <li><span class="num">3</span><div><b>¿Qué requiere acción?</b> Avisos con botón: SKU con diferencia en los últimos 14 días (a Reconteo) y SKU del plan sin contar (a Plan).</div></li>
+        <li><span class="num">4</span><div>Bajo <b>Detalle</b>, plegado, sigue todo lo demás: estado general del maestro, exactitud de ubicación, adherencia por bodega, <b>Valorización</b>, <b>Clasificación ABC</b>, <b>Proyección de término</b>, conteos por día, diferencias, <b>Ranking por responsable</b> y avance por ubicación general.</div></li>
       </ol>
       <div class="box"><div class="tag">Exportar</div>El botón <b>Exportar informe</b> genera un PDF con este mismo resumen, listo para compartir con quien no tiene acceso a la app.</div>
-      <div class="box new"><div class="tag">Nuevo · Informe de cierre automático</div>Cuando un período se cierra (porque marcas otro como actual o porque empieza uno programado), InventIA guarda sola una foto de este dashboard con los reconteos que quedaron sin resolver. Está en Períodos → Informes de cierre (etapa 13).</div>
+      <div class="box new"><div class="tag">Nuevo · Informe de cierre automático</div>Cuando un período se cierra (porque marcas otro como actual o porque empieza uno programado), InventIA guarda sola una foto de este panel con los reconteos que quedaron sin resolver. Está en Períodos → Informes de cierre (etapa 13).</div>
     </div>
-    <div class="shot"><img class="tall" src="img/dash-ejecutivo.png" alt="Dashboard Ejecutivo"><div class="cap">Dashboard → Ejecutivo</div></div>
+    <div class="shot"><img class="tall" src="img/dash-ejecutivo.png" alt="Panel Ejecutivo"><div class="cap">Panel → Ejecutivo, con el Detalle desplegado</div></div>
   </div>
 </section>
 
 <!-- 11 -->
 <section class="page">
   <div class="kicker">11 · Seguimiento</div>
-  <h2 class="title">Ver el avance: Dashboard Operativo</h2>
-  <p class="intro">Pestaña Dashboard, toggle Operativo. El día a día del conteo: qué se hizo, cuándo y con cuántas diferencias.</p>
+  <h2 class="title">Ver el avance: Panel Operativo</h2>
+  <p class="intro">Pestaña Panel, toggle Operativo. El día a día del conteo: qué se hizo, cuándo y con cuántas diferencias.</p>
   <span class="role">Operador y admin</span>
   <div class="cols">
     <div>
       <ol class="steps">
-        <li><span class="num">1</span><div><b>Avance de inventario</b> por bodega: SKU con al menos un conteo sobre el total activo.</div></li>
+        <li><span class="num">1</span><div><b>Adherencia al plan</b> del período elegido, con su desglose por ubicación general.</div></li>
         <li><span class="num">2</span><div><b>Estado general de SKU</b> muestra el maestro completo por estado (contado o pendiente) y clase ABC, con filtro de criticidad (Todos, Solo críticos, Solo no críticos). Útil para ver de un vistazo qué falta, sin ir a Buscar.</div></li>
         <li><span class="num">3</span><div>Las tablas <b>Diario, Semanal</b> y <b>Mensual</b> muestran SKU contados, con diferencia, reconteos y unidades contadas por período, con los reconteos en su propio color.</div></li>
       </ol>
       <div class="box upd"><div class="tag">Actualizado · Más simple</div>Se quitaron las tarjetas "Conteos recientes" y "Materiales contados" y el filtro de rango de fechas del Estado general de SKU: no agregaban información que no esté ya en Buscar y en el Calendario, y hacían más lenta la pantalla.</div>
-      <div class="box"><div class="tag">Períodos de conteo</div>Si tu empresa usa períodos (ej. "T1 2027"), todo el Dashboard se acota al período marcado como actual. Sin un período creado, se muestra el histórico completo.</div>
+      <div class="box"><div class="tag">Períodos de conteo</div>Si tu empresa usa períodos (ej. "T1 2027"), todo el Panel se acota al período marcado como actual. Sin un período creado, se muestra el histórico completo.</div>
     </div>
-    <div class="shot"><img class="tall" src="img/dash-operativo.png" alt="Dashboard Operativo"><div class="cap">Dashboard → Operativo (captura anterior a la simplificación)</div></div>
+    <div class="shot"><img class="tall" src="img/dash-operativo.png" alt="Panel Operativo"><div class="cap">Panel → Operativo</div></div>
   </div>
 </section>
 
@@ -285,7 +285,7 @@
   <div class="cols">
     <div>
       <ol class="steps">
-        <li><span class="num">1</span><div>Escribe un código, descripción, batch o storage bin, o deja el campo vacío para ver todo. Filtra por <b>Ubicación general</b> y <b>Ubicación específica</b> (dos listas con lo que existe en tu maestro: al elegir la general se habilita la específica), Estado (con <b>Con diferencia</b> abierto en <b>positiva</b>, sobrante, y <b>negativa</b>, faltante, igual que el gráfico de resultados; e incluido <b>Pendiente de reconteo</b>, los mismos materiales de la pestaña Reconteo), <b>Contado por</b> (las personas de tu empresa, también las desactivadas), Grupo de conteo (ahí está "Críticos"), Clase ABC, "solo con fotos", "solo fuera de plan" y, si tu empresa usa períodos, por período.</div></li>
+        <li><span class="num">1</span><div>Escribe un código, descripción, batch o storage bin, o deja el campo vacío para ver todo. Los filtros frecuentes están a la vista y el resto bajo <b>Más filtros</b>. Filtra por <b>Ubicación general</b> y <b>Ubicación específica</b> (dos listas con lo que existe en tu maestro: al elegir la general se habilita la específica), Estado (con <b>Con diferencia</b> abierto en <b>positiva</b>, sobrante, y <b>negativa</b>, faltante, igual que el gráfico de resultados; e incluido <b>Pendiente de reconteo</b>, los mismos materiales de la pestaña Reconteo), <b>Contado por</b> (las personas de tu empresa, también las desactivadas), Grupo de conteo (ahí está "Críticos"), Clase ABC, "solo con fotos", "solo fuera de plan" y, si tu empresa usa períodos, por período.</div></li>
         <li><span class="num">2</span><div>Toca cualquier encabezado de columna para ordenar. El título y los gráficos muestran el total real que cumple los filtros, no solo lo cargado en pantalla. La columna <b>Origen</b> distingue "Plan" de "Fuera de plan".</div></li>
         <li><span class="num">3</span><div>Revisa el gráfico interactivo <b>Quién contó</b> y el resumen por estado: ambos se actualizan con los filtros activos.</div></li>
         <li><span class="num">4</span><div>En <b>Exportar</b>, descarga a Excel los resultados que ves (con filtros), o un rango de fechas de conteos completo para cargar a un ERP. Marca uno o varios resultados y usa <b>Exportar a PDF</b>: la app arma un PDF en papel carta: la primera hoja trae los dos gráficos que ves (estado y quién contó) y desde la segunda va una ficha por material (foto y detalle), tres por hoja, con el logo de tu empresa; en el iPad se abre en el visor y se comparte o se guarda en Archivos.</div></li>
@@ -302,7 +302,7 @@
 <section class="page">
   <div class="kicker">13 · Cuenta</div>
   <h2 class="title">Períodos de conteo e informes de cierre</h2>
-  <p class="intro">Pestaña Períodos. Un período (ej. "T1 2027", "Cierre 2027") separa tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que esté marcado como actual, y el Dashboard, Reconteo y Buscar se acotan a él.</p>
+  <p class="intro">Pestaña Períodos. Un período (ej. "T1 2027", "Cierre 2027") separa tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que esté marcado como actual, y el Panel, Reconteo y Buscar se acotan a él.</p>
   <span class="role admin">Admin</span>
   <div class="cols single">
     <div>
@@ -376,7 +376,7 @@
 <section class="page">
   <div class="kicker">16 · Módulo de bodega</div>
   <h2 class="title">Bodega: recepciones, despachos y stock al día</h2>
-  <p class="intro">Módulo opcional que InventIA activa por empresa. Al entrar, en vez del Dashboard ves un Inicio con lo que puedes hacer: Recepción, Despacho, Inventario y Dashboard, y arriba de todo Orden de compra si eres administrador.</p>
+  <p class="intro">Módulo opcional que InventIA activa por empresa. Al entrar, en vez del Panel ves un Inicio con lo que puedes hacer: Recepción, Despacho, Inventario y Panel, y arriba de todo Orden de compra si eres administrador.</p>
   <span class="role">Operador y admin</span>
   <div class="cols">
     <div>
@@ -385,10 +385,10 @@
         <li><span class="num">2</span><div><b>Despacho.</b> Agrega los materiales, elige quién retira (lista que mantiene el administrador), quién despacha y el destino. No se puede sacar más de lo que hay: si el material está pero el sistema dice que no, cuéntalo y ajusta el stock antes.</div></li>
         <li><span class="num">3</span><div><b>Ajustar el stock.</b> Desde Reconteo, <b>Ajustar stock</b> lleva la cantidad contada al stock; desde Stock, <b>Ajustar</b> sirve para mermas o correcciones. El administrador lo aplica de inmediato; el operador lo propone y queda pendiente.</div></li>
         <li><span class="num">4</span><div><b>Movimientos y Stock.</b> Si un área devuelve material, en Movimientos toca <b>Devolver</b> sobre la salida que lo entregó: solo puedes devolver hasta lo que queda por volver. El stock sube al guardar y el consumo del área se descuenta solo. Al guardar una recepción o un despacho, la app ofrece <b>Imprimir comprobante</b> ahí mismo; el de despacho trae las firmas de quien entrega y quien recibe. En Movimientos ves todo lo registrado, apruebas o rechazas pendientes (admin), anulas con motivo una recepción entera o solo una de sus líneas (queda tachada en el comprobante) y reimprimes cualquier comprobante. En Stock ves el saldo por material, su <b>Kardex</b> (cada movimiento con saldo corrido) y exportas a Excel. Si el material se lleva a otro sitio, usa <b>Ubicación</b> en su fila (funciona igual que Cambio de ubicación, etapa 3).</div></li>
-        <li><span class="num">5</span><div><b>Reportes.</b> Desde el Inicio o el Dashboard, con un rango de fechas: cuánto consumió cada persona, área o destino, cuánto recibió de cada proveedor y la valorización del stock, todo exportable a Excel. En Stock puedes fijar un <b>mínimo</b> por material (o cargarlo por Excel), filtrar los que están bajo ese mínimo y clasificar cada material por <b>tipo</b> (EPP, repuesto, sustancia peligrosa, componente u otros), que también agrupa los reportes.</div></li>
+        <li><span class="num">5</span><div><b>Reportes.</b> Desde el Inicio o el Panel, con un rango de fechas: cuánto consumió cada persona, área o destino, cuánto recibió de cada proveedor y la valorización del stock, todo exportable a Excel. En Stock puedes fijar un <b>mínimo</b> por material (o cargarlo por Excel), filtrar los que están bajo ese mínimo y clasificar cada material por <b>tipo</b> (EPP, repuesto, sustancia peligrosa, componente u otros), que también agrupa los reportes.</div></li>
       </ol>
     </div>
-    <div class="shot"><img src="img/bodega-inicio.png" alt="Inicio del módulo de bodega"><div class="cap">Inicio → Orden de compra, Recepción, Despacho, Inventario y Dashboard</div></div>
+    <div class="shot"><img src="img/bodega-inicio.png" alt="Inicio del módulo de bodega"><div class="cap">Inicio → Orden de compra, Recepción, Despacho, Inventario y Panel</div></div>
   </div>
 </section>
 
@@ -466,7 +466,7 @@
     <div>Revisar el Calendario para ver qué toca cada día</div>
     <div>Contar en terreno, con o sin señal, escaneando cuando se pueda</div>
     <div>Resolver o descartar lo que quedó en Reconteo, semana por semana</div>
-    <div>Seguir el avance en el Dashboard a diario, por Clase ABC si el maestro tiene costos</div>
+    <div>Seguir el avance en el Panel a diario, por Clase ABC si el maestro tiene costos</div>
     <div>Usar Buscar para resolver cualquier duda puntual, con filtros y exportación</div>
     <div>Mantener equipo, seguridad y suscripción al día en Configuraciones</div>
     <div>Cerrar el período y guardar su informe, o dejar que el siguiente se active solo</div>
