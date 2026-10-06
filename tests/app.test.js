@@ -7601,6 +7601,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const shellConPendientes = ctx.renderShell();
   assert(shellConPendientes.includes('id="banner-offline"') && shellConPendientes.includes('1 cambio guardado sin conexión'), 'debe mostrar el banner de cambios pendientes con el singular correcto, obtuvo: '+shellConPendientes);
   assert(shellConPendientes.includes('id="btn-sincronizar-offline"') && shellConPendientes.includes('id="btn-ver-offline"'), 'el banner debe tener botones para reintentar y para ver el detalle');
+  // Chip de conexión en la cabecera (Fase 2b): con cambios por enviar se ve en cualquier
+  // pantalla; sin nada que avisar, solo en Contar ("Sincronizado").
+  assert(/<span class="chip-conexion pendiente" id="chip-conexion">1 por enviar<\/span>/.test(shellConPendientes), 'con un cambio en la cola el chip debe decir "1 por enviar", obtuvo: '+(shellConPendientes.match(/<span class="chip-conexion[^<]*<\/span>/)||[''])[0]);
 
   // El panel de detalle (renderOfflineModal) debe listar el conteo pendiente con su cantidad de fotos.
   ctx.__appstate.offlineModal = true;
@@ -11121,6 +11124,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConteoUbicNormal.includes('id="c-bodega" value="Nave Mina" disabled'), 'sin marcar, "Ubicación general" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
   assert(htmlConteoUbicNormal.includes('id="c-ubic" value="Interior Nave" disabled'), 'sin marcar, "Ubicación contada" debe venir bloqueada con el valor del maestro, obtuvo: '+htmlConteoUbicNormal);
   assert(!htmlConteoUbicNormal.includes('id="c-otra-ubic" checked'), 'sin marcar, el checkbox no debe aparecer marcado, obtuvo: '+htmlConteoUbicNormal);
+  // Fase 2b del rediseño (Contar): la cantidad va en un stepper (−/+) sobre el MISMO #c-cant
+  // (type=number, step 0.01, required: lo que lee guardarConteo), con el atajo "Sin stock (0)"; el
+  // botón de guardar va en un pie fijo y la ficha muestra la unidad junto a la etiqueta.
+  assert(/<div class="stepper">\s*<button type="button" id="c-cant-menos"[^>]*>−<\/button>\s*<input type="number" id="c-cant" step="0.01" min="0" placeholder="0" required[^>]*>\s*<button type="button" id="c-cant-mas"/.test(htmlConteoUbicNormal), 'la cantidad debe ir en un stepper −/+ alrededor del mismo #c-cant, obtuvo: '+htmlConteoUbicNormal);
+  assert(htmlConteoUbicNormal.includes('id="c-cant-cero"') && htmlConteoUbicNormal.includes('Sin stock (0)'), 'debe existir el atajo "Sin stock (0)", obtuvo: '+htmlConteoUbicNormal);
+  assert(/<div class="conteo-pie">\s*<button type="submit" class="btn btn-primary" >Guardar conteo<\/button>/.test(htmlConteoUbicNormal), '"Guardar conteo" debe ir en el pie fijo del formulario, obtuvo: '+htmlConteoUbicNormal);
+  assert(htmlConteoUbicNormal.includes('<span class="conteo-unidad">UN</span>'), 'la etiqueta de cantidad debe mostrar la unidad del SKU, obtuvo: '+htmlConteoUbicNormal);
+  assert(htmlConteoUbicNormal.includes('id="btn-quitar-sku" class="btn btn-ghost conteo-volver"'), '"Volver" debe ser un botón táctil (btn-ghost de 48 px), obtuvo: '+htmlConteoUbicNormal);
 
   ctx.__appstate.conteoOtraUbicacion = true;
   const htmlConteoUbicOtra = ctx.renderConteo();
@@ -11142,6 +11153,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   otraUbicEl.dispatch('change', {target: otraUbicEl});
   assert(ctx.__appstate.conteoOtraUbicacion===true, 'marcar el checkbox en bind() real debe dejar conteoOtraUbicacion en true, obtuvo: '+ctx.__appstate.conteoOtraUbicacion);
   assert(elements['c-cant'].value==='7' && elements['c-obs'].value==='nota de prueba', 'al marcar el checkbox no debe perderse lo ya tipeado en cantidad/observación, obtuvo: '+JSON.stringify({cant:elements['c-cant'].value, obs:elements['c-obs'].value}));
+  // Stepper y atajo en bind() real: +1/−1 sobre lo tecleado (nunca bajo 0) y "Sin stock (0)".
+  // Los elementos mockeados acumulan un listener por cada bind() que corrió antes en este archivo,
+  // así que se dispara solo el ÚLTIMO registrado (el de este render), no todos.
+  const ultimoClick = id => { const l = elements[id].listeners.click; l[l.length-1]({target: elements[id]}); };
+  if(elements['c-cant-mas'] && elements['c-cant-menos'] && elements['c-cant-cero']){
+    elements['c-cant'].value = '7';
+    ultimoClick('c-cant-mas');
+    assert(elements['c-cant'].value==='8', '"+" debe sumar uno a la cantidad tecleada, obtuvo: '+elements['c-cant'].value);
+    ultimoClick('c-cant-menos');
+    ultimoClick('c-cant-menos');
+    assert(elements['c-cant'].value==='6', '"−" debe restar uno, obtuvo: '+elements['c-cant'].value);
+    elements['c-cant'].value = '0.5';
+    ultimoClick('c-cant-menos');
+    assert(elements['c-cant'].value==='0', '"−" nunca deja la cantidad bajo 0, obtuvo: '+elements['c-cant'].value);
+    elements['c-cant'].value = '';
+    ultimoClick('c-cant-mas');
+    assert(elements['c-cant'].value==='1', 'con el campo vacío, "+" parte de 0, obtuvo: '+elements['c-cant'].value);
+    ultimoClick('c-cant-cero');
+    assert(elements['c-cant'].value==='0', '"Sin stock (0)" deja la cantidad en 0, obtuvo: '+elements['c-cant'].value);
+  }else{
+    assert(false, 'bind() debe enganchar los botones del stepper (c-cant-mas/c-cant-menos/c-cant-cero), elementos vistos: '+Object.keys(elements).filter(k=>k.startsWith('c-cant')).join(','));
+  }
 
   // guardarConteo: el flag "ubicacionDistinta" debe viajar tal cual como conteos.ubicacion_distinta.
   ctx.__appstate.conteoFotos = [];

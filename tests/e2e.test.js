@@ -233,6 +233,21 @@ async function loguear(page, perfil){
     await page.click('.contar-lista .list-item');
     assert(await esperarVisible(page, '#c-cant'), 'tocar una fila abre el formulario de conteo del SKU');
     assert(await page.isVisible('text=10475828'), 'el formulario muestra el SKU tocado');
+    // Fase 2b: todos los controles del formulario miden al menos 44 px (48 los principales), el
+    // stepper escribe en el mismo #c-cant, "Sin stock (0)" lo deja en 0, Guardar mide 56 px y el
+    // chip "Sincronizado" está en la cabecera.
+    const controles = await page.$$eval('#form-conteo button, #form-conteo input:not([type=file]):not([type=checkbox]), #form-conteo textarea, #btn-quitar-sku', els => els.filter(e => e.offsetParent).map(e => ({ id: e.id || e.textContent.trim().slice(0,16), h: Math.round(e.getBoundingClientRect().height) })));
+    const chicos = controles.filter(c => c.h < 44);
+    assert(controles.length >= 8 && chicos.length === 0, 'todos los controles del formulario deben medir al menos 44 px, obtuvo: '+JSON.stringify(chicos.length ? chicos : controles));
+    const guardarH = await page.$eval('#form-conteo button[type=submit]', e => Math.round(e.getBoundingClientRect().height));
+    assert(guardarH >= 56, '"Guardar conteo" mide al menos 56 px, obtuvo '+guardarH);
+    await page.click('#c-cant-mas'); await page.click('#c-cant-mas'); await page.click('#c-cant-menos');
+    assert((await page.inputValue('#c-cant')) === '1', 'el stepper escribe en #c-cant (+1 +1 −1 = 1), obtuvo '+(await page.inputValue('#c-cant')));
+    await page.click('#c-cant-cero');
+    assert((await page.inputValue('#c-cant')) === '0', '"Sin stock (0)" deja #c-cant en 0');
+    assert(await page.isVisible('#chip-conexion') && (await page.textContent('#chip-conexion')).trim() === 'Sincronizado', 'en Contar la cabecera muestra el chip "Sincronizado"');
+    const desbordeForm = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeForm <= 0, 'a 420 px el formulario no desborda, obtuvo '+desbordeForm);
     await context.close();
   }
 
