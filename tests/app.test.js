@@ -3201,15 +3201,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Top materiales con diferencia: ahora dos listas por costo total de la línea, no una sola por
   // magnitud en unidades — pedido explícito: top 10 de excedentes y top 10 de pérdidas, por separado.
   assert(htmlDashExactitud.includes('Excedentes con más impacto') && htmlDashExactitud.includes('SKU-TOP-POS') && htmlDashExactitud.includes('$150.000'), 'debe mostrar el top de excedentes con su valor en plata, obtuvo: '+htmlDashExactitud);
-  assert(htmlDashExactitud.includes('Pérdidas con más impacto') && htmlDashExactitud.includes('SKU-TOP-NEG') && htmlDashExactitud.includes('$-300.000') && htmlDashExactitud.includes('badge-danger">Ubicación distinta y recurrente<'), 'debe mostrar el top de pérdidas con su valor en plata y la causa probable, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Pérdidas con más impacto') && htmlDashExactitud.includes('SKU-TOP-NEG') && htmlDashExactitud.includes('−$300.000') && htmlDashExactitud.includes('badge-danger">Ubicación distinta y recurrente<'), 'debe mostrar el top de pérdidas con su valor en plata y la causa probable, obtuvo: '+htmlDashExactitud);
 
   // Valorización de diferencias: 4 tarjetas (contado/pérdidas/excedentes/neto) sumadas sobre todas las bodegas.
   // Contado: 1.000.000+500.000=1.500.000; pérdidas: -150.000-20.000=-170.000; excedentes: 40.000+10.000=50.000; neto: -120.000.
   assert(htmlDashExactitud.includes('Valorización de diferencias'), 'debe mostrar la sección de valorización de diferencias, obtuvo: '+htmlDashExactitud);
   assert(htmlDashExactitud.includes('Valor contado') && htmlDashExactitud.includes('$1.500.000'), 'debe mostrar el valor contado sumado, obtuvo: '+htmlDashExactitud);
-  assert(htmlDashExactitud.includes('Pérdidas') && htmlDashExactitud.includes('$-170.000'), 'debe mostrar las pérdidas sumadas, obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Pérdidas') && htmlDashExactitud.includes('−$170.000'), 'debe mostrar las pérdidas sumadas, obtuvo: '+htmlDashExactitud);
   assert(htmlDashExactitud.includes('Excedentes') && htmlDashExactitud.includes('$50.000'), 'debe mostrar los excedentes sumados, obtuvo: '+htmlDashExactitud);
-  assert(htmlDashExactitud.includes('Neto') && htmlDashExactitud.includes('$-120.000'), 'debe mostrar el neto (pérdidas+excedentes), obtuvo: '+htmlDashExactitud);
+  assert(htmlDashExactitud.includes('Neto') && htmlDashExactitud.includes('−$120.000'), 'debe mostrar el neto (pérdidas+excedentes), obtuvo: '+htmlDashExactitud);
 
   // Clasificación ABC (a pedido de Joel, tras el fix de permisos de skus_valor_abc_mv): una
   // tarjeta por clase con cantidad de SKU + % del catálogo + % del valor, ya agregado desde
@@ -3301,12 +3301,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlTendenciaDecimal.includes('52.9') && !htmlTendenciaDecimal.includes('52.9411764705'), 'la barra de Sep 26 (9/17=52.9411764705...%) debe mostrarse redondeada a "52.9", no con todos los decimales, obtuvo: '+htmlTendenciaDecimal);
   assert(/>100<\/text>/.test(htmlTendenciaDecimal) && !htmlTendenciaDecimal.includes('100.0<'), 'la barra de Ago 26 (100%, un entero) debe mostrarse como "100", no "100.0", obtuvo: '+htmlTendenciaDecimal);
 
-  // ===== Orden de la vista Ejecutiva del Dashboard (a pedido de Joel): primero el resumen de un
-  // vistazo -- Avance global, Exactitud, Adherencia al plan, Valorización, Proyección, en ese
-  // orden exacto -- y recién después el detalle/tendencia de cada uno y la actividad reciente,
-  // en el orden que yo definí. Antes "Adherencia al plan" vivía SIEMPRE arriba de todo (tanto en
-  // Ejecutivo como en Operativo), separada de renderInformeEjecutivo(); ahora en Ejecutivo se
-  // integra en este orden, y en Operativo sigue igual que antes (arriba de todo, sin cambios).
+  // ===== Orden de la vista Ejecutiva del Dashboard. Fase 1 del rediseño (octubre 2026): tres
+  // bandas que responden, en orden, "¿cómo vamos?" (Avance global, Exactitud de unidades,
+  // Adherencia al plan, Impacto neto), "¿dónde hay problemas?" (Pérdidas, Excedentes, Ranking
+  // por ubicación general, SKU pendientes por ubicación general, Tendencia) y "¿qué requiere
+  // acción?" (avisos con botón); después, plegado bajo "Detalle", todo lo demás en el orden que
+  // ya tenía: Exactitud (unidades/ubicación), Adherencia por bodega, Valorización, ABC,
+  // Proyección, Conteos por día, Diferencias, Ranking por responsable, Avance por ubicación
+  // general. Antes "Adherencia al plan" vivía SIEMPRE arriba de todo (tanto en Ejecutivo como en
+  // Operativo), separada de renderInformeEjecutivo(); en Operativo sigue igual que antes.
   ctx.__appstate.dashboardModo = 'ejecutivo';
   ctx.__appstate.dashPeriodo = '';
   ctx.__appstate.ciclos = [{id:'ciclo-orden', nombre:'T1 2027', es_actual:true}];
@@ -3328,21 +3331,39 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   };
   const htmlOrden = ctx.renderDashboard();
   const idx = (texto) => htmlOrden.indexOf(texto);
+  const idxComoVamos = idx('¿Cómo vamos?');
   const idxAvanceGlobal = idx('Avance global');
-  const idxExactitud = idx('<h2 style="font-size:17px">Exactitud ');
+  const idxExactitud = idx('Exactitud de unidades');
   const idxAdherencia = idx('Adherencia al plan');
+  const idxImpacto = idx('Impacto neto');
+  const idxProblemas = idx('¿Dónde hay problemas?');
+  const idxTopPerdidas = idx('Pérdidas con más impacto');
+  const idxTopExcedentes = idx('Excedentes con más impacto');
+  const idxRankingUbicacion = idx('Ranking por ubicación general');
+  const idxPendientesUbicacion = idx('SKU pendientes por ubicación general');
+  const idxTendencia = idx('Tendencia de exactitud');
+  const idxAccion = idx('¿Qué requiere acción?');
+  const idxDetalle = idx('<details class="dash-detalle"');
   const idxValorizacion = idx('Valorización de diferencias');
   const idxProyeccion = idx('Proyección de término');
-  const idxTendencia = idx('Tendencia de exactitud');
-  const idxRankingUbicacion = idx('Ranking por ubicación general');
-  const idxTopExcedentes = idx('Excedentes con más impacto');
-  const idxTopPerdidas = idx('Pérdidas con más impacto');
   const idxConteosPorDia = idx('Conteos por día');
   const idxRankingResponsable = idx('Ranking por responsable');
-  assert(idxAvanceGlobal>=0 && idxExactitud>idxAvanceGlobal && idxAdherencia>idxExactitud && idxValorizacion>idxAdherencia && idxProyeccion>idxValorizacion,
-    'la vista Ejecutiva debe mostrar primero, en este orden exacto: Avance global, Exactitud, Adherencia al plan, Valorización, Proyección -- obtuvo índices: '+JSON.stringify({idxAvanceGlobal,idxExactitud,idxAdherencia,idxValorizacion,idxProyeccion}));
-  assert(idxTendencia>idxProyeccion && idxRankingUbicacion>idxTendencia && idxTopExcedentes>idxRankingUbicacion && idxTopPerdidas>idxTopExcedentes && idxConteosPorDia>idxTopPerdidas && idxRankingResponsable>idxConteosPorDia,
-    'el resto de las secciones (detalle/tendencia y actividad reciente) debe quedar después del resumen de arriba, en el orden definido, obtuvo índices: '+JSON.stringify({idxTendencia,idxRankingUbicacion,idxTopExcedentes,idxTopPerdidas,idxConteosPorDia,idxRankingResponsable}));
+  assert(idxComoVamos>=0 && idxAvanceGlobal>idxComoVamos && idxExactitud>idxAvanceGlobal && idxAdherencia>idxExactitud && idxImpacto>idxAdherencia && idxProblemas>idxImpacto,
+    'la banda "¿Cómo vamos?" debe ir primero con sus cuatro cifras en este orden: Avance global, Exactitud de unidades, Adherencia al plan, Impacto neto -- obtuvo índices: '+JSON.stringify({idxComoVamos,idxAvanceGlobal,idxExactitud,idxAdherencia,idxImpacto,idxProblemas}));
+  assert(idxTopPerdidas>idxProblemas && idxTopExcedentes>idxTopPerdidas && idxRankingUbicacion>idxTopExcedentes && idxPendientesUbicacion>idxRankingUbicacion && idxTendencia>idxPendientesUbicacion && idxAccion>idxTendencia,
+    'la banda "¿Dónde hay problemas?" debe ir segunda, peor primero: Pérdidas, Excedentes, Ranking por ubicación general, SKU pendientes por ubicación general, Tendencia -- obtuvo índices: '+JSON.stringify({idxProblemas,idxTopPerdidas,idxTopExcedentes,idxRankingUbicacion,idxPendientesUbicacion,idxTendencia,idxAccion}));
+  assert(idxDetalle>idxAccion && idxValorizacion>idxDetalle && idxProyeccion>idxValorizacion && idxConteosPorDia>idxProyeccion && idxRankingResponsable>idxConteosPorDia,
+    'el resto (Valorización, Proyección, Conteos por día, Ranking por responsable) debe quedar después de "¿Qué requiere acción?", plegado bajo "Detalle", en el orden definido -- obtuvo índices: '+JSON.stringify({idxAccion,idxDetalle,idxValorizacion,idxProyeccion,idxConteosPorDia,idxRankingResponsable}));
+  // Los avisos de acción salen de lo que ya está cargado: 1 SKU con diferencia (diferenciasRecientes)
+  // lleva a Reconteo; 2 SKU del plan sin contar (8 planificados, 6 contados) llevan a Plan.
+  const htmlAcciones = htmlOrden.slice(idxAccion, idxDetalle);
+  assert(/alert warn[\s\S]{0,200}>1<\/div>[\s\S]{0,200}SKU con diferencia en los últimos 14 días[\s\S]{0,400}data-ir-vista="reconteo"/.test(htmlAcciones), 'debe avisar los SKU con diferencia recientes con un botón a Reconteo, obtuvo: '+htmlAcciones);
+  assert(/alert info[\s\S]{0,200}>2<\/div>[\s\S]{0,200}SKU del plan sin contar todavía[\s\S]{0,400}data-ir-vista="plan"/.test(htmlAcciones), 'debe avisar los SKU del plan sin contar con un botón a Plan, obtuvo: '+htmlAcciones);
+  // El detalle va plegado por defecto (<details> sin open): la pantalla responde primero y el
+  // resto se abre a pedido. El informe impreso, en cambio, lo despliega entero (ver abajo).
+  assert(!/<details class="dash-detalle"[^>]*\sopen/.test(htmlOrden), 'el bloque "Detalle" debe venir cerrado por defecto, obtuvo: '+htmlOrden.slice(idxDetalle, idxDetalle+200));
+  // La tendencia resumida en la tarjeta de exactitud: Jun 60% -> Ago 90% = +30.0 pts.
+  assert(/trend up[\s\S]{0,300}\+30\.0 pts<\/span><span class="trend-vs">vs Jun 26/.test(htmlOrden), 'la tarjeta de exactitud debe mostrar la variación contra el mes anterior con conteos (+30.0 pts vs Jun 26), obtuvo: '+htmlOrden.slice(idxExactitud, idxExactitud+900));
   // "id=dash-periodo" (el selector de período de Adherencia) es único por render de
   // renderAdherenciaPlan() -- a diferencia del texto "Adherencia al plan", que aparece dos veces
   // DENTRO de un mismo render legítimo (el título de la sección y, además, como kpi-label de la
@@ -3556,6 +3577,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printInformeEl.innerHTML.includes('Informe de ciclo de conteo'), 'el informe debe tener título propio, obtuvo: '+printInformeEl.innerHTML);
   assert(printInformeEl.innerHTML.includes('Minera Andes') && printInformeEl.innerHTML.includes('T1 2027'), 'el encabezado del informe debe indicar la empresa y el ciclo actual, obtuvo: '+printInformeEl.innerHTML);
   assert(printInformeEl.innerHTML.includes('Avance global') && printInformeEl.innerHTML.includes('Nave Mina'), 'el informe debe incluir el mismo contenido de la vista ejecutiva del dashboard, obtuvo: '+printInformeEl.innerHTML);
+  // Impreso, el detalle va desplegado (un <details> cerrado no se imprime) y el período elegido
+  // va como texto: un <select> no sirve en papel. Mismo contenido que la pantalla, sin plegar.
+  assert(!printInformeEl.innerHTML.includes('<details class="dash-detalle"') && !printInformeEl.innerHTML.includes('id="dash-periodo"') && printInformeEl.innerHTML.includes('Período: T1 2027') && printInformeEl.innerHTML.includes('Proyección de término'), 'el informe impreso debe desplegar el detalle completo y escribir el período como texto, obtuvo: '+printInformeEl.innerHTML);
   assert(printPlanElPrevio.innerHTML==='', 'imprimirInformeCiclo debe limpiar #print-plan para que no queden ambos informes visibles al imprimir');
 
   // Sin ciclo marcado como actual, debe indicarlo explícitamente en vez de omitirlo.
