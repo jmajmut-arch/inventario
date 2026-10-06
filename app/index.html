@@ -6052,15 +6052,28 @@ function toggleFiltroEstado(clave){
   setState({busqueda: {...state.busqueda, filtroEstado: state.busqueda.filtroEstado===clave? null : clave}});
 }
 
+// Sobre qué filas se arman los gráficos de Buscar, su lectura y el drill-down: si hay casillas
+// marcadas, sobre esas (la misma lista que va al PDF, así la pantalla y el documento dicen lo
+// mismo); si no, sobre todo lo cargado. Pedido de Joel el 06/10: marcaba 14 de 20 y los gráficos
+// seguían mostrando los 20. La tabla no se recorta: sigue mostrando todo para poder marcar y
+// desmarcar.
+function resultadosBaseBuscar(b){
+  const ids = b.seleccionados||[];
+  if(!ids.length) return b.resultados;
+  const marcados = new Set(ids);
+  return b.resultados.filter(r=> marcados.has(r.sku_id));
+}
+
 // Drill-down sobre lo ya cargado en Buscar (los gráficos "Quién contó" y "Resumen por estado"):
 // devuelve las filas que calzan con los filtros activos, combinados (persona Y estado), o null si
 // no hay ninguno. Lo usan renderBuscar (para la tabla) y exportarBusquedaExcel (para exportar esa
 // misma selección), así los dos ven exactamente lo mismo.
 function filtrarResultadosCargadosBuscar(b){
-  const nombresFiltro = nombresParaFiltroContador(resumenQuienConto(b.resultados), b.filtroContadoPor);
+  const base = resultadosBaseBuscar(b);
+  const nombresFiltro = nombresParaFiltroContador(resumenQuienConto(base), b.filtroContadoPor);
   if(!nombresFiltro && !b.filtroEstado) return null;
   const separarSigno = !ocultarStockOperador();
-  return b.resultados.filter(r=>
+  return base.filter(r=>
     (!nombresFiltro || (r.conteo_id && nombresFiltro.includes(r.contado_por || 'Sin asignar'))) &&
     (!b.filtroEstado || grupoEstadoBusqueda(r, separarSigno)===b.filtroEstado));
 }
@@ -12758,7 +12771,11 @@ function renderBuscar(){
   const ul = state.ubicacionesLista;
   const pb = state.personasBuscar;
   const resultados = b.resultados;
-  const quienConto = resumenQuienConto(resultados);
+  // Gráficos y lectura sobre lo marcado si hay selección, si no sobre todo lo cargado (ver
+  // resultadosBaseBuscar).
+  const baseGraficos = resultadosBaseBuscar(b);
+  const haySeleccion = baseGraficos!==resultados;
+  const quienConto = resumenQuienConto(baseGraficos);
   // Selección desde el gráfico "Quién contó" (ver toggleFiltroContadoPor): filtra la tabla de
   // abajo por esa persona (o, si se eligió "Otros", por todas las que agrupa ese bucket). Se
   // muestra sin paginar -- es un drill-down sobre lo ya cargado, no una nueva búsqueda al
@@ -12768,7 +12785,7 @@ function renderBuscar(){
   // El gráfico de estado abre la diferencia en faltante/sobrante salvo para quien no puede ver la
   // magnitud (operador en conteo ciego) -- misma regla que el badge de cada fila.
   const separarSignoEstado = !ocultarStockOperador();
-  const resumenEstado = resumenEstadoBusqueda(resultados, separarSignoEstado);
+  const resumenEstado = resumenEstadoBusqueda(baseGraficos, separarSignoEstado);
   // Igual que Diario (Dashboard operativo): 15 filas por página sobre lo ya cargado del
   // servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar.
   const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(resultados.length/TAM_PAGINA_BUSCAR)-1));
@@ -12782,7 +12799,9 @@ function renderBuscar(){
   // las filas que faltan tendrán foto), así que en ese caso se degrada a "lo cargado hasta ahora".
   const totalConocido = !b.hayMas || (b.total!=null && !b.soloConFotos);
   const totalReal = totalConocido ? (b.hayMas ? b.total : resultados.length) : resultados.length;
-  const alcanceBusqueda = (etiquetaCompleto) => !totalConocido
+  const alcanceBusqueda = (etiquetaCompleto) => haySeleccion
+    ? `${baseGraficos.length} seleccionado${baseGraficos.length===1?'':'s'} de ${resultados.length} cargados`
+    : !totalConocido
     ? `Primeros ${resultados.length} cargados`
     : (resultados.length<totalReal ? `Primeros ${resultados.length} de ${totalReal}` : etiquetaCompleto);
   const desdeTabla = busquedaPaginaActual*TAM_PAGINA_BUSCAR + 1;
@@ -12916,13 +12935,13 @@ function renderBuscar(){
     ` : ''}
     ${b.filtroContadoPor? `
     <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px">
-      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por <strong style="color:var(--text)">${esc(b.filtroContadoPor)}</strong> — ${resultadosFiltrados.length} de ${resultados.length} resultado${resultados.length===1?'':'s'}</span>
+      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por <strong style="color:var(--text)">${esc(b.filtroContadoPor)}</strong> — ${resultadosFiltrados.length} de ${baseGraficos.length} ${haySeleccion?'seleccionado':'resultado'}${baseGraficos.length===1?'':'s'}</span>
       <button type="button" class="btn btn-secondary" id="btn-quitar-filtro-contador" style="width:auto;padding:6px 12px;font-size:12px">Quitar filtro</button>
     </div>
     ` : ''}
     ${b.filtroEstado? `
     <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px">
-      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por estado <strong style="color:var(--text)">${esc(b.filtroEstado)}</strong> — ${resultadosFiltrados.length} de ${resultados.length} resultado${resultados.length===1?'':'s'}</span>
+      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por estado <strong style="color:var(--text)">${esc(b.filtroEstado)}</strong> — ${resultadosFiltrados.length} de ${baseGraficos.length} ${haySeleccion?'seleccionado':'resultado'}${baseGraficos.length===1?'':'s'}</span>
       <button type="button" class="btn btn-secondary" id="btn-quitar-filtro-estado" style="width:auto;padding:6px 12px;font-size:12px">Quitar filtro</button>
     </div>
     ` : ''}
