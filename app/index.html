@@ -152,8 +152,10 @@ input,select,textarea{font-family:inherit;}
    a la izquierda y, a la derecha, el chip de conexión y dos íconos de 44 px (Buscar y
    Configuración). El resto de los accesos (SKU, Calendario, Exportar, Salir) vive en la hoja "Más"
    de la barra inferior, que pasa de 7 pestañas a 5: Panel · Plan · Contar · Reconteo · Más. */
-.topbar-row{display:flex;flex-wrap:nowrap;gap:10px;align-items:center;min-height:56px;padding:6px 0;}
-.brand{display:flex;align-items:center;gap:10px;flex:1;min-width:0;}
+.topbar-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;min-height:56px;padding:6px 0;}
+/* El nombre de la pantalla no se aplasta: si los íconos no caben al lado (barra de Bodega, con
+   seis), el grupo de la derecha baja a una segunda fila en vez de dejar "INI…". */
+.brand{display:flex;align-items:center;gap:10px;flex:1 1 170px;min-width:0;}
 .brand-text{min-width:0;}
 .brand-text h1,.brand-text span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .brand-badge{width:34px;height:34px;border-radius:var(--radius);background:var(--amber);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
@@ -14737,7 +14739,7 @@ function renderInicio(){
       ${tile('data-ir-vista="ingreso"','Recepción','Recibir material contra la OC, con guía y fotos','ingreso')}
       ${tile('data-ir-vista="salida"','Despacho','Entregar material: quién retira y para qué','salida')}
       ${tile('data-ir-vista="conteo"','Inventario','Planificar, contar y recontar','conteo')}
-      ${esAdmin ? tile('data-ir-vista="dashboard"','Dashboard','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
+      ${esAdmin ? tile('data-ir-vista="dashboard"','Panel','Avance, exactitud, movimientos y stock','dashboard', pendientes ? `<span class="badge badge-warn" style="flex:none">${pendientes} pendiente${pendientes===1?'':'s'}</span>` : '') : ''}
       ${esAdmin ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos${pendientes?` (${pendientes})`:''}</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:8px 14px">Reportes</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas${(reservasDescubiertas().length)?` (${reservasDescubiertas().length})`:''}</button>` : ''}<button type="button" class="btn btn-secondary" data-ir-vista="mover" style="width:auto;padding:8px 14px">Cambio de ubicación</button></div>` : `<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:8px 14px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:8px 14px">Stock</button>${funcionBodegaActiva('reservas') ? `<button type="button" class="btn btn-secondary" data-ir-vista="reservas" style="width:auto;padding:8px 14px">Reservas</button>` : ''}</div>`}
     </div>
   `;
