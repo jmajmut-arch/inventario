@@ -621,6 +621,43 @@ textarea{resize:vertical;min-height:60px;}
 .plan-sku-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
 .plan-sku-lista li{font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .plan-sku-lista .icon-btn{padding:2px;flex:none;}
+/* Fase 3 del rediseño (Plan): avisos accionables arriba (.alert), resumen plegable con su cifra en
+   la línea, "Agregar" como acción principal grande, formulario en bloques (Qué y dónde · Cuándo ·
+   Quién) con las explicaciones en ⓘ, y cada entrada en una línea de datos con acciones de 44 px.
+   Mismos ids, misma cascada de bodega/ubicación/bins. */
+details.plegable{border-top:1px solid var(--line);margin:4px 0 12px;}
+details.plegable>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;min-height:var(--tap);padding:8px 0;}
+details.plegable>summary::-webkit-details-marker{display:none;}
+details.plegable>summary .section-head{margin:0;flex:none;}
+details.plegable>summary .section-head h2{font-size:15px;}
+details.plegable>summary .plegable-sub{flex:1;min-width:0;font-size:12.5px;color:var(--text-dim);}
+details.plegable>summary .chev{width:22px;height:22px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--text-faint);transition:transform .15s;}
+details.plegable[open]>summary .chev{transform:rotate(180deg);}
+details.plegable>summary:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.plan-alertas .alert{margin-bottom:10px;flex-wrap:wrap;}
+.plan-alertas .alert .alert-t{flex:1 1 200px;}
+.plan-alertas .alert .btn{min-height:var(--tap-sm);padding:0 14px;}
+.plan-alertas .alert .alert-extra{width:100%;}
+.plan-alertas .alert.danger .alert-n{color:var(--danger);} .plan-alertas .alert.warn .alert-n{color:var(--warn);}
+#btn-toggle-agregar-plan.btn-primary{min-height:var(--field-lg);font-size:18px;}
+.plan-bloque{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);}
+.plan-bloque:first-of-type{margin-top:4px;padding-top:0;border-top:0;}
+.plan-bloque-titulo{display:flex;align-items:center;gap:8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:17px;letter-spacing:0.03em;text-transform:uppercase;margin-bottom:2px;}
+.plan-bloque-titulo .plan-bloque-n{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:var(--ink);color:var(--on-ink);font-size:13px;font-family:'Inter',sans-serif;font-weight:700;flex:none;}
+.plan-bloque label{margin-top:10px;}
+.plan-bloque .conteo-check{margin-top:6px;min-height:var(--tap-sm);font-size:13px;color:var(--text-dim);}
+.plan-form-pie{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);}
+.plan-form-pie .btn{min-height:var(--tap);}
+.plan-item{padding:12px 0;gap:8px;}
+.plan-item .plan-select-check{width:22px;height:22px;margin:11px 0 0;accent-color:var(--amber);}
+.plan-item-info{flex:1;min-width:0;}
+.plan-item-ubic{font-size:15px;font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:600;overflow-wrap:anywhere;}
+.plan-item-meta{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:3px;font-size:12.5px;color:var(--text-dim);}
+.plan-item-meta .plan-item-universo{margin:0;color:var(--text-dim);}
+.plan-item-acciones{display:flex;flex-direction:row;gap:2px;flex:none;align-self:center;}
+.plan-item-acciones .icon-btn{min-width:44px;min-height:44px;padding:0;border-radius:var(--radius);}
+.plan-item-acciones .icon-btn svg{width:18px;height:18px;}
+.plan-item-acciones .icon-btn:active{background:var(--surface-2);}
 /* Fase 2a del rediseño (Contar): la entrada es una tarjeta grande por lugar planificado
    (bodega · ubicación) y un toque abre la lista; el día y los <select> en cascada siguen
    existiendo (mismos ids, misma lógica) pero plegados bajo "Cambiar día o lugar". La lista de SKU
@@ -13104,14 +13141,11 @@ function htmlAtrasoPlan(p){
       </div>`;
   })() : '';
   return `
-    <div class="card" id="plan-atraso" style="margin-bottom:14px;border-color:var(--warn)">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span class="badge badge-warn">Atrasado</span>
-        <span style="flex:1;min-width:180px"><strong>${a.entradas.length}</strong> entrada${a.entradas.length===1?'':'s'} de días pasados con <strong>${skus.toLocaleString('es-CL')}</strong> SKU sin contar.</span>
-        ${panel? '' : `<button type="button" class="btn btn-secondary" id="btn-atraso-reprogramar" style="width:auto;padding:6px 12px;font-size:12.5px;flex:none">Reprogramar</button>`}
-      </div>
-      <div class="hint" style="margin:6px 0 0">Días atrasados: ${esc(listaDias)}</div>
-      ${htmlPanel}
+    <div class="alert danger" id="plan-atraso">
+      <div class="alert-n">${a.entradas.length}</div>
+      <div class="alert-t"><b><span class="badge badge-danger" style="margin-right:6px">Atrasado</span><strong>${a.entradas.length}</strong> entrada${a.entradas.length===1?'':'s'} de días pasados con <strong>${skus.toLocaleString('es-CL')}</strong> SKU sin contar.</b><span>Días atrasados: ${esc(listaDias)}</span></div>
+      ${panel? '' : `<button type="button" class="btn btn-secondary btn-sm" id="btn-atraso-reprogramar">Reprogramar</button>`}
+      ${htmlPanel? `<div class="alert-extra">${htmlPanel}</div>` : ''}
     </div>`;
 }
 
@@ -13252,13 +13286,15 @@ function renderPlanificacion(){
         ` : `
           <div class="plan-item">
             <div style="display:flex;gap:10px;align-items:flex-start;flex:1;min-width:0">
-            <input type="checkbox" class="plan-select-check" data-select-plan="${e.id}" ${p.seleccionados.includes(e.id)?'checked':''} aria-label="Seleccionar esta entrada para borrado masivo" style="margin-top:3px;flex:none">
+            <input type="checkbox" class="plan-select-check" data-select-plan="${e.id}" ${p.seleccionados.includes(e.id)?'checked':''} aria-label="Seleccionar esta entrada para borrado masivo">
             <div class="plan-item-info">
               <div class="plan-item-ubic">${esc(etiquetaUbicacionEntradaPlan(e))}</div>
-              <div class="plan-item-responsable">Responsable: ${e.responsable_id? esc(e.responsable_nombre || '') : '<span class="plan-sin-resp">Sin asignar</span>'}</div>
-              ${modo==='periodo' && e.ciclo_id===p.cicloFiltro? '' : `<div class="plan-item-responsable">Período: ${esc(e.ciclo_nombre || 'Sin período asignado')}</div>`}
+              <div class="plan-item-meta">
+                <span class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU ${e.por_sku? 'elegidos por código' : 'en esta ubicación'}${resumido && propios[e.id]!==undefined && propios[e.id]<p.universos[e.id]? ` · ${p.universos[e.id]-propios[e.id]} ya en otra entrada anterior` : ''}` : 'Calculando…'}</span>
+                <span class="plan-item-responsable">Responsable: ${e.responsable_id? esc(e.responsable_nombre || '') : '<span class="plan-sin-resp">Sin asignar</span>'}</span>
+                ${modo==='periodo' && e.ciclo_id===p.cicloFiltro? '' : `<span class="plan-item-responsable">Período: ${esc(e.ciclo_nombre || 'Sin período asignado')}</span>`}
+              </div>
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
-              <div class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU ${e.por_sku? 'elegidos por código' : 'en esta ubicación'}${resumido && propios[e.id]!==undefined && propios[e.id]<p.universos[e.id]? ` · ${p.universos[e.id]-propios[e.id]} ya en otra entrada anterior` : ''}` : 'Calculando…'}</div>
               ${resumido? '' : `<div class="plan-item-detalle">
                 ${!p.detalle[e.id]? 'Cargando SKU…' : (
                   p.detalle[e.id].length? `
@@ -13276,7 +13312,7 @@ function renderPlanificacion(){
               </div>`}
             </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:6px;flex:none">
+            <div class="plan-item-acciones">
               <button class="icon-btn" data-editar-plan="${e.id}" aria-label="Editar" title="Editar esta entrada del plan">${ICONS.editar}</button>
               <button class="icon-btn" data-borrar-plan="${e.id}" aria-label="Eliminar entrada completa" title="Eliminar toda esta entrada del plan (ubicación, responsable y nota)" style="color:var(--danger)">${ICONS.papelera}</button>
             </div>
@@ -13345,23 +13381,25 @@ function renderPlanificacion(){
       <button class="btn btn-secondary" id="plan-${modo}-next" aria-label="Siguiente" style="width:auto;padding:8px 12px;flex:none">›</button>
     </div>
     `}
-    ${resumido? `
-    <div class="hint" style="margin-bottom:14px">Vista resumida: totales por entrada, sin listar los SKU. Para verlos o quitar alguno, usa Día o Semana. El PDF trae el listado completo.</div>
-    ` : ''}
 
+    <div class="plan-alertas">
     ${htmlAtrasoPlan(p)}
     ${entradasSinResponsable>0? `
-    <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span class="badge badge-warn">${entradasSinResponsable}</span>
-        <span style="flex:1;min-width:180px">${entradasSinResponsable===1?'entrada planificada no tiene':'entradas planificadas no tienen'} responsable asignado${sufijoVentana}.</span>
-        ${p.responsables.length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-asignar-sin-responsable" style="width:auto;padding:6px 12px;font-size:12.5px;flex:none">Asignar</button>` : ''}
-      </div>
+    <div class="alert warn" id="plan-sin-responsable">
+      <div class="alert-n">${entradasSinResponsable}</div>
+      <div class="alert-t"><b>${entradasSinResponsable===1?'entrada planificada no tiene':'entradas planificadas no tienen'} responsable asignado${sufijoVentana}.</b><span>Sin responsable, la puede contar cualquiera del equipo.</span></div>
+      ${p.responsables.length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-asignar-sin-responsable">Asignar</button>` : ''}
     </div>
     ` : ''}
+    </div>
 
     ${entradasVisibles.length? `
-      <div class="section-head"><h2 style="font-size:15px">${tituloResumen}</h2></div>
+      <details class="plegable" id="plan-resumen" ${p.resumenAbierto? 'open' : ''}>
+        <summary>
+          <div class="section-head"><h2 style="font-size:15px">${tituloResumen}${resumido? ' '+campoConInfo('Vista resumida: totales por entrada, sin listar los SKU. Para verlos o quitar alguno, usa Día o Semana. El PDF trae el listado completo.') : ''}</h2></div>
+          <span class="plegable-sub">${totalSemana.toLocaleString('es-CL')} SKU a contar · ${entradasVisibles.length} entrada${entradasVisibles.length===1?'':'s'}${entradasSinResponsable? ` · <span class="plan-dia-sin-resp">${entradasSinResponsable} sin responsable</span>` : ''}</span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
       ${p.universoError? `
       <div class="card" style="margin-bottom:14px;border-color:var(--warn)">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -13383,6 +13421,7 @@ function renderPlanificacion(){
         <div class="hint" style="margin-bottom:10px">SKU a contar por responsable</div>
         ${renderRankedBarList(responsablesResumen)}
       </div>
+      </details>
     ` : ''}
 
     <div class="card" id="plan-agregar-card">
@@ -13395,13 +13434,13 @@ function renderPlanificacion(){
       <button type="button" class="btn btn-primary" id="btn-toggle-agregar-plan" aria-expanded="false" aria-controls="plan-agregar-cuerpo">+ Agregar a la planificación</button>
       `}
       <div id="plan-agregar-cuerpo" ${agregarAbierto? '' : 'hidden'}>
-      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" role="tablist" aria-label="Forma de agregar">
-        <button type="button" class="btn ${p.modoAgregar==='sku'?'btn-secondary':'btn-primary'}" id="p-modo-ubicacion" style="width:auto;padding:6px 12px;font-size:12.5px" aria-pressed="${p.modoAgregar!=='sku'}">Por ubicación</button>
-        <button type="button" class="btn ${p.modoAgregar==='sku'?'btn-primary':'btn-secondary'}" id="p-modo-sku" style="width:auto;padding:6px 12px;font-size:12.5px" aria-pressed="${p.modoAgregar==='sku'}">Por código de SKU</button>
-      </div>
       <form id="form-plan">
-        <label for="p-fecha">Fecha</label>
-        <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${minFechaPlan? `min="${minFechaPlan}"` : ''} max="${maxFechaPlan}" required>
+        <div class="plan-bloque">
+        <div class="plan-bloque-titulo"><span class="plan-bloque-n">1</span>Qué y dónde</div>
+        <div class="segmented" style="margin:8px 0 4px" role="tablist" aria-label="Forma de agregar">
+          <button type="button" class="segmented-btn${p.modoAgregar==='sku'?'':' active'}" id="p-modo-ubicacion" aria-pressed="${p.modoAgregar!=='sku'}">Por ubicación</button>
+          <button type="button" class="segmented-btn${p.modoAgregar==='sku'?' active':''}" id="p-modo-sku" aria-pressed="${p.modoAgregar==='sku'}">Por código de SKU</button>
+        </div>
         <div id="p-campos-sku" ${p.modoAgregar==='sku'? '' : 'style="display:none"'}>
           <label for="p-sku-buscar">Buscar SKU por código o descripción</label>
           <input type="text" id="p-sku-buscar" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" autocomplete="off" value="${esc(planSkuBusqueda.texto)}">
@@ -13413,7 +13452,7 @@ function renderPlanificacion(){
           ` : `<div class="hint" style="margin:10px 0 0">Aún no has elegido ningún SKU.</div>`}
         </div>
         <div id="p-campos-ubicacion" ${p.modoAgregar==='sku'? 'style="display:none"' : ''}>
-        <label for="p-bodega">Ubicación general <span style="font-weight:400;color:var(--text-faint)">(por planificar / total SKU)</span></label>
+        <label for="p-bodega">Ubicación general <span style="font-weight:400;color:var(--text-faint)">(por planificar / total SKU)</span> ${campoConInfo('En "36/44", 36 son los SKU que faltan por contar en el período y aún no están en otra entrada del plan; 44 es el total de SKU del lugar.')}</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
           ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
@@ -13422,7 +13461,6 @@ function renderPlanificacion(){
             : `<option value="${esc(o.bodega)}">${esc(o.bodega)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
           ).join('')}
         </select>
-        <div class="hint" style="margin:4px 0 0">En "36/44", 36 son los SKU que faltan por contar en el período y aún no están en otra entrada del plan; 44 es el total de SKU del lugar.</div>
         <div class="row2 row2-plan-sitio">
           <div><label for="p-ubic">Ubicación específica <span style="font-weight:400;color:var(--text-faint)">(por planificar / total SKU)</span></label>
             <select id="p-ubic" disabled>
@@ -13433,7 +13471,7 @@ function renderPlanificacion(){
             <select id="p-bin" multiple size="${PLAN_BIN_FILAS_VACIA}" disabled>
               <option value="">Elige ubicación específica primero</option>
             </select>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text-dim)">
+            <label class="conteo-check">
               <input type="checkbox" id="p-bin-todos" disabled>
               Seleccionar todos
             </label>
@@ -13441,6 +13479,14 @@ function renderPlanificacion(){
           </div>
         </div>
         </div>
+        </div>
+        <div class="plan-bloque">
+        <div class="plan-bloque-titulo"><span class="plan-bloque-n">2</span>Cuándo</div>
+        <label for="p-fecha">Fecha</label>
+        <input type="date" id="p-fecha" value="${fechaPlanDefault}" ${minFechaPlan? `min="${minFechaPlan}"` : ''} max="${maxFechaPlan}" required>
+        </div>
+        <div class="plan-bloque">
+        <div class="plan-bloque-titulo"><span class="plan-bloque-n">3</span>Quién</div>
         <label for="p-responsable">Responsable</label>
         <select id="p-responsable">
           <option value="">Sin asignar</option>
@@ -13449,8 +13495,9 @@ function renderPlanificacion(){
         ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Invita a alguien de tu equipo desde Configuraciones para poder asignarlo aquí.</div>` : ''}
         <label for="p-nota">Nota</label>
         <input type="text" id="p-nota" placeholder="Opcional">
-        <div style="margin-top:14px">
-          <button type="submit" class="btn btn-primary">Agregar</button>
+        </div>
+        <div class="plan-form-pie">
+          <button type="submit" class="btn btn-primary">Agregar a la planificación</button>
         </div>
       </form>
       </div>
@@ -13458,7 +13505,7 @@ function renderPlanificacion(){
 
     ${entradasVisibles.length? `
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${p.seleccionados.length?'border-color:var(--danger)':''}">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin:0">
+        <label class="conteo-check" style="margin:0;font-weight:600;color:var(--text)">
           <input type="checkbox" id="chk-seleccionar-todo-plan" ${p.seleccionados.length && p.seleccionados.length===entradasVisibles.length?'checked':''}>
           ${p.seleccionados.length? `<span>${p.seleccionados.length} entrada${p.seleccionados.length>1?'s':''} seleccionada${p.seleccionados.length>1?'s':''}${(()=>{
             const r = resumenSeleccionPlan(p, p.seleccionados);
@@ -17611,6 +17658,10 @@ function bind(){
     }
     document.getElementById('p-modo-ubicacion').addEventListener('click', ()=> cambiarModoAgregarPlan('ubicacion'));
     document.getElementById('p-modo-sku').addEventListener('click', ()=> cambiarModoAgregarPlan('sku'));
+    // Resumen plegable (Fase 3): recordar si está abierto para que el próximo repintado no lo
+    // cierre. Solo guarda el booleano; no repinta ni consulta nada.
+    const planResumen = document.getElementById('plan-resumen');
+    if(planResumen) planResumen.addEventListener('toggle', ()=>{ state.plan.resumenAbierto = planResumen.open; });
     const inputSkuPlan = document.getElementById('p-sku-buscar');
     if(inputSkuPlan){
       inputSkuPlan.addEventListener('input', e=>{
