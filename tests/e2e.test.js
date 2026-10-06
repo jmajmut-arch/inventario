@@ -316,6 +316,9 @@ async function loguear(page, perfil){
     ]) }));
     await page.evaluate(() => setState({view:'skus'}));
     await page.waitForSelector('#form-sku');
+    // "Lista primero": el alta manual va plegada sobre la tabla; se abre tocando su línea.
+    if(!(await page.isVisible('#s-code'))) await page.click('#skus-agregar > summary');
+    await page.waitForSelector('#s-code', { state:'visible', timeout:ESPERA });
     await page.waitForFunction(() => document.querySelectorAll('#s-bodega option').length >= 4, null, { timeout:ESPERA });
     await page.fill('#s-code', '10371892');
     await page.press('#s-code', 'Tab');
