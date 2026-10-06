@@ -12172,7 +12172,7 @@ function renderPlanDelDia(){
   const hoy = fechaISO(new Date());
   const fechaPlan = new Date(cp.fecha+'T00:00:00');
   const diaLegible = (cp.fecha===hoy ? 'Hoy' : fechaPlan.toLocaleDateString('es-CL',{weekday:'short'}).replace(/[.,]/g,''))
-    + ' · ' + fechaPlan.toLocaleDateString('es-CL',{day:'2-digit', month:'short'}).replace(/[.,]/g,'');
+    + ' · ' + String(fechaPlan.getDate()).padStart(2,'0') + ' ' + fechaPlan.toLocaleDateString('es-CL',{month:'short'}).replace(/[.,]/g,'');
 
   return `
     <div class="section-head">
