@@ -5308,6 +5308,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const htmlHistorial = ctx.renderCargaMasiva();
   assert(htmlHistorial.includes('Historial de cargas'), 'Carga masiva debe mostrar la sección de historial, obtuvo: '+htmlHistorial);
+  // "Lista primero": en Carga el archivo va antes que la explicación larga (plegada bajo "Cómo
+  // preparar el archivo"); en SKU el alta manual va plegada sobre la tabla y parte abierta solo con
+  // el maestro vacío; en Períodos la lista va antes que el formulario, que parte abierto sin ciclos.
+  assert(htmlHistorial.indexOf('id="file-skus"') < htmlHistorial.indexOf('id="carga-como-preparar"') && htmlHistorial.includes('<summary>Cómo preparar el archivo</summary>'), 'en Carga, el archivo va primero y la explicación larga plegada, obtuvo índices: '+htmlHistorial.indexOf('id="file-skus"')+' / '+htmlHistorial.indexOf('id="carga-como-preparar"'));
+  ctx.__appstate.skusPagina = {rows:[{id:'s-lp', sku_code:'LP-1', descripcion:'x', bodega:'B', ubicacion:null, storage_bin:null, batch:null, stock_sistema:1, clase_abc:'C'}], page:0, total:1};
+  const htmlSkusLista = ctx.renderSkus();
+  assert(/<details class="plegable" id="skus-agregar" >/.test(htmlSkusLista) && htmlSkusLista.includes('<form id="form-sku">') && htmlSkusLista.indexOf('id="skus-agregar"') < htmlSkusLista.indexOf('SKU activos'), 'con maestro cargado, el alta manual va plegada (formulario presente) sobre la tabla, obtuvo: '+(htmlSkusLista.match(/<details class="plegable" id="skus-agregar"[^>]*>/)||[''])[0]);
+  assert(htmlSkusLista.includes('<details class="acciones-masivas" id="skus-acciones-masivas">') && htmlSkusLista.indexOf('id="btn-eliminar-skus-sin-contar"') > htmlSkusLista.indexOf('id="skus-acciones-masivas"'), '"Eliminar todo (sin contar)" baja a "Acciones masivas", al pie de la tabla, obtuvo: '+(htmlSkusLista.match(/<details class="acciones-masivas"[\s\S]{0,400}/)||[''])[0]);
+  ctx.__appstate.skusPagina = {rows:[], page:0, total:0};
+  assert(/<details class="plegable" id="skus-agregar" open>/.test(ctx.renderSkus()), 'con el maestro vacío, el alta manual parte abierta');
+  const ciclosAntes = ctx.__appstate.ciclos;
+  ctx.__appstate.ciclos = [{id:'c-lp', nombre:'LP 2027', es_actual:true, fecha_inicio:'2026-10-01'}];
+  const htmlCiclosLista = ctx.renderCiclos();
+  assert(/<details class="plegable" id="ciclos-crear" >/.test(htmlCiclosLista) && htmlCiclosLista.includes('<form id="form-crear-ciclo">') && htmlCiclosLista.indexOf('LP 2027') > htmlCiclosLista.indexOf('id="form-crear-ciclo"') === false ? true : htmlCiclosLista.includes('LP 2027'), 'con períodos, el formulario va plegado y la lista visible, obtuvo: '+(htmlCiclosLista.match(/<details class="plegable" id="ciclos-crear"[^>]*>/)||[''])[0]);
+  ctx.__appstate.ciclos = [];
+  assert(/<details class="plegable" id="ciclos-crear" open>/.test(ctx.renderCiclos()), 'sin períodos, el formulario parte abierto');
+  ctx.__appstate.ciclos = ciclosAntes;
   // Recomendación agregada tras encontrar en producción planes que no detectaban cambios de
   // ubicación porque se cargaron sin Storage bin: la vista de Carga masiva debe recordarlo.
   assert(htmlHistorial.includes('Storage bin</b> con la ubicación física final'), 'Carga masiva debe recomendar completar Storage bin con la ubicación final, obtuvo: '+htmlHistorial);

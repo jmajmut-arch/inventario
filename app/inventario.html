@@ -672,14 +672,32 @@ textarea{resize:vertical;min-height:60px;}
    Quién) con las explicaciones en ⓘ, y cada entrada en una línea de datos con acciones de 44 px.
    Mismos ids, misma cascada de bodega/ubicación/bins. */
 details.plegable{border-top:1px solid var(--line);margin:4px 0 12px;}
-details.plegable>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;min-height:var(--tap);padding:8px 0;}
+/* El summary es una grilla: título a la izquierda, acción y chevron a la derecha, y la línea de
+   apoyo (texto o chips) debajo, a todo el ancho. Así no se aprieta en celular. */
+details.plegable>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;column-gap:10px;row-gap:4px;min-height:var(--tap);padding:8px 0;}
+details.plegable>summary>:first-child{grid-column:1;grid-row:1;min-width:0;}
+details.plegable>summary .section-head h2{overflow-wrap:anywhere;}
+details.plegable>summary .plegable-cta{grid-column:2;grid-row:1;}
+details.plegable>summary .chev{grid-column:3;grid-row:1;}
+details.plegable>summary .plegable-sub{grid-column:1/-1;grid-row:2;}
+details.plegable>summary .plegable-sub:empty{display:none;}
 details.plegable>summary::-webkit-details-marker{display:none;}
 details.plegable>summary .section-head{margin:0;flex:none;}
 details.plegable>summary .section-head h2{font-size:15px;}
-details.plegable>summary .plegable-sub{flex:1;min-width:0;font-size:12.5px;color:var(--text-dim);}
+details.plegable>summary .plegable-sub{min-width:0;font-size:12.5px;color:var(--text-dim);}
 details.plegable>summary .chev{width:22px;height:22px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--text-faint);transition:transform .15s;}
 details.plegable[open]>summary .chev{transform:rotate(180deg);}
 details.plegable>summary:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+/* "Lista primero, crear como botón" (SKU, Períodos, Carga): el formulario de alta vive plegado en
+   una línea de 48 px sobre la lista y se abre a pedido; parte abierto solo cuando la lista está
+   vacía. Mismos ids y mismos manejadores. */
+details.plegable>.card{margin-top:4px;}
+details.plegable>summary .plegable-cta{font-size:13px;font-weight:700;color:var(--amber-text);white-space:nowrap;}
+.acciones-masivas{margin-top:14px;border-top:1px dashed var(--line);}
+.acciones-masivas>summary{list-style:none;cursor:pointer;min-height:var(--tap-sm);display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-dim);padding:8px 0 0;}
+.acciones-masivas>summary::-webkit-details-marker{display:none;}
+.acciones-masivas>summary::before{content:"+";font-size:18px;line-height:1;width:14px;text-align:center;} .acciones-masivas[open]>summary::before{content:"−";}
+.acciones-masivas .acciones-masivas-cuerpo{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 0 4px;}
 .plan-alertas .alert{margin-bottom:10px;flex-wrap:wrap;}
 .plan-alertas .alert .alert-t{flex:1 1 200px;}
 .plan-alertas .alert .btn{min-height:var(--tap-sm);padding:0 14px;}
@@ -11827,14 +11845,19 @@ function esc(s){ return (s===null||s===undefined)? '' : String(s).replace(/[&<>"
    RENDER — SKUs (alta manual)
    ======================================================================= */
 function renderSkus(){
+  // Lista primero: el alta manual va plegada en una línea sobre la tabla y parte abierta solo con
+  // el maestro vacío (o si la persona la abrió en esta sesión: skusAgregarAbierto).
+  const agregarAbierto = typeof state.skusAgregarAbierto==='boolean' ? state.skusAgregarAbierto : !state.skusPagina.total;
   return `
-    <div class="section-head"><div><span class="eyebrow">Alta manual</span><h2>Agregar SKU a maestro de materiales</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Maestro de materiales</span><h2>SKU</h2></div></div>
+    <details class="plegable" id="skus-agregar" ${agregarAbierto? 'open' : ''}>
+      <summary><div class="section-head"><h2 style="font-size:15px">Agregar SKU a mano</h2></div><span class="plegable-sub">Un material a la vez al maestro. Para muchos, usa Carga masiva.</span><span class="plegable-cta">${agregarAbierto? 'Cerrar' : '+ Agregar'}</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></summary>
     <div class="card">
       <form id="form-sku">
         <label for="s-code">Código SKU *</label>
         <div style="display:flex;gap:8px;align-items:center">
           <input type="text" id="s-code" style="flex:1" placeholder="Ej. 4400-1123" required autocomplete="off">
-          <button type="button" id="btn-escanear-sku-code" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
+          <button type="button" id="btn-escanear-sku-code" class="icon-btn" style="border:1px solid var(--line-strong);border-radius:var(--radius);width:var(--tap);height:var(--tap);flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
         </div>
         ${renderRevisionCodigoSku()}
         <label for="s-desc">Descripción</label>
@@ -11855,7 +11878,7 @@ function renderSkus(){
           <div><label for="s-um">Unidad de medida</label><input type="text" id="s-um" list="dl-unidades" autocomplete="off" placeholder="UN, KG, LT..."></div>
           <div><label for="s-cat">Categoría</label><input type="text" id="s-cat" list="dl-categorias" autocomplete="off" placeholder="Ej. planta, familia de material"></div>
         </div>
-        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--text-dim)">
+        <label class="conteo-check">
           <input type="checkbox" id="s-critico">
           Crítico ${campoConInfo('Si falta, detiene un proceso o equipo -- sin importar su costo. Independiente del costo, se marca a mano.')}
         </label>
@@ -11867,6 +11890,7 @@ function renderSkus(){
       <datalist id="dl-batches">${state.opcionesBatches.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
       <datalist id="dl-unidades">${state.opcionesUnidades.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
     </div>
+    </details>
 
     ${renderTablaSkus()}
   `;
@@ -11902,13 +11926,12 @@ function renderTablaSkus(){
     <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.total})</h2></div>
     <div class="card">
       ${esAdmin && sp.rows.length? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);margin:0;cursor:pointer">
+        <label class="conteo-check" style="margin:0">
           <input type="checkbox" id="chk-skus-todos" ${todosMarcados?'checked':''}>
           Seleccionar todos (esta página)
         </label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${seleccionados.length? `<button type="button" class="btn btn-secondary" id="btn-eliminar-skus" style="width:auto;padding:7px 14px;font-size:12.5px;color:var(--danger)">Eliminar ${seleccionados.length} seleccionado${seleccionados.length>1?'s':''}</button>` : ''}
-          <button type="button" class="btn btn-secondary" id="btn-eliminar-skus-sin-contar" style="width:auto;padding:7px 14px;font-size:12.5px;color:var(--danger)">Eliminar todo (sin contar)</button>
+          ${seleccionados.length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-eliminar-skus" style="width:auto;color:var(--danger)">Eliminar ${seleccionados.length} seleccionado${seleccionados.length>1?'s':''}</button>` : ''}
         </div>
       </div>
       <div class="hint" style="margin-bottom:10px">🟢 Último conteo cuadrado · 🟡 Diferencia positiva (sobrante) · 🔴 Diferencia negativa (faltante)</div>` : ''}
@@ -11935,6 +11958,13 @@ function renderTablaSkus(){
         <span class="hint" style="margin:0">${desde}–${hasta} de ${sp.total} · pág. ${paginaActual}/${totalPaginas}</span>
         <button class="btn btn-secondary" id="skus-pag-next" style="width:auto;flex:none;padding:8px 14px" ${paginaActual>=totalPaginas?'disabled':''}>Siguiente</button>
       </div>` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
+      ${esAdmin? `<details class="acciones-masivas" id="skus-acciones-masivas">
+        <summary>Acciones masivas</summary>
+        <div class="acciones-masivas-cuerpo">
+          <span class="hint" style="margin:0;flex:1;min-width:200px">Elimina todos los SKU que todavía no tienen ningún conteo. Los que ya se contaron no se tocan. No se puede deshacer.</span>
+          <button type="button" class="btn btn-sm btn-secondary" id="btn-eliminar-skus-sin-contar" style="width:auto;color:var(--danger);border-color:var(--danger)">Eliminar todo (sin contar)</button>
+        </div>
+      </details>` : ''}
     </div>
   `;
 }
@@ -11991,21 +12021,26 @@ function renderCargaMasiva(){
 
     <div class="card">
       <h3 style="margin:0 0 4px;font-size:16px">Carga masiva de SKU</h3>
-      <div class="hint">Sube un archivo <b>Excel (.xlsx)</b> o <b>.csv</b> con el maestro de materiales — de SAP o de cualquier otro formato. La app detecta sola qué columna es el código, descripción, bodega, ubicación, batch y stock, y te deja revisar y corregir antes de guardar. Si un SKU ya existe, se actualiza; si no existe, se crea.</div>
-      <div class="hint">Recomendado: completa siempre <b>Storage bin</b> con la ubicación física final de cada material (no lo dejes en blanco). Es el dato que usa el Plan del día para avisar automáticamente si una carga posterior reubica un material ya planificado.</div>
-      <div class="hint">Opcional -- si tu ERP separa el stock por tipo, puedes mapear estas 4 columnas para verlas como contexto junto al stock en Contar y Reconteo (no cambian el cálculo de diferencia, que sigue comparando solo contra Stock sistema). Se ocultan igual que el stock sistema cuando el conteo ciego está activo para un operador:
-        <ul style="margin:6px 0 0;padding-left:18px">
-          <li><b>Bloqueado</b>: material físicamente en la bodega pero marcado como no disponible (ej. calidad, cuarentena, dañado).</li>
-          <li><b>SOH en tránsito 1</b> y <b>SOH en tránsito 2</b>: material en tránsito entre bodegas o plantas, aún no confirmado en esta ubicación.</li>
-          <li><b>Transferencia</b>: material con un movimiento de traslado en curso hacia o desde esta ubicación.</li>
-        </ul>
-      </div>
-      <div class="file-input" style="margin-top:12px">
+      <div class="hint" style="margin-bottom:10px">Sube un archivo <b>Excel (.xlsx)</b> o <b>.csv</b> con el maestro de materiales, de SAP o de cualquier otro formato. La app detecta sola las columnas y te deja revisar antes de guardar. Si un SKU ya existe, se actualiza; si no, se crea.</div>
+      <div class="file-input conteo-form" style="min-height:88px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:600;color:var(--text)">
         <input type="file" id="file-skus" accept=".csv,.xlsx,.xls">
-        ${ICONS.upload.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:6px" ')}
+        ${ICONS.upload.replace('<svg','<svg style="width:26px;height:26px;stroke:currentColor;margin-bottom:6px" ')}
         <div>Toca para elegir un archivo .xlsx o .csv</div>
       </div>
       <div id="file-skus-name" class="hint"></div>
+      <details class="acciones-masivas" id="carga-como-preparar">
+        <summary>Cómo preparar el archivo</summary>
+        <div style="padding:8px 0 4px">
+          <div class="hint">Recomendado: completa siempre <b>Storage bin</b> con la ubicación física final de cada material (no lo dejes en blanco). Es el dato que usa el Plan del día para avisar automáticamente si una carga posterior reubica un material ya planificado.</div>
+          <div class="hint">Opcional -- si tu ERP separa el stock por tipo, puedes mapear estas 4 columnas para verlas como contexto junto al stock en Contar y Reconteo (no cambian el cálculo de diferencia, que sigue comparando solo contra Stock sistema). Se ocultan igual que el stock sistema cuando el conteo ciego está activo para un operador:
+            <ul style="margin:6px 0 0;padding-left:18px">
+              <li><b>Bloqueado</b>: material físicamente en la bodega pero marcado como no disponible (ej. calidad, cuarentena, dañado).</li>
+              <li><b>SOH en tránsito 1</b> y <b>SOH en tránsito 2</b>: material en tránsito entre bodegas o plantas, aún no confirmado en esta ubicación.</li>
+              <li><b>Transferencia</b>: material con un movimiento de traslado en curso hacia o desde esta ubicación.</li>
+            </ul>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="section-head"><h2 style="font-size:15px">Historial de cargas</h2></div>
@@ -13931,19 +13966,21 @@ function renderCiclos(){
   const cambioProgramado = proximoCambioProgramadoPeriodo();
   return `
     <div class="section-head"><div><span class="eyebrow">Empresa</span><h2>Períodos de conteo</h2></div></div>
-    <div class="card">
-      <div class="hint" style="margin-bottom:10px">Ciclos de conteo (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</div>
-      ${cambioProgramado? `<div class="hint" style="margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg-warn,rgba(217,119,6,.08))">
-        📅 ${cambioProgramado.actual? `El período actual (<strong>${esc(cambioProgramado.actual.nombre)}</strong>) pasará automáticamente a` : 'Se activará automáticamente'} <strong>${esc(cambioProgramado.siguiente.nombre)}</strong> el ${esc(fmtFecha(cambioProgramado.siguiente.fecha_inicio))} (${cambioProgramado.dias===0?'hoy':cambioProgramado.dias===1?'mañana':`en ${cambioProgramado.dias} días`}) -- no hace falta que hagas nada, es automático.
-      </div>` : ''}
+    ${cambioProgramado? `<div class="alert info" style="margin-bottom:12px"><div class="alert-t"><b>${cambioProgramado.actual? `El período actual (${esc(cambioProgramado.actual.nombre)}) pasará automáticamente a` : 'Se activará automáticamente'} ${esc(cambioProgramado.siguiente.nombre)} el ${esc(fmtFecha(cambioProgramado.siguiente.fecha_inicio))} (${cambioProgramado.dias===0?'hoy':cambioProgramado.dias===1?'mañana':`en ${cambioProgramado.dias} días`}).</b><span>No hace falta que hagas nada, es automático.</span></div></div>` : ''}
+    <details class="plegable" id="ciclos-crear" ${state.ciclos.length? '' : 'open'}>
+      <summary><div class="section-head"><h2 style="font-size:15px">Crear período de conteo</h2></div><span class="plegable-sub">Ciclos (ej. "T1 2027", "Cierre 2027") para separar tomas de inventario distintas. Los conteos nuevos quedan etiquetados solos con el que marques como actual.</span><span class="plegable-cta">${state.ciclos.length? '+ Crear' : ''}</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></summary>
+      <div class="card">
       <form id="form-crear-ciclo">
         <label for="ciclo-nombre">Nombre del período</label>
         <input type="text" id="ciclo-nombre" placeholder="Ej. T1 2027" required>
         <label for="ciclo-fecha-inicio" style="margin-top:8px">Fecha de inicio</label>
         <input type="date" id="ciclo-fecha-inicio" value="${esc(fechaISO(new Date()))}" required>
-        <div style="margin-top:10px"><button type="submit" class="btn btn-secondary" style="width:auto;padding:8px 14px">Crear período de conteo</button></div>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-primary" style="width:auto;padding:0 16px">Crear período de conteo</button></div>
       </form>
-      ${state.ciclos.length? `<div style="margin-top:12px">${state.ciclos.map(c=> c.id===state.cicloEditandoId? `
+      </div>
+    </details>
+    <div class="card">
+      ${state.ciclos.length? `<div>${state.ciclos.map(c=> c.id===state.cicloEditandoId? `
         <div class="plan-item" style="padding:8px 0;align-items:flex-end;flex-wrap:wrap;gap:8px">
           <div style="flex:1;min-width:160px">
             <div class="plan-item-ubic" style="font-weight:500">${esc(c.nombre)}</div>
@@ -16794,6 +16831,7 @@ function bind(){
   }
 
   if(state.view==='skus'){
+    recordarPlegable('skus-agregar', abierto=>{ state.skusAgregarAbierto = abierto; });
     const btnEscanearSkuCode = document.getElementById('btn-escanear-sku-code');
     if(btnEscanearSkuCode) btnEscanearSkuCode.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'campo-sku'}}));
     // Código: al salir del campo se revisa si ya existe (ver revisarCodigoSkuExistente).
