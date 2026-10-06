@@ -10995,6 +10995,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!(htmlConteoConPlan.match(/data-pick-plan="id-002"[\s\S]*?<\/li>/)||[''])[0].includes('Cambió de bin'), 'SKU-002 sigue cubierto por su bin activo: no debe llevar la advertencia de "movido", obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('data-pick-plan="id-777"') && htmlConteoConPlan.includes('Cambió de ubicación') && htmlConteoConPlan.includes('se planificó en Nave Mina · Interior Nave') && htmlConteoConPlan.includes('ahora está en Bodega Norte · Pasillo 5'), 'el SKU reasignado a otra bodega+ubicación debe seguir listado con una advertencia de cambio de ubicación (no la de "Cambió de bin"), obtuvo: '+htmlConteoConPlan);
   assert(htmlConteoConPlan.includes('Agregar algo fuera del plan'), 'el buscador libre debe seguir disponible, ahora bajo su propio título, obtuvo: '+htmlConteoConPlan);
+  // Fase 2a del rediseño (Contar): con bodega+ubicación ya elegidas, la lista va agrupada por
+  // storage bin en filas táctiles (.list-item) con cabecera "Bin X · N pendientes", un encabezado
+  // negro con el lugar activo y el botón "Cambiar lugar"; el día y los <select> siguen existiendo
+  // plegados bajo "Cambiar día o lugar" (mismos ids, misma cascada).
+  assert(htmlConteoConPlan.includes('class="contar-activo"') && htmlConteoConPlan.includes('Nave Mina · Interior Nave') && htmlConteoConPlan.includes('id="btn-contar-cambiar-lugar"'), 'con un lugar elegido debe verse el encabezado del lugar activo con su botón "Cambiar lugar", obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('<li class="list-group">Bin A-01 · 1 pendiente</li>') && htmlConteoConPlan.includes('<li class="list-group">Bin A-02 · 1 pendiente</li>'), 'los SKU pendientes deben ir agrupados por storage bin con su cabecera, obtuvo: '+htmlConteoConPlan);
+  assert(/<button type="button" class="list-item" data-pick-plan="id-001">/.test(htmlConteoConPlan), 'cada SKU pendiente debe ser una fila táctil (.list-item) del sistema de diseño, obtuvo: '+htmlConteoConPlan);
+  assert(htmlConteoConPlan.includes('<details class="contar-cambiar" id="contar-cambiar">') && htmlConteoConPlan.includes('id="contar-bodega"') && htmlConteoConPlan.includes('id="contar-ubic"'), 'el día y los <select> en cascada deben seguir disponibles, plegados bajo "Cambiar día o lugar", obtuvo: '+htmlConteoConPlan);
+  assert(!htmlConteoConPlan.includes('class="contar-lugar"'), 'con un lugar ya elegido no se muestran las tarjetas de lugar, obtuvo: '+htmlConteoConPlan);
+  // Sin lugar elegido: una tarjeta por bodega+ubicación del día (misma pareja que resuelve
+  // entradasActivasContar), con sus bins y su responsable; "SKU sin ubicación" es una tarjeta más.
+  ctx.__appstate.contarPlan = {...cpBase, bodega:'', ubicacion:'', skusPendientes:null};
+  const htmlConteoLugares = ctx.renderConteo();
+  assert(htmlConteoLugares.includes('data-contar-lugar="Nave Mina" data-contar-ubic="Interior Nave"') && htmlConteoLugares.includes('Nave Mina · Interior Nave'), 'sin lugar elegido debe ofrecer una tarjeta por bodega+ubicación planificada, obtuvo: '+htmlConteoLugares);
+  assert(htmlConteoLugares.includes('data-contar-lugar="__sin_ubicacion__"') && htmlConteoLugares.includes('>SKU sin ubicación<'), 'la entrada suelta del día debe aparecer como tarjeta "SKU sin ubicación", obtuvo: '+htmlConteoLugares);
+  assert(/contar-lugar-sub">2 bins: A-01, A-02/.test(htmlConteoLugares), 'la tarjeta de Nave Mina · Interior Nave debe resumir sus bins (A-01 y A-02), obtuvo: '+htmlConteoLugares);
+  assert(!htmlConteoLugares.includes('id="btn-escanear-plan"') && !htmlConteoLugares.includes('id="btn-contar-cambiar-lugar"'), 'sin lugar elegido no hay lista ni botón "Cambiar lugar", obtuvo: '+htmlConteoLugares);
+  ctx.__appstate.contarPlan = {...cpBase};
 
   // Pedido real: cada SKU pendiente del plan del día debe mostrar su ubicación general,
   // ubicación específica y storage bin (antes solo mostraba código y descripción).
