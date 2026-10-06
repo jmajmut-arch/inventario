@@ -122,6 +122,15 @@ async function loguear(page, perfil){
     await loguear(page, PERFIL_ADMIN_PRO);
     assert(await page.isVisible('.tabbar'), 'tras loguearse debe verse la barra de navegación inferior');
     assert(await page.isVisible('[data-tab="dashboard"].active'), 'debe quedar parado en la pestaña Dashboard tras el login');
+    // Fase 6 (Navegación): cabecera de una fila (≤ 60 px) con dos íconos de 44 px; barra inferior
+    // de cinco posiciones; "Más" abre una hoja con Salir y se cierra con el fondo.
+    const cabecera = await page.evaluate(() => ({ h: Math.round(document.querySelector('.topbar').getBoundingClientRect().height), iconos: [...document.querySelectorAll('.topbar .btn-icon-header')].filter(b => b.offsetParent).map(b => Math.round(b.getBoundingClientRect().height)), tabs: document.querySelectorAll('.tabbar .tab').length }));
+    assert(cabecera.h <= 60 && cabecera.iconos.length === 2 && cabecera.iconos.every(h => h >= 44) && cabecera.tabs === 5, 'cabecera de una fila con dos íconos de 44 px y barra de cinco, obtuvo '+JSON.stringify(cabecera));
+    await page.click('#tab-mas');
+    await page.waitForSelector('#tab-mas-hoja', { state:'visible', timeout:ESPERA });
+    assert(await page.isVisible('#btn-logout') && await page.isVisible('[data-tab="ciclos"]'), 'la hoja "Más" muestra Salir y Períodos');
+    await page.click('#tab-mas-fondo', { position:{ x:10, y:10 } });
+    await page.waitForSelector('#tab-mas-hoja', { state:'hidden', timeout:ESPERA });
     // Fase 1 del rediseño del Panel: la primera cifra ("Avance global", tarjeta hero) tiene que
     // verse sin desplazar la pantalla, en celular y en iPad, y el detalle viene plegado.
     const heroMovil = await page.$('.dash-kpis .kpi.hero');
@@ -1481,8 +1490,13 @@ async function loguear(page, perfil){
     await page.fill('#f-pass', '123456');
     await page.click('#auth-form button[type="submit"]');
     await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    // Fase 6: Calendario vive en la hoja "Más" de la barra inferior.
+    assert(!(await page.isVisible('#btn-ir-calendario')), 'Calendario está en la hoja "Más", no a la vista');
+    await page.click('#tab-mas');
+    await page.waitForSelector('#btn-ir-calendario', { state:'visible', timeout:ESPERA });
     await page.click('#btn-ir-calendario');
     assert(await esperarVisible(page, '.cal-grid .cal-dia.es-hoy'), 'el calendario del mes se dibuja con el día de hoy marcado');
+    assert(!(await page.isVisible('#tab-mas-hoja')), 'al navegar desde "Más", la hoja se cierra');
     const estados = await page.evaluate(ds => ds.map(d => { const el = document.querySelector(`[data-cal-dia="${d.fecha}"]`); return el ? el.className.split(' ').filter(c => ['atrasado','cumplido','parcial','futuro','vacio'].includes(c))[0] : null; }), dias);
     const esperado = dias.map(d => d.fecha < iso(hoyCal) ? (d.pendiente ? 'atrasado' : 'cumplido') : 'futuro');
     assert(JSON.stringify(estados) === JSON.stringify(esperado), 'cada día lleva su estado (atrasado / cumplido / futuro), obtuvo '+JSON.stringify(estados)+' esperaba '+JSON.stringify(esperado));
