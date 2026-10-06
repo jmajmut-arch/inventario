@@ -620,6 +620,43 @@ textarea{resize:vertical;min-height:60px;}
 .plan-sku-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
 .plan-sku-lista li{font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .plan-sku-lista .icon-btn{padding:2px;flex:none;}
+/* Fase 2a del rediseño (Contar): la entrada es una tarjeta grande por lugar planificado
+   (bodega · ubicación) y un toque abre la lista; el día y los <select> en cascada siguen
+   existiendo (mismos ids, misma lógica) pero plegados bajo "Cambiar día o lugar". La lista de SKU
+   pendientes usa las filas táctiles de 64 px del sistema (.list-tap), agrupadas por storage bin. */
+.contar-cambiar{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-2);}
+.contar-cambiar>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;min-height:var(--tap);padding:6px 12px;}
+.contar-cambiar>summary::-webkit-details-marker{display:none;}
+.contar-cambiar>summary:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.contar-cambiar .contar-dia{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:19px;letter-spacing:0.02em;text-transform:uppercase;flex:1;min-width:0;}
+.contar-cambiar .contar-cambiar-txt{font-size:13px;font-weight:600;color:var(--amber-text);white-space:nowrap;}
+.contar-cambiar .chev{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--text-faint);transition:transform .15s;}
+.contar-cambiar[open]>summary .chev{transform:rotate(180deg);}
+.contar-cambiar-cuerpo{padding:2px 12px 12px;border-top:1px solid var(--line);}
+.contar-cambiar-cuerpo label:first-child{margin-top:8px;}
+.contar-lugares{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px;}
+@media (min-width:700px){ .contar-lugares{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));} }
+.contar-lugar{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;width:100%;min-height:76px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--amber);border-radius:var(--radius);text-align:left;color:inherit;font:inherit;cursor:pointer;}
+.contar-lugar:active{background:var(--amber-bg);}
+.contar-lugar:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.contar-lugar-titulo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;line-height:1.1;letter-spacing:0.01em;text-transform:uppercase;overflow-wrap:anywhere;}
+.contar-lugar-sub{font-size:13px;color:var(--text-dim);margin-top:4px;line-height:1.35;}
+.contar-lugar .chev,.contar-activo .chev{width:24px;height:24px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--text-faint);}
+.contar-activo{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px;padding:12px 14px;background:var(--ink);color:var(--on-ink);border-left:5px solid var(--amber);border-radius:var(--radius);}
+.contar-activo .contar-lugar-sub{color:var(--on-ink-dim);}
+.contar-activo .btn{width:auto;flex:none;background:transparent;color:var(--on-ink);border-color:var(--on-ink-dim);}
+.contar-lista-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0 8px;}
+.contar-lista-cab .contar-n{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:26px;line-height:1;}
+.contar-lista-cab .contar-n-txt{font-size:13px;color:var(--text-dim);margin-left:6px;}
+.contar-lista-cab .btn{width:auto;flex:none;display:inline-flex;align-items:center;gap:6px;padding:0 14px;}
+.contar-lista-cab .btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.contar-lista{list-style:none;margin:0;padding:0;}
+.contar-lista .list-item>div{min-width:0;}
+.contar-lista .list-item .code,.contar-lista .list-item .desc{display:block;overflow-wrap:anywhere;}
+.contar-lista .list-item .desc.lugar{color:var(--text-faint);font-size:12.5px;margin-top:2px;}
+.contar-lista .list-item .badge{margin-top:6px;}
+.contar-lista .list-group:first-child{border-top:0;}
+.contar-lista .list-group{border-top:1px solid var(--line);}
 
 /* Los tres contenedores de impresión son invisibles en pantalla y solo aparecen dentro de
    @media print. A #print-informe le faltaba esta línea: como casi siempre está vacío no se
@@ -12061,62 +12098,133 @@ function renderPlanDelDia(){
   const ubicaciones = Array.from(new Set(porBodega.map(e=> e.ubicacion || ''))).filter(Boolean).sort();
   const activas = entradasActivasContar(cp);
   const bodegaElegida = !!cp.bodega;
+  const chev = `<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>`;
+  const etiquetaBodega = b => b===BODEGA_SIN_UBICACION ? 'SKU sin ubicación' : (b===BODEGA_VACIA || b==='') ? 'Sin bodega asignada' : b;
+  const tituloLugar = (bodega, ubic) => bodega===BODEGA_SIN_UBICACION ? 'SKU sin ubicación' : `${etiquetaBodega(bodega)} · ${ubic || 'Toda la bodega'}`;
+
+  // Fase 2a del rediseño: un lugar por tarjeta (bodega + ubicación, la misma pareja que resuelve
+  // entradasActivasContar), con sus bins y su responsable. Tocarla equivale a elegir los dos
+  // <select> de una vez (mismo elegirCascadaContar). Con una bodega ya elegida por el <select> y
+  // sin ubicación, se ofrecen solo los lugares de esa bodega.
+  const lugares = [];
+  if(haySueltos) lugares.push({bodega:BODEGA_SIN_UBICACION, ubic:'', entradas: cp.entradas.filter(e=>e.solo_sin_ubicacion)});
+  normales.forEach(e=>{
+    const valorBodega = e.bodega==='' ? BODEGA_VACIA : e.bodega;
+    const ubic = e.ubicacion || '';
+    let l = lugares.find(x=>x.bodega===valorBodega && x.ubic===ubic);
+    if(!l){ l = {bodega:valorBodega, ubic, entradas:[]}; lugares.push(l); }
+    l.entradas.push(e);
+  });
+  const lugaresVisibles = bodegaElegida ? lugares.filter(l=>l.bodega===cp.bodega) : lugares;
+  const tarjetaLugar = l => {
+    const bins = Array.from(new Set(l.entradas.map(e=>e.storage_bin).filter(Boolean)));
+    const porCodigo = l.entradas.filter(e=>e.por_sku).reduce((n,e)=>n+((e.skus_incluidos||[]).length),0);
+    const partes = [];
+    if(bins.length) partes.push(`${bins.length} bin${bins.length===1?'':'s'}: ${bins.slice(0,4).join(', ')}${bins.length>4?` +${bins.length-4}`:''}`);
+    if(porCodigo) partes.push(`${porCodigo} SKU por código`);
+    if(!partes.length) partes.push(l.bodega===BODEGA_SIN_UBICACION ? 'Materiales sin bodega ni ubicación' : 'Sin bin específico');
+    const responsables = Array.from(new Set(l.entradas.map(e=>e.responsable_nombre).filter(Boolean)));
+    const sinResponsable = l.entradas.some(e=>!e.responsable_id);
+    partes.push(sinResponsable ? (responsables.length ? `${responsables.join(', ')} · parte sin responsable` : 'Sin responsable · puede contar cualquiera') : responsables.join(', '));
+    return `<button type="button" class="contar-lugar" data-contar-lugar="${esc(l.bodega)}" data-contar-ubic="${esc(l.ubic)}">
+      <div><div class="contar-lugar-titulo">${esc(tituloLugar(l.bodega, l.ubic))}</div><div class="contar-lugar-sub">${esc(partes.join(' · '))}</div></div>
+      ${chev}
+    </button>`;
+  };
+
+  // Lista de pendientes agrupada por storage bin (ya vienen ordenados por bin, ver
+  // elegirCascadaContar). Con un solo grupo sin bin no hace falta cabecera.
+  const listaPendientes = () => {
+    const grupos = [];
+    cp.skusPendientes.forEach(s=>{
+      const bin = s.storage_bin || '';
+      let g = grupos[grupos.length-1];
+      if(!g || g.bin!==bin){ g = {bin, skus:[]}; grupos.push(g); }
+      g.skus.push(s);
+    });
+    const conCabecera = grupos.length>1 || (grupos[0] && grupos[0].bin);
+    return `<ul class="contar-lista list-tap">${grupos.map(g=>`
+      ${conCabecera? `<li class="list-group">${g.bin? `Bin ${esc(g.bin)}` : 'Sin bin'} · ${g.skus.length} pendiente${g.skus.length===1?'':'s'}</li>` : ''}
+      ${g.skus.map(s=>`
+        <li>
+          <button type="button" class="list-item" data-pick-plan="${esc(s.id)}">
+            <div>
+              <span class="code">${esc(s.sku_code)}</span>
+              <span class="desc">${esc(s.descripcion||'Sin descripción')}</span>
+              ${[s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).length? `
+                <span class="desc lugar">${esc([s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).join(' · '))}</span>
+              ` : ''}
+              ${s.cambioBodega || s.cambioUbicacion || s.cambioBin? `
+                <div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;white-space:normal;text-align:left">
+                  ${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')}
+                  ${describirCambioPlan(s)}
+                </div>
+              ` : ''}
+            </div>
+            ${chev}
+          </button>
+        </li>
+      `).join('')}
+    `).join('')}</ul>`;
+  };
+
+  // "Hoy · 06 oct" o "mié 07 oct" (sin la coma que mete toLocaleDateString tras el día de semana).
+  const hoy = fechaISO(new Date());
+  const fechaPlan = new Date(cp.fecha+'T00:00:00');
+  const diaLegible = (cp.fecha===hoy ? 'Hoy' : fechaPlan.toLocaleDateString('es-CL',{weekday:'short'}).replace(/[.,]/g,''))
+    + ' · ' + String(fechaPlan.getDate()).padStart(2,'0') + ' ' + fechaPlan.toLocaleDateString('es-CL',{month:'short'}).replace(/[.,]/g,'');
+
   return `
     <div class="section-head">
       <div><span class="eyebrow">Mi plan</span><h2>Plan del día</h2></div>
       <button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-plan-dia" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${cp.cargando || !cp.entradas.length?'disabled':''}>${ICONS.download} Exportar PDF</button>
     </div>
     <div class="card">
-      <label for="contar-fecha">Día</label>
-      <input type="date" id="contar-fecha" value="${cp.fecha}">
+      <details class="contar-cambiar" id="contar-cambiar">
+        <summary><span class="contar-dia">${esc(diaLegible)}</span><span class="contar-cambiar-txt">Cambiar día${cp.entradas.length? ' o lugar' : ''}</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></summary>
+        <div class="contar-cambiar-cuerpo">
+          <label for="contar-fecha">Día</label>
+          <input type="date" id="contar-fecha" value="${cp.fecha}">
+          ${!cp.cargando && cp.entradas.length? `
+          <div class="row2" style="margin-top:10px">
+            <div><label for="contar-bodega">Bodega/patio</label>
+              <select id="contar-bodega">
+                <option value="">Elige…</option>
+                ${haySueltos? `<option value="${BODEGA_SIN_UBICACION}" ${cp.bodega===BODEGA_SIN_UBICACION?'selected':''}>SKU sin ubicación</option>` : ''}
+                ${hayBodegaVacia? `<option value="${BODEGA_VACIA}" ${cp.bodega===BODEGA_VACIA?'selected':''}>Sin bodega asignada</option>` : ''}
+                ${bodegas.map(b=>`<option value="${esc(b)}" ${cp.bodega===b?'selected':''}>${esc(b)}</option>`).join('')}
+              </select>
+            </div>
+            <div><label for="contar-ubic">Ubicación</label>
+              <select id="contar-ubic" ${bodegaElegida && cp.bodega!==BODEGA_SIN_UBICACION? '' : 'disabled'}>
+                <option value="">Todas</option>
+                ${ubicaciones.map(u=>`<option value="${esc(u)}" ${cp.ubicacion===u?'selected':''}>${esc(u)}</option>`).join('')}
+              </select>
+            </div>
+          </div>` : ''}
+        </div>
+      </details>
       ${!cp.cargando && cp.entradas.some(e=>!e.responsable_id)? `<div class="hint" style="margin-top:8px">${(()=>{ const n = cp.entradas.filter(e=>!e.responsable_id).length; return n===cp.entradas.length ? `${n===1?'La entrada de este día no tiene':`Las ${n} entradas de este día no tienen`} responsable: las puede contar cualquiera del equipo.` : `Incluye ${n} entrada${n===1?'':'s'} sin responsable, que puede contar cualquiera del equipo.`; })()}</div>` : ''}
       ${cp.desdeCache? `<div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:8px">${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')} Sin conexión: mostrando el plan guardado la última vez que hubo señal</div>` : ''}
       ${cp.cargando? `<div class="empty" style="padding:14px 8px;margin-top:10px"><span class="spinner"></span> Cargando…</div>` :
-        !cp.entradas.length? `<div class="empty" style="padding:14px 8px;margin-top:10px">Sin nada planificado para ti este día.</div>` : `
-        <div class="row2" style="margin-top:10px">
-          <div><label for="contar-bodega">Bodega/patio</label>
-            <select id="contar-bodega">
-              <option value="">Elige…</option>
-              ${haySueltos? `<option value="${BODEGA_SIN_UBICACION}" ${cp.bodega===BODEGA_SIN_UBICACION?'selected':''}>SKU sin ubicación</option>` : ''}
-              ${hayBodegaVacia? `<option value="${BODEGA_VACIA}" ${cp.bodega===BODEGA_VACIA?'selected':''}>Sin bodega asignada</option>` : ''}
-              ${bodegas.map(b=>`<option value="${esc(b)}" ${cp.bodega===b?'selected':''}>${esc(b)}</option>`).join('')}
-            </select>
+        !cp.entradas.length? `<div class="empty" style="padding:14px 8px;margin-top:10px">Sin nada planificado para ti este día.</div>` :
+        !activas.length? `
+          <div class="hint" style="margin-top:12px;margin-bottom:0">${lugaresVisibles.length===1? 'Tienes 1 lugar planificado' : `Tienes ${lugaresVisibles.length} lugares planificados`}${bodegaElegida? ` en ${esc(etiquetaBodega(cp.bodega))}` : ''}. Toca uno para ver sus SKU pendientes.</div>
+          <div class="contar-lugares">${lugaresVisibles.map(tarjetaLugar).join('')}</div>
+        ` : `
+          <div class="contar-activo">
+            <div><div class="contar-lugar-titulo">${esc(tituloLugar(cp.bodega, cp.ubicacion))}</div><div class="contar-lugar-sub">${activas.length} entrada${activas.length===1?'':'s'} del plan${cp.desdeCache? ' · sin conexión' : ''}</div></div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-contar-cambiar-lugar">Cambiar lugar</button>
           </div>
-          <div><label for="contar-ubic">Ubicación</label>
-            <select id="contar-ubic" ${bodegaElegida && cp.bodega!==BODEGA_SIN_UBICACION? '' : 'disabled'}>
-              <option value="">Todas</option>
-              ${ubicaciones.map(u=>`<option value="${esc(u)}" ${cp.ubicacion===u?'selected':''}>${esc(u)}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        ${activas.length? `
           ${cp.skusPendientes===null? `<div class="hint" style="margin-top:10px">Cargando SKU pendientes…</div>` :
             cp.skusPendientes.length? `
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px">
-              <div class="hint" style="margin:0">${cp.skusPendientes.length} SKU pendientes</div>
-              <button type="button" id="btn-escanear-plan" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:36px;height:36px;flex:none" aria-label="Escanear código de un SKU planificado">${ICONS.escanear}</button>
+            <div class="contar-lista-cab">
+              <div><span class="contar-n">${cp.skusPendientes.length}</span><span class="contar-n-txt">SKU pendiente${cp.skusPendientes.length===1?'':'s'}</span></div>
+              <button type="button" id="btn-escanear-plan" class="btn btn-secondary" aria-label="Escanear código de un SKU planificado">${ICONS.escanear} Escanear</button>
             </div>
-            <ul class="plan-sku-lista" style="margin-top:6px">
-              ${cp.skusPendientes.map(s=>`
-                <li>
-                  <button type="button" data-pick-plan="${esc(s.id)}" style="width:100%;text-align:left;background:none;border:none;padding:8px 0;cursor:pointer;color:inherit">
-                    <span class="mono">${esc(s.sku_code)}</span> — ${esc(s.descripcion||'Sin descripción')}
-                    ${[s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).length? `
-                      <div class="hint" style="margin-top:2px">${esc([s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).join(' · '))}</div>
-                    ` : ''}
-                    ${s.cambioBodega || s.cambioUbicacion || s.cambioBin? `
-                      <div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:5px">
-                        ${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')}
-                        ${describirCambioPlan(s)}
-                      </div>
-                    ` : ''}
-                  </button>
-                </li>
-              `).join('')}
-            </ul>
-            ` : `<div class="empty" style="padding:14px 8px;margin-top:10px">Ya contaste todo lo pendiente aquí.</div>`}
-        ` : bodegaElegida? `<div class="hint" style="margin-top:10px">Elige ubicación para ver los SKU pendientes.</div>` : ''}
-      `}
+            ${listaPendientes()}
+            ` : `<div class="empty" style="padding:14px 8px;margin-top:10px"><div class="glyph">✓</div>Ya contaste todo lo pendiente aquí.</div>`}
+        `}
     </div>
   `;
 }
@@ -12193,7 +12301,7 @@ function renderConteo(){
             <input type="text" id="sku-search" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(state.skuSearch)}" autocomplete="off">
             <button type="button" id="btn-limpiar-sku-search" class="btn-limpiar-campo" aria-label="Borrar lo escrito" ${state.skuSearch? '' : 'hidden'}>${ICONS.x}</button>
           </div>
-          <button type="button" id="btn-abrir-escaner" class="icon-btn" style="border:1px solid var(--line);border-radius:8px;width:40px;height:40px;flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
+          <button type="button" id="btn-abrir-escaner" class="icon-btn" style="border:1px solid var(--line-strong);border-radius:var(--radius);width:var(--tap);height:var(--tap);flex:none" aria-label="Escanear código">${ICONS.escanear}</button>
         </div>
         <div id="buscador-libre-resultados" style="margin-top:10px">${renderResultadosBuscadorLibre()}</div>
       </div>
@@ -16580,6 +16688,12 @@ function bind(){
       if(cBodega) cBodega.addEventListener('change', e=> elegirCascadaContar({bodega:e.target.value, ubicacion:''}));
       const cUbic = document.getElementById('contar-ubic');
       if(cUbic) cUbic.addEventListener('change', e=> elegirCascadaContar({ubicacion:e.target.value}));
+      // Tarjetas de lugar (Fase 2a): un toque equivale a elegir bodega y ubicación en los <select>.
+      document.querySelectorAll('[data-contar-lugar]').forEach(btn=>{
+        btn.addEventListener('click', ()=> elegirCascadaContar({bodega: btn.dataset.contarLugar, ubicacion: btn.dataset.contarUbic||''}));
+      });
+      const btnCambiarLugar = document.getElementById('btn-contar-cambiar-lugar');
+      if(btnCambiarLugar) btnCambiarLugar.addEventListener('click', ()=> elegirCascadaContar({bodega:'', ubicacion:''}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           // Se busca por id, no por sku_code: un mismo código puede tener varias filas

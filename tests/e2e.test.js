@@ -195,6 +195,47 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Contar (Fase 2a del rediseño): tarjeta de lugar → lista por bin → formulario =====
+  // Con el navegador real: un toque en la tarjeta del lugar carga la lista (misma cascada que los
+  // <select>), las filas son táctiles (≥ 64 px) y un toque abre el formulario del SKU; a 420 px no
+  // desborda. Los <select> siguen en el DOM, plegados.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('contar-lugares: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    await page.route('**/rest/v1/plan_semanal_detalle**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'e2e-plan-1', fecha:new Date().toISOString().slice(0,10), bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', solo_sin_ubicacion:false, por_sku:false, responsable_id:null, responsable_nombre:null, skus_excluidos:[], skus_incluidos:[] },
+    ]) }));
+    await page.route('**/rest/v1/rpc/universo_entradas_plan_contar**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ 'e2e-plan-1': [
+      { id:'e2e-sku-1', sku_code:'10475828', descripcion:'REDUCER,LH,FLENDER', bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', batch:'NEW', stock_sistema:1, unidad_medida:'EA' },
+      { id:'e2e-sku-2', sku_code:'11172553', descripcion:'MOTOR,MTR,2300KW', bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', batch:null, stock_sistema:2, unidad_medida:'EA' },
+    ] }) }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('[data-tab="conteo"]');
+    assert(await esperarVisible(page, '.contar-lugar'), 'al entrar a Contar debe verse la tarjeta del lugar planificado');
+    const tarjeta = await page.$eval('.contar-lugar', el => ({ h: el.getBoundingClientRect().height, t: el.querySelector('.contar-lugar-titulo').textContent.trim() }));
+    assert(tarjeta.h >= 64 && tarjeta.t === 'B501 · 0100', 'la tarjeta del lugar es grande y nombra bodega · ubicación, obtuvo '+JSON.stringify(tarjeta));
+    assert(!(await page.isVisible('#contar-bodega')), 'los <select> de bodega/ubicación quedan plegados (existen, no se ven)');
+    assert(await page.$('#contar-bodega') !== null, 'el <select> de bodega sigue en el DOM para quien prefiera la cascada');
+    await page.click('.contar-lugar');
+    assert(await esperarVisible(page, '.contar-lista .list-item'), 'tocar la tarjeta debe cargar la lista de SKU pendientes');
+    const filas = await page.$$eval('.contar-lista .list-item', els => els.map(e => e.getBoundingClientRect().height));
+    assert(filas.length === 2 && filas.every(h => h >= 64), 'las filas de la lista son táctiles (≥ 64 px), obtuvo '+JSON.stringify(filas));
+    assert(await page.isVisible('text=Bin 3029-A · 2 pendientes'), 'la lista va agrupada por storage bin con su cabecera');
+    assert(await page.isVisible('#btn-contar-cambiar-lugar') && await page.isVisible('#btn-escanear-plan'), 'con el lugar elegido se ven "Cambiar lugar" y "Escanear"');
+    const desbordeLista = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeLista <= 0, 'a 420 px la lista no desborda, obtuvo '+desbordeLista);
+    await page.click('.contar-lista .list-item');
+    assert(await esperarVisible(page, '#c-cant'), 'tocar una fila abre el formulario de conteo del SKU');
+    assert(await page.isVisible('text=10475828'), 'el formulario muestra el SKU tocado');
+    await context.close();
+  }
+
   // ===== Contar: la X del buscador vacía el campo sin reemplazar el <input> =====
   // Pedido de Joel (29/09): "un botón para eliminar el SKU anotado, así rápidamente escribo otro".
   // Se marca el nodo: si render() lo reemplazara, en iPad el teclado volvería a letras.
