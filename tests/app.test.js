@@ -7381,6 +7381,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.busqueda = { texto:'', bodega:'', estado:'', ciclo:'', soloConFotos:false, resultados:[], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0 };
   const htmlBuscarConCiclos = ctx.renderBuscar();
   assert(htmlBuscarConCiclos.includes('id="b-ciclo"') && htmlBuscarConCiclos.includes('Sin ciclo asignado') && htmlBuscarConCiclos.includes('T1 2027'), 'Buscar debe ofrecer el filtro de ciclo con la opción "Sin ciclo asignado" y los ciclos reales, obtuvo: '+htmlBuscarConCiclos);
+  // Fase 4 del rediseño (Buscar): caja + botón en una barra; cuatro filtros frecuentes a la vista
+  // (ubicación general, específica, estado, clase ABC); el resto bajo "Más filtros", que parte
+  // cerrado si ninguno está activo; tras buscar (yaBuscado) los filtros se pliegan, pero todos los
+  // campos siguen en el DOM porque el submit los lee de ahí.
+  assert(/<div class="buscar-barra">\s*<input type="text" id="b-texto"[^>]*>\s*<button type="submit" class="btn btn-primary buscar-btn"/.test(htmlBuscarConCiclos), 'la caja de búsqueda y el botón Buscar van juntos en una barra, obtuvo: '+htmlBuscarConCiclos.slice(0,900));
+  const frecuentes = (htmlBuscarConCiclos.match(/<div class="buscar-frecuentes">[\s\S]*?<\/div>\s*<div id="b-ubicaciones-aviso"/)||[''])[0];
+  assert(['b-bodega','b-ubicacion','b-estado','b-clase-abc'].every(id=>frecuentes.includes(`id="${id}"`)) && !frecuentes.includes('id="b-ciclo"'), 'los cuatro filtros frecuentes van a la vista y el ciclo no, obtuvo: '+frecuentes.slice(0,300));
+  assert(/<details class="buscar-mas" id="buscar-mas" >\s*<summary>Más filtros<\/summary>/.test(htmlBuscarConCiclos) && ['b-ciclo','b-usuario','b-fecha-desde','b-fecha-hasta','b-solo-fotos','b-solo-fuera-plan'].every(id=>htmlBuscarConCiclos.includes(`id="${id}"`)), '"Más filtros" parte cerrado sin filtros activos y conserva todos los campos, obtuvo: '+(htmlBuscarConCiclos.match(/<details class="buscar-mas"[\s\S]{0,200}/)||[''])[0]);
+  assert(/<details class="plegable buscar-filtros" id="buscar-filtros" >/.test(htmlBuscarConCiclos) && htmlBuscarConCiclos.includes('Sin filtros: busca en todo el maestro'), 'tras una búsqueda sin filtros, el bloque de filtros se pliega y lo dice, obtuvo: '+(htmlBuscarConCiclos.match(/<details class="plegable buscar-filtros"[\s\S]{0,300}/)||[''])[0]);
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, yaBuscado:false, estado:'con_diferencia', claseAbc:'A', ciclo:'__sin_ciclo__', soloConFotos:true};
+  const htmlBuscarChips = ctx.renderBuscar();
+  assert(/<details class="plegable buscar-filtros" id="buscar-filtros" open>/.test(htmlBuscarChips), 'antes de la primera búsqueda los filtros van abiertos');
+  assert(['Con diferencia','Clase A','Sin ciclo','Con fotos'].every(t=>htmlBuscarChips.includes(`<span class="fchip fchip-sm">${t}</span>`)), 'cada filtro activo se resume en un chip, obtuvo: '+(htmlBuscarChips.match(/<span class="plegable-sub">[\s\S]*?<\/span>\s*<svg/)||[''])[0]);
+  assert(/<details class="buscar-mas" id="buscar-mas" open>\s*<summary>Más filtros \(2\)<\/summary>/.test(htmlBuscarChips) && htmlBuscarChips.includes('id="btn-limpiar-filtros-buscar"'), 'con dos filtros avanzados activos, "Más filtros (2)" parte abierto y aparece "Limpiar filtros", obtuvo: '+(htmlBuscarChips.match(/<details class="buscar-mas"[\s\S]{0,120}/)||[''])[0]);
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, estado:'', claseAbc:'', ciclo:'', soloConFotos:false, yaBuscado:true};
 
   // Pedido de Joel: mostrar el batch también -- la tabla de resultados de Buscar debe traer su
   // propia columna Batch, para distinguir dos filas del mismo sku_code que solo difieren en lote.

@@ -1419,6 +1419,47 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Buscar (Fase 4 del rediseño): caja grande, filtros plegables y chips, en el navegador =====
+  // A 420 px: la caja mide 56 px y el botón va al lado; "Más filtros" parte cerrado pero sus
+  // campos existen (el submit los lee); al buscar, los filtros se pliegan, aparecen los chips y
+  // los resultados; "Limpiar filtros" vuelve los campos a cero sin buscar.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('buscar-filtros: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    await page.route('**/rest/v1/rpc/filas_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { sku_id:'s-e2e-1', sku_code:'11164514', descripcion:'CLIP,ELEC,PRESS', bodega:'B501', ubicacion:'0102', storage_bin:'N1E-027-B1', batch:null, conteo_id:'c-1', cantidad_contada:3, estado:'con_diferencia', diferencia:-1, fecha_conteo:'2026-10-01T12:00:00Z', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false },
+    ]) }));
+    await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body:'1' }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('#btn-ir-buscar');
+    await page.waitForSelector('#b-texto', { timeout:ESPERA });
+    const barra = await page.evaluate(() => { const i = document.getElementById('b-texto').getBoundingClientRect(), b = document.querySelector('.buscar-btn').getBoundingClientRect(); return { h: Math.round(i.height), lado: Math.abs(i.top-b.top) < 2 && b.left > i.right }; });
+    assert(barra.h >= 56 && barra.lado, 'la caja mide 56 px y el botón Buscar va a su lado, obtuvo '+JSON.stringify(barra));
+    assert(await page.isVisible('#b-estado') && !(await page.isVisible('#b-fecha-desde')) && await page.$('#b-fecha-desde') !== null, 'Estado se ve, "Contado desde" está plegado pero existe');
+    await page.selectOption('#b-estado', 'con_diferencia');
+    await page.fill('#b-texto', '11164514');
+    await page.click('.buscar-btn');
+    assert(await esperarVisible(page, 'text=1 resultado'), 'al buscar aparece el contador de resultados');
+    assert(!(await page.isVisible('#b-estado')), 'tras buscar, los filtros se pliegan');
+    const chips = await page.$$eval('#buscar-filtros .fchip', els => els.map(e => e.textContent.trim()));
+    assert(chips.join('|') === '“11164514”|Con diferencia', 'los chips resumen la búsqueda hecha, obtuvo '+JSON.stringify(chips));
+    await page.click('#buscar-filtros > summary');
+    await page.waitForSelector('#btn-limpiar-filtros-buscar', { state:'visible', timeout:ESPERA });
+    await page.click('#btn-limpiar-filtros-buscar');
+    await page.waitForTimeout(300);
+    const limpio = await page.evaluate(() => ({ texto: document.getElementById('b-texto').value, estado: document.getElementById('b-estado').value, filas: document.querySelectorAll('.chk-buscar-fila').length }));
+    assert(limpio.texto === '' && limpio.estado === '' && limpio.filas === 1, '"Limpiar filtros" vacía los campos sin tocar los resultados, obtuvo '+JSON.stringify(limpio));
+    const desbordeBuscar = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeBuscar <= 0, 'a 420 px Buscar no desborda, obtuvo '+desbordeBuscar);
+    await context.close();
+  }
+
   // ===== El PDF de Buscar lo arma la app con pdf-lib (real, en Chromium) =====
   // El doble de pdf-lib de app.test.js prueba la maqueta; acá se carga la librería de verdad desde
   // app/lib, se incrustan una foto JPEG y el logo PNG de la empresa, y se revisa que salga un PDF
