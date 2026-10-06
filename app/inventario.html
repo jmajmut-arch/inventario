@@ -352,6 +352,34 @@ button.cal-nav-btn{width:auto;padding:8px 12px;flex:none;}
 .cal-detalle-fila{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);}
 .cal-detalle-fila:last-child{border-bottom:none;}
 .cal-detalle-num{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;}
+/* Fase 5 del rediseño (Calendario): cada día lleva su estado, calculado con lo que ya devuelve
+   resumen_calendario_mes (planificado, pendiente, fecha): atrasado (pasado con pendiente), cumplido
+   (sin pendiente), parcial (pasado con avance), futuro; barra fina de avance en la celda; fines de
+   semana sombreados; cumplimiento del mes en la cabecera. P/C/R sigue al tocar el día. */
+.cal-dia{min-height:62px;padding:5px 5px 5px;border-left-width:3px;}
+.cal-dia.fin-semana{background:var(--bg);}
+.cal-dia.vacio .cal-dia-num{color:var(--text-faint);}
+.cal-dia.futuro{border-left-color:var(--line-strong);}
+.cal-dia.cumplido{border-left-color:var(--ok);}
+.cal-dia.parcial{border-left-color:var(--warn);}
+.cal-dia.atrasado{border-left-color:var(--danger);}
+.cal-dia.es-hoy{border-color:var(--amber-text);box-shadow:inset 0 0 0 1px var(--amber-text);}
+.cal-dia.seleccionado{background:var(--amber);border-color:var(--amber);box-shadow:none;}
+.cal-dia-plan{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;line-height:1;margin-top:2px;font-variant-numeric:tabular-nums;color:var(--text);}
+.cal-dia.vacio .cal-dia-plan{display:none;}
+.cal-dia.seleccionado .cal-dia-plan{color:var(--on-amber);}
+.cal-dia-bar{height:4px;background:var(--line);margin-top:auto;border-radius:var(--radius);overflow:hidden;}
+.cal-dia-bar span{display:block;height:100%;background:var(--ok);}
+.cal-dia.parcial .cal-dia-bar span{background:var(--warn);}
+.cal-dia.atrasado .cal-dia-bar span{background:var(--danger);}
+.cal-dia.seleccionado .cal-dia-bar{background:rgba(0,0,0,.18);} .cal-dia.seleccionado .cal-dia-bar span{background:var(--on-amber);}
+.cal-leyenda{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--text-dim);margin-bottom:12px;}
+.cal-leyenda span{display:inline-flex;align-items:center;gap:6px;}
+.cal-leyenda i{display:inline-block;width:10px;height:10px;border-left:3px solid;background:var(--surface-2);}
+.cal-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+.cal-kpis .kpi{padding:10px 12px;} .cal-kpis .kpi .kpi-value{font-size:26px;margin:4px 0 2px;} .cal-kpis .kpi .kpi-sub{font-size:12px;}
+.cal-kpis .kpi.alerta .kpi-value{color:var(--danger);}
+@media (max-width:420px){ .cal-dia{min-height:56px;padding:4px 4px;} .cal-dia-plan{font-size:14px;} .cal-kpis{gap:6px;} .cal-kpis .kpi{padding:8px;} .cal-kpis .kpi .kpi-value{font-size:22px;} .cal-kpis .kpi .kpi-label{font-size:10.5px;letter-spacing:.04em;} }
 
 .segmented{display:flex;background:var(--surface-2);border-radius:var(--radius);padding:3px;margin-bottom:16px;gap:2px;}
 .segmented-btn{flex:1;min-height:var(--tap-sm);border:none;background:none;padding:6px 8px;border-radius:var(--radius);font-size:13px;font-weight:600;color:var(--text-dim);}
@@ -14182,6 +14210,18 @@ function renderDetalleGrupo(){
 // -- alcance por rol lo resuelve el propio RPC, acá solo se pinta lo que llega). Semana de lunes a
 // domingo, igual convención que Planificación (ver inicioSemana).
 const DOW_CORTOS = ['L','M','M','J','V','S','D'];
+// Estado de un día del calendario a partir de lo que ya devuelve resumen_calendario_mes. No es
+// un cálculo nuevo de negocio: "atrasado" es la misma definición que usa Plan (fecha pasada con
+// SKU planificados sin contar), y "cumplido" es pendiente en cero.
+function estadoDiaCalendario(d, fecha, hoy){
+  if(!d || !d.planificado) return 'vacio';
+  const avance = d.planificado - (d.pendiente||0);
+  if(d.pendiente<=0) return 'cumplido';
+  if(fecha < hoy) return 'atrasado';
+  if(avance>0) return 'parcial';
+  return 'futuro';
+}
+
 function renderCalendario(){
   const cal = state.calendario;
   const [y, m] = cal.mes.split('-').map(Number);
@@ -14195,15 +14235,33 @@ function renderCalendario(){
   for(let dia=1; dia<=diasEnMes; dia++) celdas.push(`${y}-${String(m).padStart(2,'0')}-${String(dia).padStart(2,'0')}`);
   const detalle = cal.diaSeleccionado ? porFecha[cal.diaSeleccionado] : null;
   const esAdmin = state.perfil && (state.perfil.rol==='admin' || state.perfil.es_super_admin);
+  // Cumplimiento del mes hasta hoy (días pasados y hoy): SKU del plan ya contados sobre los
+  // planificados; días atrasados y lo que queda por venir. Sumas sobre cal.dias, nada nuevo.
+  const cumplimiento = cal.dias.reduce((acc,d)=>{
+    const plan = Number(d.planificado)||0, pend = Number(d.pendiente)||0;
+    if(!plan) return acc;
+    if(d.fecha <= hoy){ acc.planificado += plan; acc.contados += Math.max(0, plan-pend); if(d.fecha < hoy && pend>0){ acc.diasAtrasados++; acc.pendientesAtrasados += pend; } }
+    else acc.porVenir += plan;
+    return acc;
+  }, {planificado:0, contados:0, diasAtrasados:0, pendientesAtrasados:0, porVenir:0});
+  cumplimiento.pct = cumplimiento.planificado ? cumplimiento.contados/cumplimiento.planificado*100 : 0;
 
   return `
     <div class="section-head"><div><span class="eyebrow">Empresa</span><h2>Calendario</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Cuánto se planificó, contó y recontó cada día. ${esAdmin? 'Ves toda la empresa.' : 'Ves solo lo tuyo (tu plan y tus conteos).'}</div>
-    <div class="hint" style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap">
-      <span><strong style="color:var(--text-faint)">P</strong> Planificado</span>
-      <span><strong style="color:var(--ok)">C</strong> Contado</span>
-      <span><strong style="color:var(--steel)">R</strong> Recontado</span>
+    <div class="cal-leyenda">
+      <span><i style="border-color:var(--ok)"></i>Cumplido</span>
+      <span><i style="border-color:var(--warn)"></i>Parcial</span>
+      <span><i style="border-color:var(--danger)"></i>Atrasado</span>
+      <span><i style="border-color:var(--line-strong)"></i>Por venir</span>
     </div>
+    ${cal.cargado && !cal.cargando && cumplimiento.planificado? `
+    <div class="cal-kpis">
+      <div class="kpi compact"><div class="kpi-label">Cumplimiento a hoy</div><div class="kpi-value">${pct(cumplimiento.pct)}%</div><div class="kpi-sub">${cumplimiento.contados.toLocaleString('es-CL')} de ${cumplimiento.planificado.toLocaleString('es-CL')} SKU del plan</div></div>
+      <div class="kpi compact${cumplimiento.diasAtrasados? ' alerta' : ''}"><div class="kpi-label">Días atrasados</div><div class="kpi-value">${cumplimiento.diasAtrasados}</div><div class="kpi-sub">${cumplimiento.pendientesAtrasados.toLocaleString('es-CL')} SKU sin contar</div></div>
+      <div class="kpi compact"><div class="kpi-label">Por venir</div><div class="kpi-value">${cumplimiento.porVenir.toLocaleString('es-CL')}</div><div class="kpi-sub">SKU planificados en el resto del mes</div></div>
+    </div>
+    ` : ''}
     <div class="card">
       <div class="cal-nav">
         <button type="button" id="cal-mes-prev" class="btn btn-secondary cal-nav-btn" aria-label="Mes anterior">‹</button>
@@ -14216,15 +14274,19 @@ function renderCalendario(){
         ${celdas.map(fecha=>{
           if(!fecha) return `<button type="button" class="cal-dia" disabled tabindex="-1"></button>`;
           const d = porFecha[fecha];
-          const clases = ['cal-dia'];
+          const estado = estadoDiaCalendario(d, fecha, hoy);
+          const clases = ['cal-dia', estado];
+          const dow = (new Date(fecha+'T00:00:00').getDay()+6)%7; // 0=lunes
+          if(dow>=5) clases.push('fin-semana');
           if(fecha===hoy) clases.push('es-hoy');
           if(fecha===cal.diaSeleccionado) clases.push('seleccionado');
+          const avancePct = d && d.planificado ? Math.round(Math.max(0, d.planificado-(d.pendiente||0))/d.planificado*100) : 0;
+          const etiqueta = `${fmtFecha(fecha)}${d && d.planificado? `: ${d.planificado} planificados, ${d.contado||0} contados, ${d.recontado||0} recontados, ${d.pendiente||0} pendientes` : ''}`;
           return `
-          <button type="button" class="${clases.join(' ')}" data-cal-dia="${fecha}" aria-label="${fmtFecha(fecha)}">
+          <button type="button" class="${clases.join(' ')}" data-cal-dia="${fecha}" aria-label="${esc(etiqueta)}" title="${esc(etiqueta)}">
             <span class="cal-dia-num">${Number(fecha.slice(-2))}</span>
-            ${d && d.planificado? `<span class="cal-dia-fila c-plan">P ${d.planificado}</span>` : ''}
-            ${d && d.contado? `<span class="cal-dia-fila c-contado">C ${d.contado}</span>` : ''}
-            ${d && d.recontado? `<span class="cal-dia-fila c-recontado">R ${d.recontado}</span>` : ''}
+            <span class="cal-dia-plan">${d && d.planificado? d.planificado.toLocaleString('es-CL') : ''}</span>
+            ${d && d.planificado? `<span class="cal-dia-bar"><span style="width:${avancePct}%"></span></span>` : ''}
           </button>`;
         }).join('')}
       </div>
@@ -14233,6 +14295,7 @@ function renderCalendario(){
     ${detalle? `
     <div class="section-head"><div><span class="eyebrow">${esc(fmtFecha(detalle.fecha))}</span><h2 style="font-size:15px">Detalle del día</h2></div></div>
     <div class="card">
+      ${(()=>{ const e = estadoDiaCalendario(detalle, detalle.fecha, hoy); const txt = {cumplido:['badge-ok','Cumplido'], parcial:['badge-warn','Parcial'], atrasado:['badge-danger','Atrasado'], futuro:['badge-neutral','Por venir'], vacio:['badge-neutral','Sin plan']}[e]; return `<div style="margin-bottom:8px"><span class="badge ${txt[0]}">${txt[1]}</span></div>`; })()}
       <div class="cal-detalle-fila"><span>Planificado</span><span class="cal-detalle-num">${detalle.planificado}</span></div>
       <div class="cal-detalle-fila"><span>Contado</span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
       <div class="cal-detalle-fila"><span>Recontado</span><span class="cal-detalle-num" style="color:var(--steel)">${detalle.recontado}</span></div>

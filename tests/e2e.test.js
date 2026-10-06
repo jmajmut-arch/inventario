@@ -1460,6 +1460,44 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Calendario (Fase 5 del rediseño): estados por día en el navegador =====
+  // Un día pasado con pendientes se marca atrasado, uno sin pendientes cumplido, uno por venir
+  // futuro; el resumen de cumplimiento aparece; tocar un día abre su detalle con el estado.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('calendario: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const hoyCal = new Date(); const iso = d => new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+    const mas = n => { const d = new Date(hoyCal); d.setDate(d.getDate()+n); return iso(d); };
+    const dias = [
+      { fecha: mas(-1), planificado:31, contado:0, recontado:0, pendiente:31 },
+      { fecha: mas(-2), planificado:8, contado:8, recontado:1, pendiente:0 },
+      { fecha: mas(1), planificado:40, contado:0, recontado:0, pendiente:40 },
+    ].filter(d => d.fecha.slice(0,7) === iso(hoyCal).slice(0,7));
+    await page.route('**/rest/v1/rpc/resumen_calendario_mes**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(dias) }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('#btn-ir-calendario');
+    assert(await esperarVisible(page, '.cal-grid .cal-dia.es-hoy'), 'el calendario del mes se dibuja con el día de hoy marcado');
+    const estados = await page.evaluate(ds => ds.map(d => { const el = document.querySelector(`[data-cal-dia="${d.fecha}"]`); return el ? el.className.split(' ').filter(c => ['atrasado','cumplido','parcial','futuro','vacio'].includes(c))[0] : null; }), dias);
+    const esperado = dias.map(d => d.fecha < iso(hoyCal) ? (d.pendiente ? 'atrasado' : 'cumplido') : 'futuro');
+    assert(JSON.stringify(estados) === JSON.stringify(esperado), 'cada día lleva su estado (atrasado / cumplido / futuro), obtuvo '+JSON.stringify(estados)+' esperaba '+JSON.stringify(esperado));
+    if(dias.length) assert(await page.isVisible('text=Cumplimiento a hoy') || dias.every(d => d.fecha > iso(hoyCal)), 'la cabecera muestra el cumplimiento a hoy');
+    const atrasado = dias.find(d => d.fecha < iso(hoyCal) && d.pendiente);
+    if(atrasado){
+      await page.click(`[data-cal-dia="${atrasado.fecha}"]`);
+      assert(await esperarVisible(page, 'text=Detalle del día'), 'tocar un día abre su detalle');
+      assert(await page.isVisible('.badge-danger:has-text("Atrasado")'), 'el detalle del día atrasado lleva su etiqueta');
+    }
+    const desbordeCal = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeCal <= 0, 'a 420 px el calendario no desborda, obtuvo '+desbordeCal);
+    await context.close();
+  }
+
   // ===== El PDF de Buscar lo arma la app con pdf-lib (real, en Chromium) =====
   // El doble de pdf-lib de app.test.js prueba la maqueta; acá se carga la librería de verdad desde
   // app/lib, se incrustan una foto JPEG y el logo PNG de la empresa, y se revisa que salga un PDF

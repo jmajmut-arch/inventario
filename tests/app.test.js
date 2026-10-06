@@ -12230,6 +12230,37 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   assert(ctx.vistaBloqueadaParaRol('calendario')===false, 'la vista calendario NO debe estar bloqueada para un admin (visible a todos), obtuvo: '+ctx.vistaBloqueadaParaRol('calendario'));
+  // Fase 5 del rediseño (Calendario): cada celda lleva su estado, calculado con lo que ya devuelve
+  // resumen_calendario_mes: atrasado (pasado con pendiente), cumplido (sin pendiente), parcial
+  // (pasado con algo contado), futuro; barra de avance; fines de semana sombreados; cumplimiento
+  // del mes a hoy en la cabecera. Fechas relativas a hoy para que la prueba no caduque.
+  {
+    const hoyCal = ctx.fechaISO(new Date());
+    const dCal = n => ctx.fechaISO(ctx.sumarDias(new Date(hoyCal+'T00:00:00'), n));
+    const mesCal = hoyCal.slice(0,8)+'01';
+    // Días del mes actual: ayer atrasado, anteayer cumplido, hoy parcial, mañana futuro. Si hoy es
+    // 1 o 2 del mes, ayer/anteayer caen en el mes anterior y no se dibujan: la prueba lo tolera.
+    ctx.__appstate.calendario = { mes:mesCal, cargando:false, cargado:true, diaSeleccionado:null, dias:[
+      {fecha:dCal(-1), planificado:31, contado:0, recontado:0, pendiente:31},
+      {fecha:dCal(-2), planificado:8, contado:8, recontado:1, pendiente:0},
+      {fecha:hoyCal, planificado:30, contado:10, recontado:0, pendiente:20},
+      {fecha:dCal(1), planificado:40, contado:0, recontado:0, pendiente:40},
+    ].filter(d=>d.fecha.slice(0,7)===hoyCal.slice(0,7)) };
+    const htmlCal = ctx.renderCalendario();
+    const celda = f => (htmlCal.match(new RegExp('<button type="button" class="([^"]*)" data-cal-dia="'+f+'"'))||[])[1] || '';
+    if(dCal(-1).slice(0,7)===hoyCal.slice(0,7)) assert(/\batrasado\b/.test(celda(dCal(-1))) && celda(dCal(-1)).indexOf('cumplido')<0, 'un día pasado con pendientes se marca atrasado, obtuvo: '+celda(dCal(-1)));
+    if(dCal(-2).slice(0,7)===hoyCal.slice(0,7)) assert(/\bcumplido\b/.test(celda(dCal(-2))), 'un día sin pendientes se marca cumplido, obtuvo: '+celda(dCal(-2)));
+    assert(/\bparcial\b/.test(celda(hoyCal)) && /\bes-hoy\b/.test(celda(hoyCal)), 'hoy con algo contado y pendientes se marca parcial y hoy, obtuvo: '+celda(hoyCal));
+    if(dCal(1).slice(0,7)===hoyCal.slice(0,7)) assert(/\bfuturo\b/.test(celda(dCal(1))), 'un día por venir se marca futuro, obtuvo: '+celda(dCal(1)));
+    assert(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,400}<span class="cal-dia-plan">30</span>\\s*<span class="cal-dia-bar"><span style="width:33%"></span>').test(htmlCal), 'la celda muestra los planificados y una barra con el avance (10 de 30 = 33%), obtuvo: '+(htmlCal.match(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,500}'))||[''])[0]);
+    const finDeSemana = (htmlCal.match(/class="cal-dia [^"]*fin-semana[^"]*"/g)||[]).length;
+    assert(finDeSemana>=8, 'los sábados y domingos del mes van sombreados (clase fin-semana), obtuvo '+finDeSemana);
+    assert(htmlCal.includes('Cumplimiento a hoy') && htmlCal.includes('Días atrasados') && htmlCal.includes('Por venir'), 'la cabecera resume cumplimiento a hoy, días atrasados y lo por venir, obtuvo: '+(htmlCal.match(/<div class="cal-kpis">[\s\S]{0,800}/)||[''])[0]);
+    assert(!htmlCal.includes('>P </span>') && !htmlCal.includes('c-plan'), 'las letras P/C/R salen de la celda (quedan en el detalle del día)');
+    ctx.__appstate.calendario = {...ctx.__appstate.calendario, diaSeleccionado: hoyCal};
+    const htmlCalDetalle = ctx.renderCalendario();
+    assert(htmlCalDetalle.includes('<span class="badge badge-warn">Parcial</span>') && htmlCalDetalle.includes('Detalle del día') && htmlCalDetalle.includes('Recontado'), 'el detalle del día muestra su estado y sigue trayendo P/C/R, obtuvo: '+(htmlCalDetalle.match(/Detalle del día[\s\S]{0,600}/)||[''])[0]);
+  }
   ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   assert(ctx.vistaBloqueadaParaRol('calendario')===false, 'la vista calendario NO debe estar bloqueada para un operador -- a diferencia de Dashboard/Plan/Carga/Períodos, se ve entera (con datos propios), obtuvo: '+ctx.vistaBloqueadaParaRol('calendario'));
   assert(ctx.viewTitle('calendario')==='Calendario', 'el título de la vista calendario debe ser "Calendario", obtuvo: '+ctx.viewTitle('calendario'));
@@ -12253,11 +12284,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlCal = ctx.renderCalendario();
   assert(htmlCal.includes('Septiembre 2026'), 'debe mostrar el mes y año que se está viendo, obtuvo: '+htmlCal.slice(0,700));
   assert(htmlCal.includes('data-cal-dia="2026-09-01"') && htmlCal.includes('data-cal-dia="2026-09-15"') && htmlCal.includes('data-cal-dia="2026-09-30"'), 'debe generar un botón por cada día del mes con data-cal-dia, obtuvo: '+htmlCal.slice(0,3000));
-  assert(htmlCal.includes('P 24') && htmlCal.includes('C 20') && htmlCal.includes('R 3'), 'un día con datos debe mostrar planificado/contado/recontado, obtuvo: '+htmlCal);
-  assert(!htmlCal.includes('P 0') && !htmlCal.includes('C 0') && !htmlCal.includes('R 0'), 'los días sin actividad (o en cero) no deben mostrar esa métrica, obtuvo: '+htmlCal);
-  // Leyenda de las letras P/C/R -- a pedido de Joel ("para que el cliente sepa"), ya que las
-  // celdas del calendario no traen espacio para deletrear "Planificado/Contado/Recontado".
-  assert(htmlCal.includes('Planificado') && htmlCal.includes('Contado') && htmlCal.includes('Recontado'), 'debe mostrar una leyenda explicando qué significa cada letra (P/C/R), obtuvo: '+htmlCal);
+  // Fase 5 del rediseño: la celda muestra los planificados y una barra de avance; planificado /
+  // contado / recontado completos van en el aria-label (y en el detalle al tocar el día).
+  assert(/data-cal-dia="2026-09-01"[^>]*aria-label="[^"]*24 planificados, 20 contados, 3 recontados, 4 pendientes"[\s\S]{0,300}<span class="cal-dia-plan">24<\/span>/.test(htmlCal), 'un día con datos debe mostrar sus planificados en la celda y el detalle P/C/R en la etiqueta accesible, obtuvo: '+(htmlCal.match(/data-cal-dia="2026-09-01"[\s\S]{0,500}/)||[''])[0]);
+  assert(/data-cal-dia="2026-09-03"[^>]*aria-label="[^"]*"[\s\S]{0,200}<span class="cal-dia-plan"><\/span>/.test(htmlCal) && !/data-cal-dia="2026-09-03"[^>]*planificados/.test(htmlCal), 'los días sin actividad no muestran cifras ni barra, obtuvo: '+(htmlCal.match(/data-cal-dia="2026-09-03"[\s\S]{0,400}/)||[''])[0]);
+  // Leyenda -- a pedido de Joel ("para que el cliente sepa"): ahora explica los estados de color.
+  assert(htmlCal.includes('Cumplido') && htmlCal.includes('Parcial') && htmlCal.includes('Atrasado') && htmlCal.includes('Por venir'), 'debe mostrar una leyenda con los estados de cada día, obtuvo: '+htmlCal);
 
   // Detalle del día elegido: "Ir a Contar ese día" para cualquier rol, "Ver en Planificación"
   // solo para admin/súper-admin (un operador no administra el plan, solo cuenta lo suyo).
