@@ -658,6 +658,28 @@ details.plegable>summary:focus-visible{outline:2px solid var(--amber);outline-of
 .plan-item-acciones .icon-btn{min-width:44px;min-height:44px;padding:0;border-radius:var(--radius);}
 .plan-item-acciones .icon-btn svg{width:18px;height:18px;}
 .plan-item-acciones .icon-btn:active{background:var(--surface-2);}
+/* Fase 4 del rediseño (Buscar): caja de búsqueda grande con su botón al lado, cuatro filtros
+   frecuentes a la vista, el resto bajo "Más filtros (N)", chips con lo que está filtrando y
+   "Limpiar". Tras buscar, los filtros se pliegan y los resultados suben; los campos siguen en el
+   DOM (el submit los lee de ahí), solo se pliegan. */
+.buscar-barra{display:flex;gap:8px;align-items:stretch;}
+.buscar-barra input{flex:1;min-width:0;min-height:var(--field-lg);font-size:17px;}
+.buscar-barra .buscar-btn{width:auto;flex:none;min-height:var(--field-lg);padding:0 22px;}
+.buscar-filtros{margin:12px 0 0;border-top:1px solid var(--line);}
+.buscar-filtros>summary .buscar-filtros-titulo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:17px;letter-spacing:0.03em;text-transform:uppercase;flex:none;}
+.buscar-filtros>summary .plegable-sub{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.fchip-sm{min-height:28px;font-size:12px;padding:0 10px;border-color:var(--line-strong);font-weight:600;}
+.buscar-frecuentes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 10px;}
+@media (max-width:720px){ .buscar-frecuentes{grid-template-columns:1fr 1fr;} }
+.buscar-frecuentes label{margin-top:8px;}
+.buscar-mas{margin-top:12px;border-top:1px dashed var(--line);}
+.buscar-mas>summary{list-style:none;cursor:pointer;min-height:var(--tap-sm);display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;color:var(--amber-text);padding:8px 0 0;}
+.buscar-mas>summary::-webkit-details-marker{display:none;}
+.buscar-mas>summary::before{content:"+";font-size:18px;line-height:1;width:14px;text-align:center;} .buscar-mas[open]>summary::before{content:"−";}
+.buscar-mas>summary:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.buscar-mas .conteo-check{color:var(--text);font-size:14px;}
+.buscar-pie{display:flex;justify-content:flex-end;margin-top:10px;}
+.buscar-pie .btn{width:auto;}
 /* Fase 2a del rediseño (Contar): la entrada es una tarjeta grande por lugar planificado
    (bodega · ubicación) y un toque abre la lista; el día y los <select> en cascada siguen
    existiendo (mismos ids, misma lógica) pero plegados bajo "Cambiar día o lugar". La lista de SKU
@@ -12622,6 +12644,26 @@ function thOrdenBuscar(campo, etiqueta, claseExtra){
   return `<th${claseExtra?` class="${claseExtra}"`:''}><button type="button" class="th-orden" data-orden-campo="${campo}" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;white-space:nowrap" aria-label="Ordenar por ${esc(etiqueta)}">${esc(etiqueta)}${flecha}</button></th>`;
 }
 
+// Chips de la cabecera de filtros de Buscar: una etiqueta corta por cada filtro puesto en el
+// formulario (texto, lugar, estado, clase, ciclo, grupo, persona, fechas, casillas). Solo lectura.
+function chipsFiltrosBuscar(b){
+  const etiquetaEstado = {no_contado:'No contado', aprobado:'Cuadrado', con_diferencia:'Con diferencia', diferencia_positiva:'Sobrante', diferencia_negativa:'Faltante', pendiente_revision:'Pendiente', reconteo_pendiente:'Pendiente de reconteo'};
+  const chips = [];
+  if(b.texto && b.texto.trim()) chips.push(`“${b.texto.trim()}”`);
+  if(b.bodega) chips.push(b.bodega===BODEGA_SIN_UBICACION ? 'Sin ubicación' : b.bodega===BODEGA_VACIA ? 'Sin bodega' : b.bodega);
+  if(b.ubicacion) chips.push(b.ubicacion);
+  if(b.estado) chips.push(etiquetaEstado[b.estado] || b.estado);
+  if(b.claseAbc) chips.push(b.claseAbc==='__sin_clasificar__' ? 'Sin clasificar' : 'Clase '+b.claseAbc);
+  if(b.ciclo) chips.push(b.ciclo==='__sin_ciclo__' ? 'Sin ciclo' : (((state.ciclos||[]).find(c=>c.id===b.ciclo)||{}).nombre || 'Ciclo'));
+  if(b.grupoId) chips.push('Grupo: '+((gruposParaFiltroBuscar().find(g=>g.id===b.grupoId)||{}).nombre || '…'));
+  if(b.usuarioId) chips.push('Contó: '+(b.usuarioNombre || 'esta cuenta'));
+  if(b.fechaDesde) chips.push('Desde '+fmtFecha(b.fechaDesde));
+  if(b.fechaHasta) chips.push('Hasta '+fmtFecha(b.fechaHasta));
+  if(b.soloConFotos) chips.push('Con fotos');
+  if(b.soloFueraDePlan) chips.push('Fuera de plan');
+  return chips;
+}
+
 function renderBuscar(){
   const b = state.busqueda;
   const ul = state.ubicacionesLista;
@@ -12661,22 +12703,36 @@ function renderBuscar(){
   // necesidad de ir página por página -- a pedido de Joel.
   const idsTodosCargados = (resultadosFiltrados || resultados).map(r=>r.sku_id);
   const todosSeleccionadosCargados = idsTodosCargados.length>0 && idsTodosCargados.every(id=>(b.seleccionados||[]).includes(id));
+  // Fase 4: los filtros parten abiertos y se pliegan al buscar (salvo que la persona los haya
+  // abierto o cerrado a mano: filtrosAbiertos); "Más filtros" parte abierto solo si alguno de los
+  // suyos está activo. Los chips resumen lo que está puesto en el formulario.
+  const chipsFiltros = chipsFiltrosBuscar(b);
+  const masFiltrosActivos = [b.ciclo, b.grupoId, b.usuarioId, b.fechaDesde, b.fechaHasta].filter(Boolean).length + (b.soloConFotos?1:0) + (b.soloFueraDePlan?1:0);
+  const filtrosAbiertos = typeof b.filtrosAbiertos==='boolean' ? b.filtrosAbiertos : !b.yaBuscado;
+  const masAbierto = typeof b.masFiltrosAbierto==='boolean' ? b.masFiltrosAbierto : masFiltrosActivos>0;
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
-    <div class="card">
+    <div class="card buscar-card">
       <form id="form-buscar">
         <label for="b-texto">Código o descripción del SKU</label>
-        <input type="text" id="b-texto" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(b.texto)}">
-        <div class="row2">
-          <div><label for="b-bodega">Ubicación general</label>
-            <select id="b-bodega" ${ul.cargando?'disabled':''}>${htmlOpcionesBodegaBuscar(b.bodega)}</select>
-          </div>
-          <div><label for="b-ubicacion">Ubicación específica</label>
-            <select id="b-ubicacion" ${b.bodega?'':'disabled'}>${htmlOpcionesUbicacionBuscar(b.bodega, b.ubicacion)}</select>
-          </div>
+        <div class="buscar-barra">
+          <input type="text" id="b-texto" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(b.texto)}">
+          <button type="submit" class="btn btn-primary buscar-btn" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
         </div>
-        <div id="b-ubicaciones-aviso" class="hint" style="margin-top:4px${ul.error?';color:var(--danger)':''}">${textoAvisoUbicacionesBuscar(ul)}</div>
-        <label for="b-estado" style="margin-top:12px">Estado</label>
+        <details class="plegable buscar-filtros" id="buscar-filtros" ${filtrosAbiertos? 'open' : ''}>
+          <summary>
+            <span class="buscar-filtros-titulo">Filtros</span>
+            <span class="plegable-sub">${chipsFiltros.length? chipsFiltros.map(c=>`<span class="fchip fchip-sm">${esc(c)}</span>`).join('') : 'Sin filtros: busca en todo el maestro'}</span>
+            <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="buscar-frecuentes">
+            <div><label for="b-bodega">Ubicación general</label>
+              <select id="b-bodega" ${ul.cargando?'disabled':''}>${htmlOpcionesBodegaBuscar(b.bodega)}</select>
+            </div>
+            <div><label for="b-ubicacion">Ubicación específica</label>
+              <select id="b-ubicacion" ${b.bodega?'':'disabled'}>${htmlOpcionesUbicacionBuscar(b.bodega, b.ubicacion)}</select>
+            </div>
+            <div><label for="b-estado">Estado</label>
             <select id="b-estado">
               <option value="">Todos</option>
               <option value="no_contado" ${b.estado==='no_contado'?'selected':''}>No contado</option>
@@ -12688,47 +12744,53 @@ function renderBuscar(){
               <option value="pendiente_revision" ${b.estado==='pendiente_revision'?'selected':''}>Pendiente</option>
               <option value="reconteo_pendiente" ${b.estado==='reconteo_pendiente'?'selected':''}>Pendiente de reconteo</option>
             </select>
-        ${state.ciclos.length? `
-        <label for="b-ciclo">Ciclo de conteo</label>
-        <select id="b-ciclo">
-          <option value="">Todos</option>
-          <option value="__sin_ciclo__" ${b.ciclo==='__sin_ciclo__'?'selected':''}>Sin ciclo asignado</option>
-          ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${b.ciclo===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
-        </select>
-        ` : ''}
-        ${gruposParaFiltroBuscar().length? `
-        <label for="b-grupo" style="margin-top:12px">Grupo de conteo</label>
-        <select id="b-grupo">
-          <option value="">Todos</option>
-          ${gruposParaFiltroBuscar().map(g=>`<option value="${esc(g.id)}" ${b.grupoId===g.id?'selected':''}>${esc(g.nombre)}</option>`).join('')}
-        </select>
-        ` : ''}
-        <label for="b-usuario" style="margin-top:12px">Contado por</label>
-        <select id="b-usuario" ${pb.cargando?'disabled':''}>${htmlOpcionesPersonaBuscar(b.usuarioId)}</select>
-        <div id="b-usuario-aviso" class="hint" style="margin-top:4px${pb.error?';color:var(--danger)':''}">${textoAvisoPersonasBuscar(pb)}</div>
-        <label for="b-clase-abc" style="margin-top:12px">Clase ABC</label>
-        <select id="b-clase-abc">
-          <option value="">Todas</option>
-          <option value="A" ${b.claseAbc==='A'?'selected':''}>Clase A</option>
-          <option value="B" ${b.claseAbc==='B'?'selected':''}>Clase B</option>
-          <option value="C" ${b.claseAbc==='C'?'selected':''}>Clase C</option>
-          <option value="__sin_clasificar__" ${b.claseAbc==='__sin_clasificar__'?'selected':''}>Sin clasificar</option>
-        </select>
-        <div class="row2 row2-fechas" style="margin-top:12px">
-          <div><label for="b-fecha-desde">Contado desde</label><input type="date" id="b-fecha-desde" value="${esc(b.fechaDesde)}"></div>
-          <div><label for="b-fecha-hasta">Contado hasta</label><input type="date" id="b-fecha-hasta" value="${esc(b.fechaHasta)}"></div>
-        </div>
-        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--text-dim)">
-          <input type="checkbox" id="b-solo-fotos" ${b.soloConFotos?'checked':''}>
-          Solo conteos con fotografías
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--text-dim)">
-          <input type="checkbox" id="b-solo-fuera-plan" ${b.soloFueraDePlan?'checked':''}>
-          Solo fuera de plan
-        </label>
-        <div style="margin-top:16px">
-          <button type="submit" class="btn btn-primary" ${b.buscando?'disabled':''}>${b.buscando?'<span class="spinner"></span>':'Buscar'}</button>
-        </div>
+            </div>
+            <div><label for="b-clase-abc">Clase ABC</label>
+            <select id="b-clase-abc">
+              <option value="">Todas</option>
+              <option value="A" ${b.claseAbc==='A'?'selected':''}>Clase A</option>
+              <option value="B" ${b.claseAbc==='B'?'selected':''}>Clase B</option>
+              <option value="C" ${b.claseAbc==='C'?'selected':''}>Clase C</option>
+              <option value="__sin_clasificar__" ${b.claseAbc==='__sin_clasificar__'?'selected':''}>Sin clasificar</option>
+            </select>
+            </div>
+          </div>
+          <div id="b-ubicaciones-aviso" class="hint" style="margin-top:4px${ul.error?';color:var(--danger)':''}">${textoAvisoUbicacionesBuscar(ul)}</div>
+          <details class="buscar-mas" id="buscar-mas" ${masAbierto? 'open' : ''}>
+            <summary>Más filtros${masFiltrosActivos? ` (${masFiltrosActivos})` : ''}</summary>
+            ${state.ciclos.length? `
+            <label for="b-ciclo">Ciclo de conteo</label>
+            <select id="b-ciclo">
+              <option value="">Todos</option>
+              <option value="__sin_ciclo__" ${b.ciclo==='__sin_ciclo__'?'selected':''}>Sin ciclo asignado</option>
+              ${state.ciclos.map(c=>`<option value="${esc(c.id)}" ${b.ciclo===c.id?'selected':''}>${esc(c.nombre)}</option>`).join('')}
+            </select>
+            ` : ''}
+            ${gruposParaFiltroBuscar().length? `
+            <label for="b-grupo" style="margin-top:12px">Grupo de conteo</label>
+            <select id="b-grupo">
+              <option value="">Todos</option>
+              ${gruposParaFiltroBuscar().map(g=>`<option value="${esc(g.id)}" ${b.grupoId===g.id?'selected':''}>${esc(g.nombre)}</option>`).join('')}
+            </select>
+            ` : ''}
+            <label for="b-usuario" style="margin-top:12px">Contado por</label>
+            <select id="b-usuario" ${pb.cargando?'disabled':''}>${htmlOpcionesPersonaBuscar(b.usuarioId)}</select>
+            <div id="b-usuario-aviso" class="hint" style="margin-top:4px${pb.error?';color:var(--danger)':''}">${textoAvisoPersonasBuscar(pb)}</div>
+            <div class="row2 row2-fechas" style="margin-top:12px">
+              <div><label for="b-fecha-desde">Contado desde</label><input type="date" id="b-fecha-desde" value="${esc(b.fechaDesde)}"></div>
+              <div><label for="b-fecha-hasta">Contado hasta</label><input type="date" id="b-fecha-hasta" value="${esc(b.fechaHasta)}"></div>
+            </div>
+            <label class="conteo-check">
+              <input type="checkbox" id="b-solo-fotos" ${b.soloConFotos?'checked':''}>
+              Solo conteos con fotografías
+            </label>
+            <label class="conteo-check" style="margin-top:0">
+              <input type="checkbox" id="b-solo-fuera-plan" ${b.soloFueraDePlan?'checked':''}>
+              Solo fuera de plan
+            </label>
+          </details>
+          ${chipsFiltros.length? `<div class="buscar-pie"><button type="button" class="btn btn-ghost btn-sm" id="btn-limpiar-filtros-buscar">Limpiar filtros</button></div>` : ''}
+        </details>
       </form>
     </div>
 
@@ -12739,11 +12801,11 @@ function renderBuscar(){
     </div>
     ` : ''}
     ${b.yaBuscado? `
-    <div class="section-head"><div><h2 style="font-size:15px">${totalConocido?totalReal:`${resultados.length}+`} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-        ${idsTodosCargados.length? `<button type="button" class="btn btn-secondary" id="btn-seleccionar-todo-buscar" data-ids="${esc(JSON.stringify(idsTodosCargados))}" style="width:auto;padding:8px 12px;flex:none">${todosSeleccionadosCargados? 'Quitar selección' : `Seleccionar todos (${idsTodosCargados.length})`}</button>` : ''}
-        ${(b.seleccionados||[]).length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar-pdf" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportandoPdf?'disabled':''}>${b.exportandoPdf?'<span class="spinner"></span> Generando…':`${ICONS.download} Exportar ${b.seleccionados.length} seleccionado${b.seleccionados.length===1?'':'s'} a PDF`}</button>` : ''}
-        ${resultados.length? `<button type="button" class="btn btn-secondary" id="btn-exportar-buscar" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
+    <div class="section-head" style="flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 220px;min-width:0"><h2 style="font-size:15px">${(totalConocido?totalReal:resultados.length).toLocaleString('es-CL')}${totalConocido?'':'+'} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal.toLocaleString('es-CL')}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto">
+        ${idsTodosCargados.length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-seleccionar-todo-buscar" data-ids="${esc(JSON.stringify(idsTodosCargados))}" style="width:auto;flex:none">${todosSeleccionadosCargados? 'Quitar selección' : `Seleccionar todos (${idsTodosCargados.length})`}</button>` : ''}
+        ${(b.seleccionados||[]).length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-buscar-pdf" style="width:auto;flex:none;display:flex;align-items:center;gap:6px" ${b.exportandoPdf?'disabled':''}>${b.exportandoPdf?'<span class="spinner"></span> Generando…':`${ICONS.download} Exportar ${b.seleccionados.length} seleccionado${b.seleccionados.length===1?'':'s'} a PDF`}</button>` : ''}
+        ${resultados.length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-buscar" style="width:auto;flex:none;display:flex;align-items:center;gap:6px" ${b.exportando?'disabled':''}>${b.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>` : ''}
       </div>
     </div>
     ${resultados.length? `
@@ -15506,6 +15568,16 @@ function viewTitle(v){
   return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Despacho', movimientos:'Movimientos', stock:'Stock', mover:'Cambio de ubicación', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
 }
 
+// Un <details> cuyo abierto/cerrado se recuerda en el estado (sin repintar): se escucha el clic en
+// su summary y se lee el estado resultante en el siguiente tick, porque el evento toggle también
+// se dispara al pintar un <details open> y marcaría como "elegido" lo que solo era el valor inicial.
+function recordarPlegable(id, guardar){
+  const det = document.getElementById(id);
+  const sum = (det && typeof det.querySelector==='function') ? det.querySelector(':scope > summary') : null;
+  if(!sum) return;
+  sum.addEventListener('click', ()=> setTimeout(()=> guardar(det.open), 0));
+}
+
 // Chip de conexión de la cabecera: siempre en Contar (la pantalla de terreno) y, en el resto,
 // solo cuando hay algo que avisar (sin señal o cambios por enviar). Lee navigator.onLine y la cola
 // offline que ya existía; no agrega lógica de sincronización.
@@ -17165,6 +17237,14 @@ function bind(){
       state.busqueda.ubicacion = '';
       actualizarSelectUbicacionEspecificaBuscar();
     });
+    // Fase 4: recordar si la persona abrió o cerró los filtros (solo el booleano, sin repintar), y
+    // "Limpiar filtros" vuelve el formulario a sus valores por defecto sin buscar.
+    // Se escucha el clic en el summary y no el evento toggle: Chrome dispara toggle también al
+    // pintar un <details open>, y eso dejaría marcado "lo abrió la persona" sin que tocara nada.
+    recordarPlegable('buscar-filtros', abierto=>{ state.busqueda.filtrosAbiertos = abierto; });
+    recordarPlegable('buscar-mas', abierto=>{ state.busqueda.masFiltrosAbierto = abierto; });
+    const btnLimpiarFiltros = document.getElementById('btn-limpiar-filtros-buscar');
+    if(btnLimpiarFiltros) btnLimpiarFiltros.addEventListener('click', ()=> setState({busqueda:{...state.busqueda, texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', grupoId:'', usuarioId:null, usuarioNombre:null, claseAbc:'', fechaDesde:'', fechaHasta:'', soloConFotos:false, soloFueraDePlan:false, filtrosAbiertos:true}}));
     document.getElementById('form-buscar').addEventListener('submit', e=>{
       e.preventDefault();
       const selCiclo = document.getElementById('b-ciclo');
@@ -17660,8 +17740,7 @@ function bind(){
     document.getElementById('p-modo-sku').addEventListener('click', ()=> cambiarModoAgregarPlan('sku'));
     // Resumen plegable (Fase 3): recordar si está abierto para que el próximo repintado no lo
     // cierre. Solo guarda el booleano; no repinta ni consulta nada.
-    const planResumen = document.getElementById('plan-resumen');
-    if(planResumen) planResumen.addEventListener('toggle', ()=>{ state.plan.resumenAbierto = planResumen.open; });
+    recordarPlegable('plan-resumen', abierto=>{ state.plan.resumenAbierto = abierto; });
     const inputSkuPlan = document.getElementById('p-sku-buscar');
     if(inputSkuPlan){
       inputSkuPlan.addEventListener('input', e=>{
