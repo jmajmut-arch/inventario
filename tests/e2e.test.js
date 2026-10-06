@@ -122,6 +122,24 @@ async function loguear(page, perfil){
     await loguear(page, PERFIL_ADMIN_PRO);
     assert(await page.isVisible('.tabbar'), 'tras loguearse debe verse la barra de navegación inferior');
     assert(await page.isVisible('[data-tab="dashboard"].active'), 'debe quedar parado en la pestaña Dashboard tras el login');
+    // Fase 1 del rediseño del Panel: la primera cifra ("Avance global", tarjeta hero) tiene que
+    // verse sin desplazar la pantalla, en celular y en iPad, y el detalle viene plegado.
+    const heroMovil = await page.$('.dash-kpis .kpi.hero');
+    const cajaMovil = heroMovil ? await heroMovil.boundingBox() : null;
+    assert(cajaMovil && cajaMovil.y >= 0 && cajaMovil.y + cajaMovil.height <= 900 - 56, 'a 420×900 la tarjeta "Avance global" debe verse completa sin desplazar (por encima de la barra inferior), obtuvo: '+JSON.stringify(cajaMovil));
+    assert(await page.$('details.dash-detalle:not([open])') !== null, 'el bloque "Detalle" del Panel debe venir plegado');
+    await context.close();
+  }
+  {
+    const context = await browser.newContext({ viewport:{ width:1024, height:768 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('login-ipad: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    const heroIpad = await page.$('.dash-kpis .kpi.hero');
+    const cajaIpad = heroIpad ? await heroIpad.boundingBox() : null;
+    assert(cajaIpad && cajaIpad.y >= 0 && cajaIpad.y + cajaIpad.height <= 768 - 56, 'a 1024×768 la tarjeta "Avance global" debe verse completa sin desplazar, obtuvo: '+JSON.stringify(cajaIpad));
+    const kpis = await page.$$eval('.dash-kpis .kpi', els => els.map(e => e.getBoundingClientRect().top));
+    assert(kpis.length === 4 && kpis.every(t => Math.abs(t - kpis[0]) < 2), 'a 1024 px las cuatro cifras de "¿Cómo vamos?" deben ir en una sola fila, obtuvo tops: '+JSON.stringify(kpis));
     await context.close();
   }
 

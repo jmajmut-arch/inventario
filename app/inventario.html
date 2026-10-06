@@ -277,6 +277,58 @@ main.ancho{max-width:1180px;}
 @media (min-width:900px){
   .dash-par{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0 16px;align-items:start;}
 }
+/* Fase 1 del rediseño (Panel): el modo Ejecutivo se lee en tres bandas que responden, en orden,
+   "¿cómo vamos?" (cuatro cifras), "¿dónde hay problemas?" (pérdidas, exactitud y pendientes por
+   bodega, tendencia) y "¿qué requiere acción?" (avisos con su botón). Todo lo demás sigue
+   existiendo, plegado bajo "Detalle". Los números y las consultas no cambian: es el mismo
+   renderInformeEjecutivo reordenado. */
+.dash-banda{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin:28px 0 12px;}
+.dash-banda h2{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:21px;letter-spacing:0.03em;text-transform:uppercase;margin:0;display:flex;align-items:center;gap:10px;}
+.dash-banda h2::before{content:"";display:inline-block;width:5px;height:20px;background:var(--amber);flex:none;}
+.dash-banda .dash-banda-linea{flex:1;height:1px;background:var(--line);min-width:24px;}
+.dash-banda .dash-banda-filtro{display:flex;align-items:center;gap:8px;}
+.dash-banda .dash-banda-filtro label{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);font-weight:700;white-space:nowrap;}
+.dash-banda .dash-banda-filtro select{margin:0;min-height:var(--tap-sm);width:auto;max-width:260px;font-size:13px;padding:6px 32px 6px 10px;}
+.dash-banda:first-child,.dash .segmented + .dash-banda{margin-top:8px;}
+.dash-kpis{display:grid;grid-template-columns:1.35fr 1fr 1fr 1fr;gap:12px;}
+.dash-kpis .kpi{min-width:0;display:flex;flex-direction:column;}
+.dash-kpis .kpi .kpi-label{color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+.dash-kpis .kpi .kpi-value{font-size:36px;margin:8px 0 2px;overflow-wrap:anywhere;}
+.dash-kpis .kpi .kpi-value.dinero{font-size:28px;}
+.dash-kpis .kpi .kpi-sub{line-height:1.35;}
+.dash-kpis .kpi .kpi-tendencia{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;margin-top:8px;}
+.dash-kpis .kpi.hero .kpi-value{font-size:52px;}
+.dash-kpis .kpi.hero .progress-track{height:12px;margin-top:12px;}
+.dash-kpis .kpi.hero .kpi-label{color:var(--amber);}
+.dash-kpis .kpi.hero .info-dato summary{color:var(--on-ink-dim);}
+.dash-kpis .kpi.hero .info-dato-texto{color:var(--text);}
+@media (max-width:760px){
+  .dash-kpis{grid-template-columns:1fr 1fr;}
+  .dash-kpis .kpi.hero{grid-column:1/-1;}
+  .dash-kpis .kpi .kpi-value{font-size:30px;}
+  .dash-kpis .kpi .kpi-value.dinero{font-size:22px;}
+}
+.dash-acciones .alert{margin-bottom:10px;}
+.dash-acciones .alert .btn{min-height:var(--tap-sm);padding:0 14px;}
+.dash-acciones .alert.ok{border-color:var(--ok);}
+.dash-acciones .alert.ok .alert-n{color:var(--ok);}
+.dash-acciones .alert.warn .alert-n{color:var(--warn);}
+.dash-acciones .alert.danger .alert-n{color:var(--danger);}
+.dash-acciones .alert.info .alert-n{color:var(--info);}
+@media (max-width:480px){
+  .dash-acciones .alert{flex-wrap:wrap;}
+  .dash-acciones .alert .btn{width:100%;margin-top:4px;}
+}
+details.dash-detalle{margin-top:28px;border-top:1px solid var(--line);}
+details.dash-detalle>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;min-height:var(--tap);padding:10px 0;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:21px;letter-spacing:0.03em;text-transform:uppercase;}
+details.dash-detalle>summary::-webkit-details-marker{display:none;}
+details.dash-detalle>summary::before{content:"";display:inline-block;width:5px;height:20px;background:var(--text-faint);flex:none;}
+details.dash-detalle>summary .dash-detalle-sub{font-family:'Inter',sans-serif;font-weight:500;font-size:12.5px;letter-spacing:0;text-transform:none;color:var(--text-dim);flex:1;}
+details.dash-detalle>summary .chev{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s;flex:none;}
+details.dash-detalle[open]>summary .chev{transform:rotate(180deg);}
+details.dash-detalle[open]>summary{border-bottom:1px solid var(--line);}
+details.dash-detalle>summary:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.dash .delta{font-size:13px;}
 
 /* Calendario mensual (ver renderCalendario): grilla de 7 columnas (lunes a domingo, igual que
    inicioSemana en Planificación), celdas angostas a propósito para caber en un celular -- el
@@ -385,6 +437,9 @@ textarea{resize:vertical;min-height:60px;}
 .kpi.compact{padding:12px;} .kpi.compact .kpi-value{font-size:26px;}
 .trend{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;padding:2px 8px;border-radius:var(--radius-pill);}
 .trend.up{color:var(--ok);background:var(--ok-bg);} .trend.down{color:var(--danger);background:var(--danger-bg);} .trend.flat{color:var(--text-dim);background:var(--surface-2);}
+.trend svg{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.trend{white-space:nowrap;}
+.trend-vs{font-size:12.5px;color:var(--text-dim);}
 .delta{display:inline-block;font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:600;font-size:13px;padding:2px 8px;border-radius:var(--radius-chip);}
 .delta.neg{background:var(--danger-bg);color:var(--danger);} .delta.pos{background:var(--ok-bg);color:var(--ok);} .delta.zero{background:var(--surface-2);color:var(--text-dim);}
 .alert{display:flex;gap:12px;align-items:center;padding:12px 16px;border:1px solid var(--line);border-left-width:4px;border-radius:var(--radius);background:var(--surface);margin-bottom:12px;}
@@ -618,8 +673,11 @@ textarea{resize:vertical;min-height:60px;}
   #print-informe h1{font-size:19px;margin:0 0 2px;}
   #print-informe .print-meta{font-size:11px;color:var(--text-dim);margin-bottom:16px;}
   #print-informe .segmented{display:none;}
-  #print-informe .section-head,#print-informe .card,#print-informe .tag-card,#print-informe .dash-avance{page-break-inside:avoid;}
-  #print-informe .section-head{page-break-after:avoid;}
+  #print-informe .section-head,#print-informe .card,#print-informe .tag-card,#print-informe .dash-avance,#print-informe .kpi,#print-informe .alert{page-break-inside:avoid;}
+  #print-informe .section-head,#print-informe .dash-banda{page-break-after:avoid;}
+  #print-informe .kpi.hero{background:#fff;color:#181b1a;border-color:#dde0db;border-left-color:#c9720f;}
+  #print-informe .kpi.hero .kpi-sub{color:#4c5450;}
+  #print-informe .dash-acciones .btn{display:none;}
 
   #print-buscar{display:block;padding:0;color:#000;background:#fff;}
   #print-buscar h1{font-size:17px;margin:0 0 2px;}
@@ -10303,8 +10361,8 @@ function tablaTopDiferencias(rows){
       <td class="mono">${esc(r.sku_code)}<div style="font-size:12px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div></td>
       <td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}</td>
       <td class="num">${r.ultima_cantidad_contada}</td>
-      <td class="num"><span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span></td>
-      <td class="num" style="${Number(r.valor_diferencia_linea)<0?'color:var(--danger)':'color:var(--ok)'}">${clp(r.valor_diferencia_linea)}</td>
+      <td class="num"><span class="delta ${Number(r.ultima_diferencia)<0?'neg':Number(r.ultima_diferencia)>0?'pos':'zero'}">${Number(r.ultima_diferencia)>0?'+':''}${r.ultima_diferencia}</span></td>
+      <td class="num" style="${Number(r.valor_diferencia_linea)<0?'color:var(--danger)':'color:var(--ok)'}">${clpSigno(r.valor_diferencia_linea)}</td>
       <td>${causaProbableBadge(r.causa_probable)} ${badgeReincidente(r)}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
@@ -10848,7 +10906,7 @@ function renderEscanerModal(){
 // Contenido de la vista ejecutiva del dashboard, extraído de renderDashboard() porque también
 // lo usa imprimirInformeCiclo(): así el informe PDF muestra exactamente los mismos números que
 // el dashboard, calculados una sola vez, en un solo lugar.
-function renderInformeEjecutivo(){
+function renderInformeEjecutivo({impresion=false, detalleExtra=''}={}){
   const t = state.dash.total;
   // skus_universo/skus_contados vienen de count(distinct) en la vista SQL: PostgREST los
   // serializa como string (bigint), así que sin Number() la suma concatena texto en vez de
@@ -10968,22 +11026,132 @@ function renderInformeEjecutivo(){
   // tiene sentido traer miles de filas de skus_valor_abc al navegador solo para contarlas.
   const resumenAbc = state.dash.resumenAbc||[];
 
-  // Orden pedido por Joel: avance global, exactitud, adherencia, valorización y proyección
-  // primero (el resumen ejecutivo de un vistazo); el resto (detalle/tendencia de cada uno y
-  // rankings) queda abajo, agrupado cerca del resumen del que es detalle. La tarjeta "Conteos
-  // recientes" (cantidad de conteos cargados, con reconteos) y el listado "Materiales contados"
-  // de la vista Operativo se sacaron a pedido de Joel: no agregaban valor (Buscar ya lista los
-  // conteos con todos sus filtros).
-  return `
-    <div class="dash-avance">
-      <div class="kpi-label">Avance global ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos en todas las bodegas.')}</div>
-      <div class="dash-avance-cifra">
-        <span class="kpi-value">${pct(avanceGlobal)}%</span>
-        <span class="kpi-sub">${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU</span>
-      </div>
-      <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100,avanceGlobal)}%${totContados>0?';min-width:4px':''}"></div></div>
-    </div>
+  // Fase 1 del rediseño del Panel (octubre 2026). El modo Ejecutivo se lee en tres bandas que
+  // responden, en orden, "¿cómo vamos?" (cuatro cifras), "¿dónde hay problemas?" (pérdidas,
+  // exactitud y pendientes por bodega, tendencia) y "¿qué requiere acción?" (avisos con su
+  // botón); todo lo demás sigue existiendo, plegado bajo "Detalle". Los números son los mismos
+  // de siempre y salen de los mismos cálculos de arriba: solo cambia el orden y qué se ve
+  // primero. El informe impreso (imprimirInformeCiclo) usa esta misma función con
+  // impresion:true, que despliega el detalle en vez de plegarlo (un <details> cerrado no se
+  // imprime) y escribe el período elegido como texto en vez del selector.
+  const adherencia = calcularAdherenciaPlan();
+  const hayValorizacion = valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0;
+  // Exactitud: variación del último mes con conteos respecto del anterior (mismo cálculo que el
+  // gráfico de tendencia, acá resumido en una sola cifra).
+  const puntoUltimo = tendenciaMensual[tendenciaMensual.length-1];
+  const puntoAnterior = tendenciaMensual[tendenciaMensual.length-2];
+  const deltaExactitud = (puntoUltimo && puntoAnterior) ? (puntoUltimo.exactitud - puntoAnterior.exactitud) : null;
+  const tendenciaChip = deltaExactitud===null ? '' : `<div class="kpi-tendencia">${Math.abs(deltaExactitud)<0.05
+    ? `<span class="trend flat">= sin cambio</span>`
+    : `<span class="trend ${deltaExactitud>0?'up':'down'}">${deltaExactitud>0?ICONO_TENDENCIA_SUBE:ICONO_TENDENCIA_BAJA}${deltaExactitud>0?'+':'−'}${pct(Math.abs(deltaExactitud))} pts</span>`}<span class="trend-vs">vs ${esc(fmtMesTruncado(puntoAnterior.dia))}</span></div>`;
 
+  const bandaComoVamos = `
+    <div class="dash-banda">
+      <h2>¿Cómo vamos?</h2>
+      <span class="dash-banda-linea"></span>
+      ${impresion
+        ? `<span class="hint" style="margin:0">Período: ${esc(adherencia.etiqueta)}</span>`
+        : `<div class="dash-banda-filtro"><label for="dash-periodo">Período</label><select id="dash-periodo">${opcionesPeriodoDash()}</select></div>`}
+    </div>
+    <div class="dash-kpis">
+      <div class="kpi hero">
+        <div class="kpi-label">Avance global ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos en todas las bodegas.')}</div>
+        <div class="kpi-value">${pct(avanceGlobal)}%</div>
+        <div class="kpi-sub">${totUniverso? `${totContados.toLocaleString('es-CL')} de ${totUniverso.toLocaleString('es-CL')} SKU con al menos un conteo` : 'Aún no hay SKU cargados.'}</div>
+        <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100,avanceGlobal)}%${totContados>0?';min-width:4px':''}"></div></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Exactitud de unidades ${campoConInfo('Sobre el último conteo de cada SKU, no cada conteo histórico — un reconteo que corrigió una diferencia no cuenta como error.')}</div>
+        <div class="kpi-value">${pct(exactitudUnidades)}%</div>
+        <div class="kpi-sub">${exactSinDif.toLocaleString('es-CL')} de ${exactContados.toLocaleString('es-CL')} SKU sin diferencia</div>
+        ${tendenciaChip}
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Adherencia al plan ${campoConInfo('SKU planificados en el período contra los que aún faltan por contar, sin importar cómo se contaron (plan, reconteo, buscador o escáner).')}</div>
+        <div class="kpi-value">${adherencia.planificados? pct(adherencia.pct)+'%' : '—'}</div>
+        <div class="kpi-sub">${adherencia.planificados? `${adherencia.contados.toLocaleString('es-CL')} de ${adherencia.planificados.toLocaleString('es-CL')} SKU planificados` : 'Sin plan creado para este período'}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Impacto neto ${campoConInfo('Pérdidas más excedentes, valorizados a costo unitario sobre el último conteo de cada SKU. Solo SKU con costo unitario cargado.')}</div>
+        <div class="kpi-value dinero" style="${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${hayValorizacion? clpSigno(valorNeto) : '—'}</div>
+        <div class="kpi-sub">${hayValorizacion? `Pérdidas ${clpSigno(valorPerdidas)} · Excedentes ${clpSigno(valorExcedentes)}` : 'Sin costo unitario cargado'}</div>
+      </div>
+    </div>
+  `;
+
+  const bandaProblemas = `
+    <div class="dash-banda"><h2>¿Dónde hay problemas?</h2><span class="dash-banda-linea"></span><span class="hint" style="margin:0">Peor primero</span></div>
+    ${topDiferenciasNegativas.length? `
+      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor en contra</span><h2 style="font-size:17px">Pérdidas con más impacto ${campoConInfo('Top 10 por valor total de la línea (diferencia × costo unitario), sobre el último conteo de cada SKU.')}</h2></div></div>
+      <div class="card">${tablaTopDiferencias(topDiferenciasNegativas)}</div>
+    ` : ''}
+    ${topDiferenciasPositivas.length? `
+      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor a favor</span><h2 style="font-size:17px">Excedentes con más impacto ${campoConInfo('Top 10 por valor total de la línea (diferencia × costo unitario), sobre el último conteo de cada SKU.')}</h2></div></div>
+      <div class="card">${tablaTopDiferencias(topDiferenciasPositivas)}</div>
+    ` : ''}
+    <div class="dash-par">
+    ${rankingExactitud.length? `
+      <section>
+      <div class="section-head"><div><span class="eyebrow">Exactitud de unidades</span><h2 style="font-size:17px">Ranking por ubicación general ${campoConInfo('Exactitud de unidades por bodega, peor primero.')}</h2></div></div>
+      <div class="card">${renderExactitudBarList(rankingExactitud)}</div>
+      </section>
+    ` : ''}
+    ${pendientesBodega.length? `
+      <section>
+      <div class="section-head"><div><span class="eyebrow">Dónde falta contar</span><h2 style="font-size:17px">SKU pendientes por ubicación general ${campoConInfo('SKU activos que todavía no tienen ningún conteo registrado.')}</h2></div></div>
+      <div class="card">${renderRankedBarList(pendientesBodega)}</div>
+      </section>
+    ` : ''}
+    </div>
+    <div class="section-head"><div><span class="eyebrow">De unidades, por mes calendario del conteo</span><h2 style="font-size:17px">Tendencia de exactitud ${campoConInfo('De unidades, agrupada por mes calendario de la fecha de conteo (no por ciclo de inventario).')}</h2></div></div>
+    <div class="tag-card" style="margin-bottom:14px">
+      ${mesesDisponibles.length===0? `
+        <div class="empty"><div class="glyph">◧</div>Vas a ver la tendencia acá apenas tengas conteos registrados.</div>
+      ` : mesesDisponibles.length===1? `
+        <div class="empty"><div class="glyph">◧</div>Por ahora solo hay conteos de ${esc(fmtMesTruncado(primerMes))}. La tendencia aparece cuando haya conteos de más de un mes.</div>
+      ` : `
+        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--steel)', fmtMesTruncado, true, false, {fluido:true})}
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+          ${mejorBodega? `<p class="dash-tendencia-linea" style="color:${mejorBodega.delta>=0?'var(--ok)':'var(--danger)'}">${mejorBodega.delta>=0?ICONO_TENDENCIA_SUBE:ICONO_TENDENCIA_BAJA}<span style="color:var(--text)"><strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</span></p>` : ''}
+          ${peorBodega && peorBodega.delta<0? `<p class="dash-tendencia-linea" style="color:var(--danger);margin:0">${ICONO_TENDENCIA_BAJA}<span style="color:var(--text-dim)"><strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</span></p>` : ''}
+        </div>
+        ${comparacionBodegas.length>1? `
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+            ${comparacionBodegas.map(b=>`
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                <span style="font-size:12.5px;color:var(--text-dim)">${esc(b.nombre)}</span>
+                <span class="mono" style="font-size:12.5px;color:${b.delta>=0?'var(--ok)':'var(--danger)'}">${pct(b.inicio)}% → ${pct(b.fin)}% (${b.delta>=0?'+':''}${pct(b.delta)} pts)</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      `}
+    </div>
+  `;
+
+  // "¿Qué requiere acción?": avisos con botón, armados con lo que el panel ya tiene cargado (sin
+  // consultas nuevas). Diferencias = SKU cuyo último conteo no cuadra (lo que lista Reconteo);
+  // plan sin contar = lo que falta del período elegido (lo que lista Plan). La tarjeta de bodega
+  // (pendientes de aprobación) es la misma de siempre, ahora dentro de esta banda.
+  const acciones = [];
+  if(totConDif>0) acciones.push({tipo:'warn', n: totConDif.toLocaleString('es-CL'), titulo:`SKU con diferencia en los últimos ${VENTANA_PROYECCION_DIAS} días`, detalle:'Su último conteo no cuadra con el sistema: recontar o cerrar con ajuste.', vista:'reconteo', boton:'Reconteo'});
+  if(adherencia.planificados && adherencia.pendientes>0) acciones.push({tipo:'info', n: adherencia.pendientes.toLocaleString('es-CL'), titulo:'SKU del plan sin contar todavía', detalle:`${esc(adherencia.etiqueta)}: ${adherencia.contados.toLocaleString('es-CL')} de ${adherencia.planificados.toLocaleString('es-CL')} contados.`, vista:'plan', boton:'Ver plan'});
+  const tarjetaBodega = impresion ? '' : renderResumenBodegaDashboard();
+  const bandaAcciones = `
+    <div class="dash-banda"><h2>¿Qué requiere acción?</h2><span class="dash-banda-linea"></span></div>
+    <div class="dash-acciones">
+      ${acciones.map(a=>`<div class="alert ${a.tipo}">
+        <div class="alert-n">${a.n}</div>
+        <div class="alert-t"><b>${a.titulo}</b><span>${a.detalle}</span></div>
+        <button type="button" class="btn btn-secondary btn-sm" data-ir-vista="${a.vista}">${a.boton}</button>
+      </div>`).join('')}
+      ${tarjetaBodega}
+      ${!acciones.length && !tarjetaBodega? `<div class="alert ok"><div class="alert-n">✓</div><div class="alert-t"><b>Nada pendiente por ahora</b><span>Sin diferencias recientes ni SKU del plan por contar.</span></div></div>` : ''}
+    </div>
+  `;
+
+  const detalle = `
+    ${detalleExtra}
     <div class="section-head"><div><span class="eyebrow">Sobre el último conteo de cada SKU</span><h2 style="font-size:17px">Exactitud ${campoConInfo('Sobre el último conteo de cada SKU, no cada conteo histórico — un reconteo que corrigió una diferencia no cuenta como error.')}</h2></div></div>
     <div class="kpi-grid" style="margin-bottom:14px">
       <div class="tag-card">
@@ -10998,29 +11166,29 @@ function renderInformeEjecutivo(){
       </div>
     </div>
 
-    ${renderAdherenciaPlan()}
+    ${renderAdherenciaPlan({conSelector:false})}
 
-    ${valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0? `
+    ${hayValorizacion? `
       <div class="section-head"><div><span class="eyebrow">Con costo unitario cargado</span><h2 style="font-size:17px">Valorización de diferencias ${campoConInfo("Solo SKU con costo unitario cargado. “Valor contado” es el stock según sistema, no lo efectivamente contado.")}</h2></div></div>
       <div class="kpi-grid" style="margin-bottom:14px">
         <div class="tag-card">
           <div class="kpi-label">Valor contado</div>
-          <div class="kpi-value" style="font-size:20px">${clp(valorContado)}</div>
+          <div class="kpi-value" style="font-size:20px">${clpSigno(valorContado)}</div>
           <div class="kpi-sub">stock según sistema</div>
         </div>
         <div class="tag-card">
           <div class="kpi-label">Pérdidas</div>
-          <div class="kpi-value" style="font-size:20px;color:var(--danger)">${clp(valorPerdidas)}</div>
+          <div class="kpi-value" style="font-size:20px;color:var(--danger)">${clpSigno(valorPerdidas)}</div>
           <div class="kpi-sub">contado bajo el sistema</div>
         </div>
         <div class="tag-card">
           <div class="kpi-label">Excedentes</div>
-          <div class="kpi-value" style="font-size:20px;color:var(--ok)">${clp(valorExcedentes)}</div>
+          <div class="kpi-value" style="font-size:20px;color:var(--ok)">${clpSigno(valorExcedentes)}</div>
           <div class="kpi-sub">contado sobre el sistema</div>
         </div>
         <div class="tag-card">
           <div class="kpi-label">Neto</div>
-          <div class="kpi-value" style="font-size:20px;${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${clp(valorNeto)}</div>
+          <div class="kpi-value" style="font-size:20px;${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${clpSigno(valorNeto)}</div>
           <div class="kpi-sub">impacto total de las diferencias</div>
         </div>
       </div>
@@ -11049,46 +11217,6 @@ function renderInformeEjecutivo(){
       <div class="kpi-sub">${proyeccion.detalle}</div>
     </div>
 
-    <div class="section-head"><div><span class="eyebrow">De unidades, por mes calendario del conteo</span><h2 style="font-size:17px">Tendencia de exactitud ${campoConInfo('De unidades, agrupada por mes calendario de la fecha de conteo (no por ciclo de inventario).')}</h2></div></div>
-    <div class="tag-card" style="margin-bottom:14px">
-      ${mesesDisponibles.length===0? `
-        <div class="empty"><div class="glyph">◧</div>Vas a ver la tendencia acá apenas tengas conteos registrados.</div>
-      ` : mesesDisponibles.length===1? `
-        <div class="empty"><div class="glyph">◧</div>Por ahora solo hay conteos de ${esc(fmtMesTruncado(primerMes))}. La tendencia aparece cuando haya conteos de más de un mes.</div>
-      ` : `
-        ${renderBarChart(tendenciaMensual, 'exactitud', 'var(--steel)', fmtMesTruncado, true, false, {fluido:true})}
-        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
-          ${mejorBodega? `<p class="dash-tendencia-linea" style="color:${mejorBodega.delta>=0?'var(--ok)':'var(--danger)'}">${mejorBodega.delta>=0?ICONO_TENDENCIA_SUBE:ICONO_TENDENCIA_BAJA}<span style="color:var(--text)"><strong>${esc(mejorBodega.nombre)}</strong> ${mejorBodega.delta>=0?'mejoró':'bajó'} ${pct(Math.abs(mejorBodega.delta))} puntos entre ${esc(fmtMesTruncado(primerMes))} y ${esc(fmtMesTruncado(ultimoMes))} (${pct(mejorBodega.inicio)}% → ${pct(mejorBodega.fin)}%).</span></p>` : ''}
-          ${peorBodega && peorBodega.delta<0? `<p class="dash-tendencia-linea" style="color:var(--danger);margin:0">${ICONO_TENDENCIA_BAJA}<span style="color:var(--text-dim)"><strong>${esc(peorBodega.nombre)}</strong> bajó ${pct(Math.abs(peorBodega.delta))} puntos en el mismo período (${pct(peorBodega.inicio)}% → ${pct(peorBodega.fin)}%).</span></p>` : ''}
-        </div>
-        ${comparacionBodegas.length>1? `
-          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
-            ${comparacionBodegas.map(b=>`
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-                <span style="font-size:12.5px;color:var(--text-dim)">${esc(b.nombre)}</span>
-                <span class="mono" style="font-size:12.5px;color:${b.delta>=0?'var(--ok)':'var(--danger)'}">${pct(b.inicio)}% → ${pct(b.fin)}% (${b.delta>=0?'+':''}${pct(b.delta)} pts)</span>
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
-      `}
-    </div>
-
-    ${rankingExactitud.length? `
-      <div class="section-head"><div><span class="eyebrow">Exactitud de unidades</span><h2 style="font-size:17px">Ranking por ubicación general ${campoConInfo('Exactitud de unidades por bodega, peor primero.')}</h2></div></div>
-      <div class="card">${renderExactitudBarList(rankingExactitud)}</div>
-    ` : ''}
-
-    ${topDiferenciasPositivas.length? `
-      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor a favor</span><h2 style="font-size:17px">Excedentes con más impacto ${campoConInfo('Top 10 por valor total de la línea (diferencia × costo unitario), sobre el último conteo de cada SKU.')}</h2></div></div>
-      <div class="card">${tablaTopDiferencias(topDiferenciasPositivas)}</div>
-    ` : ''}
-
-    ${topDiferenciasNegativas.length? `
-      <div class="section-head"><div><span class="eyebrow">Top 10 · Mayor valor en contra</span><h2 style="font-size:17px">Pérdidas con más impacto ${campoConInfo('Top 10 por valor total de la línea (diferencia × costo unitario), sobre el último conteo de cada SKU.')}</h2></div></div>
-      <div class="card">${tablaTopDiferencias(topDiferenciasNegativas)}</div>
-    ` : ''}
-
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Conteos por día ${campoConInfo('Últimos 14 días. Incluye conteos y reconteos, diferenciados por color.')}</h2></div></div>
     <div class="card">
       ${renderBarChartApilado(diarioAgg, 'contados', 'reconteos', 'var(--amber)', 'var(--steel)', 'reconteos', fmtDiaCorto, true)}
@@ -11097,7 +11225,7 @@ function renderInformeEjecutivo(){
 
     <div class="dash-par"><section>
     <div class="section-head"><div><span class="eyebrow">Últimos ${VENTANA_PROYECCION_DIAS} días</span><h2 style="font-size:17px">Diferencias ${campoConInfo('Últimos 14 días, sobre el último conteo de cada SKU — un reconteo que corrigió una diferencia no se cuenta dos veces.')}</h2></div></div>
-    <div class="card">${renderDiffChart(totSinDif, totConDif)}${cierresAjuste.n? `<div class="hint" style="margin-top:10px">Diferencias cerradas con ajuste en el ERP en este ciclo: <b>${cierresAjuste.n}</b>${cierresAjuste.valor? ` · por <b>$${Math.round(cierresAjuste.valor).toLocaleString('es-CL')}</b>` : ''}</div>` : ''}</div>
+    <div class="card">${renderDiffChart(totSinDif, totConDif)}${cierresAjuste.n? `<div class="hint" style="margin-top:10px">Diferencias cerradas con ajuste en el ERP en este ciclo: <b>${cierresAjuste.n}</b>${cierresAjuste.valor? ` · por <b>${clpSigno(cierresAjuste.valor)}</b>` : ''}</div>` : ''}</div>
     </section>
     ${rankingResponsables.length? `
       <section>
@@ -11106,14 +11234,26 @@ function renderInformeEjecutivo(){
       </section>
     ` : ''}
     </div>
-    ${pendientesBodega.length? `
-      <div class="section-head"><div><span class="eyebrow">Dónde falta contar</span><h2 style="font-size:17px">SKU pendientes por ubicación general ${campoConInfo('SKU activos que todavía no tienen ningún conteo registrado.')}</h2></div></div>
-      <div class="card">${renderRankedBarList(pendientesBodega)}</div>
-    ` : ''}
 
     <div class="section-head"><h2 style="font-size:17px">Avance por ubicación general ${campoConInfo('SKU con al menos un conteo, sobre el total de SKU activos de esa bodega.')}</h2></div>
     ${filasBodega}
   `;
+
+  const bloqueDetalle = impresion
+    ? `<div class="dash-banda"><h2>Detalle</h2><span class="dash-banda-linea"></span></div>${detalle}`
+    : `<details class="dash-detalle" id="dash-detalle">
+        <summary><span>Detalle</span><span class="dash-detalle-sub">Estado del maestro, exactitud, adherencia por bodega, valorización, ABC, proyección y actividad reciente</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></summary>
+        <div style="padding-top:4px">${detalle}</div>
+      </details>`;
+
+  return bandaComoVamos + bandaProblemas + bandaAcciones + bloqueDetalle;
+}
+
+// Dinero del Panel: el signo va antes del "$" ("−$293.716", con el signo menos tipográfico),
+// como se lee en un informe, y no "$-293.716" como lo escribe toLocaleString.
+function clpSigno(n){
+  const v = Number(n)||0;
+  return (v<0? '−' : '') + clp(Math.abs(v));
 }
 
 // Opciones del selector de período para "Adherencia al plan": el período actual (marcado
@@ -11133,6 +11273,26 @@ function opcionesPeriodoDash(){
   return opciones.join('');
 }
 
+// Cifras de "Adherencia al plan" para el período elegido en state.dashPeriodo (ver
+// renderAdherenciaPlan para qué mide). Con "Todos los períodos" suma todo lo planificado alguna
+// vez. Las usa la tarjeta de cabecera del Panel y el aviso de "SKU del plan sin contar".
+function calcularAdherenciaPlan(){
+  const filas = state.dash.avancePlanPorCiclo || [];
+  const periodo = state.dashPeriodo;
+  const cicloActual = (state.ciclos||[]).find(c=>c.es_actual);
+  let filasPeriodo, etiqueta;
+  if(periodo==='__todos__'){
+    filasPeriodo = filas; etiqueta = 'Todos los períodos';
+  }else{
+    const cicloId = periodo==='' ? (cicloActual? cicloActual.id : null) : (periodo==='__sin_periodo__' ? null : periodo);
+    filasPeriodo = filas.filter(r=> (r.ciclo_id||null) === cicloId);
+    etiqueta = cicloId===null ? 'Sin período' : (((state.ciclos||[]).find(c=>c.id===cicloId)||{}).nombre || 'Período eliminado');
+  }
+  const planificados = filasPeriodo.reduce((s,r)=>s+(Number(r.total_planificados)||0),0);
+  const contados = filasPeriodo.reduce((s,r)=>s+(Number(r.contados)||0),0);
+  return {planificados, contados, pendientes: Math.max(0, planificados-contados), pct: planificados? contados/planificados*100 : 0, etiqueta};
+}
+
 // "Adherencia al plan": cobertura real contra el plan asignado — de todo el universo de SKU
 // que cubren las entradas de Planificación de un período (sin importar la fecha de cada
 // entrada, ver avance_plan_por_ciclo), cuántos ya se contaron. Antes medía otra cosa ("de lo
@@ -11147,18 +11307,19 @@ function opcionesPeriodoDash(){
 // muestra es la del SKU (skus.bodega), igual que en Exactitud/Avance/Valorización. El selector
 // de período es puramente client-side sobre dash.avancePlanPorCiclo (ya trae todos los
 // períodos agrupados por bodega): cambiar de período solo recalcula esto, no dispara una
-// nueva carga.
-function renderAdherenciaPlan(){
+// nueva carga. En el modo Ejecutivo el selector vive en la banda "¿Cómo vamos?" (conSelector:
+// false acá); en Operativo sigue en esta sección, como siempre.
+function renderAdherenciaPlan({conSelector=true}={}){
   const filas = state.dash.avancePlanPorCiclo || [];
   const periodo = state.dashPeriodo;
   const cabecera = `
     <div class="section-head">
       <div><span class="eyebrow">Cuánto del plan asignado ya se contó</span><h2 style="font-size:17px">Adherencia al plan ${campoConInfo('SKU planificados en el período contra los que aún faltan por contar, sin importar cómo se contaron (plan, reconteo, buscador o escáner).')}</h2></div>
     </div>
-    <div class="card" style="margin-bottom:14px">
+    ${conSelector? `<div class="card" style="margin-bottom:14px">
       <label for="dash-periodo">Período</label>
       <select id="dash-periodo">${opcionesPeriodoDash()}</select>
-    </div>
+    </div>` : ''}
   `;
 
   const sumar = (rows) => rows.reduce((acc,r)=>({
@@ -11255,7 +11416,6 @@ function renderDashboard(){
 
   const ejecutivoIncluido = planIncluye('dashboard_ejecutivo_habilitado');
   const modo = (state.dashboardModo==='ejecutivo' && !ejecutivoIncluido) ? 'operativo' : state.dashboardModo;
-  const vistaEjecutiva = renderInformeEjecutivo();
 
   // Diario pagina de a 15 filas (ya vienen cargadas hasta 60 desde el servidor, ver
   // cargarDashboard): sin esto, una empresa con varias bodegas activas termina con decenas de
@@ -11264,7 +11424,14 @@ function renderDashboard(){
   const diarioPaginaActual = Math.min(state.dashDiarioPagina||0, diarioTotalPaginas-1);
   const diarioRows = state.dash.diario.slice(diarioPaginaActual*TAM_PAGINA_DASH_DIARIO, diarioPaginaActual*TAM_PAGINA_DASH_DIARIO + TAM_PAGINA_DASH_DIARIO);
 
+  // Operativo: las tablas por período, como siempre (más la tarjeta de bodega, el estado del
+  // maestro y la adherencia con su selector). Ejecutivo: las tres bandas y el detalle plegado
+  // (ver renderInformeEjecutivo); la tarjeta de bodega va dentro de "¿Qué requiere acción?" y el
+  // estado del maestro abre el detalle.
   const vistaOperativa = `
+    ${renderResumenBodegaDashboard()}
+    ${renderResumenGeneralSkus()}
+    ${renderAdherenciaPlan()}
     <div class="section-head"><h2 style="font-size:17px">Diario ${campoConInfo('SKU contados, con diferencia, reconteos y unidades por día calendario.')}</h2></div>
     <div class="card">
       ${periodTable(diarioRows,'Día','dia',fmtDiaTruncado)}
@@ -11285,17 +11452,14 @@ function renderDashboard(){
 
   return `<div class="dash">
     <div class="section-head">
-      <div><span class="eyebrow">Panel general</span><h2>Avance de inventario</h2></div>
+      <div><span class="eyebrow">Panel</span><h2>Avance de inventario</h2></div>
       <button class="btn btn-sm btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${ejecutivoIncluido?'':'disabled title="Disponible en el plan Profesional"'}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
     </div>
     <div class="segmented">
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
-    ${renderResumenBodegaDashboard()}
-    ${renderResumenGeneralSkus()}
-    ${modo==='operativo'? renderAdherenciaPlan() : ''}
-    ${modo==='operativo'? vistaOperativa : vistaEjecutiva}
+    ${modo==='operativo'? vistaOperativa : renderInformeEjecutivo({detalleExtra: renderResumenGeneralSkus()})}
   </div>`;
 }
 
@@ -12625,7 +12789,7 @@ function imprimirInformeCiclo(){
     ${encabezadoLogoImpresion()}
     <h1>Informe de ciclo de conteo</h1>
     <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
-    <div class="dash">${renderInformeEjecutivo()}</div>
+    <div class="dash">${renderInformeEjecutivo({impresion:true})}</div>
   `;
   window.print();
 }
@@ -12691,10 +12855,10 @@ function renderCuerpoInformeGuardado(datos){
     ${valorContado>0 || valorPerdidas!==0 || valorExcedentes!==0? `
       <div class="section-head"><div><span class="eyebrow">Con costo unitario cargado</span><h2 style="font-size:17px">Valorización de diferencias</h2></div></div>
       <div class="kpi-grid" style="margin-bottom:14px">
-        <div class="tag-card"><div class="kpi-label">Valor contado</div><div class="kpi-value" style="font-size:20px">${clp(valorContado)}</div></div>
-        <div class="tag-card"><div class="kpi-label">Pérdidas</div><div class="kpi-value" style="font-size:20px;color:var(--danger)">${clp(valorPerdidas)}</div></div>
-        <div class="tag-card"><div class="kpi-label">Excedentes</div><div class="kpi-value" style="font-size:20px;color:var(--ok)">${clp(valorExcedentes)}</div></div>
-        <div class="tag-card"><div class="kpi-label">Neto</div><div class="kpi-value" style="font-size:20px;${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${clp(valorNeto)}</div></div>
+        <div class="tag-card"><div class="kpi-label">Valor contado</div><div class="kpi-value" style="font-size:20px">${clpSigno(valorContado)}</div></div>
+        <div class="tag-card"><div class="kpi-label">Pérdidas</div><div class="kpi-value" style="font-size:20px;color:var(--danger)">${clpSigno(valorPerdidas)}</div></div>
+        <div class="tag-card"><div class="kpi-label">Excedentes</div><div class="kpi-value" style="font-size:20px;color:var(--ok)">${clpSigno(valorExcedentes)}</div></div>
+        <div class="tag-card"><div class="kpi-label">Neto</div><div class="kpi-value" style="font-size:20px;${valorNeto<0?'color:var(--danger)':valorNeto>0?'color:var(--ok)':''}">${clpSigno(valorNeto)}</div></div>
       </div>
     ` : ''}
 
