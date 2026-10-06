@@ -12198,6 +12198,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const idxGruposTab = shellHtmlTabs.indexOf('data-tab="grupos"');
   const idxPlanTab = shellHtmlTabs.indexOf('data-tab="plan"');
   assert(idxCiclosTab>=0 && idxGruposTab>idxCiclosTab && idxPlanTab>idxGruposTab, 'el tab "grupos" debe ir justo después de "ciclos" (Períodos) y antes de "plan" en la barra inferior, obtuvo índices: '+JSON.stringify({idxCiclosTab,idxGruposTab,idxPlanTab}));
+  // Fase 6 del rediseño (Navegación): la barra inferior queda en cinco posiciones (Panel · Plan ·
+  // Contar · Reconteo · Más) y la hoja "Más" (cerrada por defecto, abierta sin tocar el estado)
+  // reúne Carga, Períodos, Grupos, SKU, Calendario, Exportar y Salir con los ids de siempre; la
+  // cabecera conserva solo Buscar y Configuración (44 px) más el chip de conexión.
+  const barra = (shellHtmlTabs.match(/<nav class="tabbar">[\s\S]*?<\/nav>/)||[''])[0];
+  const tabsBarra = (barra.match(/data-tab="([a-z]+)"/g)||[]).map(t=>t.slice(10,-1));
+  assert(JSON.stringify(tabsBarra)===JSON.stringify(['dashboard','plan','conteo','reconteo']) && barra.includes('id="tab-mas"') && />\s*Panel\s*<\/button>/.test(barra), 'la barra inferior lleva Panel, Plan, Contar, Reconteo y Más, obtuvo: '+JSON.stringify(tabsBarra)+' / '+barra.slice(0,300));
+  const hoja = (shellHtmlTabs.match(/<div id="tab-mas-hoja" class="tab-mas-hoja" hidden>[\s\S]*?<\/div>\s*<\/div>/)||[''])[0];
+  assert(['data-tab="carga"','data-tab="ciclos"','data-tab="grupos"','id="btn-ir-skus"','id="btn-ir-calendario"','id="btn-exportar-conteos-modal"','id="btn-logout"'].every(m=>hoja.includes(m)), 'la hoja "Más" reúne Carga, Períodos, Grupos, SKU, Calendario, Exportar y Salir, obtuvo: '+hoja.slice(0,600));
+  const cabecera = (shellHtmlTabs.match(/<div class="user-chip">[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/)||[''])[0];
+  assert(cabecera.includes('id="btn-ir-buscar"') && cabecera.includes('id="btn-config"') && !cabecera.includes('id="btn-ir-skus"') && !cabecera.includes('id="btn-logout"'), 'la cabecera conserva Buscar y Configuración y deja el resto en "Más", obtuvo: '+cabecera.slice(0,500));
+  assert(ctx.viewTitle('dashboard')==='Panel' && ctx.viewTitle('conteo')==='Contar', 'los nombres de pantalla coinciden con las pestañas (Panel, Contar)');
 
   ctx.bind();
   const btnIrSkus = elements['btn-ir-skus'];

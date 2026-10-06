@@ -147,9 +147,15 @@ input,select,textarea{font-family:inherit;}
 .ticks span:nth-child(3n){height:14px;} .ticks span:nth-child(3n+1){height:8px;} .ticks span:nth-child(3n+2){height:11px;}
 
 /* ---------- top bar ---------- */
-.topbar{position:sticky;top:0;z-index:20;background:var(--nav-bg);border-bottom:var(--nav-border);color:var(--nav-text);padding:10px 16px 0;}
-.topbar-row{display:flex;flex-wrap:wrap;row-gap:8px;align-items:center;padding-bottom:10px;}
-.brand{display:flex;align-items:center;gap:10px;}
+.topbar{position:sticky;top:0;z-index:20;background:var(--nav-bg);border-bottom:var(--nav-border);color:var(--nav-text);padding:0 12px;}
+/* Fase 6 del rediseño: cabecera de una sola fila (56 px) con el nombre de la pantalla y la empresa
+   a la izquierda y, a la derecha, el chip de conexión y dos íconos de 44 px (Buscar y
+   Configuración). El resto de los accesos (SKU, Calendario, Exportar, Salir) vive en la hoja "Más"
+   de la barra inferior, que pasa de 7 pestañas a 5: Panel · Plan · Contar · Reconteo · Más. */
+.topbar-row{display:flex;flex-wrap:nowrap;gap:10px;align-items:center;min-height:56px;padding:6px 0;}
+.brand{display:flex;align-items:center;gap:10px;flex:1;min-width:0;}
+.brand-text{min-width:0;}
+.brand-text h1,.brand-text span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .brand-badge{width:34px;height:34px;border-radius:var(--radius);background:var(--amber);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;letter-spacing:-0.03em;color:var(--on-amber);flex-shrink:0;}
 /* Con logo propio la insignia deja de ser el degradado ámbar con "IA": pasa a ser una caja
    blanca con borde, que es lo único que hace lucir bien tanto un logo oscuro como uno claro,
@@ -171,7 +177,9 @@ input,select,textarea{font-family:inherit;}
 /* margin-left:auto en vez de justify-content:space-between en .topbar-row: así, cuando los
    íconos no caben junto al título en la misma línea, este chip baja a su propia línea (ver
    flex-wrap arriba) y igual queda pegado a la derecha, en vez de irse al extremo izquierdo. */
-.user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--nav-text-dim);margin-left:auto;}
+.user-chip{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--nav-text-dim);margin-left:auto;flex:none;}
+.user-chip>span.user-nombre{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+@media (max-width:700px){ .user-chip>span.user-nombre{display:none;} }
 .user-chip button{background:none;border:1px solid var(--nav-line);color:var(--nav-text);border-radius:var(--radius);padding:5px 9px;font-size:12px;}
 .user-chip button:active{background:var(--nav-line);}
 /* Con el nombre + rol de la cuenta y 6-7 íconos, el chip ya no cabía en una fila en un celular
@@ -532,6 +540,15 @@ textarea{resize:vertical;min-height:60px;}
 @media (max-width:385px){ .tab{font-size:9.5px;} }
 @media (max-width:365px){ .tab{font-size:9px;} }
 .tab-icon-wrap{position:relative;display:flex;}
+.tab-mas-fondo{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:21;}
+.tab-mas-hoja{position:fixed;left:0;right:0;bottom:0;padding:8px 12px calc(66px + env(safe-area-inset-bottom));background:var(--nav-bg);border-top:1px solid var(--nav-line);z-index:22;color:var(--nav-text);}
+.tab-mas-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;font-size:12.5px;color:var(--nav-text-dim);}
+.tab-mas-cab b{color:var(--nav-text);font-weight:600;}
+.tab-mas-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
+@media (min-width:700px){ .tab-mas-grid{grid-template-columns:repeat(7,minmax(0,1fr));} }
+.tab-mas-grid .tab{min-height:64px;border:1px solid var(--nav-line);border-radius:var(--radius);font-size:11.5px;color:var(--nav-text);}
+.tab-mas-grid .tab.active{border-color:var(--nav-accent);color:var(--nav-accent);}
+.tabbar{z-index:23;}
 .tab-icon-wrap>svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;}
 .tab-bloqueada{opacity:0.55;}
 .tab-candado{position:absolute;top:-4px;right:-6px;display:flex;align-items:center;justify-content:center;width:13px;height:13px;background:var(--nav-bg);border-radius:50%;}
@@ -608,7 +625,8 @@ textarea{resize:vertical;min-height:60px;}
 .tema-info{flex:1;min-width:0;}
 .tema-nombre{font-size:14px;font-weight:600;color:var(--text);}
 .tema-desc{font-size:12px;color:var(--text-faint);margin-top:2px;}
-.btn-icon-header{padding:6px;border:1px solid var(--nav-line);border-radius:var(--radius);background:none;color:var(--nav-text);display:inline-flex;align-items:center;justify-content:center;}
+.btn-icon-header{width:44px;height:44px;padding:0;border:1px solid var(--nav-line);border-radius:var(--radius);background:none;color:var(--nav-text);display:inline-flex;align-items:center;justify-content:center;flex:none;}
+.btn-icon-header svg{width:20px;height:20px;}
 
 .opcion-carga{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1.5px solid var(--line);border-radius:var(--radius);background:var(--surface-2);margin-bottom:8px;cursor:pointer;}
 .opcion-carga.activo{border-color:var(--amber);background:var(--surface);}
@@ -783,6 +801,12 @@ details.plegable>summary:focus-visible{outline:2px solid var(--amber);outline-of
 .chip-conexion.ok{color:var(--ok);border-color:transparent;background:rgba(63,166,96,.14);}
 .chip-conexion.pendiente{color:var(--amber);border-color:transparent;background:rgba(245,168,0,.16);}
 .chip-conexion.sin-senal{color:var(--danger);border-color:transparent;background:rgba(220,70,60,.16);}
+/* En celular, "Sincronizado" se reduce al punto verde (el texto va en el title) para no comerse
+   el nombre de la pantalla; "N por enviar" y "Sin señal" conservan su texto porque informan. */
+@media (max-width:480px){
+  .chip-conexion.ok{font-size:0;padding:0;min-height:0;width:12px;height:12px;border-radius:50%;background:var(--ok);}
+  .chip-conexion.ok::before{display:none;}
+}
 
 /* Los tres contenedores de impresión son invisibles en pantalla y solo aparecen dentro de
    @media print. A #print-informe le faltaba esta línea: como casi siempre está vacío no se
@@ -14346,9 +14370,9 @@ function renderBannerMfa(){
   if(!adminSinMfa() || mfaObligatoriaVigente() || state.view==='config' || bannerMfaVencido) return '';
   if(!bannerMfaTimer) bannerMfaTimer = setTimeout(ocultarBannerMfaPorTiempo, BANNER_MFA_MS);
   return `
-    <div id="banner-mfa" style="background:var(--amber-soft, rgba(224,178,60,.15));color:var(--text);border-bottom:1px solid var(--amber);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px">
-      <span>Tu cuenta administra la empresa y no tiene verificación en dos pasos. Desde el ${fmtFecha(state.mfaObligatoriaDesde)} será obligatoria para entrar.</span>
-      <button id="btn-banner-mfa" class="btn btn-sm btn-primary" style="width:auto;padding:6px 12px">Activarla ahora</button>
+    <div id="banner-mfa" style="background:var(--warn-bg);color:var(--text);border-bottom:1px solid var(--warn);padding:6px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;line-height:1.3">
+      <span style="flex:1;min-width:0">Tu cuenta administra la empresa y no tiene verificación en dos pasos. Desde el ${fmtFecha(state.mfaObligatoriaDesde)} será obligatoria para entrar.</span>
+      <button id="btn-banner-mfa" class="btn btn-sm btn-primary" style="width:auto;flex:none">Activarla ahora</button>
     </div>`;
 }
 // ---------- Instalar la app ----------
@@ -15628,7 +15652,7 @@ function bindDocumentoBodega(){
    RENDER — SHELL
    ======================================================================= */
 function viewTitle(v){
-  return {dashboard:'Dashboard', skus:'SKUs', carga:'Carga masiva', conteo:'Inventario', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Despacho', movimientos:'Movimientos', stock:'Stock', mover:'Cambio de ubicación', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
+  return {dashboard:'Panel', skus:'SKUs', carga:'Carga masiva', conteo:'Contar', reconteo:'Reconteo', config:'Configuraciones', buscar:'Buscar', plan:'Planificación', ciclos:'Períodos de conteo', calendario:'Calendario', grupos:'Grupos de conteo', inicio:'Inicio', reportes:'Reportes de bodega', ingreso:'Recepción', salida:'Despacho', movimientos:'Movimientos', stock:'Stock', mover:'Cambio de ubicación', ordenes:'Órdenes de compra', reservas:'Reservas'}[v];
 }
 
 // Un <details> cuyo abierto/cerrado se recuerda en el estado (sin repintar): se escucha el clic en
@@ -15650,7 +15674,7 @@ function renderChipConexion(){
   if(state.view!=='conteo' && !sinSenal && !n) return '';
   if(sinSenal) return `<span class="chip-conexion sin-senal" id="chip-conexion">Sin señal${n? ` · ${n} por enviar` : ''}</span>`;
   if(n) return `<span class="chip-conexion pendiente" id="chip-conexion">${state.sincronizandoOffline? 'Enviando…' : `${n} por enviar`}</span>`;
-  return `<span class="chip-conexion ok" id="chip-conexion">Sincronizado</span>`;
+  return `<span class="chip-conexion ok" id="chip-conexion" title="Sincronizado" aria-label="Sincronizado">Sincronizado</span>`;
 }
 
 function renderShell(){
@@ -15680,6 +15704,10 @@ function renderShell(){
   const content = bloqueadoPorMfa ? renderBloqueoMfa() : vistas[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
+  // Barra de Bodega (Inicio · Recepción · Despacho · Movimientos · Stock): no cambia en la Fase 6,
+  // así que ahí SKU, Calendario, Exportar y Salir siguen en la cabecera como antes; en el resto de
+  // la app viven en la hoja "Más" de la barra inferior.
+  const barraBodega = VISTAS_BODEGA.includes(state.view) || (state.view==='mover' && moduloBodegaActivo());
 
   return `
     <div class="topbar">
@@ -15690,14 +15718,15 @@ function renderShell(){
         </div>
         <div class="user-chip">
           ${renderChipConexion()}
-          ${moduloBodegaActivo() && state.view!=='inicio' ? `<button id="btn-ir-inicio" class="btn-icon-header" aria-label="Inicio">${ICONS.inicio.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>` : ''}
-          <button id="btn-config" class="btn-icon-header" aria-label="Configuraciones">${ICONS.config}</button>
-          <span>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--text-dim);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
-          <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs">${ICONS.skus.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
-          <button id="btn-ir-calendario" class="btn-icon-header" aria-label="Calendario">${ICONS.calendario.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
-          <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar">${ICONS.buscar.replace('<svg viewBox="0 0 24 24">','<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round">')}</button>
-          <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel">${ICONS.download.replace('style="width:15px;height:15px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
-          <button id="btn-logout" class="btn-icon-header" aria-label="Salir">${ICONS.logout.replace('style="width:14px;height:14px"','style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"')}</button>
+          <span class="user-nombre">${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}${state.perfil? `<span style="color:var(--nav-text-faint);font-weight:400"> · ${esc(rolMostrado)}</span>` : ''}</span>
+          ${moduloBodegaActivo() && state.view!=='inicio' ? `<button id="btn-ir-inicio" class="btn-icon-header" aria-label="Inicio" title="Inicio">${iconoCabecera(ICONS.inicio)}</button>` : ''}
+          <button id="btn-ir-buscar" class="btn-icon-header" aria-label="Buscar" title="Buscar">${iconoCabecera(ICONS.buscar)}</button>
+          <button id="btn-config" class="btn-icon-header" aria-label="Configuración" title="Configuración">${iconoCabecera(ICONS.config)}</button>
+          ${barraBodega? `
+          <button id="btn-ir-skus" class="btn-icon-header" aria-label="SKUs" title="SKU">${iconoCabecera(ICONS.skus)}</button>
+          <button id="btn-ir-calendario" class="btn-icon-header" aria-label="Calendario" title="Calendario">${iconoCabecera(ICONS.calendario)}</button>
+          <button id="btn-exportar-conteos-modal" class="btn-icon-header" aria-label="Exportar conteos a Excel" title="Exportar">${iconoCabecera(ICONS.download)}</button>
+          <button id="btn-logout" class="btn-icon-header" aria-label="Salir" title="Salir">${iconoCabecera(ICONS.logout)}</button>` : ''}
         </div>
       </div>
     </div>
@@ -15719,22 +15748,51 @@ function renderShell(){
     ${renderBannerMfa()}
     ${renderBannerInstalarApp()}
     <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
-    ${(VISTAS_BODEGA.includes(state.view) || (state.view==='mover' && moduloBodegaActivo())) ? `<nav class="tabbar">
+    ${barraBodega ? `<nav class="tabbar">
       ${tabBtn('inicio','Inicio')}
       ${tabBtn('ingreso','Recepción')}
       ${tabBtn('salida','Despacho')}
       ${tabBtn('movimientos','Movimientos')}
       ${tabBtn('stock','Stock')}
-    </nav>` : `<nav class="tabbar">
-      ${tabBtn('dashboard','Dashboard')}
-      ${tabBtn('carga','Carga')}
-      ${tabBtn('ciclos','Períodos')}
-      ${tabBtn('grupos','Grupos')}
+    </nav>` : `<div id="tab-mas-fondo" class="tab-mas-fondo" hidden></div>
+    <div id="tab-mas-hoja" class="tab-mas-hoja" hidden>
+      <div class="tab-mas-cab"><span><b>${esc(state.perfil? state.perfil.nombre : (state.session.user.email||''))}</b>${state.perfil? ` · ${esc(rolMostrado)}` : ''}</span><button type="button" id="tab-mas-cerrar" class="btn-icon-header" aria-label="Cerrar">${iconoCabecera(ICONS.x)}</button></div>
+      <div class="tab-mas-grid">
+        ${tabBtn('carga','Carga')}
+        ${tabBtn('ciclos','Períodos')}
+        ${tabBtn('grupos','Grupos')}
+        ${botonHojaMas('btn-ir-skus', ICONS.skus, 'SKU', state.view==='skus')}
+        ${botonHojaMas('btn-ir-calendario', ICONS.calendario, 'Calendario', state.view==='calendario')}
+        ${botonHojaMas('btn-exportar-conteos-modal', ICONS.download, 'Exportar', false)}
+        ${botonHojaMas('btn-logout', ICONS.logout, 'Salir', false)}
+      </div>
+    </div>
+    <nav class="tabbar">
+      ${tabBtn('dashboard','Panel')}
       ${tabBtn('plan','Plan')}
       ${tabBtn('conteo','Contar')}
       ${tabBtn('reconteo','Reconteo')}
+      <button type="button" class="tab ${VISTAS_EN_MAS.includes(state.view)?'active':''}" id="tab-mas" aria-expanded="false" aria-controls="tab-mas-hoja">
+        <span class="tab-icon-wrap">${ICONO_MAS}</span>
+        Más
+      </button>
     </nav>`}
   `;
+}
+
+// Pantallas que se abren desde la hoja "Más": con una de ellas activa, la pestaña Más se marca.
+const VISTAS_EN_MAS = ['carga','ciclos','grupos','skus','calendario','config'];
+const ICONO_MAS = '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
+// Ícono de la cabecera: el mismo dibujo de ICONS, sin los tamaños inline de 14 px que traen
+// algunos (el tamaño lo pone .btn-icon-header svg).
+function iconoCabecera(svg){
+  return svg.replace(/ style="[^"]*"/, '').replace('<svg viewBox="0 0 24 24">', '<svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">');
+}
+// Botón de la hoja "Más" con el mismo dibujo que una pestaña (ícono arriba, etiqueta abajo). Los
+// ids son los de siempre (btn-ir-skus, btn-ir-calendario, btn-exportar-conteos-modal, btn-logout):
+// bind() los engancha igual que cuando vivían en la cabecera.
+function botonHojaMas(id, svg, etiqueta, activo){
+  return `<button type="button" class="tab ${activo?'active':''}" id="${id}" aria-label="${esc(etiqueta)}"><span class="tab-icon-wrap">${iconoCabecera(svg)}</span>${esc(etiqueta)}</button>`;
 }
 
 function tabBtn(view,label){
@@ -16026,6 +16084,17 @@ function bind(){
     return;
   }
 
+  // Hoja "Más" de la barra inferior (Fase 6): se abre y cierra en el DOM, sin tocar el estado; al
+  // navegar desde ella, el repintado la deja cerrada. Tocar el fondo también la cierra.
+  const tabMas = document.getElementById('tab-mas');
+  if(tabMas){
+    const hoja = document.getElementById('tab-mas-hoja'), fondo = document.getElementById('tab-mas-fondo');
+    const mostrarHoja = abierta => { hoja.hidden = !abierta; fondo.hidden = !abierta; tabMas.setAttribute('aria-expanded', abierta? 'true' : 'false'); };
+    tabMas.addEventListener('click', ()=> mostrarHoja(hoja.hidden));
+    const cerrarMas = document.getElementById('tab-mas-cerrar');
+    if(cerrarMas) cerrarMas.addEventListener('click', ()=> mostrarHoja(false));
+    if(fondo) fondo.addEventListener('click', ()=> mostrarHoja(false));
+  }
   document.getElementById('btn-logout').addEventListener('click', ()=>{ detenerEscaner(); handleLogout(); });
   document.getElementById('btn-config').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'config'}); });
   document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
@@ -16038,7 +16107,9 @@ function bind(){
   if(btnRecargarVersion) btnRecargarVersion.addEventListener('click', recargarPorVersionNueva);
   const btnVerOffline = document.getElementById('btn-ver-offline');
   if(btnVerOffline) btnVerOffline.addEventListener('click', ()=> setState({offlineModal:true}));
-  document.querySelectorAll('.tab').forEach(btn=>{
+  // Solo las pestañas que navegan (data-tab): la pestaña "Más" y los botones de su hoja también
+  // llevan la clase .tab por su dibujo, pero tienen su propio manejador.
+  document.querySelectorAll('.tab[data-tab]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       if(btn.dataset.bloqueada){ toast('Esta sección es solo para administradores', 'err'); return; }
       detenerEscaner();
