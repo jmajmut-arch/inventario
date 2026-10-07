@@ -74,11 +74,11 @@
     + '<button type="button" class="modal-close" id="demo-modal-close" aria-label="Cerrar">✕</button>'
     + '<div id="demo-modal-form-wrap">'
     + '<h3>Prueba Invent<span class="ia">IA</span> ahora</h3>'
-    + '<p class="modal-sub">Te damos acceso a una bodega de ejemplo ya cargada, para que la explores tú mismo. Después, si te interesa, coordinamos un piloto real con tus propios datos.</p>'
+    + '<p class="modal-sub">Te damos acceso a una bodega de ejemplo ya cargada, con los módulos Inventario y Bodega, para que la explores tú mismo. Después, si te interesa, coordinamos un piloto real con tus propios datos.</p>'
     + '<form id="demo-form">'
     + '<label for="demo-nombre">Nombre</label><input type="text" id="demo-nombre" required autocomplete="name">'
     + '<label for="demo-email">Correo</label><input type="email" id="demo-email" required autocomplete="email">'
-    + '<label for="demo-telefono">Teléfono <span style="font-weight:400;color:var(--text-faint)">(solo para coordinar un piloto si te interesa)</span></label><input type="tel" id="demo-telefono" required autocomplete="tel" placeholder="+56 9 1234 5678">'
+    + '<label for="demo-telefono">Teléfono <span style="font-weight:400;color:var(--text-faint)">(te llamamos solo si pides un piloto)</span></label><input type="tel" id="demo-telefono" required autocomplete="tel" placeholder="+56 9 1234 5678">'
     + '<label for="demo-empresa">Empresa <span style="font-weight:400;color:var(--text-faint)">(opcional)</span></label>'
     + '<input type="text" id="demo-empresa" autocomplete="organization">'
     + trampa('demo-web')
@@ -98,7 +98,7 @@
     + '<div class="modal-card">'
     + '<button type="button" class="modal-close" id="contacto-modal-close" aria-label="Cerrar">✕</button>'
     + '<div id="contacto-modal-form-wrap">'
-    + '<h3>Escríbenos</h3><p class="modal-sub">Cuéntanos qué necesitas y te respondemos a la brevedad.</p>'
+    + '<h3 id="contacto-titulo">Escríbenos</h3><p class="modal-sub" id="contacto-sub">Cuéntanos qué necesitas y te respondemos en las próximas 24 horas.</p>'
     + '<form id="contacto-form">'
     + '<label for="contacto-nombre">Nombre</label><input type="text" id="contacto-nombre" required autocomplete="name">'
     + '<label for="contacto-email">Correo</label><input type="email" id="contacto-email" required autocomplete="email">'
@@ -111,7 +111,7 @@
     + '<div class="modal-error" id="contacto-error" style="display:none"></div>'
     + '</form></div>'
     + '<div id="contacto-modal-ok" class="modal-ok"><div class="check">✓</div><h3>¡Recibido!</h3>'
-    + '<p class="modal-sub">Gracias por escribirnos. Te respondemos a la brevedad.</p></div>'
+    + '<p class="modal-sub">Gracias por escribirnos. Te respondemos en las próximas 24 horas.</p></div>'
     + '</div></div>'
 
     + '<a class="whatsapp-float" id="whatsapp-float-link" href="https://wa.me/56968372524?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20InventIA" target="_blank" rel="noopener" aria-label="Escríbenos por WhatsApp">'
@@ -130,9 +130,9 @@
     var btn = $(cfg.prefijo + '-submit-btn');
     var abiertoEn = 0;
 
-    function abrir(dato) {
+    function abrir(dato, boton) {
       formWrap.style.display = '';
-      if (cfg.alAbrir) cfg.alAbrir(dato);
+      if (cfg.alAbrir) cfg.alAbrir(dato, boton);
       ok.classList.remove('open');
       error.style.display = 'none';
       backdrop.classList.add('open');
@@ -144,7 +144,7 @@
     document.querySelectorAll('[' + cfg.atributoBoton + ']').forEach(function (b) {
       b.addEventListener('click', function (e) {
         if (b.tagName === 'A') e.preventDefault();
-        abrir(b.getAttribute(cfg.atributoDato));
+        abrir(b.getAttribute(cfg.atributoDato), b);
       });
     });
     $(cfg.prefijo + '-modal-close').addEventListener('click', cerrar);
@@ -227,7 +227,17 @@
     tipoLead: 'contacto',
     textoBoton: 'Enviar mensaje',
     errorGenerico: 'No pudimos enviar tu mensaje. Intenta de nuevo.',
-    alAbrir: function (mensaje) { if (mensaje) $('contacto-mensaje').value = mensaje; },
+    // El mismo formulario sirve para "Escríbenos" y para "Solicitar piloto con mis datos": el botón
+    // que lo abre trae el título (data-titulo) y el mensaje prellenado (data-mensaje), y el
+    // subtítulo dice qué pasa después del envío, que es lo que la persona quiere saber.
+    alAbrir: function (mensaje, boton) {
+      var titulo = (boton && boton.getAttribute('data-titulo')) || 'Escríbenos';
+      $('contacto-titulo').textContent = titulo;
+      $('contacto-sub').textContent = titulo === 'Escríbenos'
+        ? 'Cuéntanos qué necesitas y te respondemos en las próximas 24 horas.'
+        : 'Cuéntanos de tu bodega y te escribimos en las próximas 24 horas para coordinar la carga de tu catálogo. Sin costo.';
+      $('contacto-mensaje').value = mensaje || '';
+    },
     cuerpo: function () {
       return {
         tipo: 'contacto',

@@ -41,7 +41,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/comun.css?v=20260927">
+<link rel="stylesheet" href="assets/comun.css?v=20261006">
 <style>
   /* ---- portada compacta: el titular y la elección tienen que caber en una pantalla ---- */
   /* Solo acá: bodega.html e inventario.html conservan el hero de comun.css. */
@@ -67,11 +67,11 @@
   .price-card .price-amount{font-family:'Barlow Condensed';font-weight:800;font-size:40px;letter-spacing:0;line-height:1;}
   .price-card .price-amount small{font-family:'Inter';font-weight:500;font-size:13px;color:var(--text-dim);}
   .price-card .price-period{font-size:12px;color:var(--text-faint);margin:5px 0 22px;}
-  .price-features{list-style:none;margin:0 0 26px;padding:0;flex:1;}
+  .price-features{list-style:none;margin:0 0 26px;padding:0;}
   .price-features li{font-size:13.5px;color:var(--text-dim);padding:9px 0;border-top:1px solid var(--line);display:flex;gap:9px;}
   .price-features li:first-child{border-top:none;}
   .price-features li::before{content:"✓";color:var(--amber);font-weight:700;flex-shrink:0;}
-  .price-cta{display:block;width:100%;text-align:center;padding:13px;border-radius:var(--radius);border:none;font-family:'Barlow Condensed';font-weight:800;font-size:17px;letter-spacing:.04em;text-transform:uppercase;background:var(--ink);color:var(--on-ink);cursor:pointer;}
+  .price-cta{display:block;width:100%;margin-top:auto;text-align:center;padding:13px;border-radius:var(--radius);border:none;font-family:'Barlow Condensed';font-weight:800;font-size:17px;letter-spacing:.04em;text-transform:uppercase;background:var(--ink);color:var(--on-ink);cursor:pointer;}
   .price-cta:hover{background:var(--ink-2);}
   .price-card.featured .price-cta{background:var(--amber);color:var(--on-amber);}
   .price-card.featured .price-cta:hover{background:#ffb81c;}
@@ -79,6 +79,16 @@
   .price-note a{color:inherit;text-decoration:underline;text-underline-offset:2px;}
   .price-cta-alt{display:block;width:100%;text-align:center;margin-top:12px;padding:0;background:none;border:none;font-family:inherit;font-size:12.5px;color:var(--text-faint);text-decoration:underline;text-underline-offset:2px;cursor:pointer;}
   .price-cta:disabled{opacity:.5;cursor:not-allowed;}
+  /* Funciones según el módulo elegido, dentro de la tarjeta (antes la lista mezclaba solo conteo
+     bajo un rótulo "Inventario o Bodega"): dos bloques cortos, uno bajo el otro (a tres tarjetas
+     por fila no hay ancho para dos columnas sin partir los títulos). */
+  .price-modulos{display:grid;gap:12px;margin:0 0 18px;padding-top:14px;border-top:1px solid var(--line);}
+  .price-modulos .t{font-family:'Barlow Condensed';font-weight:800;font-size:15px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;}
+  .price-modulos ul{list-style:none;margin:0;padding:0;}
+  .price-modulos li{font-size:13px;line-height:1.45;color:var(--text-dim);padding:4px 0 4px 14px;position:relative;}
+  .price-modulos li::before{content:"";position:absolute;left:0;top:11px;width:6px;height:6px;border-radius:50%;background:var(--amber);}
+  .price-ambos{font-size:12.5px;color:var(--text-faint);margin:0 0 18px;line-height:1.5;}
+  .price-ambos a{color:var(--text);text-decoration:underline;text-underline-offset:2px;}
   .price-modulo{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--on-amber);background:rgba(245,168,0,.22);border-left:3px solid var(--amber);border-radius:0 var(--radius) var(--radius) 0;padding:7px 11px;margin-bottom:18px;}
   /* ---- selector de módulos: los dos caminos (va pegado a la portada) ---- */
   .paths{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
@@ -126,7 +136,7 @@
 <script src="assets/analitica.js"></script>
 <script src="assets/sentry-config.js"></script>
 <script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
-<script src="assets/comun.js" defer></script>
+<script src="assets/comun.js?v=20261006" defer></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -220,11 +230,11 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
     <div>
 
-      <button type="button" class="cta" data-abrir-demo data-plan="hero">Ver Invent<span class="ia">IA</span> en acción →</button>
+      <button type="button" class="cta" data-abrir-demo data-plan="hero">Probar la demo gratis →</button>
 
       <a class="cta-ghost" href="#planes">Conocer planes <span>→</span></a>
     </div>
-    <div class="cta-sub">Funciona desde cualquier dispositivo móvil o computador. Sin instalar aplicaciones. Sin depender de Excel.</div>
+    <div class="cta-sub">Acceso inmediato a una bodega de ejemplo con los dos módulos, desde el celular o el computador que ya tienes. Sin instalar nada.</div>
   </div>
 
   <section id="soluciones">
@@ -316,17 +326,34 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="price-desc">Para una bodega y un equipo chico partiendo con el conteo digital.</div>
           <div class="price-amount">$160 <small>USD/mes</small></div>
           <div class="price-period">$187.000 CLP/mes, IVA incluido</div>
-          <div class="price-modulo">Inventario o Bodega</div>
+          <div class="price-modulo">Un módulo a elección</div>
           <ul class="price-features">
             <li>1 bodega</li>
             <li>Un administrador + hasta 1 operador</li>
-            <li>Carga de SKU y conteo con foto</li>
             <li>Modo offline con sincronización automática</li>
-            <li>Dashboard de avance</li>
             <li>Soporte por correo</li>
           </ul>
+          <div class="price-modulos">
+            <div>
+              <div class="t">Con Inventario</div>
+              <ul>
+                <li>Carga de SKU y conteo con foto</li>
+                <li>Diferencias automáticas</li>
+                <li>Dashboard de avance</li>
+              </ul>
+            </div>
+            <div>
+              <div class="t">Con Bodega</div>
+              <ul>
+                <li>Orden de compra y recepción con guía y fotos</li>
+                <li>Despacho con responsable y comprobante</li>
+                <li>Stock en mano al día</li>
+              </ul>
+            </div>
+          </div>
+          <div class="price-ambos">¿Los dos módulos? <a href="#" data-abrir-contacto data-mensaje="Necesito los dos módulos de InventIA (Inventario y Bodega) en el plan Básico." data-track-mailto="dos_modulos_basico">Escríbenos</a> y ajustamos el plan.</div>
           <button type="button" class="price-cta" data-suscribir="basico">Suscribirme</button>
-          <button type="button" class="price-cta-alt" data-abrir-demo data-plan="Básico">o explora la demo primero</button>
+          <button type="button" class="price-cta-alt" data-abrir-demo data-plan="Básico">o prueba la demo primero</button>
         </div>
 
         <div class="price-card featured reveal">
@@ -335,17 +362,35 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="price-desc">Para operaciones con varias bodegas y equipos en terreno.</div>
           <div class="price-amount">$300 <small>USD/mes</small></div>
           <div class="price-period">$350.000 CLP/mes, IVA incluido</div>
-          <div class="price-modulo">Inventario o Bodega</div>
+          <div class="price-modulo">Un módulo a elección</div>
           <ul class="price-features">
             <li>Hasta 2 bodegas</li>
             <li>Un administrador + hasta 2 operadores</li>
             <li>Modo offline con sincronización automática</li>
-            <li>Dashboard ejecutivo: proyección y ranking</li>
             <li>Auditoría de cambios</li>
             <li>Soporte prioritario</li>
           </ul>
+          <div class="price-modulos">
+            <div>
+              <div class="t">Con Inventario</div>
+              <ul>
+                <li>Plan por clase ABC, ubicación y responsable</li>
+                <li>Dashboard ejecutivo: proyección y ranking</li>
+                <li>Reconteo dirigido e informe por ciclo</li>
+              </ul>
+            </div>
+            <div>
+              <div class="t">Con Bodega</div>
+              <ul>
+                <li>Órdenes, recepciones y despachos con comprobante</li>
+                <li>Reservas y cambios de ubicación</li>
+                <li>Reportes por material, persona y período</li>
+              </ul>
+            </div>
+          </div>
+          <div class="price-ambos">¿Los dos módulos? <a href="#" data-abrir-contacto data-mensaje="Necesito los dos módulos de InventIA (Inventario y Bodega) en el plan Profesional." data-track-mailto="dos_modulos_profesional">Escríbenos</a> y ajustamos el plan.</div>
           <button type="button" class="price-cta" data-suscribir="profesional">Suscribirme</button>
-          <button type="button" class="price-cta-alt" data-abrir-demo data-plan="Profesional">o explora la demo primero</button>
+          <button type="button" class="price-cta-alt" data-abrir-demo data-plan="Profesional">o prueba la demo primero</button>
         </div>
 
         <div class="price-card reveal">
@@ -353,21 +398,22 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div class="price-desc">Para operaciones grandes o con varias plantas/empresas.</div>
           <div class="price-amount">A medida</div>
           <div class="price-period">precio según tu operación</div>
-          <div class="price-modulo">Inventario o Bodega</div>
+          <div class="price-modulo">Inventario, Bodega o los dos</div>
           <ul class="price-features">
+            <li>Todo lo de Profesional, en los módulos que necesites</li>
             <li>Usuarios ilimitados</li>
             <li>Multiempresa / multiplanta</li>
             <li>Roles y permisos avanzados</li>
             <li>Onboarding asistido</li>
             <li>Soporte prioritario dedicado</li>
           </ul>
-          <button type="button" class="price-cta" data-abrir-demo data-plan="Empresa">Explorar la demo</button>
-          <a class="price-cta-alt" href="#" data-abrir-contacto data-mensaje="Quiero solicitar un piloto de InventIA con mi bodega." data-track-mailto="piloto_empresa">Solicitar piloto con mi bodega</a>
+          <button type="button" class="price-cta" data-abrir-demo data-plan="Empresa">Probar la demo</button>
+          <a class="price-cta-alt" href="#" data-abrir-contacto data-titulo="Solicitar piloto con mis datos" data-mensaje="Quiero solicitar un piloto de InventIA con mi bodega." data-track-mailto="piloto_empresa">Solicitar piloto con mis datos</a>
         </div>
 
       </div>
       <div class="price-note">Precios netos en USD. El cobro mensual se hace en pesos chilenos con tarjeta, IVA incluido, usando un dólar de referencia de $980 que revisamos periódicamente. <a href="#" data-abrir-contacto data-mensaje="Quiero ajustar el plan de InventIA a mi operación." data-track-mailto="ajustar_plan">Escríbenos</a> para ajustar el plan a tu operación.</div>
-      <div class="price-note" style="margin-top:10px">Cada plan incluye un módulo, el que elijas: Inventario o Bodega. Si necesitas los dos, <a href="#" data-abrir-contacto data-mensaje="Necesito los dos módulos de InventIA (Inventario y Bodega)." data-track-mailto="dos_modulos">escríbenos</a> y ajustamos el plan a tu operación.</div>
+      <div class="price-note" style="margin-top:10px">Básico y Profesional incluyen un módulo, el que elijas: Inventario o Bodega. Los dos módulos comparten la misma base, así que activar el segundo después no obliga a cargar nada de nuevo.</div>
     </div>
   </section>
 
@@ -398,8 +444,11 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   </section>
   <div class="closing reveal">
     <h2>¿Listo para saber qué tan confiable es tu inventario?</h2>
-    <p>Deja tus datos y entra a la demo al instante, sin instalar nada, en el dispositivo móvil que ya tienes.</p>
-    <button type="button" class="cta" data-abrir-demo data-plan="closing">Explorar la demo</button>
+    <p>Entra a la demo al instante con datos de ejemplo, o pide un piloto sin costo con el catálogo de tu propia bodega.</p>
+    <div class="closing-acciones">
+      <button type="button" class="cta" data-abrir-demo data-plan="closing">Probar la demo</button>
+      <a class="cta-ghost" href="#" data-abrir-contacto data-titulo="Solicitar piloto con mis datos" data-mensaje="Quiero solicitar un piloto de InventIA con el catálogo de mi bodega." data-track-mailto="piloto_portada">Solicitar piloto con mis datos <span>→</span></a>
+    </div>
     <span class="cta-sub-link">¿Ya eres cliente? <a href="app/index.html">Ingresar a la app</a></span>
   </div>
 
