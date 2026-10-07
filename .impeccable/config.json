@@ -31,6 +31,30 @@
         "rule": "overused-font",
         "value": "arial",
         "createdAt": "2026-09-27T13:26:15.702Z"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-10-07T00:06:59.264Z"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "assets/comun.css"
+        ],
+        "createdAt": "2026-10-07T00:06:59.376Z"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-10-07T00:06:59.478Z"
       }
     ]
   }
