@@ -584,7 +584,7 @@ async function loguear(page, perfil){
     assert(caja && caja.y + caja.height <= 860, 'a 420 px el botón de la demo debe verse sin bajar, quedó en y='+(caja && caja.y));
     await cta.click();
     assert(await page.isVisible('#demo-modal-backdrop.open'), 'el botón de la portada debe abrir el formulario de demo');
-    assert((await page.textContent('label[for="demo-telefono"]')).includes('coordinar un piloto'), 'el teléfono debe explicar para qué se pide');
+    assert((await page.textContent('label[for="demo-telefono"]')).includes('si pides un piloto'), 'el teléfono debe explicar para qué se pide');
     assert((await page.textContent('#demo-submit-btn')).trim() === 'Entrar a la demo', 'el botón del formulario debe decir "Entrar a la demo"');
     await context.close();
   }
@@ -658,6 +658,60 @@ async function loguear(page, perfil){
     await page.click('#contacto-submit-btn');
     await page.waitForTimeout(300);
     assert(!!cuerpoEnviado && cuerpoEnviado[0].tipo==='contacto' && cuerpoEnviado[0].mensaje==='Quiero solicitar un piloto de InventIA con mi bodega.' && cuerpoEnviado[0].empresa==='Minera Ejemplo', 'el envío desde precios llega como contacto con el mensaje prellenado, obtuvo '+JSON.stringify(cuerpoEnviado));
+    await context.close();
+  }
+
+  // ===== Landing: qué compras, qué pruebas ahora y qué se coordina (revisión del 06/10) =====
+  // Planes decía "Inventario o Bodega" con funciones solo de conteo; Bodega solo ofrecía "Pedir
+  // una demostración" (un formulario de contacto titulado "Escríbenos") aunque la demo pública ya
+  // tiene el módulo activado; y el cierre de Inventario prometía "tu propia bodega" llevando a la
+  // demo de ejemplo. Ahora cada plan muestra sus funciones por módulo, las tres páginas abren la
+  // misma demo con el mismo nombre, y "Solicitar piloto con mis datos" abre el contacto con su
+  // propio título.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-modulos: '+err.message));
+    await bloquearSentry(page);
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+    const planes = await page.evaluate(() => [...document.querySelectorAll('.price-card')].map(c => ({
+      modulos: [...c.querySelectorAll('.price-modulos .t')].map(t => t.textContent.trim()),
+      bodega: /Despacho|Órdenes, recepciones/.test(c.textContent),
+      ambos: !!c.querySelector('.price-ambos [data-abrir-contacto]'),
+    })));
+    assert(planes.length === 3 && planes[0].modulos.join('|') === 'Con Inventario|Con Bodega' && planes[1].modulos.join('|') === 'Con Inventario|Con Bodega', 'Básico y Profesional deben listar sus funciones por módulo, obtuvo '+JSON.stringify(planes));
+    assert(planes[0].bodega && planes[1].bodega && planes[0].ambos && planes[1].ambos, 'cada plan debe nombrar funciones de Bodega y ofrecer "los dos módulos" dentro de la tarjeta, obtuvo '+JSON.stringify(planes));
+    const demoBotones = await page.evaluate(() => [...document.querySelectorAll('[data-abrir-demo]')].map(b => b.textContent.trim()));
+    assert(demoBotones.every(t => /Probar la demo|prueba la demo/i.test(t)), 'todos los botones de demo de la portada deben llamarse "Probar la demo", obtuvo '+JSON.stringify(demoBotones));
+    assert((await page.locator('.closing-acciones [data-abrir-demo]').count()) === 1 && (await page.locator('.closing-acciones [data-abrir-contacto][data-titulo]').count()) === 1, 'el cierre de la portada ofrece la demo y el piloto por separado');
+    assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)), 'la portada no debe desbordar a lo ancho en celular con las columnas por módulo');
+
+    // Bodega: la demo directa y el piloto con su propio título en el formulario de contacto.
+    await page.goto(`http://localhost:${PORT}/bodega.html`, { waitUntil:'networkidle' });
+    assert((await page.locator('.hero [data-abrir-demo]').count()) === 1, 'la portada de Bodega debe abrir la demo directamente');
+    await page.click('.closing-acciones [data-abrir-contacto]');
+    await page.waitForSelector('#contacto-modal-backdrop.open', { timeout:ESPERA });
+    assert((await page.textContent('#contacto-titulo')).trim() === 'Solicitar piloto con mis datos', 'el formulario abierto desde "Solicitar piloto" lleva ese título, obtuvo '+(await page.textContent('#contacto-titulo')));
+    assert(/24 horas/.test(await page.textContent('#contacto-sub')), 'el subtítulo dice qué pasa después del envío');
+    assert(/módulo Bodega/.test(await page.inputValue('#contacto-mensaje')), 'el mensaje viene prellenado para Bodega');
+    await page.click('#contacto-modal-close');
+    await page.click('.nav-links [data-abrir-contacto]').catch(() => {});
+    if (await page.isVisible('#contacto-modal-backdrop.open')) {
+      assert((await page.textContent('#contacto-titulo')).trim() === 'Escríbenos', 'el enlace Contacto del menú vuelve al título genérico, obtuvo '+(await page.textContent('#contacto-titulo')));
+    }
+
+    // Inventario: el cierre ya no promete "tu propia bodega" en el botón de la demo, y los
+    // controles del carrusel miden lo que se puede tocar con el dedo.
+    await page.goto(`http://localhost:${PORT}/inventario.html`, { waitUntil:'networkidle' });
+    const cierre = await page.evaluate(() => ({
+      titulo: document.querySelector('.closing h2').textContent.trim(),
+      demo: !!document.querySelector('.closing-acciones [data-abrir-demo]'),
+      piloto: !!document.querySelector('.closing-acciones [data-abrir-contacto][data-titulo]'),
+      flecha: document.querySelector('#vista-prev').getBoundingClientRect().height,
+      punto: document.querySelector('#vista-dots .carousel-dot').getBoundingClientRect().height,
+    }));
+    assert(!/propia bodega/.test(cierre.titulo) && cierre.demo && cierre.piloto, 'el cierre de Inventario separa la demo del piloto, obtuvo '+JSON.stringify(cierre));
+    assert(cierre.flecha >= 44 && cierre.punto >= 44, 'las flechas y los puntos del carrusel deben medir al menos 44 px, obtuvo '+JSON.stringify(cierre));
     await context.close();
   }
 

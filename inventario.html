@@ -23,20 +23,22 @@
 <meta name="twitter:image" content="https://inventiapp.cl/img/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/comun.css?v=20260927">
+<link rel="stylesheet" href="assets/comun.css?v=20261006">
 <style>
   .comparativa-img{width:100%;display:block;border-radius:var(--radius);box-shadow:0 30px 60px -30px rgba(0,0,0,.45);}
   .carousel .section-title{font-weight:700;}
   .carousel{position:relative;}
   .carousel-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
   .carousel-track::-webkit-scrollbar{display:none;}
-  .carousel-slide{flex:0 0 100%;min-width:100%;scroll-snap-align:start;display:flex;flex-direction:column;justify-content:center;}
-  .carousel-nav{display:flex;align-items:center;justify-content:center;gap:20px;margin-top:36px;}
-  .carousel-arrow{width:38px;height:38px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0;}
+  .carousel-slide{flex:0 0 100%;min-width:100%;scroll-snap-align:start;display:flex;flex-direction:column;justify-content:flex-start;}
+  .carousel-nav{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:36px;}
+  .carousel-arrow{width:44px;height:44px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0;}
   .carousel-arrow:hover{border-color:var(--amber);color:var(--amber);}
-  .carousel-dots{display:flex;align-items:center;gap:9px;}
-  .carousel-dot{width:8px;height:8px;border-radius:50%;border:none;background:var(--line);padding:0;cursor:pointer;transition:background .2s ease,transform .2s ease;}
-  .carousel-dot.active{background:var(--amber);transform:scale(1.35);}
+  .carousel-dots{display:flex;align-items:center;gap:0;}
+  /* El punto se ve de 8 px pero se toca en 44×44 (mínimo táctil); el círculo visible va en ::before. */
+  .carousel-dot{width:44px;height:44px;border:none;background:none;padding:0;cursor:pointer;position:relative;}
+  .carousel-dot::before{content:'';position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:var(--line);transition:background .2s ease,transform .2s ease;}
+  .carousel-dot.active::before{background:var(--amber);transform:scale(1.35);}
   .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:36px;}
   @media (max-width:720px){ .steps{grid-template-columns:1fr;gap:44px;} }
   .step{position:relative;padding-top:8px;}
@@ -56,7 +58,7 @@
 <script src="assets/analitica.js"></script>
 <script src="assets/sentry-config.js"></script>
 <script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
-<script src="assets/comun.js" defer></script>
+<script src="assets/comun.js?v=20261006" defer></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -369,9 +371,12 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     </div>
   </section>
   <div class="closing reveal">
-    <h2>Prueba el conteo con tu propia bodega</h2>
-    <p>Deja tus datos y entra a la demo al instante, sin instalar nada, en el dispositivo móvil que ya tienes.</p>
-    <button type="button" class="cta" data-abrir-demo data-plan="inventario-cierre">Explorar la demo</button>
+    <h2>¿Listo para probar el conteo?</h2>
+    <p>Entra a la demo al instante con una bodega de ejemplo, o pide un piloto sin costo con el catálogo de tu propia bodega.</p>
+    <div class="closing-acciones">
+      <button type="button" class="cta" data-abrir-demo data-plan="inventario-cierre">Probar la demo</button>
+      <a class="cta-ghost" href="#" data-abrir-contacto data-titulo="Solicitar piloto con mis datos" data-mensaje="Quiero solicitar un piloto del módulo Inventario con el catálogo de mi bodega." data-track-mailto="piloto_inventario">Solicitar piloto con mis datos <span>→</span></a>
+    </div>
     <span class="cta-sub-link">¿Prefieres ver los planes? <a href="index.html#planes">Míralos acá</a></span>
   </div>
 

@@ -23,7 +23,7 @@
 <meta name="twitter:image" content="https://inventiapp.cl/img/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/comun.css?v=20260927">
+<link rel="stylesheet" href="assets/comun.css?v=20261006">
 <style>
   /* ---- flujo de cuatro momentos (bodega) ---- */
   .flujo{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:60px;}
@@ -38,7 +38,7 @@
 <script src="assets/analitica.js"></script>
 <script src="assets/sentry-config.js"></script>
 <script src="https://js.sentry-cdn.com/3a8602b248fccf0a627d6af0f6e5161d.min.js" crossorigin="anonymous"></script>
-<script src="assets/comun.js" defer></script>
+<script src="assets/comun.js?v=20261006" defer></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -127,10 +127,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <p class="hero-sub">Ordena el movimiento de todos los días: lo que se le pide al proveedor, lo que llega, lo que sale y lo que queda en el estante. Cada movimiento con su documento, su responsable y su respaldo.</p>
 
     <div>
-      <a class="cta" href="#" data-abrir-contacto data-mensaje="Quiero ver una demostración del módulo Bodega.">Pedir una demostración →</a>
+      <button type="button" class="cta" data-abrir-demo data-plan="bodega">Probar la demo gratis →</button>
       <a class="cta-ghost" href="inventario.html">Ver el módulo Inventario <span>→</span></a>
     </div>
-    <div class="cta-sub">Si alguien pregunta por un material, la respuesta está en una pantalla.</div>
+    <div class="cta-sub">Acceso inmediato a una bodega de ejemplo con el módulo Bodega activado. Sin instalar nada.</div>
   </div>
 
   <section id="bodega">
@@ -202,8 +202,11 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   </section>
   <div class="closing reveal">
     <h2>¿Listo para saber quién se llevó qué?</h2>
-    <p>Te mostramos el módulo en vivo con datos de ejemplo, o cargamos tu propio catálogo para un piloto sin costo.</p>
-    <a class="cta" href="#" data-abrir-contacto data-mensaje="Quiero ver una demostración del módulo Bodega.">Pedir una demostración</a>
+    <p>Entra a la demo al instante con datos de ejemplo, o pide un piloto sin costo con tu propio catálogo.</p>
+    <div class="closing-acciones">
+      <button type="button" class="cta" data-abrir-demo data-plan="bodega-cierre">Probar la demo</button>
+      <a class="cta-ghost" href="#" data-abrir-contacto data-titulo="Solicitar piloto con mis datos" data-mensaje="Quiero solicitar un piloto del módulo Bodega con mi propio catálogo." data-track-mailto="piloto_bodega">Solicitar piloto con mis datos <span>→</span></a>
+    </div>
     <span class="cta-sub-link">¿Prefieres ver los planes? <a href="index.html#planes">Míralos acá</a></span>
   </div>
 
