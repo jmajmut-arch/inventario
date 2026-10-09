@@ -4123,6 +4123,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     delete elements['btn-mfa-activar'];
     ctx.bind();
     assert(!!elements['btn-mfa-activar'] && (elements['btn-mfa-activar'].listeners.click||[]).length>0, 'en la pantalla de bloqueo el botón Activar debe quedar atado aunque no estemos en Configuraciones');
+    // Sentry JAVASCRIPT-E: con el bloqueo en pantalla, state.view sigue diciendo la vista elegida
+    // (Buscar, Configuraciones...) pero su contenido no se dibuja. bind() no debe atarla: en el
+    // navegador getElementById('form-buscar') daba null y cada toque de la lupa fallaba. Y en
+    // Configuraciones el botón Activar se ata una sola vez, no dos.
+    const vistaAntesBloqueo = ctx.__appstate.view;
+    ctx.__appstate.view = 'buscar';
+    delete elements['form-buscar']; delete elements['btn-ir-buscar'];
+    ctx.bind();
+    assert(!elements['form-buscar'], 'con el bloqueo por MFA, bind() no debe buscar el formulario de Buscar, que no está en pantalla');
+    assert(!!elements['btn-ir-buscar'] && (elements['btn-ir-buscar'].listeners.click||[]).length>0, 'la lupa de la cabecera sí está en pantalla y debe quedar atada');
+    ctx.__appstate.view = 'config';
+    delete elements['btn-mfa-activar'];
+    ctx.bind();
+    assert((elements['btn-mfa-activar'].listeners.click||[]).length===1, 'en Configuraciones con el bloqueo, Activar se ata una sola vez, obtuvo '+(elements['btn-mfa-activar'].listeners.click||[]).length);
+    ctx.__appstate.view = vistaAntesBloqueo;
     ctx.__appstate.mfaFactores = [{id:'f1', status:'verified', factor_type:'totp'}];
     assert(!ctx.renderShell().includes('Activa la verificación en dos pasos</h2>'), 'al activar la MFA la app sigue normal');
     ctx.__appstate.perfil = OPER_MFA; ctx.__appstate.mfaFactores = [];

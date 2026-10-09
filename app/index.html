@@ -14406,6 +14406,11 @@ function adminSinMfa(){
 function mfaObligatoriaVigente(){
   return fechaISO(new Date()) >= state.mfaObligatoriaDesde;
 }
+// Lo que dibuja renderShell y lo que ata bind() tienen que decidir lo mismo: si el admin sin MFA
+// ve el bloqueo, ninguna vista está en pantalla.
+function pantallaBloqueadaPorMfa(){
+  return adminSinMfa() && mfaObligatoriaVigente();
+}
 // Pedido de Joel (27/09/2026): el aviso se ve unos 15 segundos al entrar y se oculta solo; vuelve
 // en el próximo ingreso mientras la cuenta siga sin segundo factor, y la activación queda siempre
 // en Configuraciones. Antes se quedaba fijo arriba en todas las pestañas hasta activar la MFA.
@@ -15758,8 +15763,7 @@ function renderShell(){
     reservas: renderReservas,
     mover: renderMover,
   };
-  const bloqueadoPorMfa = adminSinMfa() && mfaObligatoriaVigente();
-  const content = bloqueadoPorMfa ? renderBloqueoMfa() : vistas[state.view]();
+  const content = pantallaBloqueadaPorMfa() ? renderBloqueoMfa() : vistas[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
   // Barra de Bodega (Inicio · Recepción · Despacho · Movimientos · Stock): no cambia en la Fase 6,
@@ -16004,7 +16008,10 @@ function bind(){
   }
   const btnBannerMfa = document.getElementById('btn-banner-mfa');
   if(btnBannerMfa) btnBannerMfa.addEventListener('click', ()=> setState({view:'config'}));
-  if(adminSinMfa() && mfaObligatoriaVigente() && state.view!=='config') bindSeccionMfa();
+  // Con la MFA obligatoria vigente, un admin sin segundo factor ve la sección de MFA en lugar de
+  // cualquier vista, Configuraciones incluida (ver renderShell). Se ata acá una sola vez, y más
+  // abajo bind() no sigue con las vistas: no están en pantalla (ver pantallaBloqueadaPorMfa).
+  if(pantallaBloqueadaPorMfa()) bindSeccionMfa();
   if(!(state.view==='conteo' && !state.skuSeleccionado)) conteoBuscadorFueEnfocado = false;
   bindEditorFoto();
   if(state.fotoModal){
@@ -16213,6 +16220,11 @@ function bind(){
   });
   const btnIrInicio = document.getElementById('btn-ir-inicio');
   if(btnIrInicio) btnIrInicio.addEventListener('click', ()=>{ detenerEscaner(); setState({view:'inicio'}); });
+  // Sentry JAVASCRIPT-E: con el bloqueo por MFA en pantalla, state.view sigue diciendo la vista que
+  // la persona eligió (Buscar, Contar, Configuraciones...), pero su contenido no se dibujó. Atarla
+  // fallaba en cada toque de la cabecera o las pestañas: getElementById devolvía null. La cabecera
+  // y las pestañas sí están, por eso se ataron arriba; desde acá todo es de la vista.
+  if(pantallaBloqueadaPorMfa()) return;
   if(state.view==='ingreso' || state.view==='salida') bindDocumentoBodega();
   if(state.view==='movimientos'){
     const sel = document.getElementById('mov-filtro-tipo');
@@ -17129,17 +17141,22 @@ function bind(){
       // Stepper −/+ y atajo "Sin stock (0)" (Fase 2b): escriben en el mismo #c-cant, sin tocar el
       // estado ni el guardado. No enfocan el campo: en el iPad eso abriría el teclado.
       const cCant = document.getElementById('c-cant');
+      // Además de .value se escribe el atributo: cambiar solo .value no toca el DOM, y Sentry toma
+      // cada toque como "sin respuesta". Pasó (JAVASCRIPT-D): alguien en Escondida contó 13 y 8
+      // tocando "+" de a uno y llegó como "rage click", aunque los conteos se guardaron bien. Con
+      // el atributo la grabación de la sesión también muestra el número subiendo.
+      const fijarCantidad = v => { cCant.value = v; if(cCant.setAttribute) cCant.setAttribute('value', v); };
       const ajustarCantidad = delta => {
         const actual = Number(cCant.value);
         const base = (cCant.value==='' || isNaN(actual)) ? 0 : actual;
-        cCant.value = String(Math.max(0, Math.round((base+delta)*100)/100));
+        fijarCantidad(String(Math.max(0, Math.round((base+delta)*100)/100)));
       };
       const btnMenos = document.getElementById('c-cant-menos');
       const btnMas = document.getElementById('c-cant-mas');
       const btnCero = document.getElementById('c-cant-cero');
       if(btnMenos) btnMenos.addEventListener('click', ()=> ajustarCantidad(-1));
       if(btnMas) btnMas.addEventListener('click', ()=> ajustarCantidad(1));
-      if(btnCero) btnCero.addEventListener('click', ()=>{ cCant.value = '0'; });
+      if(btnCero) btnCero.addEventListener('click', ()=> fijarCantidad('0'));
       document.getElementById('form-conteo').addEventListener('submit', e=>{
         e.preventDefault();
         guardarConteo({

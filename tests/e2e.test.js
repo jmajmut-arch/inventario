@@ -139,6 +139,26 @@ async function loguear(page, perfil){
     assert(await page.$('details.dash-detalle:not([open])') !== null, 'el bloque "Detalle" del Panel debe venir plegado');
     await context.close();
   }
+  // ===== Bloqueo por MFA: la cabecera y las pestañas siguen funcionando (Sentry JAVASCRIPT-E) =====
+  // Con la MFA obligatoria vigente, un admin sin segundo factor ve el bloqueo en vez de la vista,
+  // pero state.view sigue diciendo la vista elegida. bind() la ataba igual y cada toque de la lupa,
+  // de Configuraciones o de una pestaña fallaba con "Cannot read properties of null". Pasó de
+  // verdad en Escondida con una copia guardada de la app que tenía el plazo al 1 de octubre.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    const erroresMfa = [];
+    page.on('pageerror', err => erroresMfa.push(err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.evaluate(() => { state.mfaObligatoriaDesde = '2020-01-01'; state.mfaFactores = []; state.mfaFactoresCargado = true; render(); });
+    await page.waitForSelector('#btn-mfa-activar', { timeout:ESPERA });
+    await page.click('#btn-ir-buscar');
+    await page.click('#btn-config');
+    for (const tab of ['plan','conteo','reconteo','dashboard']) await page.click(`.tabbar [data-tab="${tab}"]`);
+    assert(erroresMfa.length === 0, 'con el bloqueo por MFA, la lupa, Configuraciones y las pestañas no deben fallar, obtuvo: '+erroresMfa.join(' | '));
+    assert(await page.isVisible('#btn-mfa-activar'), 'el bloqueo sigue en pantalla con su botón Activar');
+    await context.close();
+  }
   {
     const context = await browser.newContext({ viewport:{ width:1024, height:768 } });
     const page = await context.newPage();
@@ -252,8 +272,11 @@ async function loguear(page, perfil){
     assert(guardarH >= 56, '"Guardar conteo" mide al menos 56 px, obtuvo '+guardarH);
     await page.click('#c-cant-mas'); await page.click('#c-cant-mas'); await page.click('#c-cant-menos');
     assert((await page.inputValue('#c-cant')) === '1', 'el stepper escribe en #c-cant (+1 +1 −1 = 1), obtuvo '+(await page.inputValue('#c-cant')));
+    // Sentry JAVASCRIPT-D: cambiar solo .value no toca el DOM y Sentry tomaba los toques de "+" como
+    // "rage click". El stepper deja también el atributo, que sí es un cambio visible del DOM.
+    assert((await page.getAttribute('#c-cant', 'value')) === '1', 'el stepper debe dejar también el atributo value, obtuvo '+(await page.getAttribute('#c-cant', 'value')));
     await page.click('#c-cant-cero');
-    assert((await page.inputValue('#c-cant')) === '0', '"Sin stock (0)" deja #c-cant en 0');
+    assert((await page.inputValue('#c-cant')) === '0' && (await page.getAttribute('#c-cant', 'value')) === '0', '"Sin stock (0)" deja #c-cant en 0, valor y atributo');
     assert(await page.isVisible('#chip-conexion') && (await page.textContent('#chip-conexion')).trim() === 'Sincronizado', 'en Contar la cabecera muestra el chip "Sincronizado"');
     const desbordeForm = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeForm <= 0, 'a 420 px el formulario no desborda, obtuvo '+desbordeForm);
