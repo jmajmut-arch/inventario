@@ -198,6 +198,7 @@
       <li>Avisar (sin bloquear) si la cantidad se ve atípica (RPC <code>verificar_conteo_atipico</code>, sin revelar el stock en conteo ciego); avisar si ya fue contado en el período (<code>veces_contado_periodo</code>)</li>
       <li>Detectar materiales que una carga posterior movió de bin o ubicación desde que se planificaron (foto en <code>plan_semanal_skus</code>) y mostrarlos igual, marcados</li>
       <li>Exigir al menos una foto por conteo y reconteo si la empresa lo activó (<code>empresas.foto_obligatoria_conteo</code>, apagado por defecto), salvo cantidad 0; se valida en el guardado, con y sin señal</li>
+      <li>Sin Foto obligatoria, avisar (sin bloquear) al guardar una cantidad mayor a 1 sin ninguna foto, con "Tomar foto" y "Guardar sin foto" (<code>avisarConteoSinFoto</code>, solo en la app)</li>
     </ul>
     <ul class="checks no">
       <li>Contar un material sin elegirlo primero de la búsqueda, el escáner o el plan</li>
