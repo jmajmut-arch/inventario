@@ -809,6 +809,11 @@ details.plegable>summary .plegable-cta{font-size:13px;font-weight:700;color:var(
 .conteo-form .file-input svg{margin-bottom:4px;}
 .conteo-pie{position:sticky;bottom:calc(60px + env(safe-area-inset-bottom));background:var(--surface);padding:12px 0 0;margin-top:14px;border-top:1px solid var(--line);z-index:2;}
 .conteo-pie .btn{min-height:var(--field-lg);font-size:19px;}
+.conteo-aviso-foto{flex-wrap:wrap;margin-bottom:10px;}
+.conteo-aviso-foto .alert-t{flex:1 1 220px;}
+.conteo-aviso-foto-acciones{display:flex;gap:8px;flex:1 1 100%;}
+.conteo-pie .conteo-aviso-foto .btn{flex:1 1 0;min-height:var(--tap);font-size:16px;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
+@media (max-width:480px){ .conteo-aviso-foto-acciones{flex-direction:column;} .conteo-pie .conteo-aviso-foto .btn{flex:none;width:100%;white-space:nowrap;} }
 @media (min-width:900px){
   .conteo-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start;}
   .conteo-form-grid>div>label:first-child{margin-top:0;}
@@ -4504,6 +4509,13 @@ function fotoObligatoriaConteo(){
 }
 function faltaFotoObligatoria(cantidad, fotos){
   return fotoObligatoriaConteo() && Number(cantidad) !== 0 && !(fotos && fotos.length);
+}
+// Aviso antes de guardar, sin bloquear (pedido de Joel, 09/10/2026): contar más de 1 sin ninguna
+// foto suele ser un olvido -- en Escondida 239 de 245 conteos de dos semanas llevaban foto, y de
+// los 143 mayores a 1 solo 4 quedaron sin ella. Con 0 o 1 no se avisa. Si la empresa exige foto
+// (fotoObligatoriaConteo) ya manda el bloqueo de faltaFotoObligatoria y este aviso sobra.
+function avisarConteoSinFoto(cantidad, fotos){
+  return !fotoObligatoriaConteo() && Number(cantidad) > 1 && !(fotos && fotos.length);
 }
 async function actualizarFotoObligatoria(activo){
   if(!state.perfil || !state.perfil.empresa_id) return;
@@ -12563,6 +12575,7 @@ function renderConteo(){
           </div>
 
           <div class="conteo-pie">
+            <div id="conteo-aviso-foto" aria-live="polite"></div>
             <button type="submit" class="btn btn-primary" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>':'Guardar conteo'}</button>
             ${state.loading && state.conteoGuardandoLento? `
             <div class="progress-track"><div class="progress-indeterminada"></div></div>
@@ -14406,6 +14419,11 @@ function adminSinMfa(){
 function mfaObligatoriaVigente(){
   return fechaISO(new Date()) >= state.mfaObligatoriaDesde;
 }
+// Lo que dibuja renderShell y lo que ata bind() tienen que decidir lo mismo: si el admin sin MFA
+// ve el bloqueo, ninguna vista está en pantalla.
+function pantallaBloqueadaPorMfa(){
+  return adminSinMfa() && mfaObligatoriaVigente();
+}
 // Pedido de Joel (27/09/2026): el aviso se ve unos 15 segundos al entrar y se oculta solo; vuelve
 // en el próximo ingreso mientras la cuenta siga sin segundo factor, y la activación queda siempre
 // en Configuraciones. Antes se quedaba fijo arriba en todas las pestañas hasta activar la MFA.
@@ -15758,8 +15776,7 @@ function renderShell(){
     reservas: renderReservas,
     mover: renderMover,
   };
-  const bloqueadoPorMfa = adminSinMfa() && mfaObligatoriaVigente();
-  const content = bloqueadoPorMfa ? renderBloqueoMfa() : vistas[state.view]();
+  const content = pantallaBloqueadaPorMfa() ? renderBloqueoMfa() : vistas[state.view]();
 
   const rolMostrado = state.perfil? (state.perfil.es_super_admin? 'Super-admin' : state.perfil.rol==='admin'? 'Admin' : 'Operador') : '';
   // Barra de Bodega (Inicio · Recepción · Despacho · Movimientos · Stock): no cambia en la Fase 6,
@@ -16004,7 +16021,10 @@ function bind(){
   }
   const btnBannerMfa = document.getElementById('btn-banner-mfa');
   if(btnBannerMfa) btnBannerMfa.addEventListener('click', ()=> setState({view:'config'}));
-  if(adminSinMfa() && mfaObligatoriaVigente() && state.view!=='config') bindSeccionMfa();
+  // Con la MFA obligatoria vigente, un admin sin segundo factor ve la sección de MFA en lugar de
+  // cualquier vista, Configuraciones incluida (ver renderShell). Se ata acá una sola vez, y más
+  // abajo bind() no sigue con las vistas: no están en pantalla (ver pantallaBloqueadaPorMfa).
+  if(pantallaBloqueadaPorMfa()) bindSeccionMfa();
   if(!(state.view==='conteo' && !state.skuSeleccionado)) conteoBuscadorFueEnfocado = false;
   bindEditorFoto();
   if(state.fotoModal){
@@ -16213,6 +16233,11 @@ function bind(){
   });
   const btnIrInicio = document.getElementById('btn-ir-inicio');
   if(btnIrInicio) btnIrInicio.addEventListener('click', ()=>{ detenerEscaner(); setState({view:'inicio'}); });
+  // Sentry JAVASCRIPT-E: con el bloqueo por MFA en pantalla, state.view sigue diciendo la vista que
+  // la persona eligió (Buscar, Contar, Configuraciones...), pero su contenido no se dibujó. Atarla
+  // fallaba en cada toque de la cabecera o las pestañas: getElementById devolvía null. La cabecera
+  // y las pestañas sí están, por eso se ataron arriba; desde acá todo es de la vista.
+  if(pantallaBloqueadaPorMfa()) return;
   if(state.view==='ingreso' || state.view==='salida') bindDocumentoBodega();
   if(state.view==='movimientos'){
     const sel = document.getElementById('mov-filtro-tipo');
@@ -17129,26 +17154,50 @@ function bind(){
       // Stepper −/+ y atajo "Sin stock (0)" (Fase 2b): escriben en el mismo #c-cant, sin tocar el
       // estado ni el guardado. No enfocan el campo: en el iPad eso abriría el teclado.
       const cCant = document.getElementById('c-cant');
+      // Además de .value se escribe el atributo: cambiar solo .value no toca el DOM, y Sentry toma
+      // cada toque como "sin respuesta". Pasó (JAVASCRIPT-D): alguien en Escondida contó 13 y 8
+      // tocando "+" de a uno y llegó como "rage click", aunque los conteos se guardaron bien. Con
+      // el atributo la grabación de la sesión también muestra el número subiendo.
+      const fijarCantidad = v => { cCant.value = v; if(cCant.setAttribute) cCant.setAttribute('value', v); };
       const ajustarCantidad = delta => {
         const actual = Number(cCant.value);
         const base = (cCant.value==='' || isNaN(actual)) ? 0 : actual;
-        cCant.value = String(Math.max(0, Math.round((base+delta)*100)/100));
+        fijarCantidad(String(Math.max(0, Math.round((base+delta)*100)/100)));
       };
       const btnMenos = document.getElementById('c-cant-menos');
       const btnMas = document.getElementById('c-cant-mas');
       const btnCero = document.getElementById('c-cant-cero');
       if(btnMenos) btnMenos.addEventListener('click', ()=> ajustarCantidad(-1));
       if(btnMas) btnMas.addEventListener('click', ()=> ajustarCantidad(1));
-      if(btnCero) btnCero.addEventListener('click', ()=>{ cCant.value = '0'; });
+      if(btnCero) btnCero.addEventListener('click', ()=> fijarCantidad('0'));
+      const enviarConteo = ()=> guardarConteo({
+        cantidad: document.getElementById('c-cant').value,
+        bodega: document.getElementById('c-bodega').value.trim(),
+        ubicacion: document.getElementById('c-ubic').value.trim(),
+        observacion: document.getElementById('c-obs').value.trim(),
+        ubicacionDistinta: document.getElementById('c-otra-ubic').checked,
+      });
       document.getElementById('form-conteo').addEventListener('submit', e=>{
         e.preventDefault();
-        guardarConteo({
-          cantidad: document.getElementById('c-cant').value,
-          bodega: document.getElementById('c-bodega').value.trim(),
-          ubicacion: document.getElementById('c-ubic').value.trim(),
-          observacion: document.getElementById('c-obs').value.trim(),
-          ubicacionDistinta: document.getElementById('c-otra-ubic').checked,
-        });
+        // Más de 1 sin foto: se avisa sobre el botón y se ofrece tomarla o guardar igual (ver
+        // avisarConteoSinFoto). Sin render(): el aviso se escribe en su propio contenedor y lo
+        // tecleado sigue en los campos. Al agregar una foto, el repintado lo quita solo.
+        const cantidad = document.getElementById('c-cant').value;
+        const aviso = document.getElementById('conteo-aviso-foto');
+        if(aviso && avisarConteoSinFoto(cantidad, state.conteoFotos)){
+          aviso.innerHTML = `
+            <div class="alert warn conteo-aviso-foto">
+              <div class="alert-t"><b>Vas a guardar ${esc(String(Number(cantidad)))} sin foto</b><span>Una foto respalda la cantidad si después hay diferencia.</span></div>
+              <div class="conteo-aviso-foto-acciones">
+                <button type="button" class="btn btn-secondary" id="btn-aviso-tomar-foto">${ICONS.camera.replace('<svg','<svg style="width:18px;height:18px;stroke:currentColor" ')} Tomar foto</button>
+                <button type="button" class="btn btn-ghost" id="btn-aviso-guardar-sin-foto">Guardar sin foto</button>
+              </div>
+            </div>`;
+          document.getElementById('btn-aviso-tomar-foto').addEventListener('click', ()=>{ aviso.innerHTML = ''; document.getElementById('c-foto').click(); });
+          document.getElementById('btn-aviso-guardar-sin-foto').addEventListener('click', ()=>{ aviso.innerHTML = ''; enviarConteo(); });
+          return;
+        }
+        enviarConteo();
       });
     }
   }
