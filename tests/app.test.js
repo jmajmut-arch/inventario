@@ -3979,7 +3979,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlConfigAdmin.includes('id="chk-foto-obligatoria"') && !htmlConfigAdmin.includes('id="chk-foto-obligatoria" checked'), 'un admin debe ver el interruptor de foto obligatoria, sin marcar si la empresa no lo tiene activo, obtuvo: '+htmlConfigAdmin);
   ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = true;
   assert(ctx.renderConfiguraciones().includes('id="chk-foto-obligatoria" checked'), 'con la llave activa en la empresa, el interruptor de foto obligatoria debe verse marcado');
+  // Aviso (no bloqueo) de más de 1 sin foto, pedido de Joel (09/10): con la foto obligatoria ya
+  // manda el bloqueo, así que el aviso no aparece; sin ella, avisa solo sobre 1 y sin fotos.
+  assert(ctx.avisarConteoSinFoto('5', [])===false, 'con la foto obligatoria activa no se avisa: ya bloquea faltaFotoObligatoria');
   ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = false;
+  assert(ctx.avisarConteoSinFoto('5', [])===true && ctx.avisarConteoSinFoto('2', null)===true, 'más de 1 sin fotos debe avisar');
+  assert(ctx.avisarConteoSinFoto('1', [])===false && ctx.avisarConteoSinFoto('0', [])===false && ctx.avisarConteoSinFoto('', [])===false, 'con 0, 1 o vacío no se avisa');
+  assert(ctx.avisarConteoSinFoto('5', [{file:{}}])===false, 'con al menos una foto no se avisa');
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = true;
   const htmlConfigAdminCiegoActivo = ctx.renderConfiguraciones();
   assert(htmlConfigAdminCiegoActivo.includes('id="chk-conteo-ciego" checked'), 'con el flag activo en la empresa, el toggle debe verse marcado, obtuvo: '+htmlConfigAdminCiegoActivo);
@@ -11181,7 +11187,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // botón de guardar va en un pie fijo y la ficha muestra la unidad junto a la etiqueta.
   assert(/<div class="stepper">\s*<button type="button" id="c-cant-menos"[^>]*>−<\/button>\s*<input type="number" id="c-cant" step="0.01" min="0" placeholder="0" required[^>]*>\s*<button type="button" id="c-cant-mas"/.test(htmlConteoUbicNormal), 'la cantidad debe ir en un stepper −/+ alrededor del mismo #c-cant, obtuvo: '+htmlConteoUbicNormal);
   assert(htmlConteoUbicNormal.includes('id="c-cant-cero"') && htmlConteoUbicNormal.includes('Sin stock (0)'), 'debe existir el atajo "Sin stock (0)", obtuvo: '+htmlConteoUbicNormal);
-  assert(/<div class="conteo-pie">\s*<button type="submit" class="btn btn-primary" >Guardar conteo<\/button>/.test(htmlConteoUbicNormal), '"Guardar conteo" debe ir en el pie fijo del formulario, obtuvo: '+htmlConteoUbicNormal);
+  // El aviso de "más de 1 sin foto" (09/10) va en el mismo pie, justo sobre el botón, vacío hasta que se usa.
+  assert(/<div class="conteo-pie">\s*<div id="conteo-aviso-foto" aria-live="polite"><\/div>\s*<button type="submit" class="btn btn-primary" >Guardar conteo<\/button>/.test(htmlConteoUbicNormal), '"Guardar conteo" debe ir en el pie fijo del formulario, con el contenedor del aviso de foto vacío encima, obtuvo: '+htmlConteoUbicNormal);
   assert(htmlConteoUbicNormal.includes('<span class="conteo-unidad">UN</span>'), 'la etiqueta de cantidad debe mostrar la unidad del SKU, obtuvo: '+htmlConteoUbicNormal);
   assert(htmlConteoUbicNormal.includes('id="btn-quitar-sku" class="btn btn-ghost conteo-volver"'), '"Volver" debe ser un botón táctil (btn-ghost de 48 px), obtuvo: '+htmlConteoUbicNormal);
 

@@ -280,6 +280,24 @@ async function loguear(page, perfil){
     assert(await page.isVisible('#chip-conexion') && (await page.textContent('#chip-conexion')).trim() === 'Sincronizado', 'en Contar la cabecera muestra el chip "Sincronizado"');
     const desbordeForm = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeForm <= 0, 'a 420 px el formulario no desborda, obtuvo '+desbordeForm);
+    // Pedido de Joel (09/10): más de 1 sin foto avisa antes de guardar, sin bloquear. El primer
+    // toque de Guardar no manda nada; "Guardar sin foto" sí guarda.
+    const postsConteo = [];
+    page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteos')) postsConteo.push(req.url()); });
+    await page.fill('#c-cant', '5');
+    await page.click('#form-conteo button[type=submit]');
+    assert(await esperarVisible(page, '.conteo-aviso-foto'), 'con 5 y sin foto, Guardar debe mostrar el aviso');
+    assert((await page.textContent('.conteo-aviso-foto')).includes('Vas a guardar 5 sin foto'), 'el aviso nombra la cantidad');
+    await page.waitForTimeout(300);
+    assert(postsConteo.length === 0, 'el aviso no guarda nada todavía, obtuvo '+postsConteo.length+' envíos');
+    assert((await page.inputValue('#c-cant')) === '5', 'lo tecleado sigue en el campo');
+    const botonesAviso = await page.$$eval('.conteo-aviso-foto .btn', els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+    assert(botonesAviso.length === 2 && botonesAviso.every(h => h >= 44), 'los dos botones del aviso miden al menos 44 px, obtuvo '+JSON.stringify(botonesAviso));
+    const desbordeAviso = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeAviso <= 0, 'a 420 px el aviso no desborda, obtuvo '+desbordeAviso);
+    await page.click('#btn-aviso-guardar-sin-foto');
+    for (let i = 0; i < 30 && !postsConteo.length; i++) await page.waitForTimeout(100);
+    assert(postsConteo.length >= 1, '"Guardar sin foto" debe guardar el conteo');
     await context.close();
   }
 
