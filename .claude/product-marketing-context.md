@@ -1,6 +1,6 @@
 # Contexto de marketing · InventIA
 
-*Última actualización: 10 de octubre de 2026 · Versión 1 (borrador armado desde el repositorio, pendiente de revisión de Joel)*
+*Última actualización: 10 de octubre de 2026 · Versión 1.1 (borrador desde el repositorio, con competencia y lenguaje confirmados por Joel)*
 
 Marcas de confianza: 🟢 verificado en el sitio o el producto · 🟡 deducido, conviene confirmar · 🔴 supuesto, falta el dato.
 
@@ -57,24 +57,26 @@ Regla fija: **los datos reales de Escondida no salen de este archivo hacia ning�
 **Core problem:** 🟢 El inventario se cuenta en planillas, se consolida a mano y las diferencias aparecen tarde, sin saber quién contó ni con qué respaldo.
 
 **Why alternatives fall short:**
+- 🟢 No existe un software pensado específicamente para la toma de inventario: se hace con lo que hay.
 - 🟢 Excel y papel: más pasos, más errores, consolidación manual, sin evidencia.
 - 🟡 El ERP (SAP u otro) registra el stock, pero no organiza el conteo en terreno ni guarda la foto y el responsable de cada conteo.
 - 🟡 Las apps genéricas de conteo no planifican por clase ABC ni dirigen el reconteo, y suelen necesitar señal.
 
-**What it costs them:** 🟡 Días de trabajo consolidando planillas, reconteos completos en vez de dirigidos, ajustes en el ERP sin respaldo, pérdidas que nadie puede explicar.
+**What it costs them:** 🟢 El descuadre de inventario no se queda en la bodega: puede afectar la producción y a toda la organización (Joel, 10/10/2026). Si el sistema dice que hay un repuesto y en el estante no está, la falla aparece cuando se necesita, con la operación esperando. 🟡 A eso se suman días consolidando planillas, reconteos completos en vez de dirigidos, ajustes en el ERP sin respaldo y pérdidas que nadie puede explicar.
 
 **Emotional tension:** 🟢 "Bajo control, no bajo sospecha": cuando falta un material, nadie puede afirmar si llegó, si salió o quién lo retiró.
 
 ## Competitive Landscape
+🟢 **No hay un software específico para la toma de inventario** (Joel, 10/10/2026). Las empresas cuentan con lo que tienen a mano: el ERP para registrar, y Excel o papel para el conteo en terreno. InventIA no le quita mercado a otro producto de conteo: compite contra la costumbre.
 
-| Competidor | Tipo | Dónde se queda corto |
+| Competitor (alternativa) | Type | Dónde se queda corta |
 |---|---|---|
-| Excel y papel | Indirecto (status quo) | Sin evidencia, consolidación manual, errores de transcripción |
-| Módulo de inventario físico del ERP | Secundario | Pensado para registrar, no para contar en terreno; sin foto ni plan por responsable |
-| WMS completos | Secundario | Caros y largos de implementar para quien solo necesita contar y controlar la bodega |
-| Apps de conteo genéricas | Directo | Sin planificación ABC, reconteo dirigido ni trabajo sin señal |
+| Excel y papel | Indirect (status quo, el competidor real) | Sin evidencia, consolidación manual, errores de transcripción, avance invisible hasta el final |
+| Módulo de inventario físico del ERP (SAP u otro) | Secondary | Registra el stock y el ajuste, pero no organiza el conteo en terreno: no planifica por responsable, no guarda foto ni funciona sin señal |
+| WMS completos | Secondary | Caros y largos de implementar, pensados para el flujo logístico, no para el conteo cíclico |
+| Apps de conteo genéricas o hechas a medida | Direct (marginal) | Sin planificación ABC, reconteo dirigido ni trabajo sin señal; las hechas a medida dependen de quien las programó |
 
-🔴 No hay investigación de competidores con nombre. Falta que Joel nombre las 3 alternativas que más le mencionan los prospectos.
+**Implicancia para el mensaje:** no comparar contra marcas; comparar contra la planilla y contra el costo del descuadre. La categoría ("software para toma de inventario") hay que explicarla, no se puede dar por conocida.
 
 ## Differentiation
 **Key differentiators:**
@@ -92,7 +94,7 @@ Regla fija: **los datos reales de Escondida no salen de este archivo hacia ning�
 
 ## Objections
 
-| Objeción | Respuesta |
+| Objection | Response |
 |---|---|
 | "¿Se integra con SAP?" | 🟢 No hay conexión automática por API: se carga el Excel o CSV que exporta SAP, tal como sale. Una integración directa se evalúa según la operación. No prometer más que eso |
 | "¿Funciona sin señal en la mina?" | 🟢 Sí. Conteos y fotos quedan en el dispositivo y se suben solos al volver la señal |
@@ -113,14 +115,15 @@ Regla fija: **los datos reales de Escondida no salen de este archivo hacia ning�
 **Anxiety (about switching):** 🟡 Cargar el maestro (decenas de miles de materiales), que el equipo en terreno lo adopte, seguridad de los datos, depender de un proveedor nuevo.
 
 ## Customer Language
-**How they describe the problem:**
-- 🔴 Faltan frases textuales de clientes. Las que usamos hoy son nuestras: "¿Cuánto hay de verdad, y quién lo contó?", "¿Quién se llevó qué, y con qué respaldo?".
+**How they describe the problem (verbatim):**
+- 🟢 "Descuadre de inventario puede afectar la producción y a toda la organización." (Joel, con experiencia en terreno minero)
+- 🟡 Las frases del sitio son nuestras: "¿Cuánto hay de verdad, y quién lo contó?", "¿Quién se llevó qué, y con qué respaldo?". Faltan frases de clientes externos.
 - 🟢 Pregunta del correo de seguimiento a leads: "¿qué es lo que hoy más te cuesta con el inventario? ¿Las diferencias entre lo contado y el sistema, el tiempo que se va en contar, o saber qué se contó y qué no?". Las respuestas a ese correo son la mejor fuente de lenguaje real.
 
 **How they describe us:**
 - 🔴 Sin testimonios todavía.
 
-**Words to use:** 🟢 bodega, conteo, conteo cíclico, toma de inventario, diferencias, faltante, sobrante, cuadrado, reconteo, respaldo, trazabilidad, en terreno, sin señal, storage bin, SKU, maestro de materiales, ubicación, responsable, piloto.
+**Words to use:** 🟢 descuadre, cuadrar, bodega, conteo, conteo cíclico, toma de inventario, diferencias, faltante, sobrante, cuadrado, reconteo, respaldo, trazabilidad, en terreno, sin señal, storage bin, SKU, maestro de materiales, ubicación, responsable, piloto.
 
 **Words to avoid:** 🟢 "inteligencia artificial" como promesa (el nombre lleva "IA", pero el producto no usa modelos de IA: la causa probable son reglas simples), "integración con SAP" (no hay API), "revolucionario", "automatiza todo", "en tiempo real con tu ERP".
 
