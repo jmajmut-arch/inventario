@@ -500,8 +500,13 @@ async function loguear(page, perfil){
     const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 240; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0,0,320,240); return c.toDataURL('image/png'); });
     await page.setInputFiles('#c-foto', { name:'cajon.png', mimeType:'image/png', buffer: Buffer.from(png.split(',')[1], 'base64') });
     await page.waitForSelector('[data-marcar-foto="0"]', { timeout:ESPERA });
+    // Regresión (10/10/2026): abrir el editor borraba la cantidad y la observación ya escritas.
+    await page.fill('#c-cant', '13'); await page.fill('#c-obs', 'caja abierta');
+    const camposConteo = () => page.evaluate(() => [document.getElementById('c-cant').value, document.getElementById('c-obs').value].join('|'));
     await page.click('[data-marcar-foto="0"]');
     await page.waitForSelector('#editor-foto-canvas', { timeout:ESPERA });
+    const camposConEditor = await camposConteo();
+    assert(camposConEditor === '13|caja abierta', 'abrir el editor de la foto no debe borrar la cantidad ni la observación, obtuvo '+camposConEditor);
     await page.waitForFunction(() => document.getElementById('editor-foto-canvas').width === 320, null, { timeout:ESPERA });
     const caja = await page.locator('#editor-foto-canvas').boundingBox();
     // Trazo horizontal por el centro (de 20% a 80% del ancho, a media altura).
@@ -523,6 +528,8 @@ async function loguear(page, perfil){
     assert(desbordeEditor <= 0, 'a 420 px el editor no desborda, obtuvo '+desbordeEditor);
     await page.click('#editor-foto-listo');
     await page.waitForFunction(() => !state.editorFoto && state.conteoFotos[0] && state.conteoFotos[0].trazos && state.conteoFotos[0].trazos.length === 2, null, { timeout:ESPERA });
+    const camposTrasListo = await camposConteo();
+    assert(camposTrasListo === '13|caja abierta', 'tras marcar la foto la cantidad y la observación siguen ahí, obtuvo '+camposTrasListo);
     const resultado = await page.evaluate(async () => {
       const f = state.conteoFotos[0];
       const img = new Image(); img.src = f.preview; await img.decode();
