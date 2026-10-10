@@ -4085,46 +4085,40 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlConfigSuperAdmin.includes('id="form-crear-ciclo"'), 'Configuraciones ya no debe incluir el formulario de crear ciclo (se movió a su propia pestaña), obtuvo: '+htmlConfigSuperAdmin);
   assert(ctx.renderCiclos().includes('id="form-crear-ciclo"'), 'renderCiclos() debe mostrar el formulario para crear ciclos, obtuvo: '+ctx.renderCiclos());
 
-  // ===== MFA obligatoria para administradores (revisión de seguridad 19/09/2026) =====
+  // ===== Verificación en dos pasos de los administradores: interruptor por empresa =====
+  // Decisión de Joel (10/10/2026): sin aviso al entrar y sin fecha fija. Solo bloquea si la empresa
+  // prendió empresas.mfa_obligatoria_admins; apagado por defecto.
   {
     const perfilAntesMfa = ctx.__appstate.perfil;
     const viewAntesMfa = ctx.__appstate.view;
-    const ADMIN_MFA = { id:'adm-mfa', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
-    const OPER_MFA = { id:'op-mfa', nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    const ADMIN_MFA = { id:'adm-mfa', nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', mfa_obligatoria_admins:false} };
+    const OPER_MFA = { id:'op-mfa', nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', mfa_obligatoria_admins:true} };
     ctx.__appstate.view = 'dashboard';
-    // Antes de la fecha: aviso al entrar, solo para admin sin factor y solo cuando ya se sabe.
-    ctx.__appstate.mfaObligatoriaDesde = '2099-01-01';
     ctx.__appstate.perfil = ADMIN_MFA; ctx.__appstate.mfaFactoresCargado = false; ctx.__appstate.mfaFactores = [];
-    assert(ctx.adminSinMfa()===false && !ctx.renderShell().includes('id="banner-mfa"'), 'mientras no se sepa si tiene factores, no se avisa ni se bloquea');
+    assert(ctx.adminSinMfa()===false, 'mientras no se sepa si tiene factores, no se bloquea');
     ctx.__appstate.mfaFactoresCargado = true;
     let shellMfa = ctx.renderShell();
-    assert(ctx.adminSinMfa()===true && shellMfa.includes('id="banner-mfa"') && shellMfa.includes('id="btn-banner-mfa"') && shellMfa.includes('será obligatoria'), 'un admin sin MFA ve el aviso con la fecha, obtuvo: '+shellMfa.slice(0,400));
-    assert(!shellMfa.includes('Activa la verificación en dos pasos</h2>'), 'antes de la fecha no se bloquea');
-    ctx.__appstate.mfaFactores = [{id:'f1', status:'verified', factor_type:'totp'}];
-    assert(ctx.adminSinMfa()===false && !ctx.renderShell().includes('id="banner-mfa"'), 'con factor verificado no hay aviso');
+    assert(ctx.adminSinMfa()===true && ctx.mfaObligatoriaVigente()===false, 'admin sin MFA en una empresa con el interruptor apagado');
+    assert(!shellMfa.includes('id="banner-mfa"') && !shellMfa.includes('verificación en dos pasos. Desde') && !shellMfa.includes('Activa la verificación en dos pasos</h2>'), 'con el interruptor apagado no hay aviso ni bloqueo, obtuvo: '+shellMfa.slice(0,400));
+    assert(!html.includes('banner-mfa') && !html.includes('mfaObligatoriaDesde'), 'el aviso de MFA y la fecha fija ya no existen en la app');
     ctx.__appstate.mfaFactores = [{id:'f1', status:'unverified', factor_type:'totp'}];
     assert(ctx.adminSinMfa()===true, 'un factor sin verificar no cuenta');
-    ctx.__appstate.perfil = OPER_MFA; ctx.__appstate.mfaFactores = [];
-    assert(ctx.adminSinMfa()===false && !ctx.renderShell().includes('id="banner-mfa"'), 'un operador no ve el aviso');
-    // El botón del aviso lleva a Configuraciones.
-    ctx.__appstate.perfil = ADMIN_MFA;
-    ctx.bind();
-    elements['btn-banner-mfa'].dispatch('click');
-    assert(ctx.__appstate.view==='config', 'el botón del aviso debe llevar a Configuraciones, obtuvo: '+ctx.__appstate.view);
-    ctx.__appstate.view = 'dashboard';
-    // Pedido de Joel (27/09): el aviso dura 15 segundos y se oculta solo; vuelve al ingresar de nuevo.
-    assert(html.includes('const BANNER_MFA_MS = 15000;'), 'el aviso de MFA se oculta a los 15 segundos');
-    assert(ctx.renderShell().includes('id="banner-mfa"'), 'antes de vencer el tiempo el aviso se ve');
-    ctx.ocultarBannerMfaPorTiempo();
-    assert(!ctx.renderShell().includes('id="banner-mfa"'), 'vencido el tiempo, el aviso desaparece aunque la cuenta siga sin MFA');
-    ctx.__appstate = ctx.__resyncAppState ? ctx.__resyncAppState() : ctx.__appstate;
-    ctx.estadoTrasCerrarSesion();
-    assert(ctx.renderShell().includes('id="banner-mfa"'), 'tras cerrar sesión, el próximo ingreso vuelve a mostrar el aviso');
-    ctx.reiniciarBannerMfa();
+    ctx.__appstate.mfaFactores = [];
+    // Configuraciones: el admin ve el interruptor, apagado; prenderlo hace PATCH de la empresa.
+    const htmlConfigMfa = ctx.renderConfiguraciones();
+    assert(htmlConfigMfa.includes('id="chk-mfa-obligatoria"') && !htmlConfigMfa.includes('id="chk-mfa-obligatoria" checked'), 'el admin ve el interruptor "Exigir verificación" apagado, obtuvo: '+htmlConfigMfa.slice(htmlConfigMfa.indexOf('Exigir'), htmlConfigMfa.indexOf('Exigir')+400));
+    calls.length = 0;
+    const confirmAntes = ctx.confirm; let preguntado = 0;
+    ctx.confirm = () => { preguntado++; return true; };
+    await ctx.actualizarMfaObligatoria(true);
+    ctx.confirm = confirmAntes;
+    const patchMfa = calls.find(c=>c.url.includes('/empresas?id=eq.emp-1') && c.opts && c.opts.method==='PATCH');
+    assert(!!patchMfa && JSON.parse(patchMfa.opts.body).mfa_obligatoria_admins===true && ctx.__appstate.perfil.empresas.mfa_obligatoria_admins===true, 'prender el interruptor hace PATCH con mfa_obligatoria_admins=true, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(preguntado===1, 'quien lo prende sin tener MFA recibe una confirmación antes, obtuvo '+preguntado);
+    // Con el interruptor prendido: la app no deja pasar; en vez de la pestaña muestra el enrolamiento, con sus botones atados.
     // Desde la fecha: la app no deja pasar; en vez de la pestaña muestra el enrolamiento, con sus botones atados.
-    ctx.__appstate.mfaObligatoriaDesde = '2020-01-01';
     shellMfa = ctx.renderShell();
-    assert(ctx.mfaObligatoriaVigente()===true && shellMfa.includes('Activa la verificación en dos pasos</h2>') && shellMfa.includes('id="btn-mfa-activar"') && !shellMfa.includes('id="banner-mfa"'), 'desde la fecha, un admin sin MFA ve el bloqueo con el botón de activar, obtuvo: '+shellMfa.slice(0,600));
+    assert(ctx.mfaObligatoriaVigente()===true && shellMfa.includes('Activa la verificación en dos pasos</h2>') && shellMfa.includes('Tu empresa exige') && shellMfa.includes('id="btn-mfa-activar"'), 'con el interruptor prendido, un admin sin MFA ve el bloqueo con el botón de activar, obtuvo: '+shellMfa.slice(0,600));
     assert(!shellMfa.includes('Estado general de SKU') && !shellMfa.includes('renderDashboard'), 'bloqueado no se muestra el dashboard');
     delete elements['btn-mfa-activar'];
     ctx.bind();
@@ -4157,7 +4151,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.cargarTodo();
     assert(!calls.some(c=>c.url.includes('/auth/v1/user')), 'un operador no pide factores al entrar');
-    ctx.__appstate.mfaObligatoriaDesde = '2026-12-01';
+    ADMIN_MFA.empresas.mfa_obligatoria_admins = false;
     ctx.__appstate.mfaFactoresCargado = false; ctx.__appstate.mfaFactores = [];
     ctx.__appstate.perfil = perfilAntesMfa; ctx.__appstate.view = viewAntesMfa;
   }
@@ -13446,13 +13440,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.instalarApp.guiaAbierta, 'sin evento del navegador, Instalar debe abrir la guía de pasos');
     ctx.__appstate.instalarApp = { ...ctx.__appstate.instalarApp, guiaAbierta:false };
 
-    // El aviso de seguridad (MFA) tiene prioridad: no se apilan dos avisos arriba.
+    // Sin el aviso de MFA (10/10/2026), un admin sin segundo factor también ve el de instalar.
     ctx.__appstate.instalarApp = { hayEvento:true, instalada:false, bannerOculto:false, guiaAbierta:false };
-    const mfaAntes = [ctx.__appstate.perfil, ctx.__appstate.mfaFactoresCargado, ctx.__appstate.mfaFactores, ctx.__appstate.mfaObligatoriaDesde];
+    const mfaAntes = [ctx.__appstate.perfil, ctx.__appstate.mfaFactoresCargado, ctx.__appstate.mfaFactores];
     ctx.__appstate.perfil = { ...ctx.__appstate.perfil, rol:'admin' };
-    ctx.__appstate.mfaFactoresCargado = true; ctx.__appstate.mfaFactores = []; ctx.__appstate.mfaObligatoriaDesde = '2999-01-01';
-    assert(ctx.renderBannerMfa()!=='' && ctx.renderBannerInstalarApp()==='', 'con el aviso de MFA visible, el de instalar no debe mostrarse encima');
-    [ctx.__appstate.perfil, ctx.__appstate.mfaFactoresCargado, ctx.__appstate.mfaFactores, ctx.__appstate.mfaObligatoriaDesde] = mfaAntes;
+    ctx.__appstate.mfaFactoresCargado = true; ctx.__appstate.mfaFactores = [];
+    assert(ctx.renderBannerInstalarApp()!=='', 'un admin sin MFA ve igual el aviso de instalar: ya no hay aviso de MFA que lo tape');
+    [ctx.__appstate.perfil, ctx.__appstate.mfaFactoresCargado, ctx.__appstate.mfaFactores] = mfaAntes;
 
     // "Ahora no" se recuerda en este dispositivo.
     ctx.ocultarBannerInstalar();

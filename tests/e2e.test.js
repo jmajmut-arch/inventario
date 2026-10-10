@@ -150,7 +150,7 @@ async function loguear(page, perfil){
     const erroresMfa = [];
     page.on('pageerror', err => erroresMfa.push(err.message));
     await loguear(page, PERFIL_ADMIN_PRO);
-    await page.evaluate(() => { state.mfaObligatoriaDesde = '2020-01-01'; state.mfaFactores = []; state.mfaFactoresCargado = true; render(); });
+    await page.evaluate(() => { state.perfil.empresas.mfa_obligatoria_admins = true; state.mfaFactores = []; state.mfaFactoresCargado = true; render(); });
     await page.waitForSelector('#btn-mfa-activar', { timeout:ESPERA });
     await page.click('#btn-ir-buscar');
     await page.click('#btn-config');
