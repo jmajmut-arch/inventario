@@ -1105,7 +1105,6 @@ let state = {
   mfaFactores: [],         // factores TOTP de la cuenta (ver cargarMfaFactores), tal como los devuelve /auth/v1/user
   mfaFactoresCargado: false,
   mfaEnrolando: null,      // null | {factorId, qr, secret, guardando, error, cargando} durante el enrolamiento
-  mfaObligatoriaDesde: '2026-12-01', // MFA obligatoria para admins desde esta fecha (ver adminSinMfa/mfaObligatoriaVigente)
 };
 
 const TABLA_AUDITORIA_LABEL = { usuarios:'Persona', empresas:'Empresa', conteos:'Conteo', skus:'SKU' };
@@ -2151,7 +2150,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,foto_obligatoria_conteo,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,max_admins,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,foto_obligatoria_conteo,mfa_obligatoria_admins,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,max_admins,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -2519,7 +2518,6 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  reiniciarBannerMfa(); // el próximo ingreso vuelve a mostrar el aviso de MFA sus 15 segundos
   return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
@@ -14405,51 +14403,40 @@ function renderCalendario(){
   `;
 }
 
-// MFA obligatoria para administradores (revisión de seguridad del 19/09/2026, hallazgo 1: cero
-// cuentas la usaban, incluidos los tres admins). Hasta mfaObligatoriaDesde la app solo avisa al
-// entrar; desde esa fecha no deja pasar a un admin sin segundo factor: en vez de la pestaña,
-// muestra el enrolamiento, y en cuanto confirma el código la app sigue normal. Un operador no se
-// ve afectado. Mientras no se sepa si tiene factores (cargarMfaFactores en curso), ni se avisa ni
-// se bloquea: nunca por una falla de red.
+// Verificación en dos pasos de los administradores. La revisión de seguridad del 19/09/2026 la dejó
+// obligatoria para todos desde el 1 de diciembre, con un aviso al entrar; el 10/10/2026 Joel
+// decidió que sea un interruptor por empresa (empresas.mfa_obligatoria_admins, apagado por
+// defecto) y sin aviso. Con el interruptor prendido, un admin sin segundo factor no usa la app:
+// en vez de la pestaña ve el enrolamiento, y en cuanto confirma el código sigue normal. Un
+// operador no se ve afectado. Mientras no se sepa si tiene factores (cargarMfaFactores en curso)
+// no se bloquea: nunca por una falla de red.
 function adminSinMfa(){
   if(!state.perfil || !(state.perfil.rol==='admin' || state.perfil.es_super_admin)) return false;
   if(!state.mfaFactoresCargado) return false;
   return !(state.mfaFactores||[]).some(f=>f.status==='verified');
 }
 function mfaObligatoriaVigente(){
-  return fechaISO(new Date()) >= state.mfaObligatoriaDesde;
+  const e = state.perfil && state.perfil.empresas;
+  return !!(e && e.mfa_obligatoria_admins);
 }
 // Lo que dibuja renderShell y lo que ata bind() tienen que decidir lo mismo: si el admin sin MFA
 // ve el bloqueo, ninguna vista está en pantalla.
 function pantallaBloqueadaPorMfa(){
   return adminSinMfa() && mfaObligatoriaVigente();
 }
-// Pedido de Joel (27/09/2026): el aviso se ve unos 15 segundos al entrar y se oculta solo; vuelve
-// en el próximo ingreso mientras la cuenta siga sin segundo factor, y la activación queda siempre
-// en Configuraciones. Antes se quedaba fijo arriba en todas las pestañas hasta activar la MFA.
-const BANNER_MFA_MS = 15000;
-let bannerMfaVencido = false, bannerMfaTimer = null;
-function ocultarBannerMfaPorTiempo(){
-  bannerMfaVencido = true; bannerMfaTimer = null;
-  // Se quita el aviso del DOM, no se llama a render(): un render() completo a los 15 segundos
-  // reemplazaría el <input> donde la persona esté escribiendo y en iPad reinicia el teclado
-  // (lo detectó el e2e de Crear orden de compra: "lo reemplazó 1 de 8 veces").
-  const el = document.getElementById('banner-mfa');
-  if(el && el.remove) el.remove();
-}
-function reiniciarBannerMfa(){
-  bannerMfaVencido = false;
-  if(bannerMfaTimer) clearTimeout(bannerMfaTimer);
-  bannerMfaTimer = null;
-}
-function renderBannerMfa(){
-  if(!adminSinMfa() || mfaObligatoriaVigente() || state.view==='config' || bannerMfaVencido) return '';
-  if(!bannerMfaTimer) bannerMfaTimer = setTimeout(ocultarBannerMfaPorTiempo, BANNER_MFA_MS);
-  return `
-    <div id="banner-mfa" style="background:var(--warn-bg);color:var(--text);border-bottom:1px solid var(--warn);padding:6px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;line-height:1.3">
-      <span style="flex:1;min-width:0">Tu cuenta administra la empresa y no tiene verificación en dos pasos. Desde el ${fmtFecha(state.mfaObligatoriaDesde)} será obligatoria para entrar.</span>
-      <button id="btn-banner-mfa" class="btn btn-sm btn-primary" style="width:auto;flex:none">Activarla ahora</button>
-    </div>`;
+async function actualizarMfaObligatoria(activo){
+  if(!state.perfil || !state.perfil.empresa_id) return;
+  // Quien la prende sin tenerla activa queda bloqueado al instante: se le avisa antes.
+  if(activo && adminSinMfa() && typeof confirm==='function'
+     && !confirm('Tú todavía no tienes la verificación en dos pasos. Al exigirla, la app te pedirá activarla antes de seguir. ¿Continuar?')){
+    render(); return;
+  }
+  try{
+    await rest(`/empresas?id=eq.${state.perfil.empresa_id}`, {method:'PATCH', body:{mfa_obligatoria_admins:activo}, prefer:'return=minimal'});
+    state.perfil.empresas.mfa_obligatoria_admins = activo;
+    toast(activo? 'Desde ahora los administradores necesitan la verificación en dos pasos' : 'La verificación en dos pasos vuelve a ser opcional');
+    render();
+  }catch(e){ toast(e.message,'err'); render(); }
 }
 // ---------- Instalar la app ----------
 // InventIA ya es instalable (manifest.json + sw.js), pero casi nadie sabe que se puede: en iPhone
@@ -14521,7 +14508,6 @@ function ocultarBannerInstalar(){
 }
 function renderBannerInstalarApp(){
   if(!formaInstalarApp() || state.instalarApp.bannerOculto || state.view==='config') return '';
-  if(renderBannerMfa()) return ''; // el aviso de seguridad va primero; este aparece después
   return `
     <div id="banner-instalar-app" class="banner-instalar">
       <span>Instala InventIA en este dispositivo: queda con su ícono y se abre a pantalla completa, como cualquier app.</span>
@@ -14579,7 +14565,7 @@ function renderBloqueoMfa(){
   return `
     <div class="section-head"><div><span class="eyebrow">Seguridad</span><h2>Activa la verificación en dos pasos</h2></div></div>
     <div class="card">
-      <div class="hint" style="margin-bottom:12px">Desde el ${fmtFecha(state.mfaObligatoriaDesde)} las cuentas de administrador necesitan un código de app autenticadora además de la contraseña. Es un paso de un minuto y protege el maestro y los conteos de tu empresa si la contraseña se filtra. Actívala para seguir.</div>
+      <div class="hint" style="margin-bottom:12px">Tu empresa exige verificación en dos pasos a los administradores: un código de una app autenticadora además de la contraseña. Es un paso de un minuto y protege el maestro y los conteos si la contraseña se filtra. Actívala para seguir.</div>
       ${renderSeccionMfa()}
     </div>`;
 }
@@ -14697,6 +14683,15 @@ function renderConfiguraciones(){
     ${esAdmin||esSuperAdmin? `
     <div class="section-head"><div><span class="eyebrow">Seguridad</span><h2 style="font-size:15px">Verificación en dos pasos ${campoConInfo('Pide un código de una app autenticadora (Google Authenticator, Authy, 1Password, etc.) además de tu contraseña al iniciar sesión. Recomendado para cuentas administradoras.')}</h2></div></div>
     <div class="card">${renderSeccionMfa()}</div>
+    ` : ''}
+    ${esAdmin? `
+    <div class="section-head"><div><span class="eyebrow">Seguridad</span><h2 style="font-size:15px">Exigir verificación a los administradores ${campoConInfo('Con esto activo, todo administrador de tu empresa necesita la verificación en dos pasos para usar la app: quien no la tenga ve primero la pantalla para activarla. Los operadores no se ven afectados.')}</h2></div></div>
+    <div class="card">
+      <label style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
+        <input type="checkbox" id="chk-mfa-obligatoria" ${empresa.mfa_obligatoria_admins?'checked':''}>
+        <span>Exigir verificación en dos pasos a todos los administradores</span>
+      </label>
+    </div>
     ` : ''}
     ${esAdmin && !esSuperAdmin? `<div class="section-head"><div><span class="eyebrow">Suscripción</span><h2 style="font-size:15px">Plan y facturación</h2></div></div>` : ''}
     ${esAdmin && !esSuperAdmin? renderPlanYFacturacion(empresa) : ''}
@@ -15820,7 +15815,6 @@ function renderShell(){
       </div>
     </div>
     ` : ''}
-    ${renderBannerMfa()}
     ${renderBannerInstalarApp()}
     <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
     ${barraBodega ? `<nav class="tabbar">
@@ -16019,8 +16013,6 @@ function bind(){
       if(e.target.id === 'instalar-app-modal-backdrop') cerrarGuia();
     });
   }
-  const btnBannerMfa = document.getElementById('btn-banner-mfa');
-  if(btnBannerMfa) btnBannerMfa.addEventListener('click', ()=> setState({view:'config'}));
   // Con la MFA obligatoria vigente, un admin sin segundo factor ve la sección de MFA en lugar de
   // cualquier vista, Configuraciones incluida (ver renderShell). Se ata acá una sola vez, y más
   // abajo bind() no sigue con las vistas: no están en pantalla (ver pantallaBloqueadaPorMfa).
@@ -16565,6 +16557,8 @@ function bind(){
     if(chkConteoCiego) chkConteoCiego.addEventListener('change', e=> actualizarConteoCiego(e.target.checked));
     const chkFotoObligatoria = document.getElementById('chk-foto-obligatoria');
     if(chkFotoObligatoria) chkFotoObligatoria.addEventListener('change', e=> actualizarFotoObligatoria(e.target.checked));
+    const chkMfaObligatoria = document.getElementById('chk-mfa-obligatoria');
+    if(chkMfaObligatoria) chkMfaObligatoria.addEventListener('change', e=> actualizarMfaObligatoria(e.target.checked));
     const chkStockCeroPlan = document.getElementById('chk-stock-cero-plan');
     if(chkStockCeroPlan) chkStockCeroPlan.addEventListener('change', e=> actualizarStockCeroEnPlan(e.target.checked));
     document.querySelectorAll('[data-suscribir-flow]').forEach(btn=>{

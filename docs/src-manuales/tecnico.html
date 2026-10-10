@@ -63,7 +63,7 @@
       <li>Planificar por ventanas, administrar Grupos, crear períodos y ver informes de cierre</li>
       <li>Invitar, editar y desactivar personas de su empresa; vincular operadores a responsables del plan</li>
       <li>Descartar reconteos con motivo, o cerrarlos como ajustados en el ERP con la referencia del ajuste; ver Auditoría si el plan la incluye</li>
-      <li>Activar Conteo ciego y Foto obligatoria para toda su empresa; activar MFA para su propia cuenta; gestionar suscripción y pago</li>
+      <li>Activar Conteo ciego y Foto obligatoria para toda su empresa; activar MFA para su propia cuenta y exigirla a los administradores de su empresa; gestionar suscripción y pago</li>
     </ul>
     <ul class="checks no">
       <li>Ver ni tocar SKU, conteos o personas de otra empresa (RLS a nivel de base de datos)</li>
@@ -422,7 +422,7 @@
       <li>Funciones <code>SECURITY DEFINER</code> expuestas a usuarios con sesión: 18, todas con verificación interna de empresa y rol (ej. <code>descartar_reconteo</code>, <code>cerrar_reconteo_ajuste_erp</code>, <code>renombrar_ubicacion_general</code>)</li>
       <li>Trigger <code>validar_responsable_misma_empresa</code>: rechaza un responsable de otra empresa en <code>plan_semanal</code></li>
       <li>Fotos en bucket privado con enlaces firmados y temporales; hasta 20 MB, solo imágenes, rutas por empresa. Cada foto se comprime en el dispositivo antes de subirse (máximo 1600 px, JPEG 0,82)</li>
-      <li>Contraseñas verificadas contra bases filtradas; límite de intentos de inicio de sesión; código de acceso de 6 dígitos como alternativa al link; MFA TOTP opcional (aal2); una sola sesión activa por usuario</li>
+      <li>Contraseñas verificadas contra bases filtradas; límite de intentos de inicio de sesión; código de acceso de 6 dígitos como alternativa al link; MFA TOTP (aal2), opcional o exigida a los administradores según la empresa (<code>empresas.mfa_obligatoria_admins</code>, apagado por defecto); una sola sesión activa por usuario</li>
       <li>Conteo ciego endurecido en la base (permisos por columna): ni por la API directa se obtiene el stock</li>
       <li>Historial de ubicaciones con política de SELECT solamente: se lee desde la app, no se edita desde ella</li>
       <li>Errores capturados por Sentry; respaldos diarios verificados con una restauración real. Postgres 17.6 en canal General Availability, región São Paulo</li>

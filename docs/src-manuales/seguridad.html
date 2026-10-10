@@ -30,7 +30,7 @@
 <!-- PORTADA -->
 <section class="page cover">
   <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
-  <div class="doc-kind">Revisión de seguridad · 19 de septiembre de 2026 · actualizada el 20 con el registro CSA STAR publicado</div>
+  <div class="doc-kind">Revisión de seguridad · 19 de septiembre de 2026 · actualizada el 10 de octubre</div>
   <h1>Qué está bien, qué falta y qué pide una certificación.</h1>
   <p class="lead">Revisión integral hecha con datos reales: políticas y funciones de la base, buckets de fotos, MFA de las cuentas, librerías y cabeceras de la app, secretos en el repositorio y protección de la rama de producción. La base está bien protegida. Lo que falta para certificar no es tanto código como <b>controles y evidencia</b>: quién puede qué, cómo se prueba y dónde queda escrito.</p>
   <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
@@ -63,7 +63,7 @@
     </div>
   </div>
 
-  <div class="note">El mismo día se corrigieron 1 (en la app), 4, 5 y 8, y Joel cerró 2, 6, 7 y el DMARC de 10. Quedan la MFA de Victoria y Claudio, la librería de Excel (3), el CAPTCHA (9) y la evidencia escrita.</div>
+  <div class="note">El mismo día se corrigieron 1 (en la app), 4, 5 y 8, y Joel cerró 2, 6, 7 y el DMARC de 10. Quedan la librería de Excel (3), el CAPTCHA (9) y la evidencia escrita; la exigencia de MFA pasó a ser un interruptor por empresa (10/10).</div>
 </section>
 
 <!-- 01 LO QUE ESTÁ BIEN -->
@@ -95,8 +95,8 @@
 
   <div class="item">
     <div class="head"><span class="num">1</span><span class="h">Ninguna cuenta usa MFA, incluidos los tres administradores</span><span class="est hecho">Hecho a medias</span><span class="amb seguridad">Seguridad</span></div>
-    <p>La app ya permitía activar el segundo factor, pero cero cuentas lo tenían. <b>Hecho (19/09):</b> la app avisa a cada admin al entrar y, desde el 1 de diciembre de 2026, no lo deja pasar hasta activarla; un operador no se ve afectado. Joel activó la suya el mismo día (verificado en la base). <b>Falta:</b> que Victoria y Claudio la activen en Configuraciones antes de esa fecha.</p>
-    <div class="meta"><span><b>Quién:</b> Victoria y Claudio</span><span><b>Esfuerzo:</b> un minuto por cuenta</span></div>
+    <p>La app ya permitía activar el segundo factor, pero cero cuentas lo tenían. <b>Hecho (19/09):</b> la app avisaba a cada admin y tenía fijado un bloqueo para el 1 de diciembre de 2026. <b>Actualizado (10/10):</b> por decisión de InventIA, exigirla pasó a ser un interruptor por empresa en Configuraciones, apagado por defecto; sin él, la app no avisa ni bloquea. La MFA sigue disponible en cada cuenta.</p>
+    <div class="meta"><span><b>Quién:</b> cada empresa decide</span><span><b>Esfuerzo:</b> un minuto por cuenta</span></div>
   </div>
   <div class="item">
     <div class="head"><span class="num">2</span><span class="h">La rama de producción no está protegida</span><span class="est hecho">Hecho</span><span class="amb operacion">Operación</span></div>
@@ -174,7 +174,7 @@
 
   <div class="item">
     <div class="head"><span class="num">1</span><span class="h">Esta semana: lo que cierra huecos y cuesta poco</span><span class="amb seguridad">Seguridad</span></div>
-    <p><b>Cerrada el 19/09.</b> Desarrollo: MFA obligatoria en la app (1) y Dependabot (10). Joel: MFA en su cuenta (1), <code>main</code> protegida (2), caducidad de sesión (6), contraseñas (7) y DMARC en cuarentena (10). Quedan tres cabos: la MFA de Victoria y Claudio (1), el usuario inactivo y pg_net (10).</p>
+    <p><b>Cerrada el 19/09.</b> Desarrollo: MFA obligatoria en la app (1) y Dependabot (10). Joel: MFA en su cuenta (1), <code>main</code> protegida (2), caducidad de sesión (6), contraseñas (7) y DMARC en cuarentena (10). Quedan dos cabos: el usuario inactivo y pg_net (10). La MFA (1) quedó como interruptor por empresa el 10/10.</p>
     <div class="meta"><span><b>Esfuerzo:</b> un minuto por cuenta y una migración corta</span></div>
   </div>
   <div class="item">
