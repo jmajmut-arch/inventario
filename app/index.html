@@ -1835,7 +1835,9 @@ function abrirEditorFoto(indice){
   if(!entrada || entrada.preparando || !entrada.preview) return;
   if(!entrada.base) entrada.base = entrada.file; // la foto sin marcas, para volver a dibujar desde cero
   editorFotoEnCurso = null;
-  setState({editorFoto:{indice, herramienta:'trazo', trazos:(entrada.trazos||[]).map(t=> t.tipo==='flecha' ? {...t} : {...t, puntos:t.puntos.slice()})}});
+  // Abrir el editor rehace la pantalla: sin conservandoCamposConteo se borraban la cantidad y la
+  // observación ya escritas (la observación, sin aviso). Cerrar y cambiar de herramienta ya lo hacían.
+  conservandoCamposConteo(()=> setState({editorFoto:{indice, herramienta:'trazo', trazos:(entrada.trazos||[]).map(t=> t.tipo==='flecha' ? {...t} : {...t, puntos:t.puntos.slice()})}}));
 }
 // Aplana base + trazos en un JPEG nuevo (o vuelve a la base si no quedó ningún trazo) y deja la
 // entrada lista para subirse: file, preview y trazos. Corre dentro de fotosEnProceso para que
