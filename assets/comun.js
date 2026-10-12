@@ -86,7 +86,11 @@
     } else if (q.get('li_fat_id')) {
       o.fuente = 'linkedin'; o.medio = 'cpc';         // anuncio de LinkedIn
     } else if (q.get('fbclid')) {
-      o.fuente = 'facebook'; o.medio = 'social';      // Facebook o Instagram (agregan fbclid)
+      // Meta agrega fbclid tanto en Facebook como en Instagram: si el dominio de origen dice cuál
+      // fue, se usa ese; si no (el navegador de la app de iPhone suele no mandarlo), no se adivina.
+      var meta = referente && !interno ? origenDesdeReferente(referente).fuente : '';
+      o.fuente = (meta === 'instagram' || meta === 'facebook') ? meta : 'meta';
+      o.medio = 'social';
     } else if (referente && !interno) {
       var r = origenDesdeReferente(referente);
       o.fuente = r.fuente; o.medio = r.medio;

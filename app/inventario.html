@@ -13864,7 +13864,7 @@ function renderSuperAdmin(){
 // De dónde vino el lead (columna origen, que llena el formulario del sitio desde el 12/10/2026;
 // ver assets/comun.js): "LinkedIn · campaña serie-videos". Si la primera visita y la del pedido
 // difieren, dice las dos. Es el mismo texto del correo de aviso (supabase/functions/notificar-lead).
-const NOMBRES_FUENTE_LEAD = { linkedin:'LinkedIn', instagram:'Instagram', facebook:'Facebook', chatgpt:'ChatGPT', perplexity:'Perplexity', whatsapp:'WhatsApp', youtube:'YouTube', x:'X (Twitter)', bing:'Bing', duckduckgo:'DuckDuckGo', email:'Correo' };
+const NOMBRES_FUENTE_LEAD = { linkedin:'LinkedIn', instagram:'Instagram', facebook:'Facebook', meta:'Facebook o Instagram', chatgpt:'ChatGPT', perplexity:'Perplexity', whatsapp:'WhatsApp', youtube:'YouTube', x:'X (Twitter)', bing:'Bing', duckduckgo:'DuckDuckGo', email:'Correo' };
 function canalLead(t){
   if(!t || typeof t!=='object' || !t.fuente) return '';
   const f = String(t.fuente).toLowerCase(), m = String(t.medio||'').toLowerCase();

@@ -663,6 +663,18 @@ async function loguear(page, perfil){
     await pedirDemo();
     const o3 = cuerpos[2] && cuerpos[2][0].origen;
     assert(o3 && o3.visita.fuente==='google' && o3.visita.medio==='cpc', 'gclid sin utm es Google Ads, obtuvo: '+JSON.stringify(o3));
+    // 3b) Meta agrega fbclid en Facebook y en Instagram: con referente de Instagram es Instagram;
+    // sin referente (navegador de la app en iPhone) no se adivina: "meta" = Facebook o Instagram.
+    await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
+    await page.goto(`http://localhost:${PORT}/inventario.html?fbclid=IwAR123`, { waitUntil:'networkidle', referer:'https://l.instagram.com/' });
+    await pedirDemo();
+    const o3b = cuerpos[cuerpos.length-1][0].origen;
+    assert(o3b && o3b.visita.fuente==='instagram' && o3b.visita.medio==='social', 'fbclid con referente de Instagram es Instagram, obtuvo: '+JSON.stringify(o3b));
+    await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
+    await page.goto(`http://localhost:${PORT}/inventario.html?fbclid=IwAR456`, { waitUntil:'networkidle' });
+    await pedirDemo();
+    const o3c = cuerpos[cuerpos.length-1][0].origen;
+    assert(o3c && o3c.visita.fuente==='meta', 'fbclid sin referente no se atribuye a Facebook: queda como "meta" (Facebook o Instagram), obtuvo: '+JSON.stringify(o3c));
     // 4) Si la base rechaza el origen, se reenvía sin él y la persona igual entra a la demo.
     rechazarOrigen = true;
     await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
