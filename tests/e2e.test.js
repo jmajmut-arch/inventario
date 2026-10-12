@@ -265,7 +265,13 @@ async function loguear(page, perfil){
     // Fase 2b: todos los controles del formulario miden al menos 44 px (48 los principales), el
     // stepper escribe en el mismo #c-cant, "Sin stock (0)" lo deja en 0, Guardar mide 56 px y el
     // chip "Sincronizado" está en la cabecera.
-    const controles = await page.$$eval('#form-conteo button, #form-conteo input:not([type=file]):not([type=checkbox]), #form-conteo textarea, #btn-quitar-sku', els => els.filter(e => e.offsetParent).map(e => ({ id: e.id || e.textContent.trim().slice(0,16), h: Math.round(e.getBoundingClientRect().height) })));
+    // Se mide recién cuando el formulario terminó de pintarse: #c-cant aparece antes que el resto y
+    // un repintado pendiente puede reemplazarlo justo al medir. Pasó en el CI de main (12/10/2026):
+    // "obtuvo: []", ningún control medido, y al repetir pasó sin cambiar nada. Si la espera se
+    // agota no se calla nada: el assert de abajo falla con lo que haya medido.
+    const SELECTOR_CONTROLES = '#form-conteo button, #form-conteo input:not([type=file]):not([type=checkbox]), #form-conteo textarea, #btn-quitar-sku';
+    await page.waitForFunction(sel => [...document.querySelectorAll(sel)].filter(e => e.offsetParent).length >= 8, SELECTOR_CONTROLES, { timeout:ESPERA }).catch(() => {});
+    const controles = await page.$$eval(SELECTOR_CONTROLES, els => els.filter(e => e.offsetParent).map(e => ({ id: e.id || e.textContent.trim().slice(0,16), h: Math.round(e.getBoundingClientRect().height) })));
     const chicos = controles.filter(c => c.h < 44);
     assert(controles.length >= 8 && chicos.length === 0, 'todos los controles del formulario deben medir al menos 44 px, obtuvo: '+JSON.stringify(chicos.length ? chicos : controles));
     const guardarH = await page.$eval('#form-conteo button[type=submit]', e => Math.round(e.getBoundingClientRect().height));
