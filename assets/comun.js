@@ -23,6 +23,115 @@
   }
   window.trackEvent = trackEvent;
 
+  // ---------------------------------------------------------------- origen de la visita
+  // De dónde vino quien pide la demo (12/10/2026). Antes un lead no lo guardaba: había que cruzar
+  // su hora con Google Analytics, y Analytics no registra a todos (bloqueadores, navegadores con
+  // protección de rastreo). Se toman dos datos y viajan con el formulario (columna origen):
+  //   primero: la primera visita registrada en este navegador en los últimos 90 días;
+  //   visita:  la visita de ahora, desde la página por la que entró.
+  // El caso que lo justifica: alguien llega por LinkedIn, se va, y al día siguiente vuelve
+  // escribiendo la dirección; "visita" dice directo y "primero" dice LinkedIn.
+  // Va antes de la redirección de enlaces viejos: location.replace pierde la URL y el referente.
+  // Solo se guarda en el navegador y solo sale de él si la persona envía un formulario. Si el
+  // navegador bloquea el almacenamiento, el lead llega igual (con la visita actual o sin origen).
+  var ORIGEN_PRIMERO = 'inventia_origen_primero';
+  var ORIGEN_VISITA = 'inventia_origen_visita';
+  var ORIGEN_DIAS = 90;
+
+  function textoCorto(v, max) {
+    v = (v == null ? '' : String(v)).trim();
+    return v ? v.slice(0, max || 120) : undefined;
+  }
+
+  // Fuente y medio a partir del dominio que mandó a la persona (cuando no trae utm_*).
+  function origenDesdeReferente(host) {
+    var h = host.replace(/^www\./, '');
+    var reglas = [
+      [/(^|\.)linkedin\.com$|^lnkd\.in$/, 'linkedin', 'referral'],
+      [/(^|\.)google\.[a-z.]+$/, 'google', 'organic'],
+      [/(^|\.)bing\.com$/, 'bing', 'organic'],
+      [/(^|\.)duckduckgo\.com$/, 'duckduckgo', 'organic'],
+      [/(^|\.)instagram\.com$/, 'instagram', 'referral'],
+      [/(^|\.)facebook\.com$|^fb\.me$/, 'facebook', 'referral'],
+      [/(^|\.)chatgpt\.com$|(^|\.)openai\.com$/, 'chatgpt', 'ai-assistant'],
+      [/(^|\.)perplexity\.ai$/, 'perplexity', 'ai-assistant'],
+      [/^t\.co$|(^|\.)x\.com$|(^|\.)twitter\.com$/, 'x', 'referral'],
+      [/(^|\.)youtube\.com$|^youtu\.be$/, 'youtube', 'referral'],
+      [/(^|\.)whatsapp\.com$|^wa\.me$/, 'whatsapp', 'referral']
+    ];
+    for (var i = 0; i < reglas.length; i++) {
+      if (reglas[i][0].test(h)) return { fuente: reglas[i][1], medio: reglas[i][2] };
+    }
+    return { fuente: h, medio: 'referral' };
+  }
+
+  // Origen de la visita actual, o null si no hay nada que decir (navegación interna del sitio).
+  function origenDeEstaVisita() {
+    var q = new URLSearchParams(location.search);
+    var referente = '';
+    try { if (document.referrer) referente = new URL(document.referrer).hostname; } catch (e) { referente = ''; }
+    var interno = referente && referente.replace(/^www\./, '') === location.hostname.replace(/^www\./, '');
+    var o = {
+      campana: textoCorto(q.get('utm_campaign')),
+      contenido: textoCorto(q.get('utm_content')),
+      referente: interno ? undefined : textoCorto(referente),
+      pagina: textoCorto(location.pathname, 200),
+      fecha: new Date().toISOString()
+    };
+    if (q.get('utm_source')) {
+      o.fuente = textoCorto(q.get('utm_source')).toLowerCase();
+      o.medio = textoCorto(q.get('utm_medium') || 'sin-medio').toLowerCase();
+    } else if (q.get('gclid') || q.get('gbraid') || q.get('wbraid')) {
+      o.fuente = 'google'; o.medio = 'cpc';           // anuncio de Google Ads (autoetiquetado)
+    } else if (q.get('li_fat_id')) {
+      o.fuente = 'linkedin'; o.medio = 'cpc';         // anuncio de LinkedIn
+    } else if (q.get('fbclid')) {
+      o.fuente = 'facebook'; o.medio = 'social';      // Facebook o Instagram (agregan fbclid)
+    } else if (referente && !interno) {
+      var r = origenDesdeReferente(referente);
+      o.fuente = r.fuente; o.medio = r.medio;
+    } else if (interno) {
+      return null;
+    } else {
+      o.fuente = 'directo'; o.medio = 'none';         // escribió la dirección, o una app que no avisa
+    }
+    return o;
+  }
+
+  function leerOrigen(almacen, clave) {
+    try { var v = JSON.parse(almacen.getItem(clave) || 'null'); return v && typeof v === 'object' ? v : null; }
+    catch (e) { return null; }
+  }
+  function guardarOrigen(almacen, clave, valor) {
+    try { almacen.setItem(clave, JSON.stringify(valor)); } catch (e) { /* almacenamiento bloqueado: no pasa nada */ }
+  }
+
+  var origenVisitaActual = origenDeEstaVisita();
+  (function registrarOrigen() {
+    var visita = origenVisitaActual;
+    var ses = null, loc = null;
+    try { ses = window.sessionStorage; loc = window.localStorage; } catch (e) { /* sin almacenamiento */ }
+    // La visita se fija con la primera página de la sesión: pasar de una página a otra del sitio
+    // no la cambia, pero llegar de nuevo desde afuera (otro anuncio, otro post) sí.
+    if (ses && visita) guardarOrigen(ses, ORIGEN_VISITA, visita);
+    if (loc) {
+      var primero = leerOrigen(loc, ORIGEN_PRIMERO);
+      var vencido = primero && primero.fecha && (Date.now() - Date.parse(primero.fecha)) > ORIGEN_DIAS * 864e5;
+      if ((!primero || vencido) && visita) guardarOrigen(loc, ORIGEN_PRIMERO, visita);
+    }
+  })();
+
+  // Lo que viaja con el formulario. null si no se sabe nada (la columna lo acepta).
+  function origenDelLead() {
+    var ses = null, loc = null;
+    try { ses = window.sessionStorage; loc = window.localStorage; } catch (e) { /* sin almacenamiento */ }
+    var visita = (ses && leerOrigen(ses, ORIGEN_VISITA)) || origenVisitaActual;
+    var primero = (loc && leerOrigen(loc, ORIGEN_PRIMERO)) || visita;
+    if (!visita && !primero) return null;
+    return { primero: primero || undefined, visita: visita || undefined };
+  }
+  window.origenDelLead = origenDelLead; // para las pruebas
+
   // ---------------------------------------------------------------- enlaces viejos
   // La landing era una sola página con anclas. Cualquier enlace ya enviado a #bodega,
   // #inventario, #control, #resuelve o #funciona tiene que seguir llegando a destino.
@@ -169,15 +278,30 @@
       btn.disabled = true;
       btn.textContent = 'Enviando…';
 
-      fetch(SUPABASE_URL + '/rest/v1/leads_demo', {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify([cfg.cuerpo()])
+      var cuerpo = cfg.cuerpo();
+      var enviar = function (filas) {
+        return fetch(SUPABASE_URL + '/rest/v1/leads_demo', {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(filas)
+        });
+      };
+      enviar([cuerpo]).then(function (res) {
+        if (res.ok || !('origen' in cuerpo)) return res;
+        // El origen es un extra: si la base lo rechazara (columna o formato), el lead igual tiene
+        // que llegar. Se reintenta una vez sin él, en vez de perder el contacto.
+        return res.clone().json().catch(function () { return {}; }).then(function (data) {
+          var porOrigen = /origen/i.test((data && (data.message || '') + ' ' + (data.details || '')) || '');
+          if (!porOrigen) return res;
+          var sinOrigen = {};
+          Object.keys(cuerpo).forEach(function (k) { if (k !== 'origen') sinOrigen[k] = cuerpo[k]; });
+          return enviar([sinOrigen]);
+        });
       }).then(function (res) {
         if (!res.ok) return res.json().catch(function () { return {}; }).then(function (data) {
           throw new Error((data && data.message) || cfg.errorGenerico);
@@ -214,7 +338,8 @@
         nombre: $('demo-nombre').value.trim(),
         email: $('demo-email').value.trim(),
         telefono: $('demo-telefono').value.trim(),
-        empresa: $('demo-empresa').value.trim() || null
+        empresa: $('demo-empresa').value.trim() || null,
+        origen: origenDelLead()
       };
     }
   });
@@ -244,7 +369,8 @@
         nombre: $('contacto-nombre').value.trim(),
         email: $('contacto-email').value.trim(),
         empresa: $('contacto-empresa').value.trim() || null,
-        mensaje: $('contacto-mensaje').value.trim()
+        mensaje: $('contacto-mensaje').value.trim(),
+        origen: origenDelLead()
       };
     }
   });

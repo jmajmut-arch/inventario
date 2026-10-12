@@ -65,3 +65,21 @@ test('el espejo app/inventario.html es idéntico a app/index.html', () => {
   const b = fs.readFileSync(path.join(RAIZ, 'app', 'inventario.html'), 'utf8');
   assert.strictEqual(a === b, true, 'app/inventario.html quedó desincronizado: copia app/index.html sobre él antes de publicar');
 });
+
+// El formulario del sitio (assets/comun.js) inserta en leads_demo como anon. Una columna que no
+// exista hace que PostgREST rechace el INSERT entero: el lead se pierde. Cada campo que mandan
+// los formularios (cuerpo: function () { return { ... } }) tiene que existir en la tabla.
+test('los formularios del sitio mandan a leads_demo solo columnas que existen', () => {
+  const codigo = fs.readFileSync(path.join(RAIZ, 'assets', 'comun.js'), 'utf8');
+  const bloques = [...codigo.matchAll(/cuerpo:\s*function\s*\(\)\s*\{\s*return\s*\{([\s\S]*?)\};/g)].map(m => m[1]);
+  assert.ok(bloques.length >= 2, `se esperaban los formularios de demo y de contacto, se encontraron ${bloques.length}: revisa el extractor`);
+  const conocidas = esquema.leads_demo;
+  assert.ok(conocidas, 'leads_demo no está en esquema-supabase.json');
+  const problemas = [];
+  for (const bloque of bloques) {
+    for (const m of bloque.matchAll(/^\s*([a-z_]+)\s*:/gm)) {
+      if (!conocidas.includes(m[1])) problemas.push(`leads_demo.${m[1]} no existe: el INSERT del formulario fallaría con un 400 y se perdería el lead`);
+    }
+  }
+  assert.deepStrictEqual(problemas, [], problemas.join('\n'));
+});

@@ -618,6 +618,62 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Landing: el lead guarda de dónde vino (12/10/2026) =====
+  // Primera visita desde un post de LinkedIn con enlace etiquetado; vuelve otro día escribiendo la
+  // dirección y pide la demo: "primero" dice LinkedIn con su campaña, "visita" dice directo. Y si
+  // la base rechazara el origen, el lead igual llega (se reenvía sin él): no se pierde un contacto.
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('landing-origen: '+err.message));
+    await bloquearSentry(page);
+    const cuerpos = [];
+    let rechazarOrigen = false;
+    await page.route('**/rest/v1/leads_demo', route => {
+      const cuerpo = route.request().postDataJSON();
+      cuerpos.push(cuerpo);
+      if (rechazarOrigen && 'origen' in cuerpo[0]) return route.fulfill({ status:400, contentType:'application/json', body: JSON.stringify({ code:'PGRST204', message:"Could not find the 'origen' column of 'leads_demo' in the schema cache" }) });
+      route.fulfill({ status:201, body:'' });
+    });
+    const pedirDemo = async () => {
+      await page.click('[data-abrir-demo]');
+      await page.fill('#demo-nombre', 'Persona Origen');
+      await page.fill('#demo-email', 'origen@example.com');
+      await page.fill('#demo-telefono', '+56911115555');
+      await page.waitForTimeout(2200);
+      await page.click('#demo-submit-btn');
+      await page.waitForTimeout(400);
+    };
+    // 1) Llega desde LinkedIn con utm_* y navega a otra página del sitio.
+    await page.goto(`http://localhost:${PORT}/inventario.html?utm_source=linkedin&utm_medium=social&utm_campaign=serie-videos&utm_content=video-01`, { waitUntil:'networkidle' });
+    await page.goto(`http://localhost:${PORT}/bodega.html`, { waitUntil:'networkidle', referer:`http://localhost:${PORT}/inventario.html` });
+    await pedirDemo();
+    const o1 = cuerpos[0] && cuerpos[0][0].origen;
+    assert(o1 && o1.primero.fuente==='linkedin' && o1.primero.medio==='social' && o1.primero.campana==='serie-videos' && o1.primero.contenido==='video-01' && o1.primero.pagina==='/inventario.html'
+      && o1.visita.fuente==='linkedin' && o1.visita.campana==='serie-videos', 'la visita etiquetada queda como primera y como visita actual, aunque pase por otra página del sitio, obtuvo: '+JSON.stringify(o1));
+    // 2) Otro día (sesión nueva, mismo navegador) vuelve escribiendo la dirección.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+    await pedirDemo();
+    const o2 = cuerpos[1] && cuerpos[1][0].origen;
+    assert(o2 && o2.primero.fuente==='linkedin' && o2.visita.fuente==='directo' && o2.visita.medio==='none', 'al volver directo, la primera visita sigue siendo LinkedIn y la del pedido es directa, obtuvo: '+JSON.stringify(o2));
+    // 3) Un anuncio de Google Ads (gclid, sin utm) se reconoce como tal.
+    await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
+    await page.goto(`http://localhost:${PORT}/inventario.html?gclid=abc123`, { waitUntil:'networkidle' });
+    await pedirDemo();
+    const o3 = cuerpos[2] && cuerpos[2][0].origen;
+    assert(o3 && o3.visita.fuente==='google' && o3.visita.medio==='cpc', 'gclid sin utm es Google Ads, obtuvo: '+JSON.stringify(o3));
+    // 4) Si la base rechaza el origen, se reenvía sin él y la persona igual entra a la demo.
+    rechazarOrigen = true;
+    await page.goto(`http://localhost:${PORT}/index.html`, { waitUntil:'networkidle' });
+    const antes = cuerpos.length;
+    await pedirDemo();
+    const reintento = cuerpos.slice(antes);
+    assert(reintento.length===2 && 'origen' in reintento[0][0] && !('origen' in reintento[1][0]) && reintento[1][0].email==='origen@example.com', 'si la base rechaza el origen, se reenvía una vez sin él, obtuvo: '+JSON.stringify(reintento));
+    assert(await page.isVisible('text=demo@inventiapp.cl'), 'tras el reenvío sin origen igual debe mostrar las credenciales de la demo');
+    await context.close();
+  }
+
   // ===== Landing Inventario (destino de Google Ads): el botón de la portada abre la demo y
   // el formulario dice para qué se pide el teléfono, a 420 px =====
   {

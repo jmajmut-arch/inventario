@@ -29,6 +29,31 @@ function esc(s: unknown) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
+// Origen del lead (columna origen, ver supabase/migrations/20261012_origen_de_leads.sql), en
+// palabras: "LinkedIn · campaña serie-videos". Si la primera visita y la de ahora difieren, se
+// dicen las dos: llegó por LinkedIn y volvió directo a pedir la demo.
+type Toma = { fuente?: string; medio?: string; campana?: string; contenido?: string; pagina?: string; fecha?: string };
+const NOMBRES: Record<string, string> = {
+  linkedin: 'LinkedIn', instagram: 'Instagram', facebook: 'Facebook', chatgpt: 'ChatGPT', perplexity: 'Perplexity',
+  whatsapp: 'WhatsApp', youtube: 'YouTube', x: 'X (Twitter)', bing: 'Bing', duckduckgo: 'DuckDuckGo', email: 'Correo',
+};
+function canal(t?: Toma | null) {
+  if (!t || !t.fuente) return '';
+  const f = String(t.fuente).toLowerCase(), m = String(t.medio || '').toLowerCase();
+  let nombre: string;
+  if (f === 'directo') nombre = 'Directo (escribió la dirección o vino de una app)';
+  else if (f === 'google') nombre = m === 'cpc' ? 'Google Ads' : 'Google (búsqueda)';
+  else nombre = (NOMBRES[f] || t.fuente) + (m === 'cpc' ? ' (anuncio)' : '');
+  return nombre + (t.campana ? ` · campaña ${t.campana}` : '') + (t.contenido ? ` · ${t.contenido}` : '');
+}
+function describirOrigen(o: { primero?: Toma; visita?: Toma } | null | undefined) {
+  if (!o || typeof o !== 'object') return 'Sin dato (lead anterior al registro de origen)';
+  const p = canal(o.primero), v = canal(o.visita);
+  const fecha = (t?: Toma) => t && t.fecha ? new Date(t.fecha).toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: 'numeric', month: 'short' }) : '';
+  if (p && v && p !== v) return `Llegó por ${p} (${fecha(o.primero)}); pidió la demo volviendo por ${v}`;
+  return v || p || 'Sin dato';
+}
+
 function horaChile(iso: string) {
   return new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'medium', timeStyle: 'short' });
 }
@@ -45,7 +70,7 @@ Deno.serve(async (req: Request) => {
   const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const { data: lead, error } = await db
     .from('leads_demo')
-    .select('id, nombre, email, telefono, empresa, tipo, mensaje, creado_en, notificado_en')
+    .select('id, nombre, email, telefono, empresa, tipo, mensaje, creado_en, notificado_en, origen')
     .eq('id', id)
     .maybeSingle();
   if (error) return json({ error: error.message }, 500);
@@ -63,6 +88,8 @@ Deno.serve(async (req: Request) => {
     ['Correo', `<a href="mailto:${esc(lead.email)}">${esc(lead.email)}</a>`],
     ['Teléfono', telefonoDigitos.length >= 8 ? `<a href="https://wa.me/${esc(telefonoDigitos)}">${esc(lead.telefono)}</a>` : esc(lead.telefono || '—')],
     ['Enviado', esc(horaChile(lead.creado_en))],
+    // El origen lo escribe el navegador de un tercero: si viniera raro, el aviso igual tiene que salir.
+    ['Origen', esc((() => { try { return describirOrigen(lead.origen); } catch { return 'Sin dato'; } })())],
   ];
   if (esContacto) filas.push(['Mensaje', esc(lead.mensaje || '—').replace(/\n/g, '<br>')]);
   const html = `<div style="font-family:Arial,sans-serif;font-size:15px;color:#241a10">

@@ -4278,6 +4278,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.detenerSeguimientoLead('lead-a', false);
   const patchLeadOff = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/leads_demo?id=eq.lead-a'));
   assert(!!patchLeadOff && JSON.parse(patchLeadOff.opts.body).seguimiento_detenido_en===null && !ctx.__appstate.superadmin.leads[0].seguimiento_detenido_en, 'desmarcar reactiva el seguimiento (null), obtuvo: '+JSON.stringify(patchLeadOff && patchLeadOff.opts.body));
+  // Origen del lead (12/10/2026): el formulario del sitio guarda de dónde vino la persona, y el
+  // panel lo dice en palabras. Si la primera visita y la del pedido difieren, se dicen las dos
+  // (llegó por LinkedIn y volvió directo a pedir la demo). Un lead antiguo dice "Sin dato".
+  const casosOrigen = [
+    [null, 'Sin dato (lead anterior al registro de origen)'],
+    [{visita:{fuente:'google', medio:'cpc'}, primero:{fuente:'google', medio:'cpc'}}, 'Google Ads'],
+    [{visita:{fuente:'google', medio:'organic'}}, 'Google (búsqueda)'],
+    [{primero:{fuente:'linkedin', medio:'social', campana:'serie-videos', fecha:'2026-09-30T15:54:00Z'}, visita:{fuente:'directo', medio:'none'}}, 'Llegó por LinkedIn · campaña serie-videos (30 sept); pidió la demo volviendo por Directo (escribió la dirección o vino de una app)'],
+    [{visita:{fuente:'chatgpt', medio:'ai-assistant'}}, 'ChatGPT'],
+    [{visita:{fuente:'linkedin', medio:'cpc'}}, 'LinkedIn (anuncio)'],
+    [{visita:'texto raro', primero:42}, 'Sin dato'],
+  ];
+  casosOrigen.forEach(([o, esperado])=>{
+    const obtenido = ctx.describirOrigenLead(o);
+    assert(obtenido===esperado, 'describirOrigenLead('+JSON.stringify(o)+') debe decir "'+esperado+'", obtuvo: "'+obtenido+'"');
+  });
+  ctx.__appstate.superadmin.leads = [
+    {id:'lead-o', nombre:'Olga', email:'olga@x.cl', tipo:'demo', creado_en:'2026-10-12T10:00:00Z', origen:{visita:{fuente:'linkedin', medio:'social', campana:'<b>serie</b>'}}},
+  ];
+  const htmlOrigen = ctx.renderSuperAdmin();
+  assert(htmlOrigen.includes('Origen: LinkedIn · campaña &lt;b&gt;serie&lt;/b&gt;'), 'el panel muestra el origen de cada lead, escapado (lo escribe un tercero), obtuvo: '+htmlOrigen);
   ctx.__appstate.superadmin.leads = [];
   assert(ctx.renderSuperAdmin().includes('Todavía no hay nadie'), 'sin leads debe mostrar un mensaje vacío, no una lista rota');
 
