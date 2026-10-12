@@ -13846,6 +13846,7 @@ function renderSuperAdmin(){
             <span class="hint">${esc(new Date(l.creado_en).toLocaleString('es-CL'))}</span>
           </div>
           <div class="hint">${esc(l.email)}${l.telefono?' · '+esc(l.telefono):''}</div>
+          <div class="hint">Origen: ${esc(describirOrigenLead(l.origen))}</div>
           ${l.mensaje?`<div class="hint" style="margin-top:4px;white-space:pre-wrap">${esc(l.mensaje)}</div>`:''}
           ${(l.tipo||'demo')==='demo' ? `<div class="hint" style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
             ${estadoSeguimientoLead(l)}
@@ -13858,6 +13859,29 @@ function renderSuperAdmin(){
       </div>` : ''}
     </div>
   `;
+}
+
+// De dónde vino el lead (columna origen, que llena el formulario del sitio desde el 12/10/2026;
+// ver assets/comun.js): "LinkedIn · campaña serie-videos". Si la primera visita y la del pedido
+// difieren, dice las dos. Es el mismo texto del correo de aviso (supabase/functions/notificar-lead).
+const NOMBRES_FUENTE_LEAD = { linkedin:'LinkedIn', instagram:'Instagram', facebook:'Facebook', chatgpt:'ChatGPT', perplexity:'Perplexity', whatsapp:'WhatsApp', youtube:'YouTube', x:'X (Twitter)', bing:'Bing', duckduckgo:'DuckDuckGo', email:'Correo' };
+function canalLead(t){
+  if(!t || typeof t!=='object' || !t.fuente) return '';
+  const f = String(t.fuente).toLowerCase(), m = String(t.medio||'').toLowerCase();
+  const nombre = f==='directo' ? 'Directo (escribió la dirección o vino de una app)'
+    : f==='google' ? (m==='cpc' ? 'Google Ads' : 'Google (búsqueda)')
+    : (NOMBRES_FUENTE_LEAD[f] || String(t.fuente)) + (m==='cpc' ? ' (anuncio)' : '');
+  return nombre + (t.campana ? ` · campaña ${t.campana}` : '') + (t.contenido ? ` · ${t.contenido}` : '');
+}
+function describirOrigenLead(o){
+  if(!o || typeof o!=='object') return 'Sin dato (lead anterior al registro de origen)';
+  const p = canalLead(o.primero), v = canalLead(o.visita);
+  if(p && v && p!==v){
+    const d = o.primero.fecha ? new Date(o.primero.fecha) : null;
+    const fecha = d && !isNaN(d) ? ` (${d.toLocaleDateString('es-CL',{day:'numeric',month:'short'})})` : '';
+    return `Llegó por ${p}${fecha}; pidió la demo volviendo por ${v}`;
+  }
+  return v || p || 'Sin dato';
 }
 
 // Seguimiento automático por correo a quien pidió la demo (ver enviar_seguimientos_leads y la

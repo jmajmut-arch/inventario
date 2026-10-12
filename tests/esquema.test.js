@@ -65,3 +65,32 @@ test('el espejo app/inventario.html es idéntico a app/index.html', () => {
   const b = fs.readFileSync(path.join(RAIZ, 'app', 'inventario.html'), 'utf8');
   assert.strictEqual(a === b, true, 'app/inventario.html quedó desincronizado: copia app/index.html sobre él antes de publicar');
 });
+
+// El formulario del sitio (assets/comun.js) inserta en leads_demo como anon. Una columna que no
+// exista hace que PostgREST rechace el INSERT entero: el lead se pierde. Cada campo que mandan
+// los formularios (cuerpo: function () { return { ... } }) tiene que existir en la tabla.
+test('los formularios del sitio mandan a leads_demo solo columnas que existen', () => {
+  const codigo = fs.readFileSync(path.join(RAIZ, 'assets', 'comun.js'), 'utf8');
+  const bloques = [...codigo.matchAll(/cuerpo:\s*function\s*\(\)\s*\{\s*return\s*\{([\s\S]*?)\};/g)].map(m => m[1]);
+  assert.ok(bloques.length >= 2, `se esperaban los formularios de demo y de contacto, se encontraron ${bloques.length}: revisa el extractor`);
+  const conocidas = esquema.leads_demo;
+  assert.ok(conocidas, 'leads_demo no está en esquema-supabase.json');
+  // Además de existir, la columna tiene que tener permiso de INSERT para anon: desde el 12/10/2026
+  // el permiso es por columna (supabase/migrations/20261012_leads_columnas_publicas.sql). Se toma
+  // el último "grant insert (...) on public.leads_demo" de las migraciones.
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let permitidas = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8');
+    for (const g of sql.matchAll(/grant\s+insert\s*\(([^)]*)\)\s*on\s+public\.leads_demo/gi)) permitidas = g[1].split(',').map(c => c.trim());
+  }
+  assert.ok(permitidas, 'no se encontró el grant insert (...) on public.leads_demo en supabase/migrations');
+  const problemas = [];
+  for (const bloque of bloques) {
+    for (const m of bloque.matchAll(/^\s*([a-z_]+)\s*:/gm)) {
+      if (!conocidas.includes(m[1])) problemas.push(`leads_demo.${m[1]} no existe: el INSERT del formulario fallaría con un 400 y se perdería el lead`);
+      else if (!permitidas.includes(m[1])) problemas.push(`leads_demo.${m[1]} no tiene permiso de INSERT para el público: el formulario fallaría y se perdería el lead`);
+    }
+  }
+  assert.deepStrictEqual(problemas, [], problemas.join('\n'));
+});
