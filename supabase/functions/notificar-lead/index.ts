@@ -34,7 +34,7 @@ function esc(s: unknown) {
 // dicen las dos: llegó por LinkedIn y volvió directo a pedir la demo.
 type Toma = { fuente?: string; medio?: string; campana?: string; contenido?: string; pagina?: string; fecha?: string };
 const NOMBRES: Record<string, string> = {
-  linkedin: 'LinkedIn', instagram: 'Instagram', facebook: 'Facebook', chatgpt: 'ChatGPT', perplexity: 'Perplexity',
+  linkedin: 'LinkedIn', instagram: 'Instagram', facebook: 'Facebook', meta: 'Facebook o Instagram', chatgpt: 'ChatGPT', perplexity: 'Perplexity',
   whatsapp: 'WhatsApp', youtube: 'YouTube', x: 'X (Twitter)', bing: 'Bing', duckduckgo: 'DuckDuckGo', email: 'Correo',
 };
 function canal(t?: Toma | null) {

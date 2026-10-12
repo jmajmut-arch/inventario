@@ -4288,6 +4288,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     [{primero:{fuente:'linkedin', medio:'social', campana:'serie-videos', fecha:'2026-09-30T15:54:00Z'}, visita:{fuente:'directo', medio:'none'}}, 'Llegó por LinkedIn · campaña serie-videos (30 sept); pidió la demo volviendo por Directo (escribió la dirección o vino de una app)'],
     [{visita:{fuente:'chatgpt', medio:'ai-assistant'}}, 'ChatGPT'],
     [{visita:{fuente:'linkedin', medio:'cpc'}}, 'LinkedIn (anuncio)'],
+    [{visita:{fuente:'meta', medio:'social'}}, 'Facebook o Instagram'],
+    [{visita:{fuente:'instagram', medio:'social', campana:'serie-videos'}}, 'Instagram · campaña serie-videos'],
     [{visita:'texto raro', primero:42}, 'Sin dato'],
   ];
   casosOrigen.forEach(([o, esperado])=>{
