@@ -805,6 +805,8 @@ details.plegable>summary .plegable-cta{font-size:13px;font-weight:700;color:var(
 .conteo-cero{width:auto;min-height:var(--tap);padding:0 16px;margin-top:8px;}
 .conteo-check{display:flex;align-items:center;gap:10px;min-height:var(--tap);margin-top:10px;font-size:14px;color:var(--text);cursor:pointer;}
 .conteo-check input{width:22px;height:22px;margin:0;accent-color:var(--amber);flex:none;}
+.conteo-danado-cant{margin:4px 0 0 32px;}
+.conteo-danado-cant input{max-width:220px;}
 .conteo-form .file-input{min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:600;color:var(--text);}
 .conteo-form .file-input svg{margin-bottom:4px;}
 .conteo-pie{position:sticky;bottom:calc(60px + env(safe-area-inset-bottom));background:var(--surface);padding:12px 0 0;margin-top:14px;border-top:1px solid var(--line);z-index:2;}
@@ -977,6 +979,13 @@ let state = {
   // comparando texto contra el maestro, frágil ante mayúsculas/typos y fácil de dejar mal
   // por inercia si alguien no editaba el campo precargado).
   conteoOtraUbicacion: false,
+  // Daños vistos al contar (pedido de Joel, 13/10/2026): el embalaje dañado es solo una marca (el
+  // material se cuenta igual); el material dañado puede llevar cuántas unidades, opcional, para
+  // saber cuánto podría terminar como merma. Viajan como conteos.packing_danado,
+  // material_danado y cantidad_danada. Viven en el estado, como el check de otra ubicación, para
+  // que un repintado (agregar una foto) no los desmarque.
+  conteoPackingDanado: false,
+  conteoMaterialDanado: false,
   // Cuántas veces ya se contó el SKU elegido en el período actual (ver cargarVecesContadoPeriodo)
   // -- {skuId, veces, cargando} o null si todavía no se consultó para el SKU actual. Aviso para
   // no duplicar trabajo si dos personas cuentan lo mismo sin saberlo (a pedido de Joel).
@@ -2729,7 +2738,7 @@ function bindBuscadorLibreResultados(){
       if(!sku) return;
       // Si el SKU tecleado está en el plan del día de esta persona, el conteo es "Plan" aunque
       // no lo haya tocado en la lista (pedido de Joel) -- ver origenPlanParaSku.
-      setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false});
+      setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false});
     });
   });
 }
@@ -6194,7 +6203,7 @@ function toggleSeleccionTodosBusqueda(ids, marcar){
    (app/lib/pdf-lib.min.js, MIT, cargado recién al exportar) la app escribe el PDF punto por
    punto: mismas hojas en cualquier dispositivo, 2 fichas en la primera (lleva el título) y 3 en
    las siguientes, logo de la empresa en todas, pie con la página. Papel carta. */
-const PDF_FICHAS = { ancho:612, alto:792, margen:36, fichaAlto:218, fila:13, foto:150, etiqueta:105, porHoja:3 };
+const PDF_FICHAS = { ancho:612, alto:792, margen:36, fichaAlto:231, fila:13, foto:150, etiqueta:105, porHoja:3 };
 const FOTO_PDF_TRANSFORM = {width:FOTO_PDF_LADO_PX, height:FOTO_PDF_LADO_PX, resize:'cover', quality:70};
 
 const scriptsCargados = {};
@@ -6311,8 +6320,10 @@ async function logoParaPdf(){
   return imagenIncrustable(directo) ? directo : null;
 }
 
-// Las 13 filas de la ficha: [etiqueta, valor, destacar en rojo, puede ocupar dos líneas].
+// Las 14 filas de la ficha: [etiqueta, valor, destacar en rojo, puede ocupar dos líneas, marcador].
 // Quién contó va en la misma línea que la fecha (pedido de Joel), así la ficha mide lo mismo.
+// Daños (13/10/2026) agregó una fila: la ficha pasó de 218 a 231 pt y las 3 por hoja siguen cabiendo
+// sobre el pie.
 function estadoTextoPdf(r, ocultarMagnitud){
   const contado = !!r.conteo_id;
   const tieneDiferencia = contado && r.diferencia && Number(r.diferencia)!==0;
@@ -6320,6 +6331,25 @@ function estadoTextoPdf(r, ocultarMagnitud){
     : tieneDiferencia ? (ocultarMagnitud ? 'Con diferencia' : `Diferencia ${r.diferencia>0?'+':''}${r.diferencia}`)
     : r.estado==='pendiente_revision' ? 'Pendiente'
     : r.estado==='aprobado' ? 'Cuadrado' : (r.estado || 'ok');
+}
+// Resaltado del estado como marca de plumón (pedido de Joel, 13/10/2026): verde si cuadró, rojo si
+// es merma (faltante) y amarillo si es excedente (sobrante). Con conteo ciego el estado dice solo
+// "Con diferencia", sin signo, así que no se colorea: el color delataría si falta o sobra.
+const MARCADOR_PDF = { cuadrado:[0.55,0.87,0.47], merma:[1,0.47,0.47], excedente:[1,0.93,0.3] };
+function marcadorEstadoPdf(r, ocultarMagnitud){
+  if(!r.conteo_id) return null;
+  const dif = Number(r.diferencia||0);
+  if(dif < 0) return ocultarMagnitud ? null : 'merma';
+  if(dif > 0) return ocultarMagnitud ? null : 'excedente';
+  return r.estado==='aprobado' ? 'cuadrado' : null;
+}
+// Daños del último conteo: packing (solo la marca) y material (con cuántas unidades, si se dijo).
+function danosTextoPdf(r){
+  if(!r.conteo_id) return '—';
+  const partes = [];
+  if(r.packing_danado) partes.push('Packing dañado');
+  if(r.material_danado) partes.push(r.cantidad_danada!=null ? `Material dañado: ${Number(r.cantidad_danada)}` : 'Material dañado');
+  return partes.length ? partes.join(' · ') : 'Sin daños';
 }
 function filasFichaPdf(r, ocultarMagnitud){
   const contado = !!r.conteo_id;
@@ -6333,7 +6363,8 @@ function filasFichaPdf(r, ocultarMagnitud){
     ['Clase ABC', r.clase_abc || 'Sin clasificar'],
     ['Crítico', r.critico ? 'Sí' : 'No', !!r.critico],
     ['Cantidad contada', contado ? r.cantidad_contada : '—'],
-    ['Estado', estadoTexto],
+    ['Estado', estadoTexto, false, false, marcadorEstadoPdf(r, ocultarMagnitud)],
+    ['Daños', danosTextoPdf(r), !!(contado && (r.packing_danado || r.material_danado))],
     ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
     ['Contado por', contado ? `${r.contado_por || 'Sin asignar'} · ${fmtFechaHora(r.fecha_conteo)}` : '—'],
     ['Ciclo', r.ciclo_nombre || '—'],
@@ -6348,9 +6379,14 @@ function dibujarFichaPdf(page, r, imagen, yTope, t){
   page.drawLine({start:{x, y:yTope}, end:{x:x+t.anchoUtil, y:yTope}, thickness:0.6, color:t.linea});
   page.drawText(textoPdf(r.sku_code), {x, y:yTope-17, size:11, font:t.mono, color:t.negro});
   let y = yTope - 32;
-  for(const [k, v, destacar, dosLineas] of filasFichaPdf(r, t.ocultar)){
+  for(const [k, v, destacar, dosLineas, marcador] of filasFichaPdf(r, t.ocultar)){
     page.drawText(textoPdf(k).toUpperCase(), {x, y, size:7, font:t.fuente, color: destacar ? t.rojo : t.gris});
     const lineas = dosLineas ? partirPdf(v, t.fuente, 8.5, anchoValor, 2) : [recortarPdf(v, t.fuente, 8.5, anchoValor)];
+    if(marcador){
+      // Antes que el texto, para que quede debajo; translúcido como un plumón sobre el papel.
+      const ancho = t.fuente.widthOfTextAtSize(lineas[0], 8.5);
+      page.drawRectangle({x:xValor-3, y:y-3, width:ancho+6, height:11, color:t.rgb(...MARCADOR_PDF[marcador]), opacity:0.6, borderWidth:0});
+    }
     lineas.forEach((l, i)=> page.drawText(l, {x:xValor, y:y - i*C.fila, size:8.5, font:t.fuente, color:t.negro}));
     y -= C.fila * lineas.length;
     page.drawLine({start:{x, y:y+C.fila-4}, end:{x:xFoto-12, y:y+C.fila-4}, thickness:0.3, color:t.linea});
@@ -9436,6 +9472,10 @@ async function procesarUnItemOffline(item){
       capturado_en: capturadoEn,
       fuera_de_plan: item.fuera_de_plan,
       ubicacion_distinta: !!item.ubicacion_distinta,
+      // Un conteo encolado por una versión anterior de la app no trae estas tres: sin daños.
+      packing_danado: !!item.packing_danado,
+      material_danado: !!item.material_danado,
+      cantidad_danada: item.material_danado && item.cantidad_danada!=null ? item.cantidad_danada : null,
       idempotency_key: idempotencyKey,
     }], prefer:'resolution=ignore-duplicates,return=representation'});
     // Igual que en guardarConteo: si ya existía (un intento anterior de sincronizar este mismo
@@ -9516,7 +9556,7 @@ async function reintentarAccionOffline(id){
 // atado al estado — son inputs sueltos que se leen recién al guardar. Sin esto, cada foto
 // agregada/quitada borraba lo que la persona ya había tipeado, en especial la cantidad.
 function conservandoCamposConteo(fn){
-  const ids = ['c-cant', 'c-bodega', 'c-ubic', 'c-obs'];
+  const ids = ['c-cant', 'c-bodega', 'c-ubic', 'c-obs', 'c-cant-danada'];
   const valores = {};
   ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
   fn();
@@ -9610,15 +9650,13 @@ function restaurarFormularioPlan(snap){
 // Los campos de ubicación no necesitan preservarse: siempre muestran el valor del maestro,
 // fijos, sin importar el estado del check (ver guardarConteo/ubicacion_distinta).
 function alternarOtraUbicacionConteo(marcado){
-  const cant = document.getElementById('c-cant');
-  const obs = document.getElementById('c-obs');
-  const valCant = cant ? cant.value : undefined;
-  const valObs = obs ? obs.value : undefined;
-  setState({conteoOtraUbicacion: marcado});
-  const cant2 = document.getElementById('c-cant');
-  const obs2 = document.getElementById('c-obs');
-  if(cant2 && valCant!==undefined) cant2.value = valCant;
-  if(obs2 && valObs!==undefined) obs2.value = valObs;
+  conservandoCamposConteo(()=> setState({conteoOtraUbicacion: marcado}));
+}
+
+// Mismo cuidado para las marcas de daño: el repintado muestra u oculta el campo de unidades
+// dañadas, y lo tecleado (cantidad, observación, unidades) se conserva.
+function alternarDanoConteo(campo, marcado){
+  conservandoCamposConteo(()=> setState({[campo]: marcado}));
 }
 
 // Mismo problema que conservandoCamposConteo: refrescar las opciones de ubicación/bin o el aviso
@@ -9737,9 +9775,22 @@ function renderRevisionCodigoSku(){
   </div>`;
 }
 
-async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacionDistinta}){
+// Unidades dañadas: solo con la marca de material dañado; vacío = no se contaron (null). No puede
+// ser negativa ni pasar de lo contado (la base solo exige que no sea negativa: ver
+// 20261013_conteos_danos.sql). Devuelve {valor} o {error}.
+function cantidadDanadaConteo(materialDanado, cantidadDanada, cantidad){
+  if(!materialDanado || cantidadDanada==null || String(cantidadDanada).trim()==='') return {valor:null};
+  const n = Number(cantidadDanada);
+  if(isNaN(n) || n < 0) return {error:'Las unidades dañadas tienen que ser un número, 0 o más'};
+  if(n > Number(cantidad)) return {error:`Las unidades dañadas (${n}) no pueden ser más que la cantidad contada (${Number(cantidad)})`};
+  return {valor:n};
+}
+
+async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacionDistinta, packingDanado, materialDanado, cantidadDanada}){
   if(!state.skuSeleccionado){ toast('Selecciona un SKU primero','err'); return; }
   if(cantidad === '' || cantidad === null || isNaN(Number(cantidad)) || Number(cantidad) < 0){ toast('Ingresa una cantidad contada válida','err'); return; }
+  const danada = cantidadDanadaConteo(materialDanado, cantidadDanada, cantidad);
+  if(danada.error){ toast(danada.error,'err'); return; }
   if(!perfilCargado()) return;
   await esperarFotosEnProceso(); // ver comprimirFoto: una foto recién tomada puede seguir comprimiéndose
   if(faltaFotoObligatoria(cantidad, state.conteoFotos)){ toast('Falta el respaldo fotográfico: toma al menos una foto del material (solo se puede omitir al contar 0)','err'); return; }
@@ -9784,6 +9835,9 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       capturado_en: capturadoEn,
       fuera_de_plan: !state.conteoOrigenPlan,
       ubicacion_distinta: !!ubicacionDistinta,
+      packing_danado: !!packingDanado,
+      material_danado: !!materialDanado,
+      cantidad_danada: danada.valor,
       idempotency_key: idempotencyKey,
     }], prefer:'resolution=ignore-duplicates,return=representation', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
     // Si el conteo ya existía (reintento de un intento anterior que sí había llegado a guardarse
@@ -9810,7 +9864,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     }
 
     toast('Conteo registrado');
-    setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
+    setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
     if(state.contarPlan.skusPendientes) elegirCascadaContar({});
     invalidarCacheAgregados(['generales','sinUbicacion']); // cambió cuántos SKU quedan pendientes por bodega
     refrescarSiCargada(['dashboard','reconteos']);
@@ -9835,9 +9889,12 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
         fotosCount: fotosAEncolar.length,
         fuera_de_plan: !state.conteoOrigenPlan,
         ubicacion_distinta: !!ubicacionDistinta,
+        packing_danado: !!packingDanado,
+        material_danado: !!materialDanado,
+        cantidad_danada: danada.valor,
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
-      setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
+      setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
       toast(e.motivoTimeout
         ? 'La conexión está muy lenta: el conteo quedó guardado en este dispositivo y se enviará solo cuando mejore la señal.'
         : 'Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
@@ -10023,7 +10080,7 @@ async function onCodigoEscaneado(codigo){
     return;
   }
   if(coincidencias.length===1){
-    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: origenPlanParaSku(coincidencias[0]), conteoOtraUbicacion:false});
+    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: origenPlanParaSku(coincidencias[0]), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
   }else if(coincidencias.length>1){
     // El mismo código existe en más de una bodega o batch (el código físico es el mismo sin
@@ -10039,7 +10096,7 @@ async function onCodigoEscaneado(codigo){
 function elegirSkuEscaneado(skuId){
   const sku = state.skus.find(s=>s.id===skuId);
   if(!sku) return;
-  setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, escanerModal: null});
+  setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, escanerModal: null});
   toast(`SKU ${sku.sku_code} encontrado`);
 }
 
@@ -10053,7 +10110,7 @@ async function asociarCodigoBarras(skuId, codigo){
     await rest(`/skus?id=eq.${skuId}`, {method:'PATCH', body:{codigo_barras: codigo}, prefer:'return=minimal'});
     sku.codigo_barras = codigo;
     toast(`Código asociado a ${sku.sku_code}`);
-    setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, escanerModal: null});
+    setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, escanerModal: null});
   }catch(e){
     toast(e.message,'err');
     setState({escanerModal: {...state.escanerModal, asociando:false}});
@@ -12569,6 +12626,19 @@ function renderConteo(){
             <input type="checkbox" id="c-otra-ubic" ${state.conteoOtraUbicacion?'checked':''}>
             Lo encontré en otra ubicación
           </label>
+          <label class="conteo-check">
+            <input type="checkbox" id="c-packing-danado" ${state.conteoPackingDanado?'checked':''}>
+            Packing dañado
+          </label>
+          <label class="conteo-check">
+            <input type="checkbox" id="c-material-danado" ${state.conteoMaterialDanado?'checked':''}>
+            Material dañado
+          </label>
+          ${state.conteoMaterialDanado? `
+          <div class="conteo-danado-cant">
+            <label for="c-cant-danada">Unidades dañadas (opcional)</label>
+            <input type="number" id="c-cant-danada" step="0.01" min="0" placeholder="Cuántas, si las contaste" inputmode="decimal">
+          </div>` : ''}
           <div class="row2">
             <div><label for="c-bodega">Ubicación general</label><input type="text" id="c-bodega" value="${esc(state.skuSeleccionado.bodega||'')}" disabled></div>
             <div><label for="c-ubic">Ubicación contada</label><input type="text" id="c-ubic" value="${esc(state.skuSeleccionado.ubicacion||'')}" disabled></div>
@@ -17151,7 +17221,7 @@ function bind(){
           const sku = (state.contarPlan.skusPendientes||[]).find(s=>s.id===btn.dataset.pickPlan)
             || state.skus.find(s=>s.id===btn.dataset.pickPlan);
           if(!sku) return;
-          setState({skuSeleccionado: sku, conteoOrigenPlan:true, conteoOtraUbicacion:false});
+          setState({skuSeleccionado: sku, conteoOrigenPlan:true, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false});
         });
       });
     }else{
@@ -17161,7 +17231,7 @@ function bind(){
       // Si viene de Recontar no se consulta: la tarjeta ya sabe de qué conteo viene y se ahorra
       // la ida y vuelta (ver avisoVecesContadoPeriodo).
       if(!esReconteoDelSkuActual() && (!state.conteoVecesPeriodo || state.conteoVecesPeriodo.skuId !== state.skuSeleccionado.id)) cargarVecesContadoPeriodo(state.skuSeleccionado);
-      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoFotos:[], conteoVecesPeriodo:null, conteoReconteo:null}));
+      document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], conteoVecesPeriodo:null, conteoReconteo:null}));
       document.getElementById('c-foto').addEventListener('change', e=>{
         const files = Array.from(e.target.files || []);
         files.forEach(file=>{
@@ -17192,6 +17262,8 @@ function bind(){
       });
       document.querySelectorAll('[data-marcar-foto]').forEach(btn=> btn.addEventListener('click', ()=> abrirEditorFoto(Number(btn.dataset.marcarFoto))));
       document.getElementById('c-otra-ubic').addEventListener('change', e=> alternarOtraUbicacionConteo(e.target.checked));
+      document.getElementById('c-packing-danado').addEventListener('change', e=> alternarDanoConteo('conteoPackingDanado', e.target.checked));
+      document.getElementById('c-material-danado').addEventListener('change', e=> alternarDanoConteo('conteoMaterialDanado', e.target.checked));
       // Stepper −/+ y atajo "Sin stock (0)" (Fase 2b): escriben en el mismo #c-cant, sin tocar el
       // estado ni el guardado. No enfocan el campo: en el iPad eso abriría el teclado.
       const cCant = document.getElementById('c-cant');
@@ -17217,6 +17289,9 @@ function bind(){
         ubicacion: document.getElementById('c-ubic').value.trim(),
         observacion: document.getElementById('c-obs').value.trim(),
         ubicacionDistinta: document.getElementById('c-otra-ubic').checked,
+        packingDanado: document.getElementById('c-packing-danado').checked,
+        materialDanado: document.getElementById('c-material-danado').checked,
+        cantidadDanada: (document.getElementById('c-cant-danada')||{}).value,
       });
       document.getElementById('form-conteo').addEventListener('submit', e=>{
         e.preventDefault();
@@ -17297,7 +17372,7 @@ function bind(){
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
           // Adherencia al plan, aunque su conteo original sí venía del plan del día.
-          conteoOrigenPlan:true, conteoOtraUbicacion:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(),
+          conteoOrigenPlan:true, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(),
           // Qué conteo se va a repetir (ver avisoVecesContadoPeriodo): reemplaza el "Ya contado"
           // por la fecha y, si el servidor la muestra, la diferencia que motivó el reconteo.
           conteoReconteo:{skuId:r.id, fecha:r.ultimo_conteo_fecha, cantidad:r.ultima_cantidad_contada, diferencia:r.ultima_diferencia},
