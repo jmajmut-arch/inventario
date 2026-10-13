@@ -1,23 +1,23 @@
 {
  "fecha": "13/10/2026",
- "subtitulo": "Cuántas personas pueden contar a la vez, medido dos veces el mismo día",
+ "subtitulo": "Cuántas personas pueden contar a la vez: tres mediciones el mismo día",
  "meta": "Supabase Small (2 núcleos, PG17)<br>Hora de Chile · 3 min por nivel",
- "resumen": "<b>Hasta 300 personas contando a la vez, la app responde bien en las dos pruebas:</b> sin errores y guardar un conteo bajo 0,45 s (p95). Con 400 empieza la saturación y cede primero el Dashboard. La prueba de la tarde partió con el doble de conteos acumulados, lo que encarece el Dashboard: sobre 300 personas no compara solo las mejoras, que se midieron aparte (abajo a la derecha).",
+ "resumen": "<b>Hasta 300 personas contando a la vez, la app responde bien en las tres pruebas.</b> Sobre 400 se satura, y la base de datos (plan Small, 2 GB) puede caerse: le pasó con 750 en la tarde y con 500 en la prueba con protección. La protección eliminó los deadlocks, pero no subió el techo, que depende del tamaño del servidor. Cada prueba partió con más conteos acumulados (6.920, 14.660 y 20.465), así que sobre 300 personas la comparación no es exacta.",
  "kpis": [
   {
    "q": "Capacidad cómoda",
    "a": "300 <span>personas</span>",
-   "n": "0 errores en ambas · guardar p95 ≤ 0,42 s · ≈ 40 empresas de 6 operadores + 1 supervisor"
+   "n": "En las tres: menos de 1% de errores y guardar p95 ≤ 0,33 s · ≈ 40 empresas de 6 operadores + 1 supervisor"
   },
   {
-   "q": "Zona de saturación",
-   "a": "400 <span>personas</span>",
-   "n": "Mañana 0% errores; tarde 3,7%, con consultas del Dashboard cortadas a los 20 s"
+   "q": "La base se cayó",
+   "a": "2 <span>de 3</span>",
+   "n": "Con 750 (tarde, ≈1,5 min) y con 500 (con protección, ≈2 min). Sin usuarios reales conectados"
   },
   {
-   "q": "Lo primero que cede",
-   "a": "Dashboard",
-   "n": "p95 con 300 personas: 2,6 s (mañana) y 4,0 s (tarde)"
+   "q": "Deadlocks",
+   "a": "211 → 116 → 0",
+   "n": "El turno por material al guardar los eliminó"
   },
   {
    "q": "Dashboard Escondida, sin carga",
@@ -25,203 +25,11 @@
    "n": "−25% en el servidor · mismas cifras, al momento"
   }
  ],
- "antes": {
-  "etiqueta": "Mañana, 09:14 (partió con 6.920 conteos de prueba)",
-  "niveles": [
-   {
-    "personas": 100,
-    "rps": 10.5,
-    "err": 0.0,
-    "conteos": 470,
-    "buscar": 439.0,
-    "guardar": 419.0,
-    "foto": 954.0,
-    "plan": 591.0,
-    "dashboard": 1100.0,
-    "buscar50": 178.0,
-    "guardar50": 165.0
-   },
-   {
-    "personas": 200,
-    "rps": 21.3,
-    "err": 0.0,
-    "conteos": 942,
-    "buscar": 271.0,
-    "guardar": 229.0,
-    "foto": 944.0,
-    "plan": 411.0,
-    "dashboard": 1400.0,
-    "buscar50": 181.0,
-    "guardar50": 167.0
-   },
-   {
-    "personas": 300,
-    "rps": 32.2,
-    "err": 0.0,
-    "conteos": 1413,
-    "buscar": 312.0,
-    "guardar": 242.0,
-    "foto": 966.0,
-    "plan": 521.0,
-    "dashboard": 2600.0,
-    "buscar50": 194.0,
-    "guardar50": 173.0
-   },
-   {
-    "personas": 400,
-    "rps": 42.5,
-    "err": 0.0,
-    "conteos": 1890,
-    "buscar": 1100.0,
-    "guardar": 741.0,
-    "foto": 1600.0,
-    "plan": 2100.0,
-    "dashboard": 16700.0,
-    "buscar50": 258.0,
-    "guardar50": 219.0
-   },
-   {
-    "personas": 500,
-    "rps": 28.6,
-    "err": 1.15,
-    "conteos": 1197,
-    "buscar": 46600.0,
-    "guardar": 32500.0,
-    "foto": 24300.0,
-    "plan": 51200.0,
-    "dashboard": 57500.0,
-    "buscar50": 1300.0,
-    "guardar50": 634.0
-   },
-   {
-    "personas": 600,
-    "rps": 30.2,
-    "err": 3.26,
-    "conteos": 1329,
-    "buscar": 57000.0,
-    "guardar": 25100.0,
-    "foto": 25100.0,
-    "plan": 34800.0,
-    "dashboard": 60000.0,
-    "buscar50": 3200.0,
-    "guardar50": 2100.0
-   },
-   {
-    "personas": 750,
-    "rps": 14.3,
-    "err": 41.04,
-    "conteos": 221,
-    "buscar": 60000.0,
-    "guardar": 60000.0,
-    "foto": 39200.0,
-    "plan": 60000.0,
-    "dashboard": 60000.0,
-    "buscar50": 45800.0,
-    "guardar50": 60000.0
-   }
-  ]
- },
- "despues": {
-  "etiqueta": "Tarde, 12:57, con las mejoras (partió con 14.660)",
-  "niveles": [
-   {
-    "personas": 100,
-    "rps": 10.6,
-    "err": 0.0,
-    "conteos": 467,
-    "buscar": 342.0,
-    "guardar": 252.0,
-    "foto": 1100.0,
-    "plan": 437.0,
-    "dashboard": 1300.0,
-    "buscar50": 205.0,
-    "guardar50": 189.0
-   },
-   {
-    "personas": 200,
-    "rps": 21.2,
-    "err": 0.0,
-    "conteos": 937,
-    "buscar": 293.0,
-    "guardar": 236.0,
-    "foto": 1100.0,
-    "plan": 488.0,
-    "dashboard": 2100.0,
-    "buscar50": 207.0,
-    "guardar50": 187.0
-   },
-   {
-    "personas": 300,
-    "rps": 31.6,
-    "err": 0.0,
-    "conteos": 1394,
-    "buscar": 403.0,
-    "guardar": 278.0,
-    "foto": 1000.0,
-    "plan": 589.0,
-    "dashboard": 4000.0,
-    "buscar50": 224.0,
-    "guardar50": 197.0
-   },
-   {
-    "personas": 400,
-    "rps": 27.8,
-    "err": 3.73,
-    "conteos": 1169,
-    "buscar": 57700.0,
-    "guardar": 60000.0,
-    "foto": 8400.0,
-    "plan": 21000.0,
-    "dashboard": 60000.0,
-    "buscar50": 802.0,
-    "guardar50": 483.0
-   },
-   {
-    "personas": 500,
-    "rps": 27.2,
-    "err": 1.55,
-    "conteos": 1247,
-    "buscar": 31700.0,
-    "guardar": 32100.0,
-    "foto": 26300.0,
-    "plan": 36500.0,
-    "dashboard": 60000.0,
-    "buscar50": 3900.0,
-    "guardar50": 3100.0
-   },
-   {
-    "personas": 600,
-    "rps": 13.9,
-    "err": 27.48,
-    "conteos": 434,
-    "buscar": 60000.0,
-    "guardar": 60000.0,
-    "foto": 37400.0,
-    "plan": 60000.0,
-    "dashboard": 60000.0,
-    "buscar50": 40100.0,
-    "guardar50": 23400.0
-   },
-   {
-    "personas": 750,
-    "rps": 1.4,
-    "err": 100.0,
-    "conteos": 0,
-    "buscar": 40800.0,
-    "guardar": null,
-    "foto": null,
-    "plan": 4400.0,
-    "dashboard": 40900.0,
-    "buscar50": 11300.0,
-    "guardar50": null
-   }
-  ]
- },
  "conclusiones": [
-  "<b>300 personas a la vez</b> es lo que hoy se puede prometer con holgura en el plan Small.",
-  "<b>El Dashboard es el cuello de botella:</b> su costo crece con los conteos de cada empresa, y con 400 personas pasa el límite de 20 s.",
-  "<b>Con 750 la base se reinició sola</b> (≈1,5 min sin servicio, 13:22 a 13:24 hora de Chile). No había usuarios reales; una sobrecarga así afecta a todas las empresas.",
-  "<b>Deadlocks</b> al contar el mismo material a la vez, desde 600 personas (116). Pendiente encontrar la causa."
+  "<b>300 personas a la vez</b> es lo que hoy se puede prometer con holgura en el plan Small: unas 40 empresas trabajando al mismo tiempo.",
+  "<b>El techo lo pone el servidor, no el código:</b> con el Dashboard limitado y sin deadlocks, la base igual se cayó con 500. Se sube el plan cuando haya más clientes.",
+  "<b>No probar sobre 400 personas en producción</b> hasta subir el plan: cada caída deja sin servicio a todas las empresas.",
+  "<b>Uso real, muy por debajo:</b> un inventario de AGUNSA usa de 3 a 15 personas; Escondida, unas pocas."
  ],
  "mejoras": [
   [
@@ -255,6 +63,276 @@
    "623 ms"
   ]
  ],
- "metodo": "Método: k6 desde GitHub Actions contra producción, con 5 empresas de prueba (80.000 materiales la primera, 10.000 las otras). Cada persona busca dos veces, guarda el conteo, sube foto (~400 KB) en 8 de 10 y espera 20–40 s entre materiales; 1 de cada 10 es supervisor y abre el Dashboard cada 1–2 min. 3 min por nivel; corte a 60 s. La prueba de la tarde se detuvo sola en el nivel 750 al pasar el 5% de errores. Las mejoras de la derecha se midieron sin carga, con datos de Escondida y resultado idéntico.",
- "max_err": 100
+ "metodo": "Método: k6 desde GitHub Actions contra producción, con 5 empresas de prueba (80.000 materiales la primera, 10.000 las otras). Cada persona busca dos veces, guarda el conteo, sube foto (~400 KB) en 8 de 10 y espera 20–40 s entre materiales; 1 de cada 10 es supervisor y abre el Dashboard cada 1–2 min. 3 min por nivel; corte a 60 s. Las pruebas 2 y 3 se detuvieron solas al pasar el 5% de errores (niveles 750 y 500). Las mejoras de la derecha se midieron sin carga, con datos de Escondida y resultado idéntico.",
+ "max_err": 100,
+ "corridas": [
+  {
+   "etiqueta": "1 · 09:14 · mejora del buscador",
+   "corta": "1",
+   "color": "#c4b6a2",
+   "niveles": [
+    {
+     "personas": 100,
+     "rps": 10.5,
+     "err": 0.0,
+     "conteos": 470,
+     "buscar": 439.0,
+     "guardar": 419.0,
+     "foto": 954.0,
+     "plan": 591.0,
+     "dashboard": 1100.0,
+     "buscar50": 178.0,
+     "guardar50": 165.0
+    },
+    {
+     "personas": 200,
+     "rps": 21.3,
+     "err": 0.0,
+     "conteos": 942,
+     "buscar": 271.0,
+     "guardar": 229.0,
+     "foto": 944.0,
+     "plan": 411.0,
+     "dashboard": 1400.0,
+     "buscar50": 181.0,
+     "guardar50": 167.0
+    },
+    {
+     "personas": 300,
+     "rps": 32.2,
+     "err": 0.0,
+     "conteos": 1413,
+     "buscar": 312.0,
+     "guardar": 242.0,
+     "foto": 966.0,
+     "plan": 521.0,
+     "dashboard": 2600.0,
+     "buscar50": 194.0,
+     "guardar50": 173.0
+    },
+    {
+     "personas": 400,
+     "rps": 42.5,
+     "err": 0.0,
+     "conteos": 1890,
+     "buscar": 1100.0,
+     "guardar": 741.0,
+     "foto": 1600.0,
+     "plan": 2100.0,
+     "dashboard": 16700.0,
+     "buscar50": 258.0,
+     "guardar50": 219.0
+    },
+    {
+     "personas": 500,
+     "rps": 28.6,
+     "err": 1.15,
+     "conteos": 1197,
+     "buscar": 46600.0,
+     "guardar": 32500.0,
+     "foto": 24300.0,
+     "plan": 51200.0,
+     "dashboard": 57500.0,
+     "buscar50": 1300.0,
+     "guardar50": 634.0
+    },
+    {
+     "personas": 600,
+     "rps": 30.2,
+     "err": 3.26,
+     "conteos": 1329,
+     "buscar": 57000.0,
+     "guardar": 25100.0,
+     "foto": 25100.0,
+     "plan": 34800.0,
+     "dashboard": 60000.0,
+     "buscar50": 3200.0,
+     "guardar50": 2100.0
+    },
+    {
+     "personas": 750,
+     "rps": 14.3,
+     "err": 41.04,
+     "conteos": 221,
+     "buscar": 60000.0,
+     "guardar": 60000.0,
+     "foto": 39200.0,
+     "plan": 60000.0,
+     "dashboard": 60000.0,
+     "buscar50": 45800.0,
+     "guardar50": 60000.0
+    }
+   ]
+  },
+  {
+   "etiqueta": "2 · 12:57 · mejoras del Dashboard",
+   "corta": "2",
+   "color": "#6f7f86",
+   "niveles": [
+    {
+     "personas": 100,
+     "rps": 10.6,
+     "err": 0.0,
+     "conteos": 467,
+     "buscar": 342.0,
+     "guardar": 252.0,
+     "foto": 1100.0,
+     "plan": 437.0,
+     "dashboard": 1300.0,
+     "buscar50": 205.0,
+     "guardar50": 189.0
+    },
+    {
+     "personas": 200,
+     "rps": 21.2,
+     "err": 0.0,
+     "conteos": 937,
+     "buscar": 293.0,
+     "guardar": 236.0,
+     "foto": 1100.0,
+     "plan": 488.0,
+     "dashboard": 2100.0,
+     "buscar50": 207.0,
+     "guardar50": 187.0
+    },
+    {
+     "personas": 300,
+     "rps": 31.6,
+     "err": 0.0,
+     "conteos": 1394,
+     "buscar": 403.0,
+     "guardar": 278.0,
+     "foto": 1000.0,
+     "plan": 589.0,
+     "dashboard": 4000.0,
+     "buscar50": 224.0,
+     "guardar50": 197.0
+    },
+    {
+     "personas": 400,
+     "rps": 27.8,
+     "err": 3.73,
+     "conteos": 1169,
+     "buscar": 57700.0,
+     "guardar": 60000.0,
+     "foto": 8400.0,
+     "plan": 21000.0,
+     "dashboard": 60000.0,
+     "buscar50": 802.0,
+     "guardar50": 483.0
+    },
+    {
+     "personas": 500,
+     "rps": 27.2,
+     "err": 1.55,
+     "conteos": 1247,
+     "buscar": 31700.0,
+     "guardar": 32100.0,
+     "foto": 26300.0,
+     "plan": 36500.0,
+     "dashboard": 60000.0,
+     "buscar50": 3900.0,
+     "guardar50": 3100.0
+    },
+    {
+     "personas": 600,
+     "rps": 13.9,
+     "err": 27.48,
+     "conteos": 434,
+     "buscar": 60000.0,
+     "guardar": 60000.0,
+     "foto": 37400.0,
+     "plan": 60000.0,
+     "dashboard": 60000.0,
+     "buscar50": 40100.0,
+     "guardar50": 23400.0
+    },
+    {
+     "personas": 750,
+     "rps": 1.4,
+     "err": 100.0,
+     "conteos": 0,
+     "buscar": 40800.0,
+     "guardar": null,
+     "foto": null,
+     "plan": 4400.0,
+     "dashboard": 40900.0,
+     "buscar50": 11300.0,
+     "guardar50": null
+    }
+   ]
+  },
+  {
+   "etiqueta": "3 · 15:32 · protección contra sobrecarga",
+   "corta": "3",
+   "color": "#bd5b2c",
+   "niveles": [
+    {
+     "personas": 100,
+     "rps": 10.9,
+     "err": 0.0,
+     "conteos": 477,
+     "buscar": 301.0,
+     "guardar": 247.0,
+     "foto": 1100.0,
+     "plan": 453.0,
+     "dashboard": 1700.0,
+     "buscar50": 223.0,
+     "guardar50": 206.0
+    },
+    {
+     "personas": 200,
+     "rps": 21.1,
+     "err": 0.0,
+     "conteos": 938,
+     "buscar": 306.0,
+     "guardar": 255.0,
+     "foto": 896.0,
+     "plan": 495.0,
+     "dashboard": 2400.0,
+     "buscar50": 226.0,
+     "guardar50": 207.0
+    },
+    {
+     "personas": 300,
+     "rps": 31.9,
+     "err": 0.04,
+     "conteos": 1407,
+     "buscar": 459.0,
+     "guardar": 322.0,
+     "foto": 932.0,
+     "plan": 723.0,
+     "dashboard": 8000.0,
+     "buscar50": 234.0,
+     "guardar50": 216.0
+    },
+    {
+     "personas": 400,
+     "rps": 32.8,
+     "err": 4.3,
+     "conteos": 1405,
+     "buscar": 19400.0,
+     "guardar": 60000.0,
+     "foto": 1400.0,
+     "plan": 3700.0,
+     "dashboard": 60000.0,
+     "buscar50": 327.0,
+     "guardar50": 281.0
+    },
+    {
+     "personas": 500,
+     "rps": 4.0,
+     "err": 100.0,
+     "conteos": 0,
+     "buscar": 40500.0,
+     "guardar": null,
+     "foto": null,
+     "plan": 12900.0,
+     "dashboard": 37400.0,
+     "buscar50": 3600.0,
+     "guardar50": null
+    }
+   ]
+  }
+ ]
 }

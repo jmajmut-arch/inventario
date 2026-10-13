@@ -90,6 +90,13 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
     `skus`, para que dos conteos del mismo material no entren en deadlock.
   - Claves de advisory locks en uso: 74100, 74101 y 74102. Una función nueva que use advisory
     locks elige otra.
+  - **Lo que la protección no resuelve:** la tercera prueba del 13/10/2026, ya con la
+    protección, no tuvo deadlocks (antes 211 y 116) y el Dashboard quedó limitado, pero la base
+    igual se cayó con 500 personas (≈2 min). El techo lo pone el tamaño del servidor, no el
+    código: en el plan Small se promete con holgura 300 personas contando a la vez (≈40
+    empresas). Joel decidió subir el plan cuando haya más clientes. **Hasta entonces, ninguna
+    prueba de carga en producción sobre 400 personas:** cada caída deja sin servicio a todas
+    las empresas. Resultados de las tres pruebas en `docs/pruebas-carga/`.
 - **Los buscadores comparan con `ilike`, no con `position()` ni `lower() like`.** `skus` tiene
   índices GIN de trigramas en `sku_code`, `descripcion`, `batch` y `storage_bin` (extensión
   `pg_trgm`, esquema `extensions`), y solo `ilike` los usa: `position()` obliga a leer el maestro
