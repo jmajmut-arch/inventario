@@ -69,6 +69,16 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   funciona con 9 filas puede superar el `statement_timeout` de 20 s del rol `authenticator`. Toda
   operación masiva va por lotes, con avance visible. Medir con `EXPLAIN (ANALYZE)` o cronometrando
   dentro de una transacción que se revierte.
+- **Una prueba de carga no termina cuando termina k6: revisar la base después.** El 13/10/2026,
+  al saturarse el nivel de 500 personas, inserciones de conteos de `__CARGA_1__` y `__CARGA_2__`
+  sobre el mismo material entraron en deadlock (en `sincronizar_ultimo_conteo_sku`, al actualizar
+  `skus`). Las mismas 15 conexiones de PostgREST siguieron repitiéndolas, sin ninguna petición
+  nueva, durante 87 minutos (12:40 a 14:07 UTC): dos deadlocks por segundo, 15 de las 16
+  conexiones del pool ocupadas, y las migraciones de ese rato no conseguían su bloqueo. Se cortó
+  con `pg_terminate_backend` sobre esas conexiones (inserciones que nunca se confirmaron; no se
+  perdió nada). Tras cada prueba: `pg_stat_activity` sin transacciones activas viejas y
+  `postgres_logs` sin "deadlock detected". Las migraciones llevan `set local lock_timeout`, para
+  fallar en segundos en vez de quedar esperando detrás de algo así.
 - **Los buscadores comparan con `ilike`, no con `position()` ni `lower() like`.** `skus` tiene
   índices GIN de trigramas en `sku_code`, `descripcion`, `batch` y `storage_bin` (extensión
   `pg_trgm`, esquema `extensions`), y solo `ilike` los usa: `position()` obliga a leer el maestro

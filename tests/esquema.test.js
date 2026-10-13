@@ -118,3 +118,69 @@ test('el buscador no recorre el maestro completo con textos que aparecen poco', 
   assert.match(cuerpo, /grant\s+execute\s+on\s+function\s+public\.buscar_skus_lectura\([^)]*\)\s+to\s+authenticated/i, `${ultima.archivo}: falta el permiso para authenticated`);
   assert.match(cuerpo, /revoke\s+all\s+on\s+function\s+public\.buscar_skus_lectura\([^)]*\)\s+from\s+public,\s*anon/i, `${ultima.archivo}: falta quitarle el permiso a public y anon (es SECURITY DEFINER)`);
 });
+
+// Las políticas de exclusiones e incluidos del plan comparan su propio empresa_id. Antes miraban
+// la empresa a través del plan (un EXISTS sobre plan_semanal por cada fila leída) y eso era ~110 de
+// los ~150 ms de avance_plan_por_ciclo en el Dashboard de Escondida
+// (20261013_plan_hijos_empresa_id.sql). La columna la llena un trigger desde el plan: sin él, un
+// insert de la app (que no la manda) fallaría por not null, y se podría escribir en un plan ajeno
+// con un empresa_id propio. Se revisa la última definición de cada política y del trigger.
+test('exclusiones e incluidos del plan filtran por su propio empresa_id y el trigger lo llena', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  const ultimas = {};
+  let trigger = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    for (const m of sql.matchAll(/(?:create|alter)\s+policy\s+"?(auth_(?:read|insert|delete)_plan_semanal_(?:exclusiones|incluidos))"?\s+on\s+[^;]*;/gi)) {
+      ultimas[m[1]] = { archivo, def: m[0] };
+    }
+    for (const m of sql.matchAll(/create\s+or\s+replace\s+function\s+public\.plan_hijo_fija_empresa\s*\(\)[\s\S]*?\$\$[\s\S]*?\$\$/gi)) {
+      trigger = { archivo, def: m[0] };
+    }
+  }
+  const problemas = [];
+  for (const tabla of ['exclusiones', 'incluidos']) {
+    for (const accion of ['read', 'insert', 'delete']) {
+      const nombre = `auth_${accion}_plan_semanal_${tabla}`;
+      const u = ultimas[nombre];
+      if (!u) { problemas.push(`no se encontró la política ${nombre}`); continue; }
+      if (!/empresa_id\s*=\s*\(\s*select\s+public\.empresa_actual\(\)\s*\)/i.test(u.def)) {
+        problemas.push(`${u.archivo}: ${nombre} no compara empresa_id = (select public.empresa_actual())`);
+      }
+      if (/exists\s*\(/i.test(u.def)) problemas.push(`${u.archivo}: ${nombre} volvió a mirar la empresa a través del plan (EXISTS por fila)`);
+    }
+    const sqlTodo = fs.readdirSync(dirMig).map(a => fs.readFileSync(path.join(dirMig, a), 'utf8')).join('\n');
+    if (!new RegExp(`create\\s+trigger\\s+\\w+\\s+before\\s+insert\\s+or\\s+update\\s+of\\s+plan_id,\\s*empresa_id\\s+on\\s+public\\.plan_semanal_${tabla}[\\s\\S]*?execute\\s+function\\s+public\\.plan_hijo_fija_empresa\\(\\)`, 'i').test(sqlTodo)) {
+      problemas.push(`falta el trigger que llena empresa_id en plan_semanal_${tabla}`);
+    }
+  }
+  assert.ok(trigger, 'no se encontró la función plan_hijo_fija_empresa');
+  assert.match(trigger.def, /new\.empresa_id[\s\S]*plan_semanal/i, `${trigger.archivo}: plan_hijo_fija_empresa tiene que tomar la empresa del plan`);
+  assert.doesNotMatch(trigger.def, /security\s+definer/i, `${trigger.archivo}: plan_hijo_fija_empresa no puede ser SECURITY DEFINER: leería planes ajenos y dejaría escribir en ellos`);
+  assert.deepStrictEqual(problemas, [], problemas.join('\n'));
+});
+
+// skus_valor_abc lee solo la clasificación ABC de la empresa del usuario. Antes la vista
+// materializada no tenía empresa_id y cada lectura (resumen ABC del Dashboard, pagina_skus)
+// recorría las ~182.000 filas de todas las empresas (20261013_abc_por_empresa.sql). Además, la
+// vista, el refresco nocturno y refrescar_clasificacion_abc() tienen que usar la misma vista
+// materializada: si uno queda apuntando a otra, la clasificación que se ve deja de actualizarse.
+test('la clasificación ABC se lee por empresa y se refresca la misma vista materializada que se lee', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let vista = null, funcion = null, cron = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const v = /create\s+or\s+replace\s+view\s+public\.skus_valor_abc\b[\s\S]*?;/i.exec(sql);
+    if (v) vista = { archivo, def: v[0] };
+    const f = /create\s+or\s+replace\s+function\s+public\.refrescar_clasificacion_abc\s*\(\)[\s\S]*?\$\$[\s\S]*?\$\$/i.exec(sql);
+    if (f) funcion = { archivo, def: f[0] };
+    const c = /cron\.schedule\(\s*'refrescar-clasificacion-abc-nocturno'[\s\S]*?\);/i.exec(sql);
+    if (c) cron = { archivo, def: c[0] };
+  }
+  assert.ok(vista && funcion && cron, 'faltan en las migraciones la vista skus_valor_abc, refrescar_clasificacion_abc o el refresco nocturno');
+  assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: skus_valor_abc tiene que ser security_invoker`);
+  assert.match(vista.def, /mv\.empresa_id\s*=\s*\(\s*select\s+public\.empresa_actual\(\)\s*\)/i, `${vista.archivo}: skus_valor_abc no filtra la vista materializada por empresa`);
+  const mv = /join\s+(privado\.\w+)/i.exec(vista.def)[1];
+  assert.match(funcion.def, new RegExp(`refresh\\s+materialized\\s+view\\s+concurrently\\s+${mv.replace('.', '\\.')}\\b`, 'i'), `${funcion.archivo}: refrescar_clasificacion_abc no refresca ${mv}, que es la que lee skus_valor_abc`);
+  assert.match(cron.def, new RegExp(`${mv.replace('.', '\\.')}\\b`, 'i'), `${cron.archivo}: el refresco nocturno no refresca ${mv}, que es la que lee skus_valor_abc`);
+});
