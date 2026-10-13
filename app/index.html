@@ -1259,10 +1259,11 @@ const DIAS_AVISO_CAMBIO_PERIODO = 14;
 // confirmarVistaPreviaComoPlan (plan automático de Grupos) excluye del universo de una entrada
 // todo SKU que no sea del grupo -- si esa entrada no queda acotada a un storage bin puntual (ver
 // más abajo), el universo es la bodega+ubicación ENTERA, que en una bodega grande puede tener
-// decenas de miles de SKU. Confirmado en terreno (con datos reales) que Supabase devuelve 431
-// "Request Header Fields Too Large" en algún punto entre 6500 y 7000 códigos en la URL -- este
-// límite deja margen de sobra debajo de eso, para no generar una entrada que después no se pueda
-// ni siquiera leer en Contar.
+// decenas de miles de SKU. Nació porque las exclusiones viajaban en la URL (Supabase devolvía 431
+// entre 6500 y 7000 códigos). Hoy van en el cuerpo de las llamadas al servidor y la app nunca las
+// pone en una URL, así que el tope es solo de tamaño del plan. Ojo: el límite real de URL medido
+// el 13/10/2026 es mucho menor (~24.000 caracteres, ver restEnTandas); no volver a mandar
+// exclusiones por URL.
 const LIMITE_EXCLUSIONES_PLAN_AUTOMATICO = 3000;
 // Trazabilidad usa una página más chica: la tabla de auditoría es más densa de leer que las
 // otras listas paginadas, así que conviene una tanda menor por carga.
@@ -2947,6 +2948,9 @@ function filtroBin(storage_bin){
 const CAMPOS_UNIVERSO_SKU = 'id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia';
 // Tope de bins por consulta in.(...): mantiene la URL corta (PostgREST la rechaza si es enorme).
 const BINS_POR_CONSULTA = 80;
+// Códigos de material por consulta in.(...): 500 de hasta 18 caracteres son menos de 10.000 de
+// URL, bajo el límite medido (~24.000, ver restEnTandas), en pocas idas y vueltas.
+const CODIGOS_POR_CONSULTA = 500;
 
 async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados}){
   let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true`;
@@ -3798,7 +3802,7 @@ async function cargarSeguimientoGrupo(grupoId){
       filas = [];
       if(miembros.length){
         const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
-        filas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
+        filas = await restEnTandas('/skus?activo=eq.true&sku_code=in.', codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,ultimo_conteo_fecha');
       }
     }
     const ciclosActuales = await pedidoCiclo || [];
@@ -4100,7 +4104,7 @@ async function cargarMiembrosGrupo(grupoId){
     let datosSkus = [];
     if(rows.length){
       const codigos = Array.from(new Set(rows.map(m=>m.sku_code)));
-      datosSkus = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,descripcion,critico,ultimo_conteo_fecha`) || [];
+      datosSkus = await restEnTandas('/skus?activo=eq.true&sku_code=in.', codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,descripcion,critico,ultimo_conteo_fecha');
     }
     const cicloGrupo = calcularCicloGrupo(grupo);
     const inicioGrupoMs = cicloGrupo ? new Date(grupo.fecha_inicio+'T00:00:00').getTime() : null;
@@ -4259,7 +4263,7 @@ async function calcularVistaPreviaPlanGrupo(){
         // de esos códigos y se filtra acá a las que de verdad son miembros (código+bodega exactos),
         // porque PostgREST no permite filtrar por pares (código,bodega) en un solo pedido.
         const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
-        const filasCrudas = await rest(`/skus?activo=eq.true&sku_code=in.(${codigos.map(c=>encodeURIComponent(c)).join(',')})&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
+        const filasCrudas = await restEnTandas('/skus?activo=eq.true&sku_code=in.', codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha');
         const clavesMiembros = new Set(miembros.map(m=>`${m.sku_code}::${m.bodega||''}`));
         filas = filasCrudas.filter(f=> clavesMiembros.has(`${f.sku_code}::${f.bodega||''}`));
       }
@@ -4936,11 +4940,15 @@ function entradasActivasContar(cp){
 // (bodega+ubicación completa) puede ser demasiado grande para snapshotearlo.
 // Filtro `in.(...)` con muchos valores: de a `tam` por consulta, para que la URL nunca pase el
 // límite del servidor. `base` termina en "campo=in." y `valores` ya vienen listos para la URL.
-async function restEnTandas(base, valores, tam = 100){
+// Límite medido el 13/10/2026 contra el proyecto real: hasta ~24.000 caracteres de URL pasa; desde
+// ~25.000 la puerta de Supabase responde 400 "Bad Request" sin CORS y el navegador lo ve como
+// "sin conexión". 100 uuid son ~3.700 caracteres; 100 códigos, ~1.000.
+// `resto` (opcional) va después de la lista, para conservar la forma de URLs que ya existían.
+async function restEnTandas(base, valores, tam = 100, resto = ''){
   if(!valores.length) return [];
   const tandas = [];
   for(let i=0; i<valores.length; i+=tam) tandas.push(valores.slice(i, i+tam));
-  return (await Promise.all(tandas.map(t=> rest(`${base}(${t.join(',')})`)))).flatMap(r=> r||[]);
+  return (await Promise.all(tandas.map(t=> rest(`${base}(${t.join(',')})${resto}`)))).flatMap(r=> r||[]);
 }
 
 async function skusMovidosDeEntradas(entradas, binesActivos){
@@ -5477,15 +5485,24 @@ async function pasarAtrasoAHoy(){
   return reprogramarAtraso(Array.from(new Set(a.entradas.map(e=>e.fecha))), fechaISO(new Date()));
 }
 
+// Escritura sobre muchas entradas del plan (borrar, reasignar): de a 100 id por llamada, en
+// orden, como reprogramarAtraso. Con "Seleccionar todo" en Mes o Período la selección pasa de las
+// 400 entradas en Escondida, y desde ~650 la URL supera lo que Supabase acepta (ver restEnTandas).
+async function escribirPlanEnTandas(ids, opts){
+  for(let i=0; i<ids.length; i+=100){
+    await rest(`/plan_semanal?id=in.(${ids.slice(i, i+100).join(',')})`, opts);
+  }
+}
+
 async function borrarPlanEntradas(ids){
   if(!ids.length) return;
   try{
-    await rest(`/plan_semanal?id=in.(${ids.join(',')})`, {method:'DELETE'});
+    await escribirPlanEnTandas(ids, {method:'DELETE'});
     toast(`${ids.length} entrada${ids.length>1?'s eliminadas':' eliminada'} de la planificación`);
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
     invalidarCalendario();
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){ toast(e.message,'err'); cargarPlanSemanal(); }
 }
 
 async function confirmarYBorrarSeleccionPlan(){
@@ -5514,7 +5531,7 @@ async function reasignarResponsableSeleccionPlan(responsableId){
   const ids = state.plan.seleccionados;
   if(!ids.length) return;
   try{
-    await rest(`/plan_semanal?id=in.(${ids.join(',')})`, {method:'PATCH', body:{responsable_id: responsableId||null}, prefer:'return=minimal'});
+    await escribirPlanEnTandas(ids, {method:'PATCH', body:{responsable_id: responsableId||null}, prefer:'return=minimal'});
     toast(`Responsable actualizado en ${ids.length} entrada${ids.length>1?'s':''}`);
     setState({plan: {...state.plan, seleccionados:[]}});
     cargarPlanSemanal();

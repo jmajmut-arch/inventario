@@ -7319,6 +7319,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const patchSinAsignar = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(rp1)'));
   assert(!!patchSinAsignar && JSON.parse(patchSinAsignar.opts.body).responsable_id===null, '"Sin asignar" debe mandar responsable_id null, obtuvo: '+JSON.stringify(patchSinAsignar && patchSinAsignar.opts.body));
 
+  // Límite de URL (13/10/2026): Supabase rechaza URLs de más de ~24.000 caracteres sin CORS. Con
+  // "Seleccionar todo" en Mes o Período, Escondida ya pasa de 400 entradas: reasignar y borrar van
+  // de a 100 id, en orden.
+  {
+    const uuid = i => `00000000-0000-4000-8000-${String(i).padStart(12,'0')}`;
+    const muchas = Array.from({length:250}, (_,i)=>uuid(i));
+    ctx.__appstate.plan.seleccionados = muchas;
+    calls.length = 0;
+    await ctx.reasignarResponsableSeleccionPlan('resp-A');
+    const patches = calls.filter(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.('));
+    const idsPatch = patches.flatMap(c=> decodeURIComponent(c.url).match(/id=in\.\(([^)]*)\)/)[1].split(','));
+    assert(patches.length===3 && patches.every(c=>c.url.length < 5000) && idsPatch.length===250 && new Set(idsPatch).size===250, 'reasignar 250 entradas va en 3 PATCH cortos que cubren las 250, obtuvo: '+JSON.stringify(patches.map(c=>c.url.length)));
+    calls.length = 0;
+    await ctx.borrarPlanEntradas(muchas);
+    const deletes = calls.filter(c=>c.opts && c.opts.method==='DELETE' && c.url.includes('/plan_semanal?id=in.('));
+    const idsDelete = deletes.flatMap(c=> decodeURIComponent(c.url).match(/id=in\.\(([^)]*)\)/)[1].split(','));
+    assert(deletes.length===3 && deletes.every(c=>c.url.length < 5000) && idsDelete.length===250 && new Set(idsDelete).size===250, 'borrar 250 entradas va en 3 DELETE cortos que cubren las 250, obtuvo: '+JSON.stringify(deletes.map(c=>c.url.length)));
+    // Grupos: los códigos de los miembros van de a 500, conservando la forma de la URL.
+    calls.length = 0;
+    const codigosGrupo = Array.from({length:1200}, (_,i)=>'MAT-'+String(i).padStart(14,'0'));
+    await ctx.restEnTandas('/skus?activo=eq.true&sku_code=in.', codigosGrupo, vm.runInContext('CODIGOS_POR_CONSULTA', ctx), '&select=sku_code,bodega');
+    const tandasGrupo = calls.filter(c=>c.url.includes('/skus?activo=eq.true&sku_code=in.('));
+    assert(tandasGrupo.length===3 && tandasGrupo.every(c=>c.url.length < 12000 && c.url.endsWith('&select=sku_code,bodega')), '1.200 códigos de hasta 18 caracteres van en 3 consultas bajo 12.000 caracteres, con el select al final, obtuvo: '+JSON.stringify(tandasGrupo.map(c=>c.url.length)));
+  }
+
   // Sin selección hecha en el <select> (queda en el placeholder "Reasignar a…"), el botón debe
   // avisar en vez de reasignar a ciegas -- esto se prueba a nivel de bind(), no de la función en
   // sí (reasignarResponsableSeleccionPlan siempre actúa con lo que reciba).
