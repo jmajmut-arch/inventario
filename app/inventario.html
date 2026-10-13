@@ -12513,7 +12513,7 @@ function renderPlanDelDia(){
       <button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-plan-dia" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${cp.cargando || !cp.entradas.length?'disabled':''}>${ICONS.download} Exportar PDF</button>
     </div>
     <div class="card">
-      <details class="contar-cambiar" id="contar-cambiar">
+      <details class="contar-cambiar" id="contar-cambiar"${cp.cambiarAbierto? ' open' : ''}>
         <summary><span class="contar-dia">${esc(diaLegible)}</span><span class="contar-cambiar-txt">Cambiar día${cp.entradas.length? ' o lugar' : ''}</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></summary>
         <div class="contar-cambiar-cuerpo">
           <label for="contar-fecha">Día</label>
@@ -17243,6 +17243,11 @@ function bind(){
       if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
       const btnEscanerPlan = document.getElementById('btn-escanear-plan');
       if(btnEscanerPlan) btnEscanerPlan.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
+      // "Cambiar día o lugar" se queda abierto mientras se elige (pedido de Joel, 13/10/2026): cada
+      // elección repinta la pantalla y el <details> nuevo nacía cerrado, así que había que volver a
+      // abrirlo para elegir la ubicación. Se recuerda en el estado sin repintar; lo cierra la persona.
+      const cambiarEl = document.getElementById('contar-cambiar');
+      if(cambiarEl) cambiarEl.addEventListener('toggle', ()=>{ state.contarPlan.cambiarAbierto = cambiarEl.open; });
       const fechaEl = document.getElementById('contar-fecha');
       if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value){ state.contarPlan.fechaManual = true; cargarPlanDeHoy(e.target.value); } });
       const btnExportarPlanDia = document.getElementById('btn-exportar-plan-dia');

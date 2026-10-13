@@ -251,6 +251,21 @@ async function loguear(page, perfil){
     assert(tarjeta.h >= 64 && tarjeta.t === 'B501 · 0100', 'la tarjeta del lugar es grande y nombra bodega · ubicación, obtuvo '+JSON.stringify(tarjeta));
     assert(!(await page.isVisible('#contar-bodega')), 'los <select> de bodega/ubicación quedan plegados (existen, no se ven)');
     assert(await page.$('#contar-bodega') !== null, 'el <select> de bodega sigue en el DOM para quien prefiera la cascada');
+    // Bug real (Joel, 13/10/2026): elegir bodega en "Cambiar día o lugar" repintaba la pantalla y el
+    // panel se cerraba; había que reabrirlo para elegir la ubicación, y se volvía a cerrar.
+    const panelAbierto = () => page.$eval('#contar-cambiar', el => el.open);
+    await page.click('#contar-cambiar > summary');
+    await page.selectOption('#contar-bodega', 'B501');
+    assert(await esperarVisible(page, '#contar-ubic'), 'tras elegir bodega se ve el <select> de ubicación');
+    assert(await panelAbierto(), 'elegir bodega no cierra "Cambiar día o lugar"');
+    await page.selectOption('#contar-ubic', '0100');
+    assert(await esperarVisible(page, '.contar-lista .list-item'), 'elegir ubicación carga la lista de SKU pendientes');
+    assert(await panelAbierto(), 'elegir ubicación no cierra "Cambiar día o lugar"');
+    await page.click('#contar-cambiar > summary');
+    assert(!(await panelAbierto()), 'la persona lo cierra tocando su cabecera');
+    await page.click('#btn-contar-cambiar-lugar');
+    assert(await esperarVisible(page, '.contar-lugar'), '"Cambiar lugar" vuelve a las tarjetas de lugar');
+    assert(!(await panelAbierto()), 'cerrado por la persona, sigue cerrado tras repintar');
     await page.click('.contar-lugar');
     assert(await esperarVisible(page, '.contar-lista .list-item'), 'tocar la tarjeta debe cargar la lista de SKU pendientes');
     const filas = await page.$$eval('.contar-lista .list-item', els => els.map(e => e.getBoundingClientRect().height));
