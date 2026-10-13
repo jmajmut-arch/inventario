@@ -89,6 +89,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   DEFINER con filtro explícito por `empresa_actual()`, que sí usa los trigramas: ~20 ms por
   búsqueda. Una consulta directa a `skus_lectura` con `or=(sku_code.ilike...)` vuelve al recorrido
   completo, aunque la prueba unitaria pase.
+- **Un texto que aparece poco engaña al planificador.** Aun dentro de `buscar_skus_lectura`, con
+  `order by sku_code limit 8` Postgres elegía recorrer el maestro en orden de código cuando creía
+  que el texto era común, y si no lo era ("PERNO": 5 de 81.000 en Escondida) revisaba todo:
+  315-355 ms por búsqueda. Lo destapó la prueba de carga del 13/10/2026 (el buscador fue el 45% del
+  trabajo de la base). Desde `20261013_buscar_skus_lectura_texto_raro.sql` mira primero 1.000
+  materiales en orden y, si el texto resulta raro, busca por trigramas con `offset 0` para separar
+  la búsqueda del orden: promedio de 129 a 35 ms en Escondida. Un buscador nuevo con
+  `order by ... limit` sobre un `ilike` tiene el mismo riesgo: medirlo con textos que no existen.
 - **RLS siempre**: cada empresa ve solo lo suyo. Las vistas nuevas llevan `security_invoker=true`;
   las funciones nuevas evitan `SECURITY DEFINER` salvo que haya una razón explícita, y en ese caso
   se les revoca `EXECUTE` a `public` y `anon` y se les fija `search_path`.

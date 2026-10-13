@@ -94,3 +94,27 @@ test('los formularios del sitio mandan a leads_demo solo columnas que existen', 
   }
   assert.deepStrictEqual(problemas, [], problemas.join('\n'));
 });
+
+// buscar_skus_lectura con un texto raro no puede volver a recorrer el maestro completo. Pasó de
+// verdad (prueba de carga del 13/10/2026): con "PERNO", "FILTRO" o "RODAMIENTO", que en Escondida
+// casi no aparecen, el planificador elegía el recorrido en orden de código y revisaba los 81.000
+// materiales (315-355 ms por búsqueda); el buscador fue el 45% del trabajo de la base y la app se
+// saturó con 500 personas. La corrección (20261013_buscar_skus_lectura_texto_raro.sql) mira primero
+// una ventana corta en orden de código y, si el texto resulta raro, busca por los índices de
+// trigramas (el "offset 0" separa la búsqueda del orden). Se revisa la última migración que
+// redefine la función, para que una versión nueva no pierda el arreglo sin darse cuenta.
+test('el buscador no recorre el maestro completo con textos que aparecen poco', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let ultima = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8');
+    if (/create\s+or\s+replace\s+function\s+public\.buscar_skus_lectura\s*\(/i.test(sql)) ultima = { archivo, sql };
+  }
+  assert.ok(ultima, 'no se encontró la migración de buscar_skus_lectura');
+  const cuerpo = ultima.sql.replace(/--[^\n]*/g, '');
+  assert.match(cuerpo, /length\(v_texto\)\s*>=\s*3/, `${ultima.archivo}: falta el camino para textos de 3 o más caracteres`);
+  assert.match(cuerpo, /limit\s+v_ventana/, `${ultima.archivo}: falta el primer paso (ventana corta en orden de código)`);
+  assert.match(cuerpo, /offset\s+0\s*\)\s*y\s+order\s+by/, `${ultima.archivo}: falta la búsqueda por trigramas separada del orden (offset 0) para los textos raros`);
+  assert.match(cuerpo, /grant\s+execute\s+on\s+function\s+public\.buscar_skus_lectura\([^)]*\)\s+to\s+authenticated/i, `${ultima.archivo}: falta el permiso para authenticated`);
+  assert.match(cuerpo, /revoke\s+all\s+on\s+function\s+public\.buscar_skus_lectura\([^)]*\)\s+from\s+public,\s*anon/i, `${ultima.archivo}: falta quitarle el permiso a public y anon (es SECURITY DEFINER)`);
+});

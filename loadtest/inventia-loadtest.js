@@ -137,6 +137,11 @@ function usuarioDe(data) {
   return n === 1 || r < 4 ? data.usuarios[0] : data.usuarios[1 + (exec.vu.idInTest % (n - 1))];
 }
 
+// Palabras de bodega que el maestro de prueba no tiene (o casi): obligan a revisar todo el maestro
+// si el buscador no usa los índices de trigramas.
+const TEXTOS_RAROS = ['GUANTE NITRILO', 'CASCO MINERO', 'LENTE OSCURO', 'TORNILLO AUTOR', 'CHAVETA', 'GRASA LITIO',
+  'PINTURA EPOXI', 'ELECTRODO 6011', 'DISCO CORTE', 'LIJA AGUA', 'CINTA AISLANTE', 'BROCA COBALTO', 'REMACHE POP', 'SILICONA'];
+
 const hoy = () => new Date().toISOString().slice(0, 10);
 const masDias = (d) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
 
@@ -160,8 +165,14 @@ export default function (data) {
 
   // 1) Buscar: primero un trozo (lo que alcanzó a escribir), después el texto completo.
   const sku = u.skus[Math.floor(Math.random() * u.skus.length)];
+  // 6 de cada 10 buscan por código; el resto por texto, y la mitad de esos con una palabra que
+  // aparece poco o nada en el maestro. En Escondida pasa seguido (en 20 búsquedas típicas medidas
+  // el 13/10/2026, 8 traían 5 resultados o menos) y es el caso caro para la base.
   const porCodigo = Math.random() < 0.6;
-  const completo = porCodigo ? sku.sku_code : sku.descripcion.split(' ').slice(0, 2).join(' ');
+  const textoRaro = !porCodigo && Math.random() < 0.5;
+  const completo = porCodigo ? sku.sku_code
+    : textoRaro ? TEXTOS_RAROS[Math.floor(Math.random() * TEXTOS_RAROS.length)]
+    : sku.descripcion.split(' ').slice(0, 2).join(' ');
   const parcial = porCodigo ? completo.slice(0, 6) : completo.slice(0, Math.max(3, completo.length - 3));
   const sel = 'select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc';
   let elegido = null;
@@ -171,6 +182,13 @@ export default function (data) {
     registrar('buscar', b, ok);
     if (ok) { try { const filas = JSON.parse(b.body); if (filas.length) elegido = filas[0]; } catch (e) { /* respuesta rara: cuenta como error arriba */ } }
     sleep(1 + Math.random() * 2);
+  }
+  // Sin resultado (texto raro): la persona corrige y busca por código, como en terreno.
+  if (!elegido && textoRaro) {
+    const b = http.post(`${SUPABASE_URL}/rest/v1/rpc/buscar_skus_lectura?${sel}`, JSON.stringify({ p_texto: sku.sku_code, p_limite: 8 }), { headers: h, tags: { accion: 'buscar' } });
+    const ok = check(b, { 'buscar 200': r => r.status === 200 });
+    registrar('buscar', b, ok);
+    if (ok) { try { const filas = JSON.parse(b.body); if (filas.length) elegido = filas[0]; } catch (e) { /* cuenta como error arriba */ } }
   }
   if (!elegido) { sleep(20); return; }
 
