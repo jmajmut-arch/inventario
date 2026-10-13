@@ -159,3 +159,28 @@ test('exclusiones e incluidos del plan filtran por su propio empresa_id y el tri
   assert.doesNotMatch(trigger.def, /security\s+definer/i, `${trigger.archivo}: plan_hijo_fija_empresa no puede ser SECURITY DEFINER: leería planes ajenos y dejaría escribir en ellos`);
   assert.deepStrictEqual(problemas, [], problemas.join('\n'));
 });
+
+// skus_valor_abc lee solo la clasificación ABC de la empresa del usuario. Antes la vista
+// materializada no tenía empresa_id y cada lectura (resumen ABC del Dashboard, pagina_skus)
+// recorría las ~182.000 filas de todas las empresas (20261013_abc_por_empresa.sql). Además, la
+// vista, el refresco nocturno y refrescar_clasificacion_abc() tienen que usar la misma vista
+// materializada: si uno queda apuntando a otra, la clasificación que se ve deja de actualizarse.
+test('la clasificación ABC se lee por empresa y se refresca la misma vista materializada que se lee', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let vista = null, funcion = null, cron = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const v = /create\s+or\s+replace\s+view\s+public\.skus_valor_abc\b[\s\S]*?;/i.exec(sql);
+    if (v) vista = { archivo, def: v[0] };
+    const f = /create\s+or\s+replace\s+function\s+public\.refrescar_clasificacion_abc\s*\(\)[\s\S]*?\$\$[\s\S]*?\$\$/i.exec(sql);
+    if (f) funcion = { archivo, def: f[0] };
+    const c = /cron\.schedule\(\s*'refrescar-clasificacion-abc-nocturno'[\s\S]*?\);/i.exec(sql);
+    if (c) cron = { archivo, def: c[0] };
+  }
+  assert.ok(vista && funcion && cron, 'faltan en las migraciones la vista skus_valor_abc, refrescar_clasificacion_abc o el refresco nocturno');
+  assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: skus_valor_abc tiene que ser security_invoker`);
+  assert.match(vista.def, /mv\.empresa_id\s*=\s*\(\s*select\s+public\.empresa_actual\(\)\s*\)/i, `${vista.archivo}: skus_valor_abc no filtra la vista materializada por empresa`);
+  const mv = /join\s+(privado\.\w+)/i.exec(vista.def)[1];
+  assert.match(funcion.def, new RegExp(`refresh\\s+materialized\\s+view\\s+concurrently\\s+${mv.replace('.', '\\.')}\\b`, 'i'), `${funcion.archivo}: refrescar_clasificacion_abc no refresca ${mv}, que es la que lee skus_valor_abc`);
+  assert.match(cron.def, new RegExp(`${mv.replace('.', '\\.')}\\b`, 'i'), `${cron.archivo}: el refresco nocturno no refresca ${mv}, que es la que lee skus_valor_abc`);
+});
