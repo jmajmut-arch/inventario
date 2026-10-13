@@ -11390,7 +11390,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDano.includes('id="c-packing-danado"') && htmlDano.includes('id="c-material-danado"') && !htmlDano.includes('id="c-cant-danada"'), 'Contar muestra las dos marcas de daño y oculta las unidades si no hay material dañado');
   ctx.__appstate.conteoMaterialDanado = true;
   htmlDano = ctx.renderConteo();
-  assert(/id="c-material-danado" checked/.test(htmlDano) && htmlDano.includes('id="c-cant-danada"') && htmlDano.includes('Unidades dañadas (opcional)'), 'con material dañado marcado aparece el campo de unidades, opcional');
+  assert(/id="c-material-danado" checked/.test(htmlDano) && htmlDano.includes('id="c-cant-danada"') && htmlDano.includes('Unidades dañadas, de las contadas (opcional)'), 'con material dañado marcado aparece el campo de unidades, opcional y aclarando que son parte de lo contado');
   ctx.__appstate.conteoMaterialDanado = false;
 
   ctx.__appstate.skuSeleccionado = null;
