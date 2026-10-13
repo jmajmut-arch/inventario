@@ -125,6 +125,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   materiales en orden y, si el texto resulta raro, busca por trigramas con `offset 0` para separar
   la búsqueda del orden: promedio de 129 a 35 ms en Escondida. Un buscador nuevo con
   `order by ... limit` sobre un `ilike` tiene el mismo riesgo: medirlo con textos que no existen.
+- **Una URL de más de ~24.000 caracteres no llega a la base.** Medido el 13/10/2026 contra el
+  proyecto real (pg_net, URLs crecientes): hasta ~24.000 pasa; desde ~25.000 la puerta de Supabase
+  responde 400 "Bad Request" sin cabeceras CORS, el navegador lo ve como "sin conexión" y no queda
+  nada en los logs de la API. Pasó de verdad: Contar pedía los 723 SKU de la foto del plan de un
+  día con sus id en un `in.(...)` (~27.000 caracteres) y la lista quedó en "Cargando…". Toda lista
+  que vaya a un `in.(...)` y pueda crecer con los datos va por tandas (`restEnTandas`, de a 100 id o
+  de a 500 códigos; `escribirPlanEnTandas` para escrituras del plan). Listas grandes que no son
+  filtros (exclusiones, códigos de un plan) van en el cuerpo de un RPC, nunca en la URL.
 - **RLS siempre**: cada empresa ve solo lo suyo. Las vistas nuevas llevan `security_invoker=true`;
   las funciones nuevas evitan `SECURITY DEFINER` salvo que haya una razón explícita, y en ese caso
   se les revoca `EXECUTE` a `public` y `anon` y se les fija `search_path`.
