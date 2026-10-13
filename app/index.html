@@ -1122,7 +1122,7 @@ const ACCION_AUDITORIA_LABEL = { INSERT:'Creado', UPDATE:'Modificado', DELETE:'E
 const CAMPOS_AUDITADOS = {
   usuarios: [['nombre','Nombre'], ['rol','Rol'], ['activo','Activo']],
   empresas: [['nombre','Nombre'], ['activo','Activo'], ['flow_subscription_status','Estado de suscripción']],
-  conteos: [['cantidad_contada','Cantidad'], ['ubicacion_contada','Ubicación contada'], ['bodega','Ubicación general'], ['ubicacion_distinta','Ubicación distinta'], ['estado','Estado'], ['observacion','Observación'], ['motivo_correccion','Motivo de corrección']],
+  conteos: [['cantidad_contada','Cantidad'], ['ubicacion_contada','Ubicación contada'], ['bodega','Ubicación general'], ['ubicacion_distinta','Ubicación distinta'], ['estado','Estado'], ['observacion','Observación'], ['motivo_correccion','Motivo de corrección'], ['packing_danado','Packing dañado'], ['material_danado','Material dañado'], ['cantidad_danada','Unidades dañadas']],
   skus: [['descripcion','Descripción'], ['stock_sistema','Stock sistema'], ['costo_unitario','Costo unitario'], ['bodega','Ubicación general'], ['ubicacion','Ubicación específica'], ['activo','Activo']],
 };
 
@@ -6161,6 +6161,7 @@ async function exportarBusquedaExcel(){
         'Ubicación general': r.bodega,
         'Cantidad contada': contado ? r.cantidad_contada : '',
         'Estado': estadoTexto,
+        'Daños': contado ? danosTextoPdf(r) : '',
         'Origen': contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '',
         'Fecha de conteo': contado ? fmtFechaHora(r.fecha_conteo) : '',
         'Capturado sin conexión': contado && fueCapturadoOffline(r.capturado_en, r.fecha_conteo) ? fmtFechaHora(r.capturado_en) : '',
@@ -6344,12 +6345,18 @@ function marcadorEstadoPdf(r, ocultarMagnitud){
   return r.estado==='aprobado' ? 'cuadrado' : null;
 }
 // Daños del último conteo: packing (solo la marca) y material (con cuántas unidades, si se dijo).
-function danosTextoPdf(r){
-  if(!r.conteo_id) return '—';
+// null si el material no se ha contado. La usan la tabla, el Excel y el PDF de Buscar, para que
+// los tres digan lo mismo.
+function danosUltimoConteo(r){
+  if(!r.conteo_id) return null;
   const partes = [];
   if(r.packing_danado) partes.push('Packing dañado');
   if(r.material_danado) partes.push(r.cantidad_danada!=null ? `Material dañado: ${Number(r.cantidad_danada)}` : 'Material dañado');
-  return partes.length ? partes.join(' · ') : 'Sin daños';
+  return partes;
+}
+function danosTextoPdf(r){
+  const d = danosUltimoConteo(r);
+  return d===null ? '—' : (d.length ? d.join(' · ') : 'Sin daños');
 }
 function filasFichaPdf(r, ocultarMagnitud){
   const contado = !!r.conteo_id;
@@ -6686,6 +6693,9 @@ async function exportarConteosExcel(){
       'Valor diferencia': f.valor_diferencia,
       'Estado': f.estado,
       'Fuera de plan': f.fuera_de_plan ? 'Sí' : 'No',
+      'Packing dañado': f.packing_danado ? 'Sí' : 'No',
+      'Material dañado': f.material_danado ? 'Sí' : 'No',
+      'Unidades dañadas': f.cantidad_danada!=null ? Number(f.cantidad_danada) : '',
       'Observación': f.observacion,
       'Responsable': f.responsable,
       'Ciclo': f.ciclo_nombre,
@@ -13052,7 +13062,7 @@ function renderBuscar(){
     <div class="card">
       ${(resultados.length && !resultadosFiltrados)? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalReal}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
+        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = r.fotos||[];
           const contado = !!r.conteo_id;
@@ -13065,6 +13075,7 @@ function renderBuscar(){
             <td class="mono">${esc(r.storage_bin||'—')}</td>
             <td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>
             <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}${(contado && r.reconteo_cierre_tipo)? ` ${badgeCierreReconteo(r.reconteo_cierre_tipo, r.ajuste_erp_referencia)}` : ''}</td>
+            <td>${(danosUltimoConteo(r)||[]).map(d=>`<span class="badge badge-danger" style="white-space:nowrap">${esc(d)}</span>`).join(' ') || '—'}</td>
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>
             <td class="mono" style="font-size:12px">
               ${contado? fmtFechaHora(r.fecha_conteo) : '—'}
