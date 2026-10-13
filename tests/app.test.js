@@ -9416,7 +9416,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r,0));
     assert(calls.some(c=>c.url.includes('/movimientos_bodega_detalle')), 'tras guardar un ingreso se vuelve a pedir la lista de movimientos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/rpc/resumen_valorizacion_bodega')), 'tras guardar un ingreso se refresca la valorización de Movimientos/Stock, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-    assert(calls.some(c=>c.url.includes('/rpc/dashboard_ejecutivo')), 'tras guardar un ingreso se refresca el Dashboard, que ahora trae sus tarjetas de bodega en la misma llamada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // El Dashboard (que trae sus tarjetas de bodega en la misma llamada) no está en pantalla: no se
+    // recalcula ahora, queda marcado para calcularse completo al volver a mostrarse.
+    assert(!calls.some(c=>c.url.includes('/rpc/dashboard_ejecutivo')), 'tras guardar un ingreso, con el Dashboard fuera de pantalla, no debe recalcularlo en segundo plano, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(ctx.__appstate.dashDesactualizado===true, 'el Dashboard debe quedar marcado como desactualizado');
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('dashboard');
+    await new Promise(r=>setTimeout(r,0));
+    assert(calls.some(c=>c.url.includes('/rpc/dashboard_ejecutivo')), 'al volver a mostrar el Dashboard se recalcula con los datos nuevos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.bodega.doc = ctx.documentoBodegaVacio();
 
     // Apertura de stock: cuando una empresa activó el módulo con materiales ya cargados, esos
@@ -13193,6 +13200,38 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await new Promise(r=>setTimeout(r, 30));
     urls = urlsDe();
     assert(urls.some(u=>u.startsWith('/rest/v1/rpc/dashboard_ejecutivo')) && urls.some(esPaginaSku) && !urls.some(esListaReconteo), 'refrescarSiCargada debe recargar dashboard y página de SKU (ya vistos) pero no reconteos (nunca mostrado), obtuvo: '+JSON.stringify(urls));
+    // Regresión (prueba de carga del 13/10/2026): un administrador que abrió el Dashboard y después
+    // se puso a contar lo recalculaba entero con cada conteo guardado (0,5-0,8 s de servidor por
+    // conteo) sin estar mirándolo. Fuera de pantalla se marca desactualizado y se calcula al volver.
+    await new Promise(r=>setTimeout(r, 30));
+    ctx.__appstate.view = 'conteo';
+    calls.length = 0;
+    ctx.refrescarSiCargada(['dashboard']);
+    await new Promise(r=>setTimeout(r, 30));
+    assert(!urlsDe().some(u=>u.startsWith('/rest/v1/rpc/dashboard_ejecutivo')), 'con el Dashboard fuera de pantalla, guardar un conteo no debe recalcularlo, obtuvo: '+JSON.stringify(urlsDe()));
+    assert(ctx.__appstate.dashDesactualizado===true, 'el Dashboard fuera de pantalla debe quedar marcado como desactualizado');
+    ctx.__appstate.view = 'dashboard';
+    let htmlDash = ctx.renderDashboard();
+    assert(htmlDash.includes('Actualizando cifras') && /id="btn-exportar-informe"[^>]*disabled/.test(htmlDash), 'mientras se recalcula, el Panel debe decirlo y no dejar exportar el informe con cifras viejas');
+    calls.length = 0;
+    await ctx.asegurarDatosDeVista('dashboard');
+    await new Promise(r=>setTimeout(r, 30));
+    assert(urlsDe().some(u=>u.startsWith('/rest/v1/rpc/dashboard_ejecutivo')), 'al volver a mostrar el Dashboard debe calcularlo de nuevo, obtuvo: '+JSON.stringify(urlsDe()));
+    assert(ctx.__appstate.dashDesactualizado===false, 'con la respuesta nueva el Panel deja de estar desactualizado');
+    htmlDash = ctx.renderDashboard();
+    assert(!htmlDash.includes('Actualizando cifras'), 'con las cifras al día no debe mostrar el aviso');
+    ctx.__appstate.view = 'conteo';
+    ctx.refrescarSiCargada(['dashboard']);
+    ctx.__appstate.view = 'dashboard';
+    const restAntes = vm.runInContext('rest', ctx);
+    vm.runInContext("rest = async () => { throw new Error('Error de base de datos'); }", ctx);
+    await ctx.asegurarDatosDeVista('dashboard');
+    await new Promise(r=>setTimeout(r, 30));
+    ctx.rest = restAntes; vm.runInContext('rest = this.rest', ctx);
+    htmlDash = ctx.renderDashboard();
+    assert(ctx.__appstate.dashDesactualizado==='error' && htmlDash.includes('No se pudieron actualizar las cifras'), 'si el recálculo falla, el Panel debe decir que las cifras son de antes, no mostrarlas como actuales');
+    ctx.__appstate.dashDesactualizado = false;
+    ctx.__appstate.view = 'dashboard';
     // El render detecta el cambio de vista y pide lo de la nueva pestaña (en microtarea).
     ctx.__appstate.view = 'reconteo';
     calls.length = 0;

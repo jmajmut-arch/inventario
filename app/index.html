@@ -1054,6 +1054,7 @@ let state = {
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
   dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 15 filas por página
+  dashDesactualizado: false, // false | true (cambiaron los datos y se está recalculando) | 'error' (no se pudo recalcular); ver refrescarSiCargada
   // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
   // actual (el marcado es_actual en state.ciclos), '__todos__' = comparar todos los
   // períodos uno junto al otro, '__sin_periodo__' = entradas de plan sin ciclo_id, o el id de
@@ -2520,7 +2521,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -2633,7 +2634,21 @@ function asegurarDatosDeVista(vista){
 // Tras una acción que cambia datos (conteo guardado, cola offline sincronizada, carga masiva):
 // recarga solo lo que alguna pestaña ya pidió; lo demás se pedirá fresco cuando se muestre.
 function refrescarSiCargada(claves){
-  claves.forEach(k=>{ if(cargasHechas.has(k) && CARGADORES[k]) Promise.resolve().then(()=> CARGADORES[k]()).catch(()=>{}); });
+  claves.forEach(k=>{
+    if(!cargasHechas.has(k) || !CARGADORES[k]) return;
+    // El Dashboard es la consulta más cara de la app (0,5-0,8 s de servidor con 80.000 materiales,
+    // prueba de carga del 13/10/2026). Un administrador que lo abrió y después se puso a contar lo
+    // recalculaba entero con CADA conteo, sin estar mirándolo. Si no está en pantalla, se marca
+    // desactualizado y se calcula de nuevo, completo, al volver a mostrarse: el dato que se ve
+    // sigue siendo siempre el real, solo se deja de calcular lo que nadie está mirando.
+    if(k==='dashboard' && state.view!=='dashboard'){
+      cargasHechas.delete(k);
+      state.dashDesactualizado = true;
+      return;
+    }
+    if(k==='dashboard') state.dashDesactualizado = true;
+    Promise.resolve().then(()=> CARGADORES[k]()).catch(()=>{});
+  });
 }
 function olvidarCargasPorVista(){ cargasHechas.clear(); vistaAseguradaAnterior = null; }
 
@@ -5807,7 +5822,7 @@ async function cargarDashboard(){
       topDiferenciasPositivas: d.topDiferenciasPositivas||[], topDiferenciasNegativas: d.topDiferenciasNegativas||[],
       valorizacion: d.valorizacion||[], avancePlanPorCiclo: d.avancePlanPorCiclo||[], diferenciasRecientes: d.diferenciasRecientes||[],
       resumenAbc: d.resumenAbc||[], cierresAjusteErp: d.cierresAjusteErp||null,
-    }, dashDiarioPagina: 0,
+    }, dashDiarioPagina: 0, dashDesactualizado: false,
       // El estado del maestro viene en la misma respuesta, ya filtrado por la criticidad que esté
       // puesta; cargarResumenGeneralSkus queda solo para cuando la persona cambia ese filtro.
       resumenGeneral: {...state.resumenGeneral, datos: (d.resumenGeneral&&d.resumenGeneral[0])||null, cargando:false},
@@ -5823,7 +5838,11 @@ async function cargarDashboard(){
         valorizacion: d.bodega.valorizacion || state.bodega.valorizacion,
       }});
     }
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){
+    // Si había cifras de antes en pantalla, que no pasen por actuales (ver refrescarSiCargada).
+    if(state.dashDesactualizado) setState({dashDesactualizado:'error'});
+    toast(e.message,'err');
+  }
 }
 
 // Parámetros para el RPC resumen_general_skus. El rango de fechas se sacó a pedido de Joel: es
@@ -11685,8 +11704,10 @@ function renderDashboard(){
   return `<div class="dash">
     <div class="section-head">
       <div><span class="eyebrow">Panel</span><h2>Avance de inventario</h2></div>
-      <button class="btn btn-sm btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${ejecutivoIncluido?'':'disabled title="Disponible en el plan Profesional"'}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
+      <button class="btn btn-sm btn-secondary" id="btn-exportar-informe" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px" ${!ejecutivoIncluido?'disabled title="Disponible en el plan Profesional"':(state.dashDesactualizado?'disabled title="Espera a que se actualicen las cifras"':'')}>${ICONS.download} Exportar informe${ejecutivoIncluido?'':' 🔒'}</button>
     </div>
+    ${state.dashDesactualizado==='error' ? `<div class="hint" role="alert" style="color:var(--danger);margin:-4px 0 10px">No se pudieron actualizar las cifras: lo que ves es de la carga anterior. Vuelve a entrar al Panel para reintentar.</div>`
+      : state.dashDesactualizado ? `<div class="hint" role="status" style="margin:-4px 0 10px">Actualizando cifras…</div>` : ''}
     <div class="segmented">
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
