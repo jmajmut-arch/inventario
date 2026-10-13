@@ -11869,7 +11869,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // cuadrado capturado offline, y uno nunca contado -- cada uno debe traducirse a las columnas
   // legibles que espera alguien mirando la planilla, no a los nombres crudos de la base.
   skusBusquedaFixture = [
-    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A'},
+    {sku_id:'sku-exp-1', sku_code:'SKU-EXP-1', descripcion:'Rodamiento', bodega:'Nave Mina', batch:'L-01', critico:true, conteo_id:'c-1', cantidad_contada:8, estado:'con_diferencia', diferencia:-2, fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', fuera_de_plan:true, ciclo_nombre:'T1 2027', fotos:[{foto_url:'a.jpg'},{foto_url:'b.jpg'}], clase_abc:'A', packing_danado:true, material_danado:true, cantidad_danada:2},
     {sku_id:'sku-exp-2', sku_code:'SKU-EXP-2', descripcion:'Perno', bodega:'Nave Mina', batch:null, critico:false, conteo_id:'c-2', cantidad_contada:5, estado:'pendiente_revision', diferencia:0, fecha_conteo:'2026-08-20T15:00:00Z', capturado_en:'2026-08-20T15:00:00Z', fuera_de_plan:false, ciclo_nombre:'T1 2027', fotos:[], clase_abc:'B'},
     {sku_id:'sku-exp-3', sku_code:'SKU-EXP-3', descripcion:'Filtro', bodega:'Nave Planta', batch:null, critico:false, conteo_id:'c-3', cantidad_contada:10, estado:'aprobado', diferencia:0, fecha_conteo:'2026-08-21T09:10:00Z', capturado_en:'2026-08-21T02:00:00Z', fuera_de_plan:false, ciclo_nombre:null, fotos:[], clase_abc:null},
     {sku_id:'sku-exp-4', sku_code:'SKU-EXP-4', descripcion:'Nunca contado', bodega:'Nave Mina', batch:null, critico:false, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_nombre:null, fotos:[], clase_abc:null},
@@ -11886,6 +11886,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(filaCuadradaOffline['Estado']==='Cuadrado' && filaCuadradaOffline['Capturado sin conexión']!=='', 'un SKU cuadrado capturado antes de la fecha de conteo debe marcarse como offline, obtuvo: '+JSON.stringify(filaCuadradaOffline));
   const filaNuncaContadaExp = filasBuscarExp.find(f=>f['SKU']==='SKU-EXP-4');
   assert(filaNuncaContadaExp['Estado']==='No contado' && filaNuncaContadaExp['Cantidad contada']==='' && filaNuncaContadaExp['Origen']==='' && filaNuncaContadaExp['Ciclo']==='' && filaNuncaContadaExp['Clase ABC']==='', 'un SKU nunca contado debe exportar sus campos de conteo vacíos, no null/undefined, obtuvo: '+JSON.stringify(filaNuncaContadaExp));
+  // Daños (13/10/2026): la columna dice lo mismo que el PDF; vacía si no se contó.
+  assert(filaCritica['Daños']==='Packing dañado · Material dañado: 2' && filaPendiente['Daños']==='Sin daños' && filaNuncaContadaExp['Daños']==='', 'la columna Daños del Excel de Buscar dice los daños del último conteo, obtuvo: '+JSON.stringify([filaCritica['Daños'], filaPendiente['Daños'], filaNuncaContadaExp['Daños']]));
+  {
+    // Y la tabla de Buscar en pantalla: columna Daños con una etiqueta por daño, "—" si no hay.
+    const busqPrevia = ctx.__appstate.busqueda;
+    ctx.__appstate.busqueda = {...busqPrevia, resultados: skusBusquedaFixture, yaBuscado:true, filtroContadoPor:null, filtroEstado:null, busquedaPagina:0, hayMas:false, seleccionados:[]};
+    const htmlTablaDanos = ctx.renderBuscar();
+    assert(htmlTablaDanos.includes('<th>Daños</th>'), 'la tabla de Buscar tiene la columna Daños');
+    assert(/badge badge-danger[^>]*>Packing dañado</.test(htmlTablaDanos) && /badge badge-danger[^>]*>Material dañado: 2</.test(htmlTablaDanos), 'cada daño es una etiqueta roja en la tabla');
+    ctx.__appstate.busqueda = busqPrevia;
+  }
 
   // Debe traer TODO lo que matchea (paginando), no solo la primera tanda -- se reusa el mock
   // genérico de skus_busqueda (34 filas en total, de a 30), sin fixture fija.
@@ -12203,7 +12214,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlExportarForm.includes('value="2026-08-20"'), 'los campos de fecha deben reflejar el estado actual, obtuvo: '+htmlExportarForm);
   ctx.__appstate.exportarModal = false;
   conteosExportablesFixture = [
-    { conteo_id:'ce-1', sku_code:'SKU-EXP1', descripcion:'Perno M8', categoria:'Repuestos', batch:'L-2026-045', unidad_medida:'UN', codigo_barras:'7801234567890', bodega_maestro:'Nave Mina', ubicacion_maestro:'Interior Nave', storage_bin:'A-01', stock_sistema:10, costo_unitario:500, bodega_contada:'Nave Mina', ubicacion_contada:'Interior Nave', ubicacion_distinta:false, cantidad_contada:8, diferencia:-2, valor_diferencia:-1000, estado:'con_diferencia', fuera_de_plan:false, observacion:'Faltante', fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', responsable:'Ana Torres', ciclo_nombre:'T1 2027' },
+    { conteo_id:'ce-1', sku_code:'SKU-EXP1', descripcion:'Perno M8', categoria:'Repuestos', batch:'L-2026-045', unidad_medida:'UN', codigo_barras:'7801234567890', bodega_maestro:'Nave Mina', ubicacion_maestro:'Interior Nave', storage_bin:'A-01', stock_sistema:10, costo_unitario:500, bodega_contada:'Nave Mina', ubicacion_contada:'Interior Nave', ubicacion_distinta:false, cantidad_contada:8, diferencia:-2, valor_diferencia:-1000, estado:'con_diferencia', fuera_de_plan:false, observacion:'Faltante', fecha_conteo:'2026-08-20T14:00:00Z', capturado_en:'2026-08-20T14:00:00Z', responsable:'Ana Torres', ciclo_nombre:'T1 2027', packing_danado:false, material_danado:true, cantidad_danada:3 },
   ];
   xlsxEscrituras.length = 0;
   calls.length = 0;
@@ -12218,6 +12229,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(filaExportada['Cantidad contada']===8 && filaExportada['Diferencia']===-2 && filaExportada['Valor diferencia']===-1000, 'debe incluir el resultado del conteo y su valorización, obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Responsable']==='Ana Torres' && filaExportada['Ciclo']==='T1 2027', 'debe incluir el responsable y el ciclo, obtuvo: '+JSON.stringify(filaExportada));
   assert(filaExportada['Ubicación distinta']==='No' && filaExportada['Fuera de plan']==='No', 'los booleanos deben mostrarse como Sí/No, legibles para el ERP, obtuvo: '+JSON.stringify(filaExportada));
+  assert(filaExportada['Packing dañado']==='No' && filaExportada['Material dañado']==='Sí' && filaExportada['Unidades dañadas']===3, 'el Excel de conteos lleva los daños: dos columnas Sí/No y las unidades dañadas, obtuvo: '+JSON.stringify(filaExportada));
 
   // Rango de fechas (dos días): el nombre del archivo debe reflejar ambos extremos.
   ctx.__appstate.exportConteos = { desde: '2026-08-01', hasta: '2026-08-31', exportando:false };

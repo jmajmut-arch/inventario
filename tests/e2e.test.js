@@ -1634,7 +1634,7 @@ async function loguear(page, perfil){
     page.on('pageerror', err => erroresPagina.push('buscar-filtros: '+err.message));
     await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
     await page.route('**/rest/v1/rpc/filas_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
-      { sku_id:'s-e2e-1', sku_code:'11164514', descripcion:'CLIP,ELEC,PRESS', bodega:'B501', ubicacion:'0102', storage_bin:'N1E-027-B1', batch:null, conteo_id:'c-1', cantidad_contada:3, estado:'con_diferencia', diferencia:-1, fecha_conteo:'2026-10-01T12:00:00Z', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false },
+      { sku_id:'s-e2e-1', sku_code:'11164514', descripcion:'CLIP,ELEC,PRESS', bodega:'B501', ubicacion:'0102', storage_bin:'N1E-027-B1', batch:null, conteo_id:'c-1', cantidad_contada:3, estado:'con_diferencia', diferencia:-1, fecha_conteo:'2026-10-01T12:00:00Z', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, packing_danado:true, material_danado:true, cantidad_danada:2 },
     ]) }));
     await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body:'1' }));
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
@@ -1662,6 +1662,10 @@ async function loguear(page, perfil){
     assert(limpio.texto === '' && limpio.estado === '' && limpio.filas === 1, '"Limpiar filtros" vacía los campos sin tocar los resultados, obtuvo '+JSON.stringify(limpio));
     const desbordeBuscar = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeBuscar <= 0, 'a 420 px Buscar no desborda, obtuvo '+desbordeBuscar);
+    // Daños del último conteo (13/10/2026): columna propia en la tabla, sin empujar la página.
+    const danos = await page.$$eval('table .badge-danger', els => els.map(e => e.textContent.trim()));
+    assert(danos.join('|') === 'Packing dañado|Material dañado: 2', 'la tabla de Buscar muestra los daños del último conteo, obtuvo '+JSON.stringify(danos));
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-danos-420.png', fullPage: true });
     await context.close();
   }
 
