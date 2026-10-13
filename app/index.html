@@ -1009,7 +1009,7 @@ let state = {
   // SKU pendientes de todos los bin de esa ubicación (antes exigía elegir el bin exacto, un paso
   // de más que no aportaba — y si una ubicación no tenía bin cargado, no había forma de llegar a
   // ver sus SKU).
-  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), fechaManual:false, entradas: [], bodega:'', ubicacion:'', skusPendientes: null, desdeCache: false },
+  contarPlan: { cargado:false, cargando:false, fecha: fechaISO(new Date()), fechaManual:false, entradas: [], bodega:'', ubicacion:'', skusPendientes: null, errorSkus:'', desdeCache: false },
   cargando: {},
   dash: { total: [], diario: [], semanal: [], mensual: [], ranking: [], exactitudBodega: [], exactitudMensual: [], topDiferenciasPositivas: [], topDiferenciasNegativas: [], valorizacion: [], avancePlanPorCiclo: [], diferenciasRecientes: [], resumenAbc: [] },
   // Resumen general del Dashboard ("Estado del maestro"): estado de TODO el maestro de SKU activo
@@ -3439,7 +3439,7 @@ let diaVisibleAnterior = fechaISO(new Date());
 function contarPlanAlEntrar(cp){
   const hoy = fechaISO(new Date());
   const volverAHoy = !cp.fechaManual && cp.fecha !== hoy;
-  return {...cp, cargado:false, fecha: volverAHoy ? hoy : cp.fecha, ...(volverAHoy ? {bodega:'', ubicacion:'', skusPendientes:null} : {})};
+  return {...cp, cargado:false, fecha: volverAHoy ? hoy : cp.fecha, ...(volverAHoy ? {bodega:'', ubicacion:'', skusPendientes:null, errorSkus:''} : {})};
 }
 
 // Recarga Planificación si la última carga es vieja o cambió el día. Si cambió el día y se
@@ -4565,7 +4565,7 @@ async function actualizarStockCeroEnPlan(activo){
     // al entrar a Contar, en vez de quedarse con el universo anterior.
     setState({
       plan:{...state.plan, universos:{}, propios:{}, detalle:{}},
-      contarPlan:{...state.contarPlan, cargado:false, skusPendientes:null},
+      contarPlan:{...state.contarPlan, cargado:false, skusPendientes:null, errorSkus:''},
     });
     invalidarCalendario();
     refrescarSiCargada(['plan']);
@@ -4886,7 +4886,7 @@ function leerSeleccionPlanDiaCache(usuarioId, fecha, bodega, ubicacion){
 // estar pendiente para los demás (el universo del plan excluye lo contado en el período).
 async function cargarPlanDeHoy(fecha){
   if(!state.perfil) return;
-  setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false}});
+  setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', skusPendientes:null, errorSkus:'', desdeCache:false}});
   try{
     const entradas = await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&or=(responsable_id.eq.${state.perfil.id},responsable_id.is.null)&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || [];
     setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas, desdeCache:false}});
@@ -4934,6 +4934,15 @@ function entradasActivasContar(cp){
 // debe venir ya acotado a las que tienen bin específico (ver elegirCascadaContar y
 // crearPlanEntrada): solo esas guardan la foto, porque el universo de SKU de una entrada sin bin
 // (bodega+ubicación completa) puede ser demasiado grande para snapshotearlo.
+// Filtro `in.(...)` con muchos valores: de a `tam` por consulta, para que la URL nunca pase el
+// límite del servidor. `base` termina en "campo=in." y `valores` ya vienen listos para la URL.
+async function restEnTandas(base, valores, tam = 100){
+  if(!valores.length) return [];
+  const tandas = [];
+  for(let i=0; i<valores.length; i+=tam) tandas.push(valores.slice(i, i+tam));
+  return (await Promise.all(tandas.map(t=> rest(`${base}(${t.join(',')})`)))).flatMap(r=> r||[]);
+}
+
 async function skusMovidosDeEntradas(entradas, binesActivos){
   if(!entradas.length) return [];
   // Una sola consulta para todas las entradas (antes era una por entrada). Paginada por si un día
@@ -4963,9 +4972,13 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   });
   if(!porId.size && !porCodigo.size) return [];
   const campos = 'id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,unidad_medida,stock_sistema,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia';
+  // También de a 100 (bug real, 13/10/2026): el plan de Escondida de ese día tenía 723 SKU en la
+  // foto y la consulta con los 723 id en la URL (~27.000 caracteres) la rechazaba la puerta de
+  // Supabase antes de llegar a la base, sin cabeceras CORS: el navegador lo veía como "sin
+  // conexión" y Contar quedaba en "Cargando SKU pendientes…" para siempre.
   const [actualesPorId, actualesPorCodigo] = await Promise.all([
-    porId.size ? rest(`/skus_planificables?activo=eq.true&select=${campos}&id=in.(${[...porId.keys()].join(',')})`) : Promise.resolve([]),
-    porCodigo.size ? rest(`/skus_planificables?activo=eq.true&select=${campos}&sku_code=in.(${[...porCodigo.keys()].map(c=>encodeURIComponent(c)).join(',')})`) : Promise.resolve([]),
+    restEnTandas(`/skus_planificables?activo=eq.true&select=${campos}&id=in.`, [...porId.keys()]),
+    restEnTandas(`/skus_planificables?activo=eq.true&select=${campos}&sku_code=in.`, [...porCodigo.keys()].map(c=>encodeURIComponent(c))),
   ]);
   const evaluar = (s, o) => {
     // Fotos guardadas antes de que existieran estas dos columnas (plan planificado antes de este
@@ -5000,7 +5013,7 @@ function describirCambioPlan(s){
 }
 
 async function elegirCascadaContar(cambios){
-  const cp = {...state.contarPlan, ...cambios, skusPendientes:null, desdeCache:false};
+  const cp = {...state.contarPlan, ...cambios, skusPendientes:null, errorSkus:'', desdeCache:false};
   setState({contarPlan: cp});
   const activas = entradasActivasContar(cp);
   if(!activas.length) return;
@@ -5038,6 +5051,9 @@ async function elegirCascadaContar(cambios){
         return;
       }
     }
+    // Sin esto la lista quedaba en "Cargando SKU pendientes…" para siempre y el error solo duraba
+    // lo que el toast: se muestra en su lugar, con su mensaje y un botón para reintentar.
+    setState({contarPlan:{...state.contarPlan, errorSkus: pareceFalloDeRed(e) ? 'No hay conexión con el servidor.' : (e.message || 'Error del servidor.')}});
     toast(e.message,'err');
   }
 }
@@ -12516,7 +12532,12 @@ function renderPlanDelDia(){
             <div><div class="contar-lugar-titulo">${esc(tituloLugar(cp.bodega, cp.ubicacion))}</div><div class="contar-lugar-sub">${activas.length} entrada${activas.length===1?'':'s'} del plan${cp.desdeCache? ' · sin conexión' : ''}</div></div>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-contar-cambiar-lugar">Cambiar lugar</button>
           </div>
-          ${cp.skusPendientes===null? `<div class="hint" style="margin-top:10px">Cargando SKU pendientes…</div>` :
+          ${cp.skusPendientes===null && cp.errorSkus? `
+            <div class="empty" style="padding:14px 8px;margin-top:10px" role="alert">
+              <div>No se pudieron cargar los SKU pendientes: ${esc(cp.errorSkus)}</div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-contar-reintentar-skus" style="margin-top:10px">Reintentar</button>
+            </div>` :
+            cp.skusPendientes===null? `<div class="hint" style="margin-top:10px">Cargando SKU pendientes…</div>` :
             cp.skusPendientes.length? `
             <div class="contar-lista-cab">
               <div><span class="contar-n">${cp.skusPendientes.length}</span><span class="contar-n-txt">SKU pendiente${cp.skusPendientes.length===1?'':'s'}</span></div>
@@ -17219,6 +17240,8 @@ function bind(){
       });
       const btnCambiarLugar = document.getElementById('btn-contar-cambiar-lugar');
       if(btnCambiarLugar) btnCambiarLugar.addEventListener('click', ()=> elegirCascadaContar({bodega:'', ubicacion:''}));
+      const btnReintentarSkus = document.getElementById('btn-contar-reintentar-skus');
+      if(btnReintentarSkus) btnReintentarSkus.addEventListener('click', ()=> elegirCascadaContar({}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           // Se busca por id, no por sku_code: un mismo código puede tener varias filas

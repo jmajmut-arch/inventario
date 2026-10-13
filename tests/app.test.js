@@ -11043,6 +11043,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.contarPlan.desdeCache===false, 'sin caché para una selección nunca vista, no debe marcar desdeCache:true, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
   const nuevosToastsCascadaOffline = toastRootCascadaOffline.hijos.slice(toastsAntesCascadaOffline);
   assert(nuevosToastsCascadaOffline.length>0, 'sin caché para esa selección, debe avisar el error como antes, obtuvo: '+JSON.stringify(nuevosToastsCascadaOffline));
+  // Bug real (Joel, 13/10/2026): tras el error la lista quedaba en "Cargando SKU pendientes…" para
+  // siempre; el error tiene que quedar a la vista, con su mensaje y un botón para reintentar.
+  assert(ctx.__appstate.contarPlan.skusPendientes===null && ctx.__appstate.contarPlan.errorSkus==='No hay conexión con el servidor.', 'el fallo deja errorSkus con el motivo, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.errorSkus));
+  const htmlErrorSkus = ctx.renderPlanDelDia();
+  assert(htmlErrorSkus.includes('No se pudieron cargar los SKU pendientes: No hay conexión con el servidor.') && htmlErrorSkus.includes('id="btn-contar-reintentar-skus"') && !htmlErrorSkus.includes('Cargando SKU pendientes'), 'el error se ve con su motivo y "Reintentar", no como "Cargando…", obtuvo: '+htmlErrorSkus);
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/rpc/universo_entradas_plan_contar') return { status:500, ok:false, statusText:'Internal Server Error', headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
+    return fetchOriginalCascadaOffline(url, opts);
+  };
+  await ctx.elegirCascadaContar({});
+  ctx.fetch = fetchOriginalCascadaOffline;
+  assert(ctx.__appstate.contarPlan.errorSkus==='canceling statement due to statement timeout', 'un error del servidor muestra su propio mensaje, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.errorSkus));
+  await ctx.elegirCascadaContar({});
+  assert(ctx.__appstate.contarPlan.errorSkus==='' && Array.isArray(ctx.__appstate.contarPlan.skusPendientes), 'reintentar con el servidor bien limpia el error y carga la lista, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
   // Deja el plan en el estado que esperan los tests siguientes (misma selección con datos reales).
   await ctx.elegirCascadaContar({bodega:'Nave Mina', ubicacion:'Interior Nave'});
 
@@ -11076,6 +11091,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // "Bodega Sur" que jamás debe aparecer acá.
   const movidosDisambig = await ctx.skusMovidosDeEntradas([{id:'mp-disambig', storage_bin:'DIS-01'}], new Set(['DIS-01']));
   assert(Array.isArray(movidosDisambig) && movidosDisambig.length===0, 'con sku_id, la comparación debe ser por la fila exacta (id-888-a, que no cambió de lugar) y nunca debe traer de vuelta una ubicación ajena que solo comparte sku_code (id-888-b), obtuvo: '+JSON.stringify(movidosDisambig));
+
+  // Bug real (Joel, 13/10/2026): el plan de Escondida de ese día tenía 723 SKU en la foto y la
+  // consulta de su estado actual llevaba los 723 id en una sola URL (~27.000 caracteres). La
+  // puerta de Supabase la rechazaba antes de llegar a la base, sin CORS (el navegador lo ve como
+  // "Failed to fetch"), y Contar quedaba en "Cargando SKU pendientes…". Ahora va de a 100 id.
+  {
+    const fetchAntesGrande = ctx.fetch;
+    const uuidFalso = i => `00000000-0000-4000-8000-${String(i).padStart(12,'0')}`;
+    const fotosGrandes = Array.from({length:723}, (_,i)=>({sku_code:'G-'+i, sku_id:uuidFalso(i), storage_bin_original:'GB-01', bodega_original:'B501', ubicacion_original:'0102'}));
+    const urlsGrandes = [];
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(u.pathname==='/rest/v1/plan_semanal_skus') return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(fotosGrandes) };
+      if(u.pathname==='/rest/v1/skus_planificables'){
+        urlsGrandes.push(String(url));
+        if(String(url).length > 8000) throw new ctx.__TypeError('Failed to fetch');
+        const ids = decodeURIComponent((u.search.match(/&id=in\.\(([^)]*)\)/)||[])[1]||'').split(',');
+        // G-5 se movió de bin; el resto sigue donde se planificó.
+        return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(ids.map(id=>{ const i = Number(id.slice(-12)); return {id, sku_code:'G-'+i, bodega:'B501', ubicacion:'0102', storage_bin: i===5 ? 'GB-99' : 'GB-01'}; })) };
+      }
+      return fetchAntesGrande(url, opts);
+    };
+    const movidosGrandes = await ctx.skusMovidosDeEntradas([{id:'mp-grande', storage_bin:'GB-01'}], new Set(['GB-01']));
+    ctx.fetch = fetchAntesGrande;
+    assert(urlsGrandes.length===8 && urlsGrandes.every(x=>x.length < 5000), '723 id se piden en 8 consultas cortas, obtuvo: '+JSON.stringify(urlsGrandes.map(x=>x.length)));
+    assert(movidosGrandes.length===1 && movidosGrandes[0].sku_code==='G-5' && movidosGrandes[0].binOriginal==='GB-01', 'juntando las tandas se detecta el único movido, obtuvo: '+JSON.stringify(movidosGrandes));
+  }
 
   // renderConteo/renderPlanDelDia: fecha, cascada de bodega (incluye "SKU sin ubicación" porque
   // hay una entrada suelta hoy) y el checklist de SKU pendientes ya resuelto arriba.
