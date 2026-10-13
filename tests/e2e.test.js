@@ -254,6 +254,9 @@ async function loguear(page, perfil){
     // Bug real (Joel, 13/10/2026): elegir bodega en "Cambiar día o lugar" repintaba la pantalla y el
     // panel se cerraba; había que reabrirlo para elegir la ubicación, y se volvía a cerrar.
     const panelAbierto = () => page.$eval('#contar-cambiar', el => el.open);
+    // CPU lenta, como el runner de CI: ahí un repintado alcanzaba a adelantarse al evento toggle.
+    const cdpLento = await context.newCDPSession(page);
+    await cdpLento.send('Emulation.setCPUThrottlingRate', { rate: 6 });
     await page.click('#contar-cambiar > summary');
     await page.selectOption('#contar-bodega', 'B501');
     assert(await esperarVisible(page, '#contar-ubic'), 'tras elegir bodega se ve el <select> de ubicación');
@@ -266,6 +269,7 @@ async function loguear(page, perfil){
     await page.click('#btn-contar-cambiar-lugar');
     assert(await esperarVisible(page, '.contar-lugar'), '"Cambiar lugar" vuelve a las tarjetas de lugar');
     assert(!(await panelAbierto()), 'cerrado por la persona, sigue cerrado tras repintar');
+    await cdpLento.send('Emulation.setCPUThrottlingRate', { rate: 1 });
     await page.click('.contar-lugar');
     assert(await esperarVisible(page, '.contar-lista .list-item'), 'tocar la tarjeta debe cargar la lista de SKU pendientes');
     const filas = await page.$$eval('.contar-lista .list-item', els => els.map(e => e.getBoundingClientRect().height));

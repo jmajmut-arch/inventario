@@ -16058,6 +16058,12 @@ function tabBtn(view,label){
 //  * si durante el render algo tomó el foco a propósito (un modal, un buscador que se autoenfoca
 //    en bind()), se respeta: solo se repone cuando el foco quedó en la nada.
 function render(){
+  // "Cambiar día o lugar" (Contar) se queda como la persona lo dejó (pedido de Joel, 13/10/2026):
+  // cada elección repinta la pantalla y el <details> nuevo nacía cerrado, así que había que reabrirlo
+  // para elegir la ubicación. Se lee el panel visible justo antes de rehacer el DOM, no con el
+  // evento toggle: ese llega en una tarea aparte y un repintado puede adelantarse (pasó en CI).
+  const cambiarEl = document.getElementById('contar-cambiar');
+  if(cambiarEl && typeof cambiarEl.open === 'boolean') state.contarPlan.cambiarAbierto = cambiarEl.open;
   const antes = document.activeElement;
   const idEnfocado = antes && antes.id ? antes.id : null;
   let posCursor = null;
@@ -17243,11 +17249,6 @@ function bind(){
       if(btnEscaner) btnEscaner.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
       const btnEscanerPlan = document.getElementById('btn-escanear-plan');
       if(btnEscanerPlan) btnEscanerPlan.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'conteo'}}));
-      // "Cambiar día o lugar" se queda abierto mientras se elige (pedido de Joel, 13/10/2026): cada
-      // elección repinta la pantalla y el <details> nuevo nacía cerrado, así que había que volver a
-      // abrirlo para elegir la ubicación. Se recuerda en el estado sin repintar; lo cierra la persona.
-      const cambiarEl = document.getElementById('contar-cambiar');
-      if(cambiarEl) cambiarEl.addEventListener('toggle', ()=>{ state.contarPlan.cambiarAbierto = cambiarEl.open; });
       const fechaEl = document.getElementById('contar-fecha');
       if(fechaEl) fechaEl.addEventListener('change', e=>{ if(e.target.value){ state.contarPlan.fechaManual = true; cargarPlanDeHoy(e.target.value); } });
       const btnExportarPlanDia = document.getElementById('btn-exportar-plan-dia');
