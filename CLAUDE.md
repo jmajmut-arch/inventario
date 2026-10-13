@@ -79,6 +79,17 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   perdió nada). Tras cada prueba: `pg_stat_activity` sin transacciones activas viejas y
   `postgres_logs` sin "deadlock detected". Las migraciones llevan `set local lock_timeout`, para
   fallar en segundos en vez de quedar esperando detrás de algo así.
+- **Protección contra sobrecarga.** La segunda prueba de carga del 13/10/2026 botó la base
+  (Small: 2 GB) con 750 personas: ≈1,5 min sin servicio para todas las empresas. Desde
+  `20261013_proteccion_sobrecarga.sql`:
+  - `public.dashboard_ejecutivo` es solo una puerta: máximo 3 Dashboards calculando, 6 dentro
+    contando a los que esperan (hasta 8 s). Con más, falla al instante con un error visible (503).
+    **El cálculo vive en `privado.dashboard_ejecutivo_calculo`: los cambios al Dashboard van
+    ahí**, no en la puerta.
+  - Cada conteo toma un turno por material (`trg_conteos_turno_sku`, advisory lock) antes de tocar
+    `skus`, para que dos conteos del mismo material no entren en deadlock.
+  - Claves de advisory locks en uso: 74100, 74101 y 74102. Una función nueva que use advisory
+    locks elige otra.
 - **Los buscadores comparan con `ilike`, no con `position()` ni `lower() like`.** `skus` tiene
   índices GIN de trigramas en `sku_code`, `descripcion`, `batch` y `storage_bin` (extensión
   `pg_trgm`, esquema `extensions`), y solo `ilike` los usa: `position()` obliga a leer el maestro

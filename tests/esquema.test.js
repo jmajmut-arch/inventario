@@ -184,3 +184,28 @@ test('la clasificación ABC se lee por empresa y se refresca la misma vista mate
   assert.match(funcion.def, new RegExp(`refresh\\s+materialized\\s+view\\s+concurrently\\s+${mv.replace('.', '\\.')}\\b`, 'i'), `${funcion.archivo}: refrescar_clasificacion_abc no refresca ${mv}, que es la que lee skus_valor_abc`);
   assert.match(cron.def, new RegExp(`${mv.replace('.', '\\.')}\\b`, 'i'), `${cron.archivo}: el refresco nocturno no refresca ${mv}, que es la que lee skus_valor_abc`);
 });
+
+// Protección contra sobrecarga (20261013_proteccion_sobrecarga.sql). En la prueba de carga del
+// 13/10/2026 la base se reinició sola con 750 personas: el Dashboard, la consulta más cara, ocupaba
+// tantas conexiones como supervisores lo abrieran, y los conteos del mismo material entraban en
+// deadlock. public.dashboard_ejecutivo es ahora solo la puerta (máximo 3 calculando y 6 dentro);
+// el cálculo vive en privado.dashboard_ejecutivo_calculo. Si una migración nueva vuelve a definir
+// public.dashboard_ejecutivo con el cálculo adentro, la protección desaparece sin que nada falle a
+// la vista: por eso se revisa la última definición.
+test('el Dashboard pasa por turnos y los conteos toman turno por material', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let puerta = null;
+  let trigger = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const p = /create\s+(?:or\s+replace\s+)?function\s+public\.dashboard_ejecutivo\s*\([\s\S]*?\$\$[\s\S]*?\$\$/i.exec(sql);
+    if (p) puerta = { archivo, def: p[0] };
+    if (/create\s+trigger\s+trg_conteos_turno_sku\s+before\s+insert\s+or\s+update\s+or\s+delete\s+on\s+public\.conteos/i.test(sql)) trigger = archivo;
+  }
+  assert.ok(puerta, 'no se encontró la definición de public.dashboard_ejecutivo');
+  assert.match(puerta.def, /pg_try_advisory_xact_lock\(\s*74100/, `${puerta.archivo}: public.dashboard_ejecutivo perdió el límite de entrada (6 dentro)`);
+  assert.match(puerta.def, /pg_try_advisory_xact_lock\(\s*74101/, `${puerta.archivo}: public.dashboard_ejecutivo perdió el límite de cálculo (3 a la vez)`);
+  assert.match(puerta.def, /privado\.dashboard_ejecutivo_calculo\s*\(/, `${puerta.archivo}: public.dashboard_ejecutivo tiene que delegar en privado.dashboard_ejecutivo_calculo`);
+  assert.match(puerta.def, /errcode\s*=\s*'53400'/, `${puerta.archivo}: al estar lleno, el Dashboard tiene que fallar con un error visible (53400 -> 503)`);
+  assert.ok(trigger, 'falta el trigger trg_conteos_turno_sku: sin él, dos conteos del mismo material pueden entrar en deadlock');
+});
