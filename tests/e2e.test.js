@@ -286,10 +286,25 @@ async function loguear(page, perfil){
     assert(await page.isVisible('#chip-conexion') && (await page.textContent('#chip-conexion')).trim() === 'Sincronizado', 'en Contar la cabecera muestra el chip "Sincronizado"');
     const desbordeForm = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeForm <= 0, 'a 420 px el formulario no desborda, obtuvo '+desbordeForm);
+    // Daños (pedido de Joel, 13/10/2026): marcar repinta el formulario y no puede borrar lo
+    // tecleado; el campo de unidades aparece solo con material dañado y también se conserva.
+    await page.fill('#c-cant', '3');
+    await page.click('#c-material-danado');
+    assert(await esperarVisible(page, '#c-cant-danada'), 'al marcar material dañado aparece el campo de unidades dañadas');
+    assert((await page.inputValue('#c-cant')) === '3', 'marcar material dañado no borra la cantidad tecleada, obtuvo '+(await page.inputValue('#c-cant')));
+    await page.fill('#c-cant-danada', '2');
+    await page.click('#c-packing-danado');
+    await page.waitForTimeout(100);
+    assert((await page.inputValue('#c-cant-danada')) === '2' && (await page.inputValue('#c-cant')) === '3', 'marcar packing dañado conserva la cantidad y las unidades dañadas');
+    assert(await page.isChecked('#c-material-danado') && await page.isChecked('#c-packing-danado'), 'las dos marcas quedan marcadas tras el repintado');
+    const desbordeDanos = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeDanos <= 0, 'a 420 px el formulario con daños no desborda, obtuvo '+desbordeDanos);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-danos-420.png', fullPage: true });
     // Pedido de Joel (09/10): más de 1 sin foto avisa antes de guardar, sin bloquear. El primer
     // toque de Guardar no manda nada; "Guardar sin foto" sí guarda.
     const postsConteo = [];
-    page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteos')) postsConteo.push(req.url()); });
+    const cuerposConteo = [];
+    page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteos')) { postsConteo.push(req.url()); try { cuerposConteo.push(JSON.parse(req.postData())[0]); } catch(e) {} } });
     await page.fill('#c-cant', '5');
     await page.click('#form-conteo button[type=submit]');
     assert(await esperarVisible(page, '.conteo-aviso-foto'), 'con 5 y sin foto, Guardar debe mostrar el aviso');
@@ -304,6 +319,8 @@ async function loguear(page, perfil){
     await page.click('#btn-aviso-guardar-sin-foto');
     for (let i = 0; i < 30 && !postsConteo.length; i++) await page.waitForTimeout(100);
     assert(postsConteo.length >= 1, '"Guardar sin foto" debe guardar el conteo');
+    const cuerpo = cuerposConteo.find(c => c && c.cantidad_contada === 5);
+    assert(cuerpo && cuerpo.packing_danado === true && cuerpo.material_danado === true && cuerpo.cantidad_danada === 2, 'el conteo viaja con las marcas de daño y las unidades dañadas, obtuvo '+JSON.stringify(cuerpo));
     await context.close();
   }
 

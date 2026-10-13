@@ -7723,6 +7723,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const fotosTrasSincronizar = await ctx.leerFotosOffline(itemEncolado.id);
   assert(fotosTrasSincronizar.length===0, 'tras sincronizar, la foto ya subida debe borrarse de IndexedDB, obtuvo: '+JSON.stringify(fotosTrasSincronizar));
 
+  // Daños (13/10/2026): un conteo encolado con daños los conserva al sincronizar; uno encolado por
+  // una versión anterior de la app (sin esos campos) llega "sin daños", nunca con un error.
+  ctx.encolarAccionOffline('conteo', {sku_id:'sku-dano', sku_code:'SKU-DANO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:6, ubicacion_contada:null, bodega:null, observacion:null, packing_danado:true, material_danado:true, cantidad_danada:2});
+  ctx.encolarAccionOffline('conteo', {sku_id:'sku-viejo', sku_code:'SKU-VIEJO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:1, ubicacion_contada:null, bodega:null, observacion:null});
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  const cuerposDanos = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos?')).map(c=>JSON.parse(c.opts.body)[0]);
+  const conDano = cuerposDanos.find(b=>b.sku_id==='sku-dano'), viejo = cuerposDanos.find(b=>b.sku_id==='sku-viejo');
+  assert(conDano && conDano.packing_danado===true && conDano.material_danado===true && conDano.cantidad_danada===2, 'el conteo encolado con daños los manda al sincronizar, obtuvo: '+JSON.stringify(conDano));
+  assert(viejo && viejo.packing_danado===false && viejo.material_danado===false && viejo.cantidad_danada===null, 'un conteo encolado sin los campos de daño llega sin daños, obtuvo: '+JSON.stringify(viejo));
+  assert(ctx.__appstate.colaOffline.length===0, 'los dos se sincronizan y la cola queda vacía, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
   // Si sigue sin haber conexión al sincronizar (falla de nuevo con TypeError), el conteo
   // debe quedar en la cola para el próximo intento, sin perderse ni reintentarse en bucle.
   ctx.encolarAccionOffline('conteo', {sku_id:'sku-a', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:1, ubicacion_contada:null, bodega:null, observacion:null});
@@ -11273,6 +11285,47 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postConteoUbicNormal = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos'));
   assert(!!postConteoUbicNormal && JSON.parse(postConteoUbicNormal.opts.body)[0].ubicacion_distinta===false, 'sin marcar (o sin mandar el flag), el conteo debe grabarse con ubicacion_distinta=false, obtuvo: '+JSON.stringify(postConteoUbicNormal));
 
+  // Daños al contar (pedido de Joel, 13/10/2026): packing dañado es solo una marca; material
+  // dañado puede llevar cuántas unidades, opcional, nunca más que lo contado.
+  const postConteoDe = () => calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos'));
+  const skuDano = {id:'sku-001-id', sku_code:'SKU-001', descripcion:'Perno M8', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:20, unidad_medida:'UN'};
+  ctx.__appstate.skuSeleccionado = skuDano; ctx.__appstate.conteoFotos = [];
+  ctx.__appstate.conteoPackingDanado = true; ctx.__appstate.conteoMaterialDanado = true;
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:'', ubicacionDistinta:false, packingDanado:true, materialDanado:true, cantidadDanada:'2'});
+  let cuerpoDano = postConteoDe() && JSON.parse(postConteoDe().opts.body)[0];
+  assert(cuerpoDano && cuerpoDano.packing_danado===true && cuerpoDano.material_danado===true && cuerpoDano.cantidad_danada===2, 'con las dos marcas y 2 unidades, el conteo lleva packing_danado, material_danado y cantidad_danada=2, obtuvo: '+JSON.stringify(cuerpoDano));
+  assert(ctx.__appstate.conteoPackingDanado===false && ctx.__appstate.conteoMaterialDanado===false, 'al guardar, las marcas de daño se limpian para el próximo material');
+
+  ctx.__appstate.skuSeleccionado = skuDano;
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'', bodega:'Nave Mina', observacion:'', packingDanado:true, materialDanado:false, cantidadDanada:'3'});
+  cuerpoDano = postConteoDe() && JSON.parse(postConteoDe().opts.body)[0];
+  assert(cuerpoDano && cuerpoDano.packing_danado===true && cuerpoDano.material_danado===false && cuerpoDano.cantidad_danada===null, 'sin la marca de material dañado no viajan unidades dañadas (el packing no lleva cantidad), obtuvo: '+JSON.stringify(cuerpoDano));
+
+  ctx.__appstate.skuSeleccionado = skuDano;
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'', bodega:'Nave Mina', observacion:'', materialDanado:true, cantidadDanada:''});
+  cuerpoDano = postConteoDe() && JSON.parse(postConteoDe().opts.body)[0];
+  assert(cuerpoDano && cuerpoDano.material_danado===true && cuerpoDano.cantidad_danada===null && cuerpoDano.packing_danado===false, 'material dañado sin decir cuántas: cantidad_danada null, obtuvo: '+JSON.stringify(cuerpoDano));
+
+  ctx.__appstate.skuSeleccionado = skuDano;
+  calls.length = 0;
+  const toastsAntesDano = elements['toast-root'].hijos.length;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'', bodega:'Nave Mina', observacion:'', materialDanado:true, cantidadDanada:'5'});
+  const toastsDano = elements['toast-root'].hijos.slice(toastsAntesDano);
+  assert(!postConteoDe() && toastsDano.some(t=>t.className==='toast err' && t.textContent.includes('no pueden ser más que la cantidad contada')), 'más unidades dañadas que contadas no se guarda y se explica, obtuvo: '+JSON.stringify(toastsDano));
+  assert(ctx.__appstate.skuSeleccionado===skuDano, 'tras el error, el material sigue elegido para corregir');
+
+  // El formulario: las dos marcas siempre; el campo de unidades solo con material dañado.
+  ctx.__appstate.view = 'conteo'; ctx.__appstate.conteoMaterialDanado = false; ctx.__appstate.conteoPackingDanado = false;
+  let htmlDano = ctx.renderConteo();
+  assert(htmlDano.includes('id="c-packing-danado"') && htmlDano.includes('id="c-material-danado"') && !htmlDano.includes('id="c-cant-danada"'), 'Contar muestra las dos marcas de daño y oculta las unidades si no hay material dañado');
+  ctx.__appstate.conteoMaterialDanado = true;
+  htmlDano = ctx.renderConteo();
+  assert(/id="c-material-danado" checked/.test(htmlDano) && htmlDano.includes('id="c-cant-danada"') && htmlDano.includes('Unidades dañadas (opcional)'), 'con material dañado marcado aparece el campo de unidades, opcional');
+  ctx.__appstate.conteoMaterialDanado = false;
+
   ctx.__appstate.skuSeleccionado = null;
   ctx.__appstate.conteoOtraUbicacion = false;
 
@@ -11945,6 +11998,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(t.includes('Página 2 de 2') && t.some(x=>/^Generado .* · InventIA$/.test(x)), 'pie con la página y la fecha, obtuvo: '+JSON.stringify(t.slice(-3)));
     assert(p1.textos.some(x=>x.t==='Ana Torres · '+ctx.fmtFechaHora('2026-08-20T14:00:00Z')), 'Contado por: quién y cuándo en la misma línea, obtuvo: '+JSON.stringify(t.filter(x=>x.includes('Ana Torres'))));
     assert(p1.textos.some(x=>x.t==='—' && x.x>36) , 'el nunca contado deja "—" en Contado por');
+  }
+  {
+    // Daños y resaltado del estado (pedido de Joel, 13/10/2026): la ficha suma la fila "Daños" y el
+    // estado lleva debajo una marca de plumón translúcida: verde si cuadró, rojo si es merma,
+    // amarillo si es excedente. Con conteo ciego ("Con diferencia", sin signo) no se colorea.
+    const base = {bodega:'Nave', descripcion:'X', fotos:[], fecha_conteo:'2026-08-20T14:00:00Z', contado_por:'Ana'};
+    const filasMarca = [
+      {...base, sku_id:'m1', sku_code:'SKU-EXP-C', conteo_id:'k1', cantidad_contada:5, estado:'aprobado', diferencia:0},
+      {...base, sku_id:'m2', sku_code:'SKU-EXP-M', conteo_id:'k2', cantidad_contada:3, estado:'con_diferencia', diferencia:-2, material_danado:true, cantidad_danada:2},
+      {...base, sku_id:'m3', sku_code:'SKU-EXP-E', conteo_id:'k3', cantidad_contada:9, estado:'con_diferencia', diferencia:4, packing_danado:true},
+    ];
+    const MARCAS = ctx.MARCADOR_PDF || {cuadrado:[0.55,0.87,0.47], merma:[1,0.47,0.47], excedente:[1,0.93,0.3]};
+    const marcasDe = pg => pg.rects.filter(r=>r.opacity===0.6 && r.color).map(r=>[r.color.r, r.color.g, r.color.b].join(','));
+    await ctx.generarPdfFichasBusqueda(filasMarca, [null,null,null], {});
+    let dm = ultimoPdf(), pf = dm.paginas[1];
+    assert(JSON.stringify(marcasDe(pf))===JSON.stringify([MARCAS.cuadrado, MARCAS.merma, MARCAS.excedente].map(c=>c.join(','))), 'cuadrado en verde, merma en rojo y excedente en amarillo, en ese orden, obtuvo: '+JSON.stringify(marcasDe(pf)));
+    const tf = textosDe(pf);
+    assert(tf.filter(x=>x==='DAÑOS').length===3, 'cada ficha lleva la fila Daños, obtuvo: '+tf.filter(x=>x==='DAÑOS').length);
+    assert(tf.includes('Sin daños') && tf.includes('Material dañado: 2') && tf.includes('Packing dañado'), 'la fila dice sin daños, material dañado con sus unidades o packing dañado, obtuvo: '+JSON.stringify(tf.filter(x=>/daño/i.test(x))));
+    const etiquetasDanos = pf.textos.filter(x=>x.t==='DAÑOS');
+    assert(etiquetasDanos.filter(x=>x.color.r>0.7).length===2, 'la etiqueta Daños va en rojo solo cuando hay daño, como Crítico, obtuvo: '+JSON.stringify(etiquetasDanos.map(x=>x.color)));
+    // Las 3 fichas de 14 filas caben sobre el pie: el último texto de la tercera ficha queda arriba del pie (y=22).
+    const minY = Math.min(...pf.textos.filter(x=>x.size===8.5 || x.size===7).filter(x=>!/^Generado |^Página /.test(x.t) && x.t!=='Sin foto').map(x=>x.y));
+    assert(minY > 32, 'la tercera ficha no pisa el pie de página, último texto en y='+minY);
+    await ctx.generarPdfFichasBusqueda(filasMarca, [null,null,null], {ocultarMagnitud:true});
+    dm = ultimoPdf(); pf = dm.paginas[1];
+    assert(JSON.stringify(marcasDe(pf))===JSON.stringify([MARCAS.cuadrado.join(',')]), 'con conteo ciego solo se marca el cuadrado: el color delataría si falta o sobra, obtuvo: '+JSON.stringify(marcasDe(pf)));
   }
   // Camino principal de la foto: se pide reducida a Supabase (Image Transformations, ~30 KB) y se
   // descargan sus bytes.
