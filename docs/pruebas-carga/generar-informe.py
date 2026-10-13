@@ -14,13 +14,14 @@ onepage = (AQUI.parent / 'comercial' / 'one-page-inventario.html').read_text(enc
 fuentes = ''.join(re.findall(r'@font-face\{[^}]*\}', onepage))
 logo = re.search(r'<img[^>]*src="(data:image/[^"]+)"', onepage).group(1)
 
-A, B = d['antes'], d['despues']
-niveles = [n['personas'] for n in B['niveles']]
-COL_A, COL_B, GRID, TXT, BUENO = '#a89a88', '#bd5b2c', '#ece4d3', '#5f5142', '#3f7d4f'
+# Una corrida por prueba, en orden; la última es la que se destaca.
+CORRIDAS = d['corridas']
+niveles = sorted({n['personas'] for c in CORRIDAS for n in c['niveles']})
+GRID, TXT, BUENO = '#ece4d3', '#5f5142', '#3f7d4f'
 
 def fmt_ms(v):
     if v is None: return '—'
-    if v >= 1000: return (f'{v/1000:.1f}'.rstrip('0').rstrip('.') if v < 10000 else f'{v/1000:.0f}') + ' s'
+    if v >= 1000: return (f'{v/1000:.1f}'.rstrip('0').rstrip('.').replace('.', ',') if v < 10000 else f'{v/1000:.0f}') + ' s'
     return f'{v:.0f} ms'
 
 def serie(run, clave):
@@ -44,7 +45,8 @@ def grafico_log(titulo, clave, sub, umbral=None, w=300, h=175):
     for i, p in enumerate(niveles):
         out.append(f'<text x="{X(i):.1f}" y="{h-12}" text-anchor="middle" class="ax">{p}</text>')
     out.append(f'<text x="{(l+w-r)/2:.1f}" y="{h-1}" text-anchor="middle" class="ax">personas contando a la vez</text>')
-    for run, col, ancho in [(A, COL_A, 1.8), (B, COL_B, 2.4)]:
+    for k, run in enumerate(CORRIDAS):
+        col, ancho = run['color'], (2.4 if k == len(CORRIDAS) - 1 else 1.6)
         vals = serie(run, clave)
         pts = [(X(i), Y(v)) for i, v in enumerate(vals) if v is not None]
         out.append('<polyline fill="none" stroke="%s" stroke-width="%s" stroke-linejoin="round" points="%s"/>'
@@ -64,16 +66,17 @@ def grafico_barras(titulo, clave, sub, maximo, sufijo, w=300, h=175, dec=1):
         v = maximo * k / 4; y = Y(v)
         out.append(f'<line x1="{l}" x2="{w-r}" y1="{y:.1f}" y2="{y:.1f}" stroke="{GRID}"/>')
         out.append(f'<text x="{l-4}" y="{y+3:.1f}" text-anchor="end" class="ax">{v:.0f}{sufijo}</text>')
-    va, vb = serie(A, clave), serie(B, clave)
+    vals = [serie(run, clave) for run in CORRIDAS]
     for i, p in enumerate(niveles):
-        x = X0(i); bw = paso * 0.32
-        for j, (v, col) in enumerate([(va[i], COL_A), (vb[i], COL_B)]):
+        x = X0(i); bw = paso * 0.8 / len(CORRIDAS) - 1
+        for j, run in enumerate(CORRIDAS):
+            v, col = vals[j][i], run['color']
             if v is None: continue
-            xx = x + paso * 0.16 + j * (bw + 2)
+            xx = x + paso * 0.1 + j * (bw + 1)
             y = Y(v)
             out.append(f'<rect x="{xx:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{(Y(0)-y):.1f}" fill="{col}" rx="1"/>')
-            if v >= 3:
-                txt = f'{v:.{dec}f}'.rstrip('0').rstrip('.') if dec else f'{v:.0f}'
+            if v >= 10:
+                txt = (f'{v:.{dec}f}'.rstrip('0').rstrip('.') if dec else f'{v:.0f}').replace('.', ',')
                 out.append(f'<text x="{xx+bw/2:.1f}" y="{y-2:.1f}" text-anchor="middle" class="vb" fill="{col}">{txt}</text>')
         out.append(f'<text x="{x+paso/2:.1f}" y="{h-12}" text-anchor="middle" class="ax">{p}</text>')
     out.append(f'<text x="{(l+w-r)/2:.1f}" y="{h-1}" text-anchor="middle" class="ax">personas contando a la vez</text>')
@@ -81,17 +84,21 @@ def grafico_barras(titulo, clave, sub, maximo, sufijo, w=300, h=175, dec=1):
     return f'<figure class="card graf"><figcaption><b>{titulo}</b><span>{sub}</span></figcaption>{"".join(out)}</figure>'
 
 def tabla():
+    pct = lambda v: (f'{v:.2f}%'.replace('.00%', '%').replace('.', ',') if v else '0%')
+    metricas = [('err', 'Errores', pct), ('guardar', 'Guardar un conteo (p95)', fmt_ms), ('dashboard', 'Dashboard (p95)', fmt_ms)]
+    ult = len(CORRIDAS) - 1
     filas = []
     for p in niveles:
-        a = next(n for n in A['niveles'] if n['personas'] == p)
-        b_ = next(n for n in B['niveles'] if n['personas'] == p)
-        def par(k, f=fmt_ms):
-            return f'<td class="a">{f(a[k])}</td><td class="b">{f(b_[k])}</td>'
-        pct = lambda v: f'{v:.2f}%'.replace('.00%', '%') if v else '0%'
-        filas.append(f'<tr><th>{p}</th>{par("rps", lambda v: f"{v:.1f}")}{par("err", pct)}{par("conteos", lambda v: f"{v:,}".replace(",", "."))}'
-                     f'{par("buscar")}{par("guardar")}{par("dashboard")}</tr>')
-    cab = ''.join(f'<th colspan="2">{c}</th>' for c in ['Peticiones/s', 'Errores', 'Conteos guardados', 'Buscar p95', 'Guardar p95', 'Dashboard p95'])
-    sub = '<th></th>' + '<th class="a">mañana</th><th class="b">tarde</th>' * 6
+        celdas = ''
+        for clave, _, f in metricas:
+            for k, run in enumerate(CORRIDAS):
+                fila = next((n for n in run['niveles'] if n['personas'] == p), None)
+                v = fila.get(clave) if fila else None
+                txt = f(v) if fila and (v is not None or clave == 'err') else '—'
+                celdas += f'<td class="{"b" if k == ult else "a"}">{txt}</td>'
+        filas.append(f'<tr><th>{p}</th>{celdas}</tr>')
+    cab = ''.join(f'<th colspan="{len(CORRIDAS)}">{t}</th>' for _, t, _ in metricas)
+    sub = '<th></th>' + ''.join(f'<th class="{"b" if k == ult else "a"}">{run["corta"]}</th>' for k, run in enumerate(CORRIDAS)) * len(metricas)
     return f'<table><thead><tr><th>Personas</th>{cab}</tr><tr class="sub">{sub}</tr></thead><tbody>{"".join(filas)}</tbody></table>'
 
 kpis = ''.join(f'<div class="kpi"><div class="q">{k["q"]}</div><div class="a">{k["a"]}</div><div class="n">{k["n"]}</div></div>' for k in d['kpis'])
@@ -100,10 +107,10 @@ mejoras = ''.join(f'<tr><td>{m[0]}</td><td class="num">{m[1]}</td><td class="num
 
 pagina = f'''<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>InventIA · Prueba de carga {d["fecha"]}</title>
+<title>InventIA · Pruebas de carga {d["fecha"]}</title>
 <style>
 {fuentes}
-:root{{--text:#241a10;--dim:#5f5142;--faint:#8a7a68;--amber:#bd5b2c;--amber-dim:#8c4520;--line:#e7dcc4;--good:#3f7d4f;--ink:#1e2a30;--a:{COL_A};--b:{COL_B}}}
+:root{{--text:#241a10;--dim:#5f5142;--faint:#8a7a68;--amber:#bd5b2c;--amber-dim:#8c4520;--line:#e7dcc4;--good:#3f7d4f;--ink:#1e2a30}}
 @page{{size:letter;margin:0}}
 html{{background:#d9d2c4}}
 body{{margin:0;background:#fff;color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:8.6pt;line-height:1.33;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
@@ -136,7 +143,7 @@ h1,h2{{margin:0;font-family:'Barlow Condensed','Arial Narrow',sans-serif}}
 .graf svg{{width:100%;height:auto;display:block}}
 .ax{{font-family:'IBM Plex Mono',monospace;font-size:9px;fill:{TXT}}}
 .vb{{font-family:'IBM Plex Mono',monospace;font-size:8.6px;font-weight:500}}
-.leyenda{{display:flex;gap:5mm;align-items:center;font-size:8pt;color:var(--dim)}}
+.leyenda{{display:flex;flex-wrap:wrap;gap:1mm 4.5mm;align-items:center;font-size:7.8pt;color:var(--dim)}}
 .leyenda i{{display:inline-block;width:5mm;height:1.6mm;border-radius:1mm;margin-right:1.4mm;vertical-align:middle}}
 .leyenda .u{{display:inline-block;width:5mm;border-top:1.4px dashed var(--good);margin-right:1.4mm;vertical-align:middle}}
 table{{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:7.6pt}}
@@ -152,11 +159,11 @@ ul{{margin:0;padding-left:4mm}} li{{margin:.5mm 0}}
 .nota{{font-size:7.2pt;color:var(--faint);line-height:1.3;margin-top:auto}}
 </style></head><body><div class="page">
 <header class="hdr"><img src="{logo}" alt="">
-<div><h1>Invent<em>IA</em> · prueba de carga</h1><div class="tag">{d["subtitulo"]}</div></div>
+<div><h1>Invent<em>IA</em> · pruebas de carga</h1><div class="tag">{d["subtitulo"]}</div></div>
 <div class="meta"><b>{d["fecha"]}</b>{d["meta"]}</div></header>
 <p class="lead">{d["resumen"]}</p>
 <div class="kpis">{kpis}</div>
-<div class="leyenda"><span><i style="background:var(--a)"></i>{A["etiqueta"]}</span><span><i style="background:var(--b)"></i>{B["etiqueta"]}</span><span><span class="u"></span>1 segundo (se siente inmediato)</span></div>
+<div class="leyenda">{"".join(f'<span><i style="background:{c["color"]}"></i>{c["etiqueta"]}</span>' for c in CORRIDAS)}<span><span class="u"></span>1 s</span></div>
 <div class="grid2">
 {grafico_log("Guardar un conteo", "guardar", "p95, escala logarítmica", umbral=1000)}
 {grafico_log("Abrir el Dashboard", "dashboard", "p95, escala logarítmica", umbral=1000)}

@@ -12,9 +12,11 @@ on:
   workflow_dispatch:
     inputs:
       niveles:
-        description: "Personas contando a la vez, por nivel (separadas por coma)"
+        # Sobre 400 personas la base (plan Small) se cayó dos veces el 13/10/2026: no subir de ahí en
+        # producción hasta subir el plan (ver CLAUDE.md, "Protección contra sobrecarga").
+        description: "Personas contando a la vez, por nivel (separadas por coma). Máximo 400 en el plan Small"
         required: false
-        default: "50,100,200,300,500,750,1000"
+        default: "50,100,200,300,400"
         type: string
       minutos_por_nivel:
         description: "Minutos que se sostiene cada nivel"
