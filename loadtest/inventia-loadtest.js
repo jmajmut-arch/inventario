@@ -1,203 +1,263 @@
-// Prueba de carga real de InventIA contra Supabase en producción.
+// Prueba de carga de InventIA contra Supabase en producción: cuántas personas pueden estar
+// contando a la vez sin que la app se ponga lenta.
 //
-// Qué hace: simula gente contando inventario en varias empresas al mismo tiempo —
-// carga la página de SKU, a veces revisa el color del último conteo, guarda un conteo,
-// y de vez en cuando refresca el Dashboard — con pausas entre acciones como una persona
-// real caminando/tipeando, no un martillazo continuo.
+// Cada usuario virtual (VU) es UNA persona real, con el ritmo medido en terreno (Escondida, 60
+// días hasta el 13/10/2026: como máximo 2 conteos por minuto por persona) y las mismas llamadas
+// que hace la app hoy:
+//   - Contador (9 de cada 10 VU): busca el material (dos búsquedas mientras escribe, por
+//     buscar_skus_lectura), guarda el conteo (POST /conteos con idempotency_key, como
+//     guardarConteo), sube la foto al bucket en 8 de cada 10 conteos (~400 KB, el promedio real
+//     es 423 KB) y la asocia en conteo_fotos; cada 5 conteos refresca el plan de la semana
+//     (plan_ventana_pantalla) y cada 10 revisa la sesión (mi_estado_bloqueo,
+//     tengo_otra_sesion_activa). Entre conteo y conteo, 20 a 40 s: caminar, buscar el bin,
+//     contar.
+//   - Supervisor (1 de cada 10 VU): abre el Dashboard (dashboard_ejecutivo) y el plan del mes
+//     cada 60 a 120 s.
 //
-// Corre contra 5 empresas de prueba ya creadas en la base real (__LOADTEST_1__ .. _5__,
-// 300 SKU cada una), completamente aisladas de Escondida y de tus clientes reales.
+// Corre por niveles (NIVELES, p. ej. "50,100,200"): cada nivel es un escenario de VU constantes
+// que dura MINUTOS_POR_NIVEL, uno detrás de otro, y el resumen sale separado por nivel. Si los
+// errores pasan del 5% la prueba se corta sola, para no seguir castigando producción.
 //
-// CÓMO CORRERLO desde un GitHub Codespace (funciona desde el iPad, en Safari):
-//   1. En github.com/jmajmut-arch/inventario, botón verde "Code" > pestaña "Codespaces" >
-//      "Create codespace on main". Espera a que termine de construirse (unos 2-3 min la
-//      primera vez) — k6 ya queda instalado solo, no hay que hacer nada más.
-//   2. En la terminal que se abre, exporta las variables (copia/pega tal cual, cambiando
-//      solo el Service Role Key):
-//        export SUPABASE_URL="https://ncvwgsbcvklhbyvurxzz.supabase.co"
-//        export SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jdndnc2JjdmtsaGJ5dnVyeHp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0OTcwMDAsImV4cCI6MjEwMjA3MzAwMH0.ElSrlTk0Mheb9P37BCGOLHqgGIxMVmoRLdpnlDSZYbE"
-//        export SUPABASE_SERVICE_ROLE_KEY="<pégalo acá — Supabase > Project Settings > API > service_role. Es secreto, no lo subas a git>"
-//        export EMPRESA_IDS="6c48f715-a2a3-4c04-a356-53d956443773,d66aad43-ac9d-49f4-8a4a-867639e8fcb1,32a41cca-f995-44e3-bfdb-edb3f0390f3d,b95a77fc-4bfa-4036-a3f0-8d2cd7ceba23,35e94cb9-1149-464e-8ccc-780109fde275"
-//   3. Corre: k6 run loadtest/inventia-loadtest.js
-//   4. Al terminar, k6 imprime un resumen con p95/p99 de latencia y % de errores por
-//      endpoint. Si quieres graficarlo: agrega "--out json=resultado.json" al comando.
+// Usa empresas de prueba creadas para esto (EMPRESA_IDS, la primera es la grande), nunca las
+// de clientes. setup() crea un usuario por empresa; teardown() borra las fotos subidas. Los
+// conteos, los usuarios y las empresas se borran aparte, con loadtest/limpieza_manual.sql.
 //
-// Ajusta VUS_MAX y las stages más abajo si quieres una rampa más agresiva o más suave.
+// Se corre desde GitHub: Actions -> "Prueba de carga (k6)" -> Run workflow.
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { Trend, Rate } from 'k6/metrics';
+import { Trend, Rate, Counter } from 'k6/metrics';
+import exec from 'k6/execution';
 
 const SUPABASE_URL = __ENV.SUPABASE_URL;
 const ANON_KEY = __ENV.SUPABASE_ANON_KEY;
 const SERVICE_ROLE_KEY = __ENV.SUPABASE_SERVICE_ROLE_KEY;
 const EMPRESA_IDS = (__ENV.EMPRESA_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+const NIVELES = (__ENV.NIVELES || '50,100,200,300,500').split(',').map(Number).filter(n => n > 0);
+const MINUTOS = Number(__ENV.MINUTOS_POR_NIVEL || 3);
+const RAMPA_S = 45;
 const RUN_ID = `${Date.now()}`;
-const MAX_VUS = Number(__ENV.MAX_VUS || 300);
+const BUCKET = 'fotos-inventario';
+const FOTO = open('./foto-prueba.jpg', 'b');
 
 if (!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE_KEY || EMPRESA_IDS.length === 0) {
   throw new Error('Faltan variables de entorno: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, EMPRESA_IDS');
 }
 
-const skuPageDuration = new Trend('sku_page_duration', true);
-const dashboardDuration = new Trend('dashboard_duration', true);
-const conteoInsertDuration = new Trend('conteo_insert_duration', true);
-const ultimoConteoDuration = new Trend('ultimo_conteo_duration', true);
-const errorRate = new Rate('errores');
+const ACCIONES = ['buscar', 'guardar', 'foto', 'plan', 'sesion', 'dashboard'];
+const tiempo = {};
+for (const a of ACCIONES) tiempo[a] = new Trend(`t_${a}`, true);
+const errores = new Rate('errores');
+const conteosGuardados = new Counter('conteos_guardados');
+
+// Un escenario por nivel, en fila. Cada uno parte con una rampa corta (los VU de un nivel nuevo
+// arrancan desfasados, como gente que va llegando) y mide solo lo que pasa en su ventana.
+const scenarios = {};
+const thresholds = {
+  errores: [{ threshold: 'rate<0.05', abortOnFail: true, delayAbortEval: '60s' }],
+};
+NIVELES.forEach((vus, i) => {
+  const nombre = `n${String(vus).padStart(4, '0')}`;
+  scenarios[nombre] = {
+    executor: 'ramping-vus',
+    startVUs: 0,
+    stages: [{ duration: `${RAMPA_S}s`, target: vus }, { duration: `${MINUTOS}m`, target: vus }],
+    gracefulRampDown: '20s',
+    startTime: `${i * (RAMPA_S + MINUTOS * 60 + 25)}s`,
+    tags: { nivel: nombre },
+  };
+  // Umbrales "de registro": no cortan nada, sirven para que el resumen traiga cada nivel aparte.
+  thresholds[`http_req_failed{nivel:${nombre}}`] = ['rate<1'];
+  thresholds[`errores{nivel:${nombre}}`] = ['rate<1'];
+  thresholds[`http_reqs{nivel:${nombre}}`] = ['count>=0'];
+  thresholds[`conteos_guardados{nivel:${nombre}}`] = ['count>=0'];
+  for (const a of ACCIONES) thresholds[`t_${a}{nivel:${nombre}}`] = ['p(95)<600000'];
+});
 
 export const options = {
-  scenarios: {
-    contando_inventario: {
-      executor: 'ramping-vus',
-      startVUs: 0,
-      stages: [
-        { duration: '1m', target: Math.min(50, MAX_VUS) },   // arranque suave
-        { duration: '2m', target: Math.min(150, MAX_VUS) },  // ritmo de un equipo grande
-        { duration: '2m', target: MAX_VUS },                 // rampa hasta el techo a probar
-        { duration: '3m', target: MAX_VUS },                 // sostenido, para ver si se degrada con el tiempo
-        { duration: '1m', target: 0 },                        // enfriamiento
-      ],
-      gracefulRampDown: '30s',
-    },
-  },
-  thresholds: {
-    'errores': ['rate<0.01'],                    // menos de 1% de fallos
-    'sku_page_duration': ['p(95)<800'],
-    'dashboard_duration': ['p(95)<2000'],
-    'conteo_insert_duration': ['p(95)<800'],
-    'http_req_failed': ['rate<0.02'],
-  },
+  scenarios,
+  thresholds,
+  summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
+  setupTimeout: '120s',
+  teardownTimeout: '300s',
 };
 
-// setup() corre UNA vez, antes de la rampa de VUs. Crea un usuario admin real por cada
-// empresa de prueba (vía la Admin API — el camino oficial, no manipulando auth.users a mano)
-// y lo deja logueado, para que las VUs solo tengan que reusar el token.
+function srv(path, method, body, extra = {}) {
+  return http.request(method, `${SUPABASE_URL}${path}`, body === undefined ? null : JSON.stringify(body), {
+    headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, 'Content-Type': 'application/json', ...extra },
+  });
+}
+
 export function setup() {
   const usuarios = [];
   for (const empresaId of EMPRESA_IDS) {
-    const email = `loadtest-${empresaId.slice(0, 8)}-${RUN_ID}@inventia-test.local`;
-    const password = `LoadTest-${RUN_ID}-!Aa1`;
-
-    const crear = http.post(`${SUPABASE_URL}/auth/v1/admin/users`, JSON.stringify({
+    const email = `carga-${empresaId.slice(0, 8)}-${RUN_ID}@inventia-test.local`;
+    const password = `Carga-${RUN_ID}-!Aa1`;
+    const crear = srv('/auth/v1/admin/users', 'POST', {
       email, password, email_confirm: true,
       app_metadata: { empresa_id: empresaId, rol: 'admin', provider: 'email', providers: ['email'] },
-      user_metadata: { nombre: 'Carga de prueba' },
-    }), {
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
-      },
+      user_metadata: { nombre: 'Prueba de carga' },
     });
-    if (crear.status < 200 || crear.status >= 300) {
-      throw new Error(`No se pudo crear el usuario de prueba para ${empresaId}: ${crear.status} ${crear.body}`);
-    }
-    const userId = JSON.parse(crear.body).id;
-
-    // La Admin API de Supabase no siempre deja el app_metadata puesto en el mismo INSERT
-    // (a veces lo agrega con un UPDATE aparte), así que el trigger que crea el perfil en
-    // "usuarios" a partir de app_metadata puede no alcanzar a verlo. Se crea el perfil acá
-    // directo, con la Service Role Key (salta RLS), para no depender de esa carrera de tiempos.
-    const perfil = http.post(`${SUPABASE_URL}/rest/v1/usuarios?on_conflict=auth_user_id`, JSON.stringify({
-      auth_user_id: userId, nombre: 'Carga de prueba', rol: 'admin', empresa_id: empresaId, activo: true,
-    }), {
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
-        'Prefer': 'return=minimal,resolution=merge-duplicates',
-      },
-    });
-    if (perfil.status < 200 || perfil.status >= 300) {
-      throw new Error(`No se pudo crear el perfil (usuarios) para ${empresaId}: ${perfil.status} ${perfil.body}`);
-    }
-
-    const login = http.post(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, JSON.stringify({ email, password }), {
-      headers: { 'Content-Type': 'application/json', 'apikey': ANON_KEY },
-    });
-    if (login.status < 200 || login.status >= 300) {
-      throw new Error(`No se pudo loguear el usuario de prueba para ${empresaId}: ${login.status} ${login.body}`);
-    }
-    const token = JSON.parse(login.body).access_token;
-    usuarios.push({ empresaId, userId, token });
+    if (crear.status < 200 || crear.status >= 300) throw new Error(`No se pudo crear el usuario de ${empresaId}: ${crear.status} ${crear.body}`);
+    const authId = JSON.parse(crear.body).id;
+    const perfil = srv('/rest/v1/usuarios?on_conflict=auth_user_id&select=id', 'POST',
+      { auth_user_id: authId, nombre: 'Prueba de carga', rol: 'admin', empresa_id: empresaId, activo: true },
+      { Prefer: 'return=representation,resolution=merge-duplicates' });
+    if (perfil.status < 200 || perfil.status >= 300) throw new Error(`No se pudo crear el perfil de ${empresaId}: ${perfil.status} ${perfil.body}`);
+    const perfilId = JSON.parse(perfil.body)[0].id;
+    const login = http.post(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, JSON.stringify({ email, password }),
+      { headers: { 'Content-Type': 'application/json', apikey: ANON_KEY } });
+    if (login.status !== 200) throw new Error(`No se pudo iniciar sesión en ${empresaId}: ${login.status} ${login.body}`);
+    // Códigos reales de la empresa para buscar (prefijo C<n>, ver la siembra de datos)
+    const muestra = srv(`/rest/v1/skus?empresa_id=eq.${empresaId}&select=sku_code,descripcion&limit=400&order=sku_code`, 'GET');
+    const skus = JSON.parse(muestra.body);
+    if (!skus.length) throw new Error(`La empresa ${empresaId} no tiene materiales para buscar`);
+    usuarios.push({ empresaId, authId, perfilId, token: JSON.parse(login.body).access_token, skus });
   }
-  console.log(`Preparados ${usuarios.length} usuarios de prueba (empresas distintas).`);
+  console.log(`Preparados ${usuarios.length} usuarios. Niveles: ${NIVELES.join(', ')} personas, ${MINUTOS} min cada uno.`);
   return { usuarios };
 }
 
-export default function (data) {
-  const u = data.usuarios[__VU % data.usuarios.length];
-  const headers = {
-    'apikey': ANON_KEY,
-    'Authorization': `Bearer ${u.token}`,
-    'Content-Type': 'application/json',
-  };
-
-  // 1) Cargar SKU (como la pantalla "Cargar SKU" / "Tomar Inventario" al abrir)
-  const skuRes = http.get(
-    `${SUPABASE_URL}/rest/v1/skus?empresa_id=eq.${u.empresaId}&activo=eq.true&order=sku_code.asc&limit=30&select=id,sku_code,descripcion,bodega,stock_sistema`,
-    { headers, tags: { name: 'sku_page' } }
-  );
-  skuPageDuration.add(skuRes.timings.duration);
-  const okSku = check(skuRes, { 'sku page 200': (r) => r.status === 200 });
-  errorRate.add(!okSku);
-
-  let skuIds = [];
-  try { skuIds = JSON.parse(skuRes.body).map(s => s.id); } catch (e) { /* respuesta vacía o con error, se ignora */ }
-
-  // 2) A veces (como en la tabla de SKU con el nuevo color rojo/verde) consulta el último conteo.
-  if (skuIds.length && Math.random() < 0.3) {
-    const idsParam = skuIds.slice(0, 30).join(',');
-    const uc = http.get(
-      `${SUPABASE_URL}/rest/v1/ultimo_conteo_por_sku?sku_id=in.(${idsParam})&select=sku_id,estado`,
-      { headers, tags: { name: 'ultimo_conteo' } }
-    );
-    ultimoConteoDuration.add(uc.timings.duration);
-    errorRate.add(uc.status !== 200);
-  }
-
-  // 3) Guardar un conteo (la acción principal de "estar contando")
-  if (skuIds.length) {
-    const skuId = skuIds[Math.floor(Math.random() * skuIds.length)];
-    const ins = http.post(`${SUPABASE_URL}/rest/v1/conteos`, JSON.stringify([{
-      sku_id: skuId,
-      empresa_id: u.empresaId,
-      cantidad_contada: Math.floor(Math.random() * 100),
-      capturado_en: new Date().toISOString(),
-    }]), { headers: { ...headers, 'Prefer': 'return=minimal' }, tags: { name: 'conteo_insert' } });
-    conteoInsertDuration.add(ins.timings.duration);
-    const okIns = check(ins, { 'conteo insert 2xx': (r) => r.status >= 200 && r.status < 300 });
-    errorRate.add(!okIns);
-  }
-
-  // 4) De vez en cuando, refresca el Dashboard (no en cada iteración — nadie lo hace tan seguido).
-  if (Math.random() < 0.2) {
-    // avance_total no tiene columna empresa_id: RLS ya limita el resultado a la empresa
-    // del usuario logueado (mismo mecanismo que usa la app real).
-    const dash = http.get(
-      `${SUPABASE_URL}/rest/v1/avance_total`,
-      { headers, tags: { name: 'dashboard' } }
-    );
-    dashboardDuration.add(dash.timings.duration);
-    errorRate.add(dash.status !== 200);
-  }
-
-  // Tiempo de "pensar" entre acciones: caminar al siguiente SKU, tipear la cantidad, sacar
-  // la foto. Sin esto la prueba mide "cuántos requests por segundo aguanta", no "cuánta
-  // gente puede estar contando a la vez", que es la pregunta real.
-  sleep(3 + Math.random() * 5);
+function uuid() {
+  const h = '0123456789abcdef'; let s = '';
+  for (let i = 0; i < 36; i++) s += [8, 13, 18, 23].includes(i) ? '-' : (i === 14 ? '4' : h[Math.floor(Math.random() * 16)]);
+  return s;
 }
 
-// teardown() corre UNA vez al final. Borra los conteos y usuarios de prueba que este run
-// creó, para no dejar basura acumulándose en producción con cada corrida.
-export function teardown(data) {
-  for (const u of data.usuarios) {
-    http.del(`${SUPABASE_URL}/rest/v1/conteos?empresa_id=eq.${u.empresaId}`, null, {
-      headers: { 'apikey': SERVICE_ROLE_KEY, 'Authorization': `Bearer ${SERVICE_ROLE_KEY}` },
-    });
-    http.del(`${SUPABASE_URL}/auth/v1/admin/users/${u.userId}`, null, {
-      headers: { 'apikey': SERVICE_ROLE_KEY, 'Authorization': `Bearer ${SERVICE_ROLE_KEY}` },
-    });
+function registrar(accion, res, ok) {
+  tiempo[accion].add(res.timings.duration);
+  errores.add(!ok);
+  if (!ok && Math.random() < 0.02) console.warn(`${accion} ${res.status}: ${String(res.body).slice(0, 160)}`);
+}
+
+// 4 de cada 10 VU trabajan en la empresa grande (80.000 materiales, como Escondida).
+function usuarioDe(data) {
+  const n = data.usuarios.length;
+  const r = (exec.vu.idInTest * 7919) % 10;
+  return n === 1 || r < 4 ? data.usuarios[0] : data.usuarios[1 + (exec.vu.idInTest % (n - 1))];
+}
+
+const hoy = () => new Date().toISOString().slice(0, 10);
+const masDias = (d) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+
+export default function (data) {
+  const u = usuarioDe(data);
+  const h = { apikey: ANON_KEY, Authorization: `Bearer ${u.token}`, 'Content-Type': 'application/json' };
+  const esSupervisor = exec.vu.idInTest % 10 === 0;
+  const iter = exec.vu.iterationInScenario;
+
+  // Primera vuelta de cada VU: desfase al azar, para que no lleguen todos en el mismo segundo.
+  if (iter === 0) sleep(Math.random() * 20);
+
+  if (esSupervisor) {
+    const d = http.post(`${SUPABASE_URL}/rest/v1/rpc/dashboard_ejecutivo`, JSON.stringify({ p_dias: 14, p_criticidad: null }), { headers: h, tags: { accion: 'dashboard' } });
+    registrar('dashboard', d, check(d, { 'dashboard 200': r => r.status === 200 }));
+    const p = http.post(`${SUPABASE_URL}/rest/v1/rpc/plan_ventana_pantalla`, JSON.stringify({ p_desde: '2026-10-01', p_hasta: '2026-10-31', p_resumido: true }), { headers: h, tags: { accion: 'plan' } });
+    registrar('plan', p, check(p, { 'plan 200': r => r.status === 200 }));
+    sleep(60 + Math.random() * 60);
+    return;
   }
-  console.log('Limpieza lista: conteos y usuarios de prueba borrados.');
+
+  // 1) Buscar: primero un trozo (lo que alcanzó a escribir), después el texto completo.
+  const sku = u.skus[Math.floor(Math.random() * u.skus.length)];
+  const porCodigo = Math.random() < 0.6;
+  const completo = porCodigo ? sku.sku_code : sku.descripcion.split(' ').slice(0, 2).join(' ');
+  const parcial = porCodigo ? completo.slice(0, 6) : completo.slice(0, Math.max(3, completo.length - 3));
+  const sel = 'select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc';
+  let elegido = null;
+  for (const t of [parcial, completo]) {
+    const b = http.post(`${SUPABASE_URL}/rest/v1/rpc/buscar_skus_lectura?${sel}`, JSON.stringify({ p_texto: t, p_limite: 8 }), { headers: h, tags: { accion: 'buscar' } });
+    const ok = check(b, { 'buscar 200': r => r.status === 200 });
+    registrar('buscar', b, ok);
+    if (ok) { try { const filas = JSON.parse(b.body); if (filas.length) elegido = filas[0]; } catch (e) { /* respuesta rara: cuenta como error arriba */ } }
+    sleep(1 + Math.random() * 2);
+  }
+  if (!elegido) { sleep(20); return; }
+
+  // 2) Guardar el conteo, igual que guardarConteo.
+  sleep(3 + Math.random() * 5); // contar y tipear la cantidad
+  const clave = uuid();
+  const g = http.post(`${SUPABASE_URL}/rest/v1/conteos?on_conflict=idempotency_key`, JSON.stringify([{
+    sku_id: elegido.id, usuario_id: u.perfilId, empresa_id: u.empresaId,
+    cantidad_contada: Math.max(0, Number(elegido.stock_sistema || 0) + (Math.random() < 0.15 ? -2 : 0)),
+    ubicacion_contada: elegido.ubicacion || null, bodega: elegido.bodega || null, observacion: null,
+    capturado_en: new Date().toISOString(), fuera_de_plan: Math.random() < 0.3, ubicacion_distinta: false, idempotency_key: clave,
+  }]), { headers: { ...h, Prefer: 'resolution=ignore-duplicates,return=representation' }, tags: { accion: 'guardar' } });
+  const okG = check(g, { 'guardar 201': r => r.status === 201 });
+  registrar('guardar', g, okG);
+  let conteoId = null;
+  if (okG) { try { conteoId = JSON.parse(g.body)[0].id; conteosGuardados.add(1); } catch (e) { /* sin fila */ } }
+
+  // 3) Foto (8 de cada 10 conteos), a la misma ruta que usa la app, y su fila en conteo_fotos.
+  if (conteoId && Math.random() < 0.8) {
+    // Misma carpeta de empresa que la app (la que revisa la política del bucket); la subcarpeta
+    // fija en vez del código del material es solo para poder borrar todo al final de una vez.
+    const ruta = `${u.empresaId}/__carga__/${clave}-0.jpg`;
+    const f = http.post(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${ruta}`, FOTO,
+      { headers: { apikey: ANON_KEY, Authorization: `Bearer ${u.token}`, 'Content-Type': 'image/jpeg', 'x-upsert': 'true' }, tags: { accion: 'foto' } });
+    const okF = check(f, { 'foto 200': r => r.status === 200 });
+    registrar('foto', f, okF);
+    if (okF) {
+      const cf = http.post(`${SUPABASE_URL}/rest/v1/conteo_fotos?on_conflict=foto_url`, JSON.stringify([{ conteo_id: conteoId, foto_url: ruta }]),
+        { headers: { ...h, Prefer: 'resolution=ignore-duplicates,return=minimal' }, tags: { accion: 'foto' } });
+      registrar('foto', cf, check(cf, { 'conteo_fotos 2xx': r => r.status >= 200 && r.status < 300 }));
+    }
+  }
+
+  // 4) Cada 5 conteos refresca el plan de la semana; cada 10, la sesión (al volver a primer plano).
+  if (iter % 5 === 4) {
+    const p = http.post(`${SUPABASE_URL}/rest/v1/rpc/plan_ventana_pantalla`, JSON.stringify({ p_desde: masDias(-3), p_hasta: masDias(3), p_resumido: false }), { headers: h, tags: { accion: 'plan' } });
+    registrar('plan', p, check(p, { 'plan 200': r => r.status === 200 }));
+  }
+  if (iter % 10 === 9) {
+    for (const fn of ['mi_estado_bloqueo', 'tengo_otra_sesion_activa']) {
+      const s = http.post(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, '{}', { headers: h, tags: { accion: 'sesion' } });
+      registrar('sesion', s, check(s, { 'sesion 200': r => r.status === 200 }));
+    }
+  }
+
+  // Caminar al siguiente material.
+  sleep(20 + Math.random() * 20);
+}
+
+export function teardown(data) {
+  // Solo las fotos: los archivos del bucket se borran por la API de Storage. Los conteos, los
+  // usuarios y las empresas de prueba se borran después con loadtest/limpieza_manual.sql.
+  for (const u of data.usuarios) {
+    let borradas = 0;
+    for (let vuelta = 0; vuelta < 500; vuelta++) {
+      const l = srv(`/storage/v1/object/list/${BUCKET}`, 'POST', { prefix: `${u.empresaId}/__carga__/`, limit: 1000, offset: 0 });
+      let objetos = [];
+      try { objetos = JSON.parse(l.body); } catch (e) { break; }
+      if (!Array.isArray(objetos) || !objetos.length) break;
+      const rutas = objetos.map(o => `${u.empresaId}/__carga__/${o.name}`);
+      const d = srv(`/storage/v1/object/${BUCKET}`, 'DELETE', { prefixes: rutas });
+      if (d.status !== 200) { console.warn(`No se pudieron borrar fotos de ${u.empresaId}: ${d.status}`); break; }
+      borradas += rutas.length;
+    }
+    console.log(`Limpieza ${u.empresaId}: ${borradas} fotos de prueba borradas.`);
+  }
+}
+
+// Resumen por nivel, en una tabla que se lee directo en el registro de GitHub Actions.
+export function handleSummary(data) {
+  const m = data.metrics;
+  const v = (k, s) => (m[k] && m[k].values && m[k].values[s] !== undefined ? m[k].values[s] : null);
+  const ms = (x) => (x === null ? '   -  ' : (x >= 1000 ? `${(x / 1000).toFixed(1)}s` : `${Math.round(x)}ms`).padStart(6));
+  const lineas = ['', 'RESULTADO POR NIVEL (tiempos p95 = el 95% de las respuestas tardó menos que esto)', ''];
+  lineas.push('personas | req/s | errores | conteos |  buscar  guardar   foto    plan   sesion  dashboard | buscar p50 guardar p50');
+  NIVELES.forEach((vus) => {
+    const n = `n${String(vus).padStart(4, '0')}`;
+    const reqs = v(`http_reqs{nivel:${n}}`, 'count');
+    const dur = RAMPA_S + MINUTOS * 60;
+    const err = v(`errores{nivel:${n}}`, 'rate');
+    lineas.push([
+      String(vus).padStart(8), (reqs === null ? '-' : (reqs / dur).toFixed(1)).padStart(5),
+      (err === null ? '-' : `${(err * 100).toFixed(2)}%`).padStart(7), String(v(`conteos_guardados{nivel:${n}}`, 'count') ?? '-').padStart(7),
+      ...ACCIONES.map(a => ms(v(`t_${a}{nivel:${n}}`, 'p(95)'))),
+      ms(v(`t_buscar{nivel:${n}}`, 'med')), ms(v(`t_guardar{nivel:${n}}`, 'med')),
+    ].join(' | '));
+  });
+  lineas.push('');
+  return { stdout: lineas.join('\n') + '\n', 'resultado-loadtest.json': JSON.stringify(data, null, 1) };
 }
