@@ -10633,15 +10633,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(/data-porcion-clave="Beto"[^>]*opacity:0\.5/.test(leyendaConSeleccion), 'el ítem no seleccionado (Beto) debe atenuarse en la leyenda, obtuvo: '+leyendaConSeleccion);
   assert(!/data-porcion-clave="Ana"[^>]*opacity:0\.5/.test(leyendaConSeleccion), 'el ítem seleccionado (Ana) no debe atenuarse en la leyenda, obtuvo: '+leyendaConSeleccion);
 
-  // toggleFiltroContadoPor: un clic filtra por esa persona; un segundo clic sobre la misma
-  // persona quita el filtro (toggle); un clic sobre otra persona reemplaza la selección.
+  // toggleFiltroContadoPor (Joel, 14/10/2026: varias porciones a la vez): un clic suma esa
+  // persona, otro clic sobre la misma la quita, y un clic sobre otra persona la agrega a la
+  // selección (antes la reemplazaba). Sin ninguna, el filtro vuelve a null.
   ctx.__appstate.busqueda.filtroContadoPor = null;
   ctx.toggleFiltroContadoPor('Ana');
-  assert(ctx.__appstate.busqueda.filtroContadoPor==='Ana', 'un clic debe fijar el filtro en esa persona, obtuvo: '+ctx.__appstate.busqueda.filtroContadoPor);
-  ctx.toggleFiltroContadoPor('Ana');
-  assert(ctx.__appstate.busqueda.filtroContadoPor===null, 'un segundo clic sobre la misma persona debe quitar el filtro, obtuvo: '+ctx.__appstate.busqueda.filtroContadoPor);
+  assert(JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor)==='["Ana"]', 'un clic debe fijar el filtro en esa persona, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor));
   ctx.toggleFiltroContadoPor('Beto');
-  assert(ctx.__appstate.busqueda.filtroContadoPor==='Beto', 'un clic sobre otra persona debe reemplazar la selección, obtuvo: '+ctx.__appstate.busqueda.filtroContadoPor);
+  assert(JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor)==='["Ana","Beto"]', 'un clic sobre otra persona la suma a la selección, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor));
+  ctx.toggleFiltroContadoPor('Ana');
+  assert(JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor)==='["Beto"]', 'otro clic sobre una persona elegida la quita, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor));
+  ctx.toggleFiltroContadoPor('Beto');
+  assert(ctx.__appstate.busqueda.filtroContadoPor===null, 'sin ninguna persona elegida el filtro queda en null, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor));
 
   // renderBuscar con el filtro activo: la tabla solo debe mostrar las filas de la persona
   // seleccionada, con el chip "Filtrando por" visible y sin controles de paginación (es un
@@ -10661,6 +10664,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.exportarBusquedaExcel();
   assert(calls.length===callsAntesFiltro, 'con el filtro de "Quién contó" activo, exportar no debe pedir nada más al servidor, obtuvo '+(calls.length-callsAntesFiltro)+' llamadas nuevas');
   assert(xlsxEscrituras.length===1 && xlsxEscrituras[0].libro.hojas['Buscar'].length===3, 'debe exportar solo las 3 filas de Ana (la selección activa), obtuvo: '+JSON.stringify(xlsxEscrituras[0] && xlsxEscrituras[0].libro.hojas['Buscar']));
+
+  // Varias personas a la vez: Ana (3) + Beto (2) = 5 filas; el aviso las nombra y el gráfico y la
+  // leyenda dejan a las dos sin atenuar. "Otros" se suma igual (Ana + Fede y Gaby = 5).
+  ctx.__appstate.busqueda.filtroContadoPor = ['Ana','Beto'];
+  const htmlVarias = ctx.renderBuscar();
+  assert((htmlVarias.match(/<tr>\s*<td/g)||[]).length===5 && htmlVarias.includes('Filtrando por <strong style="color:var(--text)">Ana, Beto</strong>'), 'con Ana y Beto elegidos la tabla muestra sus 5 filas y el aviso nombra a los dos, obtuvo '+((htmlVarias.match(/<tr>\s*<td/g)||[]).length)+' filas');
+  assert(!/data-porcion-clave="Ana"[^>]*opacity:0\.35/.test(htmlVarias) && !/data-porcion-clave="Beto"[^>]*opacity:0\.35/.test(htmlVarias) && /data-porcion-clave="Caro"[^>]*opacity:0\.35/.test(htmlVarias), 'las porciones elegidas no se atenúan y las demás sí');
+  xlsxEscrituras.length = 0;
+  await ctx.exportarBusquedaExcel();
+  assert(xlsxEscrituras.length===1 && xlsxEscrituras[0].libro.hojas['Buscar'].length===5, 'exportar con dos personas elegidas lleva sus 5 filas, obtuvo: '+(xlsxEscrituras[0] && xlsxEscrituras[0].libro.hojas['Buscar'].length));
+  ctx.__appstate.busqueda.filtroContadoPor = ['Ana','Otros'];
+  assert((ctx.renderBuscar().match(/<tr>\s*<td/g)||[]).length===5, 'Ana más "Otros" (Fede y Gaby) debe dar 5 filas');
 
   // Filtrando por "Otros" debe agrupar a Fede y Gaby (los dos que quedaron fuera del top 5).
   ctx.__appstate.busqueda.filtroContadoPor = 'Otros';
@@ -11776,12 +11791,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const lecturaDif = ctx.lecturaResumenEstadoBusqueda([{dia:'Cuadrado',n:3},{dia:'Diferencia',n:1},{dia:'Pendiente',n:1},{dia:'No contado',n:0}], false);
   assert(lecturaDif.includes('1 con diferencia (20%)') && lecturaDif.includes('1 pendiente de revisión (20%)'), 'también sin separar signo y para pendientes, obtuvo: '+lecturaDif);
   ctx.toggleFiltroEstado('Diferencia negativa');
-  assert(ctx.__appstate.busqueda.filtroEstado==='Diferencia negativa', 'un clic en una porción debe fijar el filtro por estado, obtuvo: '+ctx.__appstate.busqueda.filtroEstado);
+  assert(JSON.stringify(ctx.__appstate.busqueda.filtroEstado)==='["Diferencia negativa"]', 'un clic en una porción debe fijar el filtro por estado, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroEstado));
   const htmlEstadoFiltrado = ctx.renderBuscar();
   assert((htmlEstadoFiltrado.match(/<tr>\s*<td/g)||[]).length===1 && htmlEstadoFiltrado.includes('>A-2<') && !htmlEstadoFiltrado.includes('>A-3<'), 'filtrando por "Diferencia negativa" la tabla debe mostrar solo el faltante (A-2), obtuvo '+((htmlEstadoFiltrado.match(/<tr>\s*<td/g)||[]).length)+' filas');
   assert(htmlEstadoFiltrado.includes('id="btn-quitar-filtro-estado"') && htmlEstadoFiltrado.includes('Filtrando por estado'), 'con el filtro por estado activo debe verse el chip con su botón para quitarlo');
+  // Varios estados a la vez: faltante + sobrante = A-2 y A-3; el aviso dice "estados".
+  ctx.toggleFiltroEstado('Diferencia positiva');
+  const htmlDosEstados = ctx.renderBuscar();
+  assert((htmlDosEstados.match(/<tr>\s*<td/g)||[]).length===2 && htmlDosEstados.includes('>A-2<') && htmlDosEstados.includes('>A-3<') && htmlDosEstados.includes('Filtrando por estados <strong style="color:var(--text)">Diferencia negativa, Diferencia positiva</strong>'), 'con faltante y sobrante elegidos la tabla muestra A-2 y A-3, obtuvo '+((htmlDosEstados.match(/<tr>\s*<td/g)||[]).length)+' filas');
+  ctx.toggleFiltroEstado('Diferencia positiva');
   ctx.toggleFiltroEstado('Diferencia negativa');
-  assert(ctx.__appstate.busqueda.filtroEstado===null, 'un segundo clic sobre el mismo estado debe quitar el filtro, obtuvo: '+ctx.__appstate.busqueda.filtroEstado);
+  assert(ctx.__appstate.busqueda.filtroEstado===null, 'un segundo clic sobre el mismo estado debe quitar el filtro, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroEstado));
 
   // Los dos filtros se combinan (persona Y estado): Ana tiene un cuadrado y un faltante; con
   // Ana + Cuadrado solo queda A-1.
