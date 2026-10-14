@@ -325,7 +325,7 @@
   <p class="intro">Todas las métricas se calculan sobre el período marcado como actual (<code>ciclo_actual()</code>); si la empresa no usa períodos, sobre todo el historial.</p>
   <div class="two">
     <ul class="checks">
-      <li>Operativo (todos los planes): avance por bodega, Estado general de SKU por estado y clase ABC con filtro de criticidad, y tablas diaria, semanal y mensual con reconteos distinguidos</li>
+      <li>Operativo (todos los planes): "¿Qué requiere acción?" (diferencias recientes, plan sin contar y pendientes de Bodega, con su botón), avance por bodega, Estado general de SKU por estado y clase ABC con filtro de criticidad, y tablas diaria, semanal y mensual con reconteos distinguidos</li>
       <li>Ejecutivo (según plan): avance global, proyección de término al ritmo de 14 días, adherencia al plan, exactitud (sin diferencia, ubicación correcta, ranking por bodega, tendencia mensual), valorización, Top 10 de pérdidas y excedentes, ABC, ranking por responsable, pendientes por bodega; exportable a PDF</li>
       <li>Períodos con fecha de inicio: <code>marcar_ciclo_actual</code> cierra el anterior y guarda su informe en <code>informes_ciclo</code> (avance, exactitud, diferencias, ranking, valorización y reconteos sin resolver, como jsonb)</li>
       <li>Períodos programados: cron diario <code>activar_periodos_programados</code> (06:00 UTC) activa el período cuya fecha de inicio ya llegó, cerrando el anterior y generando su informe</li>

@@ -288,11 +288,11 @@ main.ancho{max-width:1180px;}
 @media (min-width:900px){
   .dash-par{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0 16px;align-items:start;}
 }
-/* Fase 1 del rediseño (Panel): el modo Ejecutivo se lee en tres bandas que responden, en orden,
-   "¿cómo vamos?" (cuatro cifras), "¿dónde hay problemas?" (pérdidas, exactitud y pendientes por
-   bodega, tendencia) y "¿qué requiere acción?" (avisos con su botón). Todo lo demás sigue
-   existiendo, plegado bajo "Detalle". Los números y las consultas no cambian: es el mismo
-   renderInformeEjecutivo reordenado. */
+/* Fase 1 del rediseño (Panel): el modo Ejecutivo se lee en bandas que responden, en orden,
+   "¿cómo vamos?" (cuatro cifras) y "¿dónde hay problemas?" (pérdidas, exactitud y pendientes por
+   bodega, tendencia). Todo lo demás sigue existiendo, plegado bajo "Detalle". "¿Qué requiere
+   acción?" (avisos con su botón) se pasó al modo Operativo el 14/10/2026 (ver renderBandaAcciones).
+   Los números y las consultas no cambian. */
 .dash-banda{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin:28px 0 12px;}
 .dash-banda h2{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:21px;letter-spacing:0.03em;text-transform:uppercase;margin:0;display:flex;align-items:center;gap:10px;}
 .dash-banda h2::before{content:"";display:inline-block;width:5px;height:20px;background:var(--amber);flex:none;}
@@ -11543,10 +11543,11 @@ function renderInformeEjecutivo({impresion=false, detalleExtra=''}={}){
   // tiene sentido traer miles de filas de skus_valor_abc al navegador solo para contarlas.
   const resumenAbc = state.dash.resumenAbc||[];
 
-  // Fase 1 del rediseño del Panel (octubre 2026). El modo Ejecutivo se lee en tres bandas que
-  // responden, en orden, "¿cómo vamos?" (cuatro cifras), "¿dónde hay problemas?" (pérdidas,
-  // exactitud y pendientes por bodega, tendencia) y "¿qué requiere acción?" (avisos con su
-  // botón); todo lo demás sigue existiendo, plegado bajo "Detalle". Los números son los mismos
+  // Fase 1 del rediseño del Panel (octubre 2026). El modo Ejecutivo se lee en bandas que
+  // responden, en orden, "¿cómo vamos?" (cuatro cifras) y "¿dónde hay problemas?" (pérdidas,
+  // exactitud y pendientes por bodega, tendencia); todo lo demás sigue existiendo, plegado bajo
+  // "Detalle". "¿Qué requiere acción?" está en el Operativo desde el 14/10/2026, a pedido de Joel:
+  // son tareas del día a día, no el resultado (ver renderBandaAcciones). Los números son los mismos
   // de siempre y salen de los mismos cálculos de arriba: solo cambia el orden y qué se ve
   // primero. El informe impreso (imprimirInformeCiclo) usa esta misma función con
   // impresion:true, que despliega el detalle en vez de plegarlo (un <details> cerrado no se
@@ -11646,26 +11647,6 @@ function renderInformeEjecutivo({impresion=false, detalleExtra=''}={}){
     </div>
   `;
 
-  // "¿Qué requiere acción?": avisos con botón, armados con lo que el panel ya tiene cargado (sin
-  // consultas nuevas). Diferencias = SKU cuyo último conteo no cuadra (lo que lista Reconteo);
-  // plan sin contar = lo que falta del período elegido (lo que lista Plan). La tarjeta de bodega
-  // (pendientes de aprobación) es la misma de siempre, ahora dentro de esta banda.
-  const acciones = [];
-  if(totConDif>0) acciones.push({tipo:'warn', n: totConDif.toLocaleString('es-CL'), titulo:`SKU con diferencia en los últimos ${VENTANA_PROYECCION_DIAS} días`, detalle:'Su último conteo no cuadra con el sistema: recontar o cerrar con ajuste.', vista:'reconteo', boton:'Reconteo'});
-  if(adherencia.planificados && adherencia.pendientes>0) acciones.push({tipo:'info', n: adherencia.pendientes.toLocaleString('es-CL'), titulo:'SKU del plan sin contar todavía', detalle:`${esc(adherencia.etiqueta)}: ${adherencia.contados.toLocaleString('es-CL')} de ${adherencia.planificados.toLocaleString('es-CL')} contados.`, vista:'plan', boton:'Ver plan'});
-  const tarjetaBodega = impresion ? '' : renderResumenBodegaDashboard();
-  const bandaAcciones = `
-    <div class="dash-banda"><h2>¿Qué requiere acción?</h2><span class="dash-banda-linea"></span></div>
-    <div class="dash-acciones">
-      ${acciones.map(a=>`<div class="alert ${a.tipo}">
-        <div class="alert-n">${a.n}</div>
-        <div class="alert-t"><b>${a.titulo}</b><span>${a.detalle}</span></div>
-        <button type="button" class="btn btn-secondary btn-sm" data-ir-vista="${a.vista}">${a.boton}</button>
-      </div>`).join('')}
-      ${tarjetaBodega}
-      ${!acciones.length && !tarjetaBodega? `<div class="alert ok"><div class="alert-n">✓</div><div class="alert-t"><b>Nada pendiente por ahora</b><span>Sin diferencias recientes ni SKU del plan por contar.</span></div></div>` : ''}
-    </div>
-  `;
 
   const detalle = `
     ${detalleExtra}
@@ -11763,7 +11744,34 @@ function renderInformeEjecutivo({impresion=false, detalleExtra=''}={}){
         <div style="padding-top:4px">${detalle}</div>
       </details>`;
 
-  return bandaComoVamos + bandaProblemas + bandaAcciones + bloqueDetalle;
+  return bandaComoVamos + bandaProblemas + bloqueDetalle;
+}
+
+// "¿Qué requiere acción?" (modo Operativo): avisos con botón, armados con lo que el panel ya tiene
+// cargado (sin consultas nuevas). Diferencias = SKU cuyo último conteo no cuadra en la ventana
+// reciente (diferencias_recientes, lo que lista Reconteo); plan sin contar = lo que falta del
+// período elegido en "Adherencia al plan" (lo que lista Plan). La tarjeta de bodega (pendientes
+// de aprobación) va dentro. Estuvo en el Ejecutivo hasta el 14/10/2026; Joel la pasó acá porque
+// son tareas del día a día, no el resultado.
+function renderBandaAcciones(){
+  const totConDif = Number(((state.dash.diferenciasRecientes||[])[0]||{}).con_diferencia)||0;
+  const adherencia = calcularAdherenciaPlan();
+  const acciones = [];
+  if(totConDif>0) acciones.push({tipo:'warn', n: totConDif.toLocaleString('es-CL'), titulo:`SKU con diferencia en los últimos ${VENTANA_PROYECCION_DIAS} días`, detalle:'Su último conteo no cuadra con el sistema: recontar o cerrar con ajuste.', vista:'reconteo', boton:'Reconteo'});
+  if(adherencia.planificados && adherencia.pendientes>0) acciones.push({tipo:'info', n: adherencia.pendientes.toLocaleString('es-CL'), titulo:'SKU del plan sin contar todavía', detalle:`${esc(adherencia.etiqueta)}: ${adherencia.contados.toLocaleString('es-CL')} de ${adherencia.planificados.toLocaleString('es-CL')} contados.`, vista:'plan', boton:'Ver plan'});
+  const tarjetaBodega = renderResumenBodegaDashboard();
+  return `
+    <div class="dash-banda"><h2>¿Qué requiere acción?</h2><span class="dash-banda-linea"></span></div>
+    <div class="dash-acciones">
+      ${acciones.map(a=>`<div class="alert ${a.tipo}">
+        <div class="alert-n">${a.n}</div>
+        <div class="alert-t"><b>${a.titulo}</b><span>${a.detalle}</span></div>
+        <button type="button" class="btn btn-secondary btn-sm" data-ir-vista="${a.vista}">${a.boton}</button>
+      </div>`).join('')}
+      ${tarjetaBodega}
+      ${!acciones.length && !tarjetaBodega? `<div class="alert ok"><div class="alert-n">✓</div><div class="alert-t"><b>Nada pendiente por ahora</b><span>Sin diferencias recientes ni SKU del plan por contar.</span></div></div>` : ''}
+    </div>
+  `;
 }
 
 // Dinero del Panel: el signo va antes del "$" ("−$293.716", con el signo menos tipográfico),
@@ -11941,12 +11949,12 @@ function renderDashboard(){
   const diarioPaginaActual = Math.min(state.dashDiarioPagina||0, diarioTotalPaginas-1);
   const diarioRows = state.dash.diario.slice(diarioPaginaActual*TAM_PAGINA_DASH_DIARIO, diarioPaginaActual*TAM_PAGINA_DASH_DIARIO + TAM_PAGINA_DASH_DIARIO);
 
-  // Operativo: las tablas por período, como siempre (más la tarjeta de bodega, el estado del
-  // maestro y la adherencia con su selector). Ejecutivo: las tres bandas y el detalle plegado
-  // (ver renderInformeEjecutivo); la tarjeta de bodega va dentro de "¿Qué requiere acción?" y el
-  // estado del maestro abre el detalle.
+  // Operativo: primero "¿Qué requiere acción?" (avisos con botón y la tarjeta de bodega, ver
+  // renderBandaAcciones), después el estado del maestro, la adherencia con su selector y las
+  // tablas por período. Ejecutivo: sus bandas y el detalle plegado (ver renderInformeEjecutivo);
+  // el estado del maestro abre el detalle.
   const vistaOperativa = `
-    ${renderResumenBodegaDashboard()}
+    ${renderBandaAcciones()}
     ${renderResumenGeneralSkus()}
     ${renderAdherenciaPlan()}
     <div class="section-head"><h2 style="font-size:17px">Diario ${campoConInfo('SKU contados, con diferencia, reconteos y unidades por día calendario.')}</h2></div>

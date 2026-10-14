@@ -251,15 +251,14 @@
 <section class="page">
   <div class="kicker">10 · Seguimiento</div>
   <h2 class="title">Ver el avance: Panel Ejecutivo</h2>
-  <p class="intro">Pestaña Panel, toggle Ejecutivo. Pensado para quien necesita el resultado en plata y en riesgo, no el detalle operativo día a día. Todo se calcula sobre el período de conteo actual y se lee en tres bandas.</p>
+  <p class="intro">Pestaña Panel, toggle Ejecutivo. Pensado para quien necesita el resultado en plata y en riesgo, no el detalle operativo día a día. Todo se calcula sobre el período de conteo actual y se lee en dos bandas, con el resto plegado debajo.</p>
   <span class="role admin">Admin (según plan de tu empresa)</span>
   <div class="cols">
     <div>
       <ol class="steps">
         <li><span class="num">1</span><div><b>¿Cómo vamos?</b> Cuatro cifras: <b>Avance global</b>, <b>Exactitud de unidades</b> (sobre el último conteo de cada SKU, con su variación contra el mes anterior), <b>Adherencia al plan</b> del período elegido arriba e <b>Impacto neto</b> en pesos (pérdidas más excedentes, a costo unitario).</div></li>
         <li><span class="num">2</span><div><b>¿Dónde hay problemas?</b> Peor primero: el Top 10 de pérdidas y de excedentes con más impacto, la exactitud y los SKU pendientes por ubicación general y la tendencia de exactitud mes a mes.</div></li>
-        <li><span class="num">3</span><div><b>¿Qué requiere acción?</b> Avisos con botón: SKU con diferencia en los últimos 14 días (a Reconteo) y SKU del plan sin contar (a Plan).</div></li>
-        <li><span class="num">4</span><div>Bajo <b>Detalle</b>, plegado, sigue todo lo demás: estado general del maestro, exactitud de ubicación, adherencia por bodega, <b>Valorización</b>, <b>Clasificación ABC</b>, <b>Proyección de término</b>, conteos por día, diferencias, <b>Ranking por responsable</b> y avance por ubicación general.</div></li>
+        <li><span class="num">3</span><div>Bajo <b>Detalle</b>, plegado, sigue todo lo demás: estado general del maestro, exactitud de ubicación, adherencia por bodega, <b>Valorización</b>, <b>Clasificación ABC</b>, <b>Proyección de término</b>, conteos por día, diferencias, <b>Ranking por responsable</b> y avance por ubicación general.</div></li>
       </ol>
       <div class="box"><div class="tag">Exportar</div>El botón <b>Exportar informe</b> genera un PDF con este mismo resumen, listo para compartir con quien no tiene acceso a la app.</div>
       <div class="box new"><div class="tag">Nuevo · Informe de cierre automático</div>Cuando un período se cierra (porque marcas otro como actual o porque empieza uno programado), InventIA guarda sola una foto de este panel con los reconteos que quedaron sin resolver. Está en Períodos → Informes de cierre (etapa 13).</div>
@@ -277,9 +276,10 @@
   <div class="cols">
     <div>
       <ol class="steps">
-        <li><span class="num">1</span><div><b>Adherencia al plan</b> del período elegido, con su desglose por ubicación general.</div></li>
+        <li><span class="num">1</span><div><b>¿Qué requiere acción?</b> Avisos con botón: SKU con diferencia en los últimos 14 días (a Reconteo), SKU del plan sin contar (a Plan) y, con el módulo Bodega, lo pendiente de aprobación.</div></li>
         <li><span class="num">2</span><div><b>Estado general de SKU</b> muestra el maestro completo por estado (no contado, cuadrado, <b>merma</b> si se contó menos que el sistema o <b>excedente</b> si se contó más) y clase ABC, con filtro de criticidad (Todos, Solo críticos, Solo no críticos). Útil para ver de un vistazo qué falta, sin ir a Buscar.</div></li>
-        <li><span class="num">3</span><div>Las tablas <b>Diario, Semanal</b> y <b>Mensual</b> muestran SKU contados, con diferencia, reconteos y unidades contadas por período, con los reconteos en su propio color.</div></li>
+        <li><span class="num">3</span><div><b>Adherencia al plan</b> del período elegido, con su desglose por ubicación general.</div></li>
+        <li><span class="num">4</span><div>Las tablas <b>Diario, Semanal</b> y <b>Mensual</b> muestran SKU contados, con diferencia, reconteos y unidades contadas por período, con los reconteos en su propio color.</div></li>
       </ol>
       <div class="box upd"><div class="tag">Actualizado · Más simple</div>Se quitaron las tarjetas "Conteos recientes" y "Materiales contados" y el filtro de rango de fechas del Estado general de SKU: no agregaban información que no esté ya en Buscar y en el Calendario, y hacían más lenta la pantalla.</div>
       <div class="box"><div class="tag">Períodos de conteo</div>Si tu empresa usa períodos (ej. "T1 2027"), todo el Panel se acota al período marcado como actual. Sin un período creado, se muestra el histórico completo.</div>
