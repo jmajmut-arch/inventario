@@ -3429,13 +3429,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const idxRankingResponsable = idx('Ranking por responsable');
   assert(idxComoVamos>=0 && idxAvanceGlobal>idxComoVamos && idxExactitud>idxAvanceGlobal && idxAdherencia>idxExactitud && idxImpacto>idxAdherencia && idxProblemas>idxImpacto,
     'la banda "¿Cómo vamos?" debe ir primero con sus cuatro cifras en este orden: Avance global, Exactitud de unidades, Adherencia al plan, Impacto neto -- obtuvo índices: '+JSON.stringify({idxComoVamos,idxAvanceGlobal,idxExactitud,idxAdherencia,idxImpacto,idxProblemas}));
-  assert(idxTopPerdidas>idxProblemas && idxTopExcedentes>idxTopPerdidas && idxRankingUbicacion>idxTopExcedentes && idxPendientesUbicacion>idxRankingUbicacion && idxTendencia>idxPendientesUbicacion && idxAccion>idxTendencia,
-    'la banda "¿Dónde hay problemas?" debe ir segunda, peor primero: Pérdidas, Excedentes, Ranking por ubicación general, SKU pendientes por ubicación general, Tendencia -- obtuvo índices: '+JSON.stringify({idxProblemas,idxTopPerdidas,idxTopExcedentes,idxRankingUbicacion,idxPendientesUbicacion,idxTendencia,idxAccion}));
-  assert(idxDetalle>idxAccion && idxValorizacion>idxDetalle && idxProyeccion>idxValorizacion && idxConteosPorDia>idxProyeccion && idxRankingResponsable>idxConteosPorDia,
-    'el resto (Valorización, Proyección, Conteos por día, Ranking por responsable) debe quedar después de "¿Qué requiere acción?", plegado bajo "Detalle", en el orden definido -- obtuvo índices: '+JSON.stringify({idxAccion,idxDetalle,idxValorizacion,idxProyeccion,idxConteosPorDia,idxRankingResponsable}));
-  // Los avisos de acción salen de lo que ya está cargado: 1 SKU con diferencia (diferenciasRecientes)
-  // lleva a Reconteo; 2 SKU del plan sin contar (8 planificados, 6 contados) llevan a Plan.
-  const htmlAcciones = htmlOrden.slice(idxAccion, idxDetalle);
+  assert(idxTopPerdidas>idxProblemas && idxTopExcedentes>idxTopPerdidas && idxRankingUbicacion>idxTopExcedentes && idxPendientesUbicacion>idxRankingUbicacion && idxTendencia>idxPendientesUbicacion,
+    'la banda "¿Dónde hay problemas?" debe ir segunda, peor primero: Pérdidas, Excedentes, Ranking por ubicación general, SKU pendientes por ubicación general, Tendencia -- obtuvo índices: '+JSON.stringify({idxProblemas,idxTopPerdidas,idxTopExcedentes,idxRankingUbicacion,idxPendientesUbicacion,idxTendencia}));
+  assert(idxDetalle>idxTendencia && idxValorizacion>idxDetalle && idxProyeccion>idxValorizacion && idxConteosPorDia>idxProyeccion && idxRankingResponsable>idxConteosPorDia,
+    'el resto (Valorización, Proyección, Conteos por día, Ranking por responsable) debe quedar después de la tendencia, plegado bajo "Detalle", en el orden definido -- obtuvo índices: '+JSON.stringify({idxTendencia,idxDetalle,idxValorizacion,idxProyeccion,idxConteosPorDia,idxRankingResponsable}));
+  // "¿Qué requiere acción?" se pasó al Operativo (Joel, 14/10/2026): en el Ejecutivo ya no está.
+  assert(idxAccion===-1 && !htmlOrden.includes('dash-acciones'), 'el modo Ejecutivo ya no debe traer "¿Qué requiere acción?", obtuvo índice '+idxAccion);
+  // En el Operativo va primero, con los mismos avisos, armados con lo ya cargado: 1 SKU con
+  // diferencia (diferenciasRecientes) lleva a Reconteo; 2 SKU del plan sin contar (8
+  // planificados, 6 contados) llevan a Plan.
+  ctx.__appstate.dashboardModo = 'operativo';
+  const htmlOperativoAcciones = ctx.renderDashboard();
+  ctx.__appstate.dashboardModo = 'ejecutivo';
+  const idxAccionOp = htmlOperativoAcciones.indexOf('¿Qué requiere acción?');
+  const idxMaestroOp = htmlOperativoAcciones.indexOf('Estado general de SKU');
+  const idxAdherenciaOp = htmlOperativoAcciones.indexOf('Cuánto del plan asignado ya se contó');
+  assert(idxAccionOp>=0 && idxMaestroOp>idxAccionOp && idxAdherenciaOp>idxMaestroOp, 'en el Operativo, "¿Qué requiere acción?" va primero, antes del estado del maestro y la adherencia, obtuvo índices: '+JSON.stringify({idxAccionOp,idxMaestroOp,idxAdherenciaOp}));
+  assert((htmlOperativoAcciones.match(/¿Qué requiere acción\?/g)||[]).length===1, 'la banda debe aparecer una sola vez en el Operativo');
+  const htmlAcciones = htmlOperativoAcciones.slice(idxAccionOp, idxMaestroOp);
   assert(/alert warn[\s\S]{0,200}>1<\/div>[\s\S]{0,200}SKU con diferencia en los últimos 14 días[\s\S]{0,400}data-ir-vista="reconteo"/.test(htmlAcciones), 'debe avisar los SKU con diferencia recientes con un botón a Reconteo, obtuvo: '+htmlAcciones);
   assert(/alert info[\s\S]{0,200}>2<\/div>[\s\S]{0,200}SKU del plan sin contar todavía[\s\S]{0,400}data-ir-vista="plan"/.test(htmlAcciones), 'debe avisar los SKU del plan sin contar con un botón a Plan, obtuvo: '+htmlAcciones);
   // El detalle va plegado por defecto (<details> sin open): la pantalla responde primero y el

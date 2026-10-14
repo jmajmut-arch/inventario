@@ -71,7 +71,7 @@ const DASH = {
   ranking:[ { nombre:'Pedro Soto', cantidad:41 }, { nombre:'Ana Silva', cantidad:26 }, { nombre:'Carla Muñoz', cantidad:8 } ],
   resumenAbc:[ { clase_abc:'A', cantidad_sku:24, pct_sku:10.2, pct_valor:80.1, pct_avance:91.7, valor_total:38400000, skus_contados:22 }, { clase_abc:'B', cantidad_sku:48, pct_sku:20.4, pct_valor:15.2, pct_avance:75.0, valor_total:7300000, skus_contados:36 }, { clase_abc:'C', cantidad_sku:163, pct_sku:69.4, pct_valor:4.7, pct_avance:65.0, valor_total:2250000, skus_contados:106 } ],
   valorizacion:[ { bodega:'Bodega Central', valor_contado:31200000, valor_perdidas:-412000, valor_excedentes:156000 }, { bodega:'Bodega Norte', valor_contado:10800000, valor_perdidas:-38000, valor_excedentes:54000 } ],
-  resumenGeneral:[ { cuadrado:139, pendiente:0, no_contado:71, total_activo:235, con_diferencia:25 } ],
+  resumenGeneral:[ { cuadrado:139, pendiente:0, no_contado:71, total_activo:235, con_diferencia:25, merma:16, excedente:9 } ],
   exactitudBodega:[ { bodega:'Bodega Central', skus_contados:109, con_diferencia:19, sin_diferencia:90, ubicacion_correcta:101 }, { bodega:'Bodega Norte', skus_contados:55, con_diferencia:6, sin_diferencia:49, ubicacion_correcta:52 } ],
   cierresAjusteErp:{ n:4, valor:96000 },
   exactitudMensual:[ { mes:'2026-08-01T04:00:00+00:00', bodega:'Bodega Central', skus_contados:60, con_diferencia:18, sin_diferencia:42, ubicacion_correcta:55 }, { mes:'2026-09-01T04:00:00+00:00', bodega:'Bodega Central', skus_contados:80, con_diferencia:16, sin_diferencia:64, ubicacion_correcta:76 }, { mes:ts(-7,3).slice(0,8)+'01T04:00:00+00:00', bodega:'Bodega Central', skus_contados:109, con_diferencia:19, sin_diferencia:90, ubicacion_correcta:101 }, { mes:'2026-09-01T04:00:00+00:00', bodega:'Bodega Norte', skus_contados:30, con_diferencia:6, sin_diferencia:24, ubicacion_correcta:28 }, { mes:ts(-7,3).slice(0,8)+'01T04:00:00+00:00', bodega:'Bodega Norte', skus_contados:55, con_diferencia:6, sin_diferencia:49, ubicacion_correcta:52 } ],
@@ -113,7 +113,7 @@ async function rutas(page, perfil){
     if(seg.startsWith('rpc/')){
       const n = seg.slice(4);
       body = ({
-        tengo_otra_sesion_activa:'false', dashboard_ejecutivo:JSON.stringify(DASH), resumen_general_skus:JSON.stringify(DASH.resumenGeneral),
+        tengo_otra_sesion_activa:'false', dashboard_ejecutivo:JSON.stringify(DASH), resumen_general_skus:JSON.stringify(DASH.resumenGeneral), resumen_general_skus_signos:JSON.stringify(DASH.resumenGeneral),
         plan_ventana_pantalla:(()=>{ let b = {}; try{ b = JSON.parse(r.request().postData()||'{}'); }catch(e){} return b.p_resumido ? JSON.stringify({ entradas:[], resumen:[] }) : JSON.stringify({ entradas:ENTRADAS, universo:UNIVERSO }); })(), universo_entradas_plan_contar:JSON.stringify(UNIVERSO), universo_entradas_plan_resumen:JSON.stringify(Object.entries(UNIVERSO).map(([plan_id, s])=>({ plan_id, total:s.length, propios:s.length, skus:s }))),
         buscar_skus_lectura:JSON.stringify([SKU({ sku_code:'4400-1123', descripcion:'Filtro hidráulico 3"', storage_bin:'A-12', stock_sistema:14 }), SKU({ sku_code:'4400-1123', descripcion:'Filtro hidráulico 3"', bodega:'Bodega Norte', ubicacion:'Rack 2', storage_bin:'B-04', stock_sistema:6, id:'s-4400-1123-b' })]),
         contado_periodo:JSON.stringify({ veces:2, ultima_fecha:ts(-1,15), ultima_cantidad:14, ultimo_por:'Pedro Soto' }),
