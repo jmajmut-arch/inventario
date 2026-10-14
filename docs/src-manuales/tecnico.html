@@ -315,7 +315,7 @@
     </ul>
   </div>
   <div class="box upd"><div class="tag">Actualizado · Rendimiento</div>La versión anterior escribía el filtro de storage bin como un OR que el índice no podía usar: cada entrada con bin recorría su ubicación completa. Con 158 entradas en un mes (153 con bin, en 7 ubicaciones) eran 2,6 millones de lecturas y 3,4 s. Ahora cada caso se parte en "con bin" (entra al índice <code>empresa, bodega, ubicación, bin</code>) y "sin bin": 60 ms para el mismo mes, mismos resultados.</div>
-  <div class="foot-note">Sin captura: la etapa 06 del Manual de usuario describe la pantalla paso a paso.</div>
+  <div class="shot" style="margin-top:10px"><img src="img/calendario.png" alt="Calendario" style="max-height:80mm"><div class="cap">Calendario → celdas con planificado, C y R, y barra de avance (datos ficticios)</div></div>
 </section>
 
 <!-- 09 -->
