@@ -6369,7 +6369,8 @@ function estadoTextoPdf(r, ocultarMagnitud){
 // Resaltado del estado como marca de plumón (pedido de Joel, 13/10/2026): verde si cuadró, rojo si
 // es merma (faltante) y amarillo si es excedente (sobrante). Con conteo ciego el estado dice solo
 // "Con diferencia", sin signo, así que no se colorea: el color delataría si falta o sobra.
-const MARCADOR_PDF = { cuadrado:[0.55,0.87,0.47], merma:[1,0.47,0.47], excedente:[1,0.93,0.3] };
+// "alerta" (mismo rojo) marca Crítico = Sí y los daños del conteo (pedido de Joel, 13/10/2026).
+const MARCADOR_PDF = { cuadrado:[0.55,0.87,0.47], merma:[1,0.47,0.47], excedente:[1,0.93,0.3], alerta:[1,0.47,0.47] };
 function marcadorEstadoPdf(r, ocultarMagnitud){
   if(!r.conteo_id) return null;
   const dif = Number(r.diferencia||0);
@@ -6394,6 +6395,7 @@ function danosTextoPdf(r){
 function filasFichaPdf(r, ocultarMagnitud){
   const contado = !!r.conteo_id;
   const estadoTexto = estadoTextoPdf(r, ocultarMagnitud);
+  const conDanos = !!(contado && (r.packing_danado || r.material_danado));
   return [
     ['Descripción', r.descripcion || '—', false, true],
     ['Ubicación general', r.bodega || '—'],
@@ -6401,10 +6403,10 @@ function filasFichaPdf(r, ocultarMagnitud){
     ['Storage bin', r.storage_bin || '—'],
     ['Batch', r.batch || '—'],
     ['Clase ABC', r.clase_abc || 'Sin clasificar'],
-    ['Crítico', r.critico ? 'Sí' : 'No', !!r.critico],
+    ['Crítico', r.critico ? 'Sí' : 'No', !!r.critico, false, r.critico ? 'alerta' : null],
     ['Cantidad contada', contado ? r.cantidad_contada : '—'],
     ['Estado', estadoTexto, false, false, marcadorEstadoPdf(r, ocultarMagnitud)],
-    ['Daños', danosTextoPdf(r), !!(contado && (r.packing_danado || r.material_danado))],
+    ['Daños', danosTextoPdf(r), conDanos, false, conDanos ? 'alerta' : null],
     ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
     ['Contado por', contado ? `${r.contado_por || 'Sin asignar'} · ${fmtFechaHora(r.fecha_conteo)}` : '—'],
     ['Ciclo', r.ciclo_nombre || '—'],
@@ -12684,7 +12686,7 @@ function renderConteo(){
           </label>
           ${state.conteoMaterialDanado? `
           <div class="conteo-danado-cant">
-            <label for="c-cant-danada">Unidades dañadas (opcional)</label>
+            <label for="c-cant-danada">Unidades dañadas, de las contadas (opcional)</label>
             <input type="number" id="c-cant-danada" step="0.01" min="0" placeholder="Cuántas, si las contaste" inputmode="decimal">
           </div>` : ''}
           <div class="row2">
@@ -12901,7 +12903,7 @@ function thOrdenBuscar(campo, etiqueta, claseExtra){
 // Chips de la cabecera de filtros de Buscar: una etiqueta corta por cada filtro puesto en el
 // formulario (texto, lugar, estado, clase, ciclo, grupo, persona, fechas, casillas). Solo lectura.
 function chipsFiltrosBuscar(b){
-  const etiquetaEstado = {no_contado:'No contado', aprobado:'Cuadrado', con_diferencia:'Con diferencia', diferencia_positiva:'Sobrante', diferencia_negativa:'Faltante', pendiente_revision:'Pendiente', reconteo_pendiente:'Pendiente de reconteo'};
+  const etiquetaEstado = {no_contado:'No contado', aprobado:'Cuadrado', con_diferencia:'Con diferencia', diferencia_positiva:'Sobrante', diferencia_negativa:'Faltante', pendiente_revision:'Pendiente', reconteo_pendiente:'Pendiente de reconteo', con_danos:'Con daños', packing_danado:'Packing dañado', material_danado:'Material dañado'};
   const chips = [];
   if(b.texto && b.texto.trim()) chips.push(`“${b.texto.trim()}”`);
   if(b.bodega) chips.push(b.bodega===BODEGA_SIN_UBICACION ? 'Sin ubicación' : b.bodega===BODEGA_VACIA ? 'Sin bodega' : b.bodega);
@@ -13003,6 +13005,9 @@ function renderBuscar(){
               <option value="diferencia_negativa" ${b.estado==='diferencia_negativa'?'selected':''}>&nbsp;&nbsp;Diferencia negativa (faltante)</option>`}
               <option value="pendiente_revision" ${b.estado==='pendiente_revision'?'selected':''}>Pendiente</option>
               <option value="reconteo_pendiente" ${b.estado==='reconteo_pendiente'?'selected':''}>Pendiente de reconteo</option>
+              <option value="con_danos" ${b.estado==='con_danos'?'selected':''}>Con daños</option>
+              <option value="packing_danado" ${b.estado==='packing_danado'?'selected':''}>&nbsp;&nbsp;Packing dañado</option>
+              <option value="material_danado" ${b.estado==='material_danado'?'selected':''}>&nbsp;&nbsp;Material dañado</option>
             </select>
             </div>
             <div><label for="b-clase-abc">Clase ABC</label>

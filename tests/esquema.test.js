@@ -209,3 +209,33 @@ test('el Dashboard pasa por turnos y los conteos toman turno por material', () =
   assert.match(puerta.def, /errcode\s*=\s*'53400'/, `${puerta.archivo}: al estar lleno, el Dashboard tiene que fallar con un error visible (53400 -> 503)`);
   assert.ok(trigger, 'falta el trigger trg_conteos_turno_sku: sin él, dos conteos del mismo material pueden entrar en deadlock');
 });
+
+test('cada opción de Estado en Buscar la entiende el servidor', () => {
+  // Un valor que el servidor no reconoce cae en "estado literal" (s.ultimo_conteo_estado = valor)
+  // y devuelve cero filas sin ningún error: el filtro se vería vacío, no roto. Los daños
+  // (14/10/2026) entraron así: con_danos, packing_danado y material_danado.
+  const html = fs.readFileSync(path.join(RAIZ, 'app', 'index.html'), 'utf8');
+  const select = /<select id="b-estado">([\s\S]*?)<\/select>/.exec(html);
+  assert.ok(select, 'no se encontró el <select id="b-estado"> de Buscar');
+  const opciones = [...select[1].matchAll(/<option value="([^"]*)"/g)].map(m => m[1]).filter(Boolean);
+  const ESTADOS_DE_CONTEO = ['aprobado', 'con_diferencia', 'pendiente_revision'];
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  for (const funcion of ['contar_busqueda_skus', 'filas_busqueda_skus']) {
+    let def = null, archivoDef = null;
+    for (const archivo of fs.readdirSync(dirMig).sort()) {
+      const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+      const re = new RegExp(`create\\s+(?:or\\s+replace\\s+)?function\\s+public\\.${funcion}\\s*\\([\\s\\S]*?\\$function\\$[\\s\\S]*?\\$function\\$`, 'i');
+      const m = re.exec(sql);
+      if (m) { def = m[0]; archivoDef = archivo; }
+    }
+    assert.ok(def, `no se encontró la definición de public.${funcion} en las migraciones`);
+    const notIn = /not\s+in\s*\(([^)]*)\)\s+and\s+s\.ultimo_conteo_estado\s*=/i.exec(def);
+    assert.ok(notIn, `${archivoDef}: ${funcion} perdió la lista de valores especiales de estado`);
+    const especiales = [...notIn[1].matchAll(/'([^']+)'/g)].map(m => m[1]);
+    for (const valor of opciones) {
+      if (ESTADOS_DE_CONTEO.includes(valor)) continue;
+      assert.ok(especiales.includes(valor), `${archivoDef}: ${funcion} no reconoce el estado "${valor}" que ofrece Buscar (devolvería cero filas sin error)`);
+      assert.match(def, new RegExp(`=\\s*'${valor}'\\s+and`), `${archivoDef}: ${funcion} lista "${valor}" pero no tiene su condición`);
+    }
+  }
+});

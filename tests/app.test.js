@@ -11390,7 +11390,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDano.includes('id="c-packing-danado"') && htmlDano.includes('id="c-material-danado"') && !htmlDano.includes('id="c-cant-danada"'), 'Contar muestra las dos marcas de daño y oculta las unidades si no hay material dañado');
   ctx.__appstate.conteoMaterialDanado = true;
   htmlDano = ctx.renderConteo();
-  assert(/id="c-material-danado" checked/.test(htmlDano) && htmlDano.includes('id="c-cant-danada"') && htmlDano.includes('Unidades dañadas (opcional)'), 'con material dañado marcado aparece el campo de unidades, opcional');
+  assert(/id="c-material-danado" checked/.test(htmlDano) && htmlDano.includes('id="c-cant-danada"') && htmlDano.includes('Unidades dañadas, de las contadas (opcional)'), 'con material dañado marcado aparece el campo de unidades, opcional y aclarando que son parte de lo contado');
   ctx.__appstate.conteoMaterialDanado = false;
 
   ctx.__appstate.skuSeleccionado = null;
@@ -11610,6 +11610,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlBuscarEstado.includes('id="b-solo-criticos"') && !htmlBuscarEstado.includes('Solo críticos'), 'el checkbox "Solo críticos" ya no debe existir en Buscar, obtuvo: '+htmlBuscarEstado);
   ctx.__appstate.busqueda.estado = 'reconteo_pendiente';
   assert(ctx.construirParametrosBusquedaRpc().p_estado==='reconteo_pendiente', 'el RPC del total debe recibir p_estado=reconteo_pendiente, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
+  // Daños (pedido de Joel, 14/10/2026): Estado ofrece "Con daños" y sus dos tipos; viajan como
+  // p_estado y el servidor mira el último conteo (ver 20261014_buscar_filtro_danos.sql).
+  assert(htmlBuscarEstado.includes('<option value="con_danos" >Con daños</option>') && htmlBuscarEstado.includes('<option value="packing_danado" >&nbsp;&nbsp;Packing dañado</option>') && htmlBuscarEstado.includes('<option value="material_danado" >&nbsp;&nbsp;Material dañado</option>'), 'Estado ofrece Con daños, Packing dañado y Material dañado, obtuvo: '+htmlBuscarEstado);
+  for(const v of ['con_danos','packing_danado','material_danado']){
+    ctx.__appstate.busqueda.estado = v;
+    assert(ctx.construirParametrosBusquedaRpc().p_estado===v, v+' viaja como p_estado, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
+  }
+  assert(JSON.stringify(ctx.chipsFiltrosBuscar({estado:'con_danos'}))==='["Con daños"]' && JSON.stringify(ctx.chipsFiltrosBuscar({estado:'material_danado'}))==='["Material dañado"]', 'el chip nombra el filtro de daños, obtuvo: '+JSON.stringify(ctx.chipsFiltrosBuscar({estado:'con_danos'})));
+  ctx.__appstate.busqueda.estado = 'reconteo_pendiente';
   ctx.__appstate.busqueda.estado = '';
   ctx.__appstate.busqueda.soloCriticos = true; // campo viejo: aunque quede en un estado guardado, ya no filtra
   assert(ctx.construirParametrosBusquedaRpc().p_solo_criticos===false, 'sin grupo Críticos elegido no debe filtrar por critico (el checkbox ya no existe), obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
@@ -12083,15 +12092,22 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     // amarillo si es excedente. Con conteo ciego ("Con diferencia", sin signo) no se colorea.
     const base = {bodega:'Nave', descripcion:'X', fotos:[], fecha_conteo:'2026-08-20T14:00:00Z', contado_por:'Ana'};
     const filasMarca = [
-      {...base, sku_id:'m1', sku_code:'SKU-EXP-C', conteo_id:'k1', cantidad_contada:5, estado:'aprobado', diferencia:0},
+      {...base, sku_id:'m1', sku_code:'SKU-EXP-C', conteo_id:'k1', cantidad_contada:5, estado:'aprobado', diferencia:0, critico:true},
       {...base, sku_id:'m2', sku_code:'SKU-EXP-M', conteo_id:'k2', cantidad_contada:3, estado:'con_diferencia', diferencia:-2, material_danado:true, cantidad_danada:2},
       {...base, sku_id:'m3', sku_code:'SKU-EXP-E', conteo_id:'k3', cantidad_contada:9, estado:'con_diferencia', diferencia:4, packing_danado:true},
     ];
-    const MARCAS = ctx.MARCADOR_PDF || {cuadrado:[0.55,0.87,0.47], merma:[1,0.47,0.47], excedente:[1,0.93,0.3]};
+    const MARCAS = {cuadrado:[0.55,0.87,0.47], merma:[1,0.47,0.47], excedente:[1,0.93,0.3], alerta:[1,0.47,0.47]};
+    assert(JSON.stringify(vm.runInContext('MARCADOR_PDF', ctx))===JSON.stringify(MARCAS), 'los colores del plumón son verde, rojo, amarillo y rojo de alerta, obtuvo: '+JSON.stringify(vm.runInContext('MARCADOR_PDF', ctx)));
     const marcasDe = pg => pg.rects.filter(r=>r.opacity===0.6 && r.color).map(r=>[r.color.r, r.color.g, r.color.b].join(','));
     await ctx.generarPdfFichasBusqueda(filasMarca, [null,null,null], {});
     let dm = ultimoPdf(), pf = dm.paginas[1];
-    assert(JSON.stringify(marcasDe(pf))===JSON.stringify([MARCAS.cuadrado, MARCAS.merma, MARCAS.excedente].map(c=>c.join(','))), 'cuadrado en verde, merma en rojo y excedente en amarillo, en ese orden, obtuvo: '+JSON.stringify(marcasDe(pf)));
+    // Por ficha, de arriba abajo: Crítico, Estado, Daños. Crítico = Sí y los daños van en rojo
+    // (pedido de Joel, 13/10/2026), como la merma.
+    assert(JSON.stringify(marcasDe(pf))===JSON.stringify([MARCAS.alerta, MARCAS.cuadrado, MARCAS.merma, MARCAS.alerta, MARCAS.excedente, MARCAS.alerta].map(c=>c.join(','))), 'crítico en rojo; cuadrado en verde, merma en rojo y excedente en amarillo; daños en rojo, en ese orden, obtuvo: '+JSON.stringify(marcasDe(pf)));
+    const marcaY = color => pf.rects.filter(r=>r.opacity===0.6 && r.color && [r.color.r,r.color.g,r.color.b].join(',')===color.join(',')).map(r=>Math.round(r.y));
+    const yTexto = txt => pf.textos.filter(x=>x.t===txt && x.size===8.5).map(x=>Math.round(x.y-3));
+    assert(JSON.stringify(marcaY(MARCAS.alerta).filter(y=>yTexto('Sí').includes(y)))===JSON.stringify(yTexto('Sí')), 'la marca roja de Crítico va justo debajo del "Sí", obtuvo: '+JSON.stringify({marcas:marcaY(MARCAS.alerta), si:yTexto('Sí')}));
+    assert(!pf.rects.some(r=>r.opacity===0.6 && yTexto('No').includes(Math.round(r.y))) && !pf.rects.some(r=>r.opacity===0.6 && yTexto('Sin daños').includes(Math.round(r.y))), 'Crítico = No y "Sin daños" no se marcan');
     const tf = textosDe(pf);
     assert(tf.filter(x=>x==='DAÑOS').length===3, 'cada ficha lleva la fila Daños, obtuvo: '+tf.filter(x=>x==='DAÑOS').length);
     assert(tf.includes('Sin daños') && tf.includes('Material dañado: 2') && tf.includes('Packing dañado'), 'la fila dice sin daños, material dañado con sus unidades o packing dañado, obtuvo: '+JSON.stringify(tf.filter(x=>/daño/i.test(x))));
@@ -12102,7 +12118,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(minY > 32, 'la tercera ficha no pisa el pie de página, último texto en y='+minY);
     await ctx.generarPdfFichasBusqueda(filasMarca, [null,null,null], {ocultarMagnitud:true});
     dm = ultimoPdf(); pf = dm.paginas[1];
-    assert(JSON.stringify(marcasDe(pf))===JSON.stringify([MARCAS.cuadrado.join(',')]), 'con conteo ciego solo se marca el cuadrado: el color delataría si falta o sobra, obtuvo: '+JSON.stringify(marcasDe(pf)));
+    assert(JSON.stringify(marcasDe(pf))===JSON.stringify([MARCAS.alerta, MARCAS.cuadrado, MARCAS.alerta, MARCAS.alerta].map(c=>c.join(','))), 'con conteo ciego no se colorea la diferencia (delataría si falta o sobra), pero sí el cuadrado, el crítico y los daños, obtuvo: '+JSON.stringify(marcasDe(pf)));
   }
   // Camino principal de la foto: se pide reducida a Supabase (Image Transformations, ~30 KB) y se
   // descargan sus bytes.
