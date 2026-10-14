@@ -1696,6 +1696,36 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Reconteo: un error del servidor se ve como error (14/10/2026) =====
+  // Antes, mientras cargaba y si el servidor fallaba, decía "No hay materiales con diferencias
+  // pendientes". Ahora muestra el motivo y "Reintentar", que vuelve a pedir la lista.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('reconteo-error: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    let fallar = true;
+    await page.route('**/rest/v1/reconteo_pendiente?**', route => fallar
+      ? route.fulfill({ status:500, contentType:'application/json', body: JSON.stringify({ message:'canceling statement due to statement timeout' }) })
+      : route.fulfill({ status:200, contentType:'application/json', body:'[]' }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('[data-tab="reconteo"]');
+    assert(await esperarVisible(page, '#btn-reintentar-reconteos'), 'con el servidor fallando, Reconteo muestra "Reintentar"');
+    assert(await page.isVisible('text=No se pudo cargar la lista de reconteo: canceling statement due to statement timeout'), 'y el motivo del error');
+    assert(!(await page.isVisible('text=No hay materiales con diferencias pendientes')), 'no se disfraza de "no hay pendientes"');
+    const desbordeRec = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeRec <= 0, 'a 420 px el aviso no desborda, obtuvo '+desbordeRec);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/reconteo-error-420.png', fullPage: true });
+    fallar = false;
+    await page.click('#btn-reintentar-reconteos');
+    assert(await esperarVisible(page, 'text=No hay materiales con diferencias pendientes'), 'al reintentar con el servidor bien, se ve la lista real (vacía)');
+    await context.close();
+  }
+
   // ===== Calendario (Fase 5 del rediseño): estados por día en el navegador =====
   // Un día pasado con pendientes se marca atrasado, uno sin pendientes cumplido, uno por venir
   // futuro; el resumen de cumplimiento aparece; tocar un día abre su detalle con el estado.
