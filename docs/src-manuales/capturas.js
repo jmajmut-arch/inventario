@@ -93,7 +93,9 @@ const RECONTEO = [
 ];
 const BUSQUEDA = SKUS.map((s,i)=>({ sku_id:s.id, sku_code:s.sku_code, descripcion:s.descripcion, bodega:s.bodega, ubicacion:s.ubicacion, storage_bin:s.storage_bin, batch:null, clase_abc:s.clase_abc, critico:s.critico, stock_sistema:s.stock_sistema,
   conteo_id: i===2? null : 'ct-'+i, cantidad_contada: i===2? null : (s.ultimaDiferencia!=null? s.stock_sistema+s.ultimaDiferencia : s.stock_sistema), estado: i===2? null : (s.ultimaDiferencia? 'con_diferencia' : 'aprobado'), diferencia: i===2? null : (s.ultimaDiferencia||0),
-  fecha_conteo: i===2? null : ts(-1-i,10), capturado_en: i===2? null : ts(-1-i,10), fuera_de_plan: i===4, ciclo_nombre:'T4 2026', usuario_nombre: i%2? 'Pedro Soto' : 'Ana Silva', contado_por: i%2? 'Pedro Soto' : 'Ana Silva', fotos:[], reconteo_cierre_tipo:null }));
+  fecha_conteo: i===2? null : ts(-1-i,10), capturado_en: i===2? null : ts(-1-i,10), fuera_de_plan: i===4, ciclo_nombre:'T4 2026', usuario_nombre: i%2? 'Pedro Soto' : 'Ana Silva', contado_por: i%2? 'Pedro Soto' : 'Ana Silva', fotos:[], reconteo_cierre_tipo:null,
+  // Daños del último conteo (14/10/2026): uno con material dañado y unidades, otro con packing.
+  packing_danado: i===3, material_danado: i===0, cantidad_danada: i===0? 1 : null }));
 const CALENDARIO = [-5,-4,-3,-2,-1,0,1,2,5,6].map(n=>({ fecha:dias(n), planificado: 10+Math.abs(n)*2, contado: n<0? 10+Math.abs(n)*2-(n===-1?3:0) : (n===0? 4 : 0), recontado: n===-3? 1 : 0, pendiente: n<0? (n===-1? 3 : 0) : 10+Math.abs(n)*2-(n===0?4:0) })).filter(d=>d.fecha.slice(0,7)===dias(0).slice(0,7));
 
 const CSV = 'Material,Material Description,Plant,Storage Location,Storage Bin,Batch,Unrestricted,Blocked Stock,Stock in Transit,Base Unit,Price\n4400-1123,Filtro hidráulico 3 pulg,Bodega Central,Pasillo 3,A-12,,14,1,0,EA,18500\n4402-0044,Rodamiento SKF 6205,Bodega Central,Pasillo 3,A-12,,32,0,0,EA,6900\n4420-0005,Aceite hidráulico ISO 68 20 L,Bodega Norte,Rack 2,B-01,,40,0,2,UN,52000\n';
@@ -197,6 +199,12 @@ async function rutas(page, perfil){
     { const caja = await page.$('#sku-search'); const b = await caja.boundingBox(); const card = await page.evaluateHandle(()=>document.getElementById('sku-search').closest('.card')); const cb = await card.asElement().boundingBox(); await guardar(page, 'contar-repetido', { clip:{ x:0, y:Math.max(0, cb.y-56), width:412, height:Math.min(cb.height+70, 480) } }); }
     await page.click('[data-pick-btn]'); await page.waitForSelector('#c-cant', { timeout:15000 }); await page.waitForTimeout(1200);
     { const ficha = await page.$('.conteo-ficha'); if(ficha){ await ficha.screenshot({ path: path.join(OUT, 'contar-aviso.png') }); } await guardar(page, 'contar-form', { full:true }); }
+    // Daños (14/10/2026): cantidad 3, material dañado con 1 unidad y packing dañado; se fotografían
+    // solo las marcas y las unidades (la página del manual no tiene alto para más).
+    await page.fill('#c-cant', '3'); await page.click('#c-material-danado'); await page.waitForSelector('#c-cant-danada', { timeout:15000 });
+    await page.fill('#c-cant-danada', '1'); await page.click('#c-packing-danado'); await page.waitForTimeout(400);
+    { const desde = await (await page.$('#c-packing-danado')).boundingBox(); const hasta = await (await page.$('#c-cant-danada')).boundingBox();
+      const y = Math.max(0, desde.y - 24); await guardar(page, 'contar-danos', { clip:{ x:0, y, width:412, height: hasta.y + hasta.height + 16 - y } }); }
     await page.click('#btn-quitar-sku'); await page.waitForTimeout(500);
     // Escáner
     await page.click('#btn-abrir-escaner'); await page.waitForTimeout(1500); await guardar(page, 'escaner'); await page.click('#escaner-modal-close').catch(()=>{});

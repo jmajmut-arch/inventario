@@ -216,7 +216,7 @@
 <section class="page">
   <div class="kicker">05 · Reconteo y causa probable</div>
   <h2 class="title">Detecta la diferencia y sugiere por qué</h2>
-  <p class="intro">Se evalúa cruzando la última cantidad contada de cada SKU (dentro del período actual, si la empresa usa períodos) contra el stock de sistema actual, no el que tenía el material el día del conteo. Si el maestro se actualizó después, la diferencia se recalcula sola y el material puede salir de la lista sin recontarlo.</p>
+  <p class="intro">Cruza la última cantidad contada de cada SKU (en el período actual, si la empresa usa períodos) con el stock de sistema actual, no el del día del conteo: si el maestro cambió, la diferencia se recalcula sola y el material puede salir de la lista sin recontarlo.</p>
   <div class="cols">
     <div>
       <div class="two">
@@ -299,13 +299,14 @@
 <section class="page">
   <div class="kicker">08 · Planificación</div>
   <h2 class="title">Calendario</h2>
-  <p class="intro">Vista mensual con cuatro cifras por día: planificado, contado, recontado y pendiente. Un solo RPC por mes, <code>resumen_calendario_mes(p_mes)</code>, que respeta el rol: un admin ve toda la empresa, un operador solo sus entradas y sus conteos.</p>
+  <p class="intro">Vista mensual: por día, los SKU planificados (número grande), <b>C</b> contados y <b>R</b> recontados, una barra con el avance del plan y el estado (cumplido, parcial, atrasado, por venir). Un solo RPC por mes, <code>resumen_calendario_mes(p_mes)</code>, que respeta el rol: un admin ve toda la empresa, un operador solo sus entradas y sus conteos.</p>
   <div class="two">
     <ul class="checks">
       <li>Planificado: SKU distintos cubiertos por las entradas del día, con la misma regla de cobertura y exclusiones que Plan y Contar</li>
       <li>Pendiente: planificado sin ningún conteo en el período actual (una sola lista de SKU contados por consulta, no una subconsulta por SKU)</li>
       <li>Contado y Recontado: conteos del día en hora de Chile, distinguiendo el primer conteo de un SKU en el período de los siguientes</li>
-      <li>Detalle del día con atajos a Contar (esa fecha), Plan (vista Día) y Buscar (filtrado por fecha)</li>
+      <li>Detalle del día con Planificado, Avance del plan (planificado − pendiente, con %), Contado, Recontado y Pendiente, y atajos a Contar (esa fecha), Plan (vista Día) y Buscar (filtrado por fecha)</li>
+      <li>Celda en el celular: desde mil, C y R van abreviadas ("1,2k", <code>cifraCalendario</code>) porque a 420 px quedan ~34 px útiles; desde 700 px, completas y a 12 px. Mismos datos, ninguna consulta extra</li>
       <li>Se invalida solo tras cualquier cambio en el plan; se vuelve a pedir al entrar</li>
     </ul>
     <ul class="checks no">
@@ -314,7 +315,7 @@
     </ul>
   </div>
   <div class="box upd"><div class="tag">Actualizado · Rendimiento</div>La versión anterior escribía el filtro de storage bin como un OR que el índice no podía usar: cada entrada con bin recorría su ubicación completa. Con 158 entradas en un mes (153 con bin, en 7 ubicaciones) eran 2,6 millones de lecturas y 3,4 s. Ahora cada caso se parte en "con bin" (entra al índice <code>empresa, bodega, ubicación, bin</code>) y "sin bin": 60 ms para el mismo mes, mismos resultados.</div>
-  <div class="foot-note">Sin captura: la etapa 06 del Manual de usuario describe la pantalla paso a paso.</div>
+  <div class="shot" style="margin-top:10px"><img src="img/calendario.png" alt="Calendario" style="max-height:80mm"><div class="cap">Calendario → celdas con planificado, C y R, y barra de avance (datos ficticios)</div></div>
 </section>
 
 <!-- 09 -->
@@ -346,9 +347,11 @@
   <div class="cols">
     <div>
       <ul class="checks">
-        <li>Buscar por código, descripción, batch o storage bin; filtrar por bodega, estado (con diferencia positiva y negativa por separado, igual que el gráfico), período, crítico, Clase ABC, "solo con fotos" y "solo fuera de plan"; ordenar por cualquier columna</li>
+        <li>Buscar por código, descripción, batch o storage bin; filtrar por bodega, estado (con diferencia positiva y negativa por separado, igual que el gráfico; con daños, packing dañado o material dañado), período, crítico, Clase ABC, "solo con fotos" y "solo fuera de plan"; ordenar por cualquier columna</li>
         <li>El título y los gráficos muestran el total real que cumple los filtros (RPC <code>contar_busqueda_skus</code>), no solo las filas traídas al navegador</li>
         <li>Columna Origen: "Plan" o "Fuera de plan", decidido por la base al guardar (<code>sku_en_plan_del_periodo</code>)</li>
+        <li>Daños del conteo: <code>packing_danado</code>, <code>material_danado</code> y <code>cantidad_danada</code> en <code>conteos</code> (unidades de las contadas, nunca más; con <code>check</code> en la base). Columna Daños, Excel de Buscar y de conteos, y PDF con marca roja. El filtro viaja como <code>p_estado</code> (<code>con_danos</code>, <code>packing_danado</code>, <code>material_danado</code>): la firma de <code>contar_busqueda_skus</code> y <code>filas_busqueda_skus</code> no cambió</li>
+        <li>PDF de fichas con marca de plumón translúcida: estado verde (cuadrado), rojo (merma) o amarillo (excedente); Crítico "Sí" y Daños en rojo. Con conteo ciego no se colorea la diferencia</li>
         <li>Corregir un conteo (<code>corregir_conteo</code>): guarda cantidad original, motivo, quién y cuándo; la fila muestra "corregido · antes N · motivo" y Auditoría el cambio con su motivo</li>
         <li>Exportar a Excel los resultados filtrados, o un rango de fechas completo (un renglón por conteo) para un ERP; exportar seleccionados a PDF con foto, observación y detalle</li>
         <li>Gráfico interactivo "Quién contó" y resumen por estado, reactivos a los filtros</li>
@@ -357,7 +360,8 @@
       </ul>
       <ul class="checks no">
         <li>Editar un conteo desde Buscar, solo verlo</li>
-        <li>Conservar la auditoría más de 14 días: cron diario <code>purgar_auditoria_antigua</code>. Ampliable por configuración si un cliente lo exige</li>
+        <li>Conservar la auditoría más de 45 días: cron diario <code>purga-auditoria-45-dias</code> (<code>purgar_auditoria_antigua</code>), decisión de Joel del 14/10/2026. Una certificación suele pedir de 90 días a un año</li>
+        <li>Mostrar "no hay pendientes" si la carga falló: Contar, Reconteo y la tarjeta de Bodega muestran el motivo con Reintentar (<code>mensajeErrorCarga</code>)</li>
       </ul>
     </div>
     <div class="shot"><img src="img/t-buscar.png" alt="Buscar: resultados"><div class="cap">Buscar → resultados</div></div>
@@ -473,7 +477,7 @@
   <p class="intro">InventIA no tiene servidor propio: es un archivo HTML estático más un puñado de servicios de terceros. Esta es la lista completa, con para qué se usa cada uno.</p>
   <table class="t">
     <tr><th>Servicio</th><th></th><th>Para qué se usa</th></tr>
-    <tr><td>Supabase</td><td>Producción</td><td>Backend completo: Postgres 17.6 (canal GA, compute Small, São Paulo), autenticación, almacenamiento de fotos, cron (pg_cron) y 8 Edge Functions: <code>invite-user</code>, <code>crear-empresa-autoservicio</code>, las 6 de Flow. Única pieza de infraestructura propia.</td></tr>
+    <tr><td>Supabase</td><td>Producción</td><td>Backend completo: Postgres 17.6 (canal GA, compute Small, São Paulo), autenticación, almacenamiento de fotos, cron (pg_cron) y 11 Edge Functions: <code>invite-user</code>, <code>crear-empresa-autoservicio</code>, <code>notificar-lead</code>, <code>seguimiento-lead</code> y las 7 de Flow. Única pieza de infraestructura propia.</td></tr>
     <tr><td>Flow.cl</td><td>Producción</td><td>Pasarela de pago (Chile): registra la tarjeta y cobra la suscripción mensual. El estado se sincroniza consultando su API; el webhook queda como respaldo.</td></tr>
     <tr><td>Brevo</td><td>Producción</td><td>SMTP que envía los correos de acceso (crear contraseña, restablecerla, código de 6 dígitos) a nombre de "InventIA". Por su API transaccional salen el aviso de cada lead del sitio (<code>notificar-lead</code>) y el seguimiento automático al que pidió la demo (<code>seguimiento-lead</code>: a las 24 h y 3 días después, solo entre 08:00 y 20:00; el súper admin lo detiene desde Leads).</td></tr>
     <tr><td>Sentry</td><td>Producción</td><td>Monitoreo de errores: captura sola los errores de JavaScript del navegador, con stack trace, empresa y usuario afectado.</td></tr>
@@ -483,7 +487,8 @@
     <tr><td>Google Analytics</td><td>Producción</td><td>Visitas y eventos del sitio (clics en demo, contacto y Suscribirme). No se usa dentro de la app.</td></tr>
     <tr><td>Playwright</td><td>Desarrollo</td><td>No corre en producción: tests automatizados con navegador real antes de publicar cada cambio.</td></tr>
   </table>
-  <div class="box"><div class="tag">Tareas programadas (pg_cron, UTC)</div>05:00 cierre de ciclos de grupo vencidos · 06:00 activación de períodos programados y purga de auditoría · 07:00 refresco de clasificación ABC y vencimiento de suscripciones canceladas · 08:00 reset de la cuenta demo. Todas son funciones que solo <code>service_role</code> puede ejecutar.</div>
+  <div class="box"><div class="tag">Tareas programadas (pg_cron, UTC)</div>05:00 cierre de ciclos de grupo vencidos · 06:00 activación de períodos programados y purga de auditoría (conserva 45 días) · 07:00 refresco de clasificación ABC y vencimiento de suscripciones canceladas · 08:00 reset de la cuenta demo · cada hora, seguimiento de leads. Todas son funciones que solo <code>service_role</code> puede ejecutar.</div>
+  <div class="box warn"><div class="tag">Límite de Supabase · URL de ~24.000 caracteres</div>Medido el 13/10/2026 contra el proyecto real: hasta ~24.000 caracteres la consulta llega a la base; desde ~25.000 la puerta responde 400 sin cabeceras CORS y el navegador lo ve como "sin conexión", sin rastro en los logs de la API. Por eso toda lista que vaya en un <code>in.(...)</code> y pueda crecer va por tandas (<code>restEnTandas</code>: 100 id o 500 códigos; <code>escribirPlanEnTandas</code>), y las listas grandes que no son filtros viajan en el cuerpo de un RPC.</div>
 </section>
 
 <!-- 16 -->
@@ -545,8 +550,8 @@
   <div class="box new"><div class="tag">Nuevo · Interruptores por función</div><code>empresas.bodega_funciones</code> (jsonb) prende y apaga órdenes de compra, reservas, devoluciones y traslados por empresa desde súper admin. Sin llave = activa, para que nadie pierda algo que ya usaba. <code>funcion_bodega_activa(texto)</code> entra en la RLS de las órdenes de compra y de las reservas, y <code>exigir_funcion_bodega</code> en las funciones de devolución y traslado. Un jsonb en vez de una columna por función: agregar la siguiente no obliga a migrar la tabla otra vez.</div>
   <div class="box new"><div class="tag">Nuevo · Logo de la empresa</div><code>empresas.logo</code> guarda el logo como <b>data URI</b>, no como archivo en el bucket. El motivo es la impresión: el comprobante y la orden de compra se arman en la misma pestaña y se mandan a imprimir de inmediato, así que una URL firmada agrega una ida al servidor que puede vencer justo ahí. Como data URI el logo viaja con el perfil y siempre está. La app lo re-encoda a PNG (conserva la transparencia) probando 320, 240 y 180 px hasta que entre en el tope de 200.000 caracteres del check; uno simple ronda los 5 KB. La insignia de la barra mantiene el alto y crece a lo ancho hasta 112 px según la proporción del logo: la mayoría de los logos de empresa son wordmarks horizontales, y encerrado en el cuadrado de 34x34 uno de 5:1 quedaba en una franja de 5 px, ilegible. Aparece en la insignia de la barra y en el encabezado de los <b>diez</b> documentos imprimibles; sin logo, el HTML queda idéntico al de antes. El detalle de materiales usa una variante compacta (11 mm en vez de 15) para no desfasar sus tres fichas por hoja, verificado comparando el PDF con y sin logo. Una prueba revisa el código y falla si aparece un documento imprimible nuevo sin encabezado.</div>
   <div class="box new"><div class="tag">Nuevo · Columnas de negocio protegidas</div>Hallazgo del camino: la política de UPDATE de <code>empresas</code> dejaba que el administrador de una empresa cambiara <b>cualquier</b> columna de su propia fila, incluidos <code>plan_id</code>, <code>modulo_bodega_habilitado</code> y el estado de la suscripción. Ya era así antes del logo; como ahora los admin escriben en esa tabla desde la app, se cerró con un trigger BEFORE UPDATE: solo súper admin toca lo que es del negocio. El service role (Edge Functions de Flow, reset de la demo) pasa porque llega sin <code>auth.uid()</code>.</div>
-  <div class="box"><div class="tag">Permisos</div>Todo bajo RLS por empresa. Operadores registran recepciones, despachos, devoluciones y traslados, reservan material y proponen ajustes; solo el administrador aprueba, anula y mantiene las listas.</div>
-  <div class="box"><div class="tag">Qué ve un súper admin</div>Ve filas de <b>otras</b> empresas solo en <code>usuarios</code> y <code>flow_eventos</code>, las que necesita para administrar cuentas y cobros. En todas las demás, incluida <code>auditoria</code>, ve solo su empresa: desde el 23/09/2026 no lee el registro de auditoría de los clientes (medido antes y después). Un usuario normal no ve nada ajeno en ninguna, y sin sesión no se obtiene dato alguno.</div>
+  <div class="box"><div class="tag">Permisos</div>Todo bajo RLS por empresa. Operadores registran movimientos, reservan y proponen ajustes; solo el administrador aprueba, anula y mantiene las listas.</div>
+  <div class="box"><div class="tag">Qué ve un súper admin</div>Ve filas de <b>otras</b> empresas solo en <code>usuarios</code> y <code>flow_eventos</code>, las que necesita para administrar cuentas y cobros. En todas las demás, incluida <code>auditoria</code> (desde el 23/09/2026), ve solo su empresa. Un usuario normal no ve nada ajeno, y sin sesión no se obtiene dato alguno.</div>
 </section>
 
 </body></html>
