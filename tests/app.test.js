@@ -3436,7 +3436,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const htmlResumenGeneral = ctx.renderResumenGeneralSkus();
   assert(htmlResumenGeneral.includes('Estado general de SKU'), 'debe mostrar el título de la sección, obtuvo: '+htmlResumenGeneral);
-  assert(htmlResumenGeneral.includes('58.716') && htmlResumenGeneral.includes('No contado (58.691)') && htmlResumenGeneral.includes('Cuadrado (16)') && htmlResumenGeneral.includes('Diferencia (9)') && htmlResumenGeneral.includes('Pendiente (0)'), 'debe mostrar el total activo y el desglose por estado con sus valores reales, obtuvo: '+htmlResumenGeneral);
+  assert(htmlResumenGeneral.includes('58.716') && htmlResumenGeneral.includes('No contado (58.691)') && htmlResumenGeneral.includes('Cuadrado (16)') && htmlResumenGeneral.includes('Diferencia (9)') && !htmlResumenGeneral.includes('Pendiente'), 'debe mostrar el total activo y el desglose por estado con sus valores reales, obtuvo: '+htmlResumenGeneral);
   assert(!htmlResumenGeneral.includes('nunca contados'), 'sin rango de fechas elegido, no debe mostrar la aclaración sobre "No contado", obtuvo: '+htmlResumenGeneral);
   // Torta por defecto: círculo/arcos (<path>/<circle>), nunca barras (<rect>).
   assert(!htmlResumenGeneral.includes('<rect'), 'con tipoGrafico=torta no debe dibujar barras (<rect>), obtuvo: '+htmlResumenGeneral);
@@ -3515,13 +3515,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlSignos = ctx.renderResumenGeneralSkus();
   assert(htmlSignos.includes('Merma (202)') && htmlSignos.includes('Excedente (126)'), 'con merma y excedente del servidor, la leyenda debe mostrarlos por separado, obtuvo: '+htmlSignos);
   assert(!htmlSignos.includes('Diferencia ('), 'con el signo disponible no debe quedar la porción "Diferencia" junto a Merma y Excedente, obtuvo: '+htmlSignos);
-  assert(htmlSignos.includes('No contado (63.223)') && htmlSignos.includes('Cuadrado (413)') && htmlSignos.includes('Pendiente (0)'), 'el resto del desglose no cambia, obtuvo: '+htmlSignos);
+  assert(htmlSignos.includes('No contado (63.223)') && htmlSignos.includes('Cuadrado (413)'), 'el resto del desglose no cambia, obtuvo: '+htmlSignos);
   assert(htmlSignos.includes('var(--danger)') && htmlSignos.includes('var(--warn)'), 'Merma va en rojo (danger) y Excedente en amarillo (warn), como en el PDF, obtuvo: '+htmlSignos);
   assert(htmlSignos.includes('Merma: se contó menos'), 'el ícono "i" debe explicar qué es merma y qué es excedente, obtuvo: '+htmlSignos);
   ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, tipoGrafico:'barras'};
   const htmlSignosBarras = ctx.renderResumenGeneralSkus();
   assert(htmlSignosBarras.includes('<rect') && htmlSignosBarras.includes('Merma (202)') && htmlSignosBarras.includes('Excedente (126)'), 'en barras también deben aparecer Merma y Excedente, obtuvo: '+htmlSignosBarras);
   ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, tipoGrafico:'torta'};
+  // "Pendiente" siempre daba 0 (cada conteo se clasifica al guardarse) y se leía como "falta
+  // contar": se sacó del gráfico (Joel, 14/10/2026). Si algún día hubiera, vuelve a mostrarse.
+  assert(!htmlSignos.includes('Pendiente'), 'con pendiente en 0, el gráfico no debe mostrar "Pendiente", obtuvo: '+htmlSignos);
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, datos:{...resumenGeneralSkusFixture, pendiente:4}};
+  assert(ctx.renderResumenGeneralSkus().includes('Pendiente (4)'), 'si hay pendientes, deben verse: el gráfico no puede esconder materiales');
   // Operador con conteo ciego (o servidor que devuelve el signo en null): una sola "Diferencia".
   ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, datos:{...resumenGeneralSkusFixture, merma:null, excedente:null}};
   const htmlSinSigno = ctx.renderResumenGeneralSkus();

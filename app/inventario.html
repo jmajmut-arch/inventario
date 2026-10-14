@@ -11979,7 +11979,10 @@ function renderResumenGeneralSkus(){
     ...(conSigno
       ? [{dia:'Merma', n:d.merma}, {dia:'Excedente', n:d.excedente}]
       : [{dia:'Diferencia', n:d.con_diferencia}]),
-    {dia:'Pendiente', n:d.pendiente},
+    // "Pendiente" (contado y sin clasificar) se sacó a pedido de Joel (14/10/2026): cada conteo se
+    // clasifica al guardarse (calcular_diferencia_conteo), así que siempre daba 0 y se leía como
+    // "falta contar", que es No contado. Si algún día hubiera, vuelve a aparecer: no se esconde.
+    ...(Number(d.pendiente)>0 ? [{dia:'Pendiente', n:d.pendiente}] : []),
   ] : [];
   const etiquetaGrupo = g.criticidad==='criticos' ? 'SKU críticos'
     : g.criticidad==='no_criticos' ? 'SKU no críticos'
