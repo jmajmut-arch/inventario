@@ -12903,7 +12903,7 @@ function thOrdenBuscar(campo, etiqueta, claseExtra){
 // Chips de la cabecera de filtros de Buscar: una etiqueta corta por cada filtro puesto en el
 // formulario (texto, lugar, estado, clase, ciclo, grupo, persona, fechas, casillas). Solo lectura.
 function chipsFiltrosBuscar(b){
-  const etiquetaEstado = {no_contado:'No contado', aprobado:'Cuadrado', con_diferencia:'Con diferencia', diferencia_positiva:'Sobrante', diferencia_negativa:'Faltante', pendiente_revision:'Pendiente', reconteo_pendiente:'Pendiente de reconteo'};
+  const etiquetaEstado = {no_contado:'No contado', aprobado:'Cuadrado', con_diferencia:'Con diferencia', diferencia_positiva:'Sobrante', diferencia_negativa:'Faltante', pendiente_revision:'Pendiente', reconteo_pendiente:'Pendiente de reconteo', con_danos:'Con daños', packing_danado:'Packing dañado', material_danado:'Material dañado'};
   const chips = [];
   if(b.texto && b.texto.trim()) chips.push(`“${b.texto.trim()}”`);
   if(b.bodega) chips.push(b.bodega===BODEGA_SIN_UBICACION ? 'Sin ubicación' : b.bodega===BODEGA_VACIA ? 'Sin bodega' : b.bodega);
@@ -13005,6 +13005,9 @@ function renderBuscar(){
               <option value="diferencia_negativa" ${b.estado==='diferencia_negativa'?'selected':''}>&nbsp;&nbsp;Diferencia negativa (faltante)</option>`}
               <option value="pendiente_revision" ${b.estado==='pendiente_revision'?'selected':''}>Pendiente</option>
               <option value="reconteo_pendiente" ${b.estado==='reconteo_pendiente'?'selected':''}>Pendiente de reconteo</option>
+              <option value="con_danos" ${b.estado==='con_danos'?'selected':''}>Con daños</option>
+              <option value="packing_danado" ${b.estado==='packing_danado'?'selected':''}>&nbsp;&nbsp;Packing dañado</option>
+              <option value="material_danado" ${b.estado==='material_danado'?'selected':''}>&nbsp;&nbsp;Material dañado</option>
             </select>
             </div>
             <div><label for="b-clase-abc">Clase ABC</label>

@@ -11610,6 +11610,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlBuscarEstado.includes('id="b-solo-criticos"') && !htmlBuscarEstado.includes('Solo críticos'), 'el checkbox "Solo críticos" ya no debe existir en Buscar, obtuvo: '+htmlBuscarEstado);
   ctx.__appstate.busqueda.estado = 'reconteo_pendiente';
   assert(ctx.construirParametrosBusquedaRpc().p_estado==='reconteo_pendiente', 'el RPC del total debe recibir p_estado=reconteo_pendiente, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
+  // Daños (pedido de Joel, 14/10/2026): Estado ofrece "Con daños" y sus dos tipos; viajan como
+  // p_estado y el servidor mira el último conteo (ver 20261014_buscar_filtro_danos.sql).
+  assert(htmlBuscarEstado.includes('<option value="con_danos" >Con daños</option>') && htmlBuscarEstado.includes('<option value="packing_danado" >&nbsp;&nbsp;Packing dañado</option>') && htmlBuscarEstado.includes('<option value="material_danado" >&nbsp;&nbsp;Material dañado</option>'), 'Estado ofrece Con daños, Packing dañado y Material dañado, obtuvo: '+htmlBuscarEstado);
+  for(const v of ['con_danos','packing_danado','material_danado']){
+    ctx.__appstate.busqueda.estado = v;
+    assert(ctx.construirParametrosBusquedaRpc().p_estado===v, v+' viaja como p_estado, obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));
+  }
+  assert(JSON.stringify(ctx.chipsFiltrosBuscar({estado:'con_danos'}))==='["Con daños"]' && JSON.stringify(ctx.chipsFiltrosBuscar({estado:'material_danado'}))==='["Material dañado"]', 'el chip nombra el filtro de daños, obtuvo: '+JSON.stringify(ctx.chipsFiltrosBuscar({estado:'con_danos'})));
+  ctx.__appstate.busqueda.estado = 'reconteo_pendiente';
   ctx.__appstate.busqueda.estado = '';
   ctx.__appstate.busqueda.soloCriticos = true; // campo viejo: aunque quede en un estado guardado, ya no filtra
   assert(ctx.construirParametrosBusquedaRpc().p_solo_criticos===false, 'sin grupo Críticos elegido no debe filtrar por critico (el checkbox ya no existe), obtuvo: '+JSON.stringify(ctx.construirParametrosBusquedaRpc()));

@@ -1673,7 +1673,15 @@ async function loguear(page, perfil){
     assert(!(await page.isVisible('#b-estado')), 'tras buscar, los filtros se pliegan');
     const chips = await page.$$eval('#buscar-filtros .fchip', els => els.map(e => e.textContent.trim()));
     assert(chips.join('|') === '“11164514”|Con diferencia', 'los chips resumen la búsqueda hecha, obtuvo '+JSON.stringify(chips));
+    // Filtro por daños (14/10/2026): viaja como p_estado y el chip lo nombra.
     await page.click('#buscar-filtros > summary');
+    await page.waitForSelector('#b-estado', { state:'visible', timeout:ESPERA });
+    await page.selectOption('#b-estado', 'con_danos');
+    const pedidoDanos = page.waitForRequest(r => r.url().includes('/rpc/filas_busqueda_skus') && (r.postDataJSON()||{}).p_estado === 'con_danos', { timeout:ESPERA }).then(()=>true).catch(()=>false);
+    await page.click('.buscar-btn');
+    assert(await pedidoDanos, 'buscar "Con daños" pide filas_busqueda_skus con p_estado=con_danos');
+    assert(await esperarVisible(page, '#buscar-filtros .fchip:has-text("Con daños")'), 'el chip dice "Con daños"');
+    if(!(await page.$eval('#buscar-filtros', el => el.open))) await page.click('#buscar-filtros > summary');
     await page.waitForSelector('#btn-limpiar-filtros-buscar', { state:'visible', timeout:ESPERA });
     await page.click('#btn-limpiar-filtros-buscar');
     await page.waitForTimeout(300);
