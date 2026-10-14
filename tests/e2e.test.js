@@ -1869,6 +1869,48 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Buscar: varias porciones a la vez en "Quién contó" y "Resumen por estado" (Joel, 14/10/2026) =====
+  // Tocar dos personas suma sus filas; tocar luego un estado cruza con esas personas; otro toque
+  // quita la porción. Todo en el navegador real a 420 px, por la leyenda (el área cómoda del dedo).
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('buscar-graficos: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const fila = (id, quien, dif) => ({ sku_id:id, sku_code:id, descripcion:'Material '+id, bodega:'B501', ubicacion:'0102', storage_bin:null, batch:null, conteo_id:'c-'+id, cantidad_contada:5, estado: dif ? 'con_diferencia' : 'aprobado', diferencia:dif, fecha_conteo:'2026-10-10T12:00:00Z', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, contado_por:quien, contado_por_id:'u-'+quien });
+    const filas = [fila('M-1','Ana',0), fila('M-2','Ana',-2), fila('M-3','Beto',0), fila('M-4','Caro',3)];
+    await page.route('**/rest/v1/rpc/filas_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) }));
+    await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body:'4' }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('#btn-ir-buscar');
+    await page.waitForSelector('#b-texto', { timeout:ESPERA });
+    await page.click('.buscar-btn');
+    assert(await esperarVisible(page, 'text=4 resultados'), 'la búsqueda trae los 4 materiales');
+    const codigos = () => page.$$eval('.chk-buscar-fila', els => els.map(e => e.dataset.skuId).sort());
+    await page.click('span[data-porcion-clave="Ana"]');
+    await page.waitForSelector('#btn-quitar-filtro-contador', { timeout:ESPERA });
+    await page.click('span[data-porcion-clave="Beto"]');
+    await page.waitForFunction(() => document.body.innerText.includes('Ana, Beto'), null, { timeout:ESPERA });
+    const anaBeto = await codigos();
+    assert(JSON.stringify(anaBeto) === JSON.stringify(['M-1','M-2','M-3']), 'Ana y Beto juntos muestran sus 3 materiales, obtuvo '+JSON.stringify(anaBeto));
+    await page.click('span[data-estado-clave="Cuadrado"]');
+    await page.waitForSelector('#btn-quitar-filtro-estado', { timeout:ESPERA });
+    const anaBetoCuadrado = await codigos();
+    assert(JSON.stringify(anaBetoCuadrado) === JSON.stringify(['M-1','M-3']), 'con Cuadrado se cruza: solo lo cuadrado de Ana y Beto, obtuvo '+JSON.stringify(anaBetoCuadrado));
+    await page.click('span[data-porcion-clave="Ana"]');
+    await page.waitForFunction(() => !document.body.innerText.includes('Ana, Beto'), null, { timeout:ESPERA });
+    const soloBeto = await codigos();
+    assert(JSON.stringify(soloBeto) === JSON.stringify(['M-3']), 'otro toque sobre Ana la quita: queda Beto cuadrado, obtuvo '+JSON.stringify(soloBeto));
+    const desbordeGraficos = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeGraficos <= 0, 'a 420 px Buscar no desborda con los filtros de los gráficos, obtuvo '+desbordeGraficos);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-graficos-420.png', fullPage: true });
+    await context.close();
+  }
+
   // ===== El PDF de Buscar lo arma la app con pdf-lib (real, en Chromium) =====
   // El doble de pdf-lib de app.test.js prueba la maqueta; acá se carga la librería de verdad desde
   // app/lib, se incrustan una foto JPEG y el logo PNG de la empresa, y se revisa que salga un PDF

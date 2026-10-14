@@ -6174,16 +6174,28 @@ async function toggleOrdenBusqueda(campo){
   await buscarConteos();
 }
 
-// Filtro de la tabla de resultados al hacer clic en una porción/leyenda de "Quién contó" (ver
-// renderBuscar). Un segundo clic sobre la misma persona quita el filtro (toggle).
-function toggleFiltroContadoPor(nombre){
-  setState({busqueda: {...state.busqueda, filtroContadoPor: state.busqueda.filtroContadoPor===nombre? null : nombre}});
+// Filtros de los gráficos de Buscar ("Quién contó" y "Resumen por estado"): varias porciones a la
+// vez (Joel, 14/10/2026). Se guardan como lista, o null si no hay ninguna; un valor suelto (texto,
+// como se guardaba antes) se lee como lista de uno.
+function listaFiltroBuscar(v){
+  return Array.isArray(v) ? v : (v ? [v] : []);
+}
+function alternarEnFiltroBuscar(actual, clave){
+  const lista = listaFiltroBuscar(actual);
+  const nueva = lista.includes(clave) ? lista.filter(x=>x!==clave) : [...lista, clave];
+  return nueva.length ? nueva : null;
 }
 
-// Igual que toggleFiltroContadoPor, para las porciones de "Resumen por estado": filtra la tabla
-// por ese grupo (Cuadrado, Diferencia negativa, etc.) y un segundo clic lo quita.
+// Filtro de la tabla de resultados al hacer clic en una porción/leyenda de "Quién contó" (ver
+// renderBuscar). Cada clic suma o quita esa persona: se pueden marcar varias.
+function toggleFiltroContadoPor(nombre){
+  setState({busqueda: {...state.busqueda, filtroContadoPor: alternarEnFiltroBuscar(state.busqueda.filtroContadoPor, nombre)}});
+}
+
+// Igual que toggleFiltroContadoPor, para las porciones de "Resumen por estado": suma o quita ese
+// grupo (Cuadrado, Diferencia negativa, etc.).
 function toggleFiltroEstado(clave){
-  setState({busqueda: {...state.busqueda, filtroEstado: state.busqueda.filtroEstado===clave? null : clave}});
+  setState({busqueda: {...state.busqueda, filtroEstado: alternarEnFiltroBuscar(state.busqueda.filtroEstado, clave)}});
 }
 
 // Sobre qué filas se arman los gráficos de Buscar, su lectura y el drill-down: si hay casillas
@@ -6199,17 +6211,20 @@ function resultadosBaseBuscar(b){
 }
 
 // Drill-down sobre lo ya cargado en Buscar (los gráficos "Quién contó" y "Resumen por estado"):
-// devuelve las filas que calzan con los filtros activos, combinados (persona Y estado), o null si
-// no hay ninguno. Lo usan renderBuscar (para la tabla) y exportarBusquedaExcel (para exportar esa
+// devuelve las filas que calzan con los filtros activos, o null si no hay ninguno. Dentro de un
+// gráfico las porciones se suman (Ana o Pedro); entre gráficos se cruzan (y además en ese estado). Lo usan renderBuscar (para la tabla) y exportarBusquedaExcel (para exportar esa
 // misma selección), así los dos ven exactamente lo mismo.
 function filtrarResultadosCargadosBuscar(b){
   const base = resultadosBaseBuscar(b);
-  const nombresFiltro = nombresParaFiltroContador(resumenQuienConto(base), b.filtroContadoPor);
-  if(!nombresFiltro && !b.filtroEstado) return null;
+  const quienConto = resumenQuienConto(base);
+  const personas = listaFiltroBuscar(b.filtroContadoPor);
+  const estados = listaFiltroBuscar(b.filtroEstado);
+  const nombresFiltro = personas.length ? personas.flatMap(p=>nombresParaFiltroContador(quienConto, p)) : null;
+  if(!nombresFiltro && !estados.length) return null;
   const separarSigno = !ocultarStockOperador();
   return base.filter(r=>
     (!nombresFiltro || (r.conteo_id && nombresFiltro.includes(r.contado_por || 'Sin asignar'))) &&
-    (!b.filtroEstado || grupoEstadoBusqueda(r, separarSigno)===b.filtroEstado));
+    (!estados.length || estados.includes(grupoEstadoBusqueda(r, separarSigno))));
 }
 
 // Exporta a Excel TODO lo que matchea los filtros actuales de Buscar, no solo lo ya cargado en
@@ -6223,7 +6238,7 @@ async function exportarBusquedaExcel(){
   setState({busqueda: {...state.busqueda, exportando:true}});
   try{
     let filas;
-    if(b.filtroContadoPor || b.filtroEstado){
+    if(listaFiltroBuscar(b.filtroContadoPor).length || listaFiltroBuscar(b.filtroEstado).length){
       filas = filtrarResultadosCargadosBuscar(b);
     }else{
       filas = [];
@@ -10730,7 +10745,8 @@ function renderLeyendaColores(items, activo, atributo){
   atributo = atributo || 'data-porcion-clave';
   return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">${items.map(([color,label,clave])=>{
     const clickeable = clave!==undefined && clave!==null;
-    const atenuar = clickeable && activo && activo!==clave;
+    const activos = Array.isArray(activo) ? activo : (activo ? [activo] : []);
+    const atenuar = clickeable && activos.length>0 && !activos.includes(clave);
     return `
     <span ${clickeable?`${atributo}="${esc(clave)}" role="button" tabindex="0"`:''} style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);${clickeable?`cursor:pointer;opacity:${atenuar?0.5:1}`:''}">
       <span style="width:9px;height:9px;border-radius:2px;background:${color};display:inline-block;flex-shrink:0"></span>${esc(label)}
@@ -10741,8 +10757,8 @@ function renderLeyendaColores(items, activo, atributo){
 // Gráfico de torta genérico: colorFn(d,i) decide el color de cada porción, labelFn(d) el texto
 // del tooltip. Cuando una sola porción cubre el 100% se dibuja como círculo completo -- un arco
 // SVG no puede describir 360° con un solo path (inicio y fin coinciden).
-// opts.clave(d) habilita selección: cada porción queda clickeable (data-porcion-clave) y, si
-// opts.activo apunta a otra porción, esta se atenúa para resaltar la seleccionada.
+// opts.clave(d) habilita selección: cada porción queda clickeable (data-porcion-clave) y, si hay
+// porciones elegidas (opts.activo: una clave o una lista), las demás se atenúan.
 function renderPieChart(datos, valueKey, colorFn, labelFn, opts){
   opts = opts || {};
   const atributo = opts.atributo || 'data-porcion-clave';
@@ -10760,7 +10776,8 @@ function renderPieChart(datos, valueKey, colorFn, labelFn, opts){
     const pct = Math.round(frac*100);
     const titulo = `${esc(labelFn(d))}: ${val} (${pct}%)`;
     const clave = opts.clave ? opts.clave(d) : null;
-    const atenuar = clave!==null && opts.activo && opts.activo!==clave;
+    const activos = Array.isArray(opts.activo) ? opts.activo : (opts.activo ? [opts.activo] : []);
+    const atenuar = clave!==null && activos.length>0 && !activos.includes(clave);
     const atrs = clave!==null ? ` ${atributo}="${esc(clave)}" style="cursor:pointer;opacity:${atenuar?0.35:1}"` : '';
     if(frac>0.999) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${colorFn(d,i)}"${atrs}><title>${titulo}</title></circle>`;
     const inicio = anguloAcum;
@@ -13296,8 +13313,8 @@ function renderBuscar(){
     ${resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Resumen por estado ${campoConInfo(separarSignoEstado
-        ? 'Cómo salió cada resultado cargado en pantalla. Diferencia negativa: se contó menos de lo que dice el sistema (faltante). Diferencia positiva: se contó más (sobrante). Toca una porción o su nombre en la leyenda para filtrar la tabla de abajo por ese estado.'
-        : 'Cómo salió cada resultado cargado en pantalla. Toca una porción o su nombre en la leyenda para filtrar la tabla de abajo por ese estado.')}</h2></div></div>
+        ? 'Cómo salió cada resultado cargado en pantalla. Diferencia negativa: se contó menos de lo que dice el sistema (faltante). Diferencia positiva: se contó más (sobrante). Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.'
+        : 'Cómo salió cada resultado cargado en pantalla. Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.')}</h2></div></div>
       ${renderPieChart(resumenEstado, 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d.dia, {clave:d=>d.dia, activo:b.filtroEstado, atributo:'data-estado-clave'})}
       ${renderLeyendaColores(resumenEstado.filter(d=>d.n>0).map(d=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', `${d.dia} (${d.n})`, d.dia]), b.filtroEstado, 'data-estado-clave')}
       ${lecturaResumenEstadoBusqueda(resumenEstado, separarSignoEstado)}
@@ -13305,20 +13322,20 @@ function renderBuscar(){
     ` : ''}
     ${quienConto.length? `
     <div class="card">
-      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una porción o su nombre en la leyenda para filtrar la tabla de abajo por esa persona.')}</h2></div></div>
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esas personas; otro toque quita la porción.')}</h2></div></div>
       ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre, {clave:d=>d.nombre, activo:b.filtroContadoPor})}
       ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n})`, d.nombre]), b.filtroContadoPor)}
     </div>
     ` : ''}
-    ${b.filtroContadoPor? `
+    ${listaFiltroBuscar(b.filtroContadoPor).length? `
     <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px">
-      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por <strong style="color:var(--text)">${esc(b.filtroContadoPor)}</strong> — ${resultadosFiltrados.length} de ${baseGraficos.length} ${haySeleccion?'seleccionado':'resultado'}${baseGraficos.length===1?'':'s'}</span>
+      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por <strong style="color:var(--text)">${esc(listaFiltroBuscar(b.filtroContadoPor).join(', '))}</strong> — ${resultadosFiltrados.length} de ${baseGraficos.length} ${haySeleccion?'seleccionado':'resultado'}${baseGraficos.length===1?'':'s'}</span>
       <button type="button" class="btn btn-secondary" id="btn-quitar-filtro-contador" style="width:auto;padding:6px 12px;font-size:12px">Quitar filtro</button>
     </div>
     ` : ''}
-    ${b.filtroEstado? `
+    ${listaFiltroBuscar(b.filtroEstado).length? `
     <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px">
-      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por estado <strong style="color:var(--text)">${esc(b.filtroEstado)}</strong> — ${resultadosFiltrados.length} de ${baseGraficos.length} ${haySeleccion?'seleccionado':'resultado'}${baseGraficos.length===1?'':'s'}</span>
+      <span style="font-size:12.5px;color:var(--text-dim)">Filtrando por ${listaFiltroBuscar(b.filtroEstado).length>1?'estados':'estado'} <strong style="color:var(--text)">${esc(listaFiltroBuscar(b.filtroEstado).join(', '))}</strong> — ${resultadosFiltrados.length} de ${baseGraficos.length} ${haySeleccion?'seleccionado':'resultado'}${baseGraficos.length===1?'':'s'}</span>
       <button type="button" class="btn btn-secondary" id="btn-quitar-filtro-estado" style="width:auto;padding:6px 12px;font-size:12px">Quitar filtro</button>
     </div>
     ` : ''}
