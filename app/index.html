@@ -608,7 +608,7 @@ textarea{resize:vertical;min-height:60px;}
 .foto-modal-nav-prev{left:6px;}
 .foto-modal-nav-next{right:6px;}
 .foto-modal-contador{position:absolute;bottom:-30px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--text-dim);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:3px 10px;white-space:nowrap;}
-.foto-modal-etiqueta{position:absolute;top:-14px;left:14px;font-size:11.5px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:3px 10px;white-space:nowrap;}
+.foto-modal-etiqueta{position:absolute;top:-14px;left:14px;max-width:calc(100% - 52px);font-size:11.5px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:3px 10px;}
 
 .foto-preview-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;}
 .foto-preview-item{position:relative;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);aspect-ratio:1;background:var(--surface-2);}
@@ -6730,7 +6730,8 @@ async function exportarSeleccionadosBusquedaPDF(){
     // El generador primero: si no se puede cargar, se sabe antes de bajar cien fotos.
     await pdfLib();
     const fotos = await mapConcurrente(filas, FOTOS_PDF_EN_PARALELO, async r=>{
-      const foto = (r.fotos||[])[0];
+      // La del conteo que muestra la ficha, no la más antigua (ver fotosFilaBuscar).
+      const foto = fotosFilaBuscar(r)[0];
       return foto ? await fotoParaPdf(foto.foto_url) : null;
     }, mostrarProgresoExportPDF);
     const logo = await logoParaPdf();
@@ -12116,6 +12117,27 @@ function etiquetaFotoConteo(f){
   return n ? `Conteo ${n}` : etiquetaNumeroConteo(f && f.numero_conteo);
 }
 
+// Fotos de una fila de Buscar (Joel, 14/10/2026). La fila muestra el último conteo del material,
+// pero skus_busqueda trae las fotos de TODOS sus conteos, de la más antigua a la más nueva: un
+// material contado el 28/09 (Q1-MEL1) y el 14/10 (Q1-MEL2) mostraba dos "Conteo 1" sin decir cuál
+// era cuál, y el PDF tomaba la primera (la del 28/09) para el conteo del 14/10. Primero van las
+// del conteo de la fila; después las demás, de la más nueva a la más antigua. Sin conteo_id en
+// las fotos (servidor sin la migración 20261014_fotos_buscar_con_periodo) quedan como venían.
+function fotosFilaBuscar(r){
+  const fotos = (r && r.fotos) || [];
+  if(!fotos.some(f=> f && f.conteo_id)) return fotos;
+  const delConteo = fotos.filter(f=> r.conteo_id && f.conteo_id===r.conteo_id);
+  const otras = fotos.filter(f=> !(r.conteo_id && f.conteo_id===r.conteo_id)).reverse();
+  return [...delConteo, ...otras];
+}
+// "Conteo 1" a secas para las fotos del mismo período que la fila; las de otro período llevan su
+// nombre y la fecha, porque la numeración vuelve a 1 en cada período.
+function etiquetaFotoBuscar(f, r){
+  const base = etiquetaFotoConteo(f);
+  if(!f || !('ciclo_id' in f) || (f.ciclo_id||null)===((r && r.ciclo_id)||null)) return base;
+  return `${base} · ${f.ciclo_nombre || 'Sin período'} · ${fmtFecha(f.fecha_conteo)}`;
+}
+
 // Buscar: "Conteo 2", "Conteo 2.1"... junto al estado, solo cuando el último conteo no es el
 // primero del período (un "Conteo 1" en cada fila sería ruido). Ver numeroConteoReconteo.
 function badgeNumeroConteo(r){
@@ -13344,7 +13366,7 @@ function renderBuscar(){
       ${resultadosPagina.length? `<div class="table-wrap"><table>
         <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
-          const fotos = r.fotos||[];
+          const fotos = fotosFilaBuscar(r).map(f=>({...f, etiqueta: etiquetaFotoBuscar(f, r)}));
           const contado = !!r.conteo_id;
           return `<tr>
             <td><input type="checkbox" class="chk-buscar-fila" data-sku-id="${esc(r.sku_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${(b.seleccionados||[]).includes(r.sku_id)?'checked':''}></td>
@@ -17988,7 +18010,8 @@ function bind(){
         if(!fotos.length) return;
         try{
           const urls = await Promise.all(fotos.map(f=>crearUrlFirmada(f.foto_url)));
-          const labels = fotos.map(etiquetaFotoConteo);
+          // etiqueta: la arma renderBuscar con el período de la fila (ver etiquetaFotoBuscar).
+          const labels = fotos.map(f=> f.etiqueta || etiquetaFotoConteo(f));
           setState({fotoModal:{urls, labels, index:0}});
         }catch(e){ toast(e.message,'err'); }
       });

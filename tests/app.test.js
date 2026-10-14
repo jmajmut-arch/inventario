@@ -11672,6 +11672,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.badgeNumeroConteo({ultimo_conteo_n:2, ultimo_reconteo_n:0}).includes('>Conteo 2<') && ctx.badgeNumeroConteo({ultimo_conteo_n:2, ultimo_reconteo_n:1}).includes('>Conteo 2.1<') && ctx.badgeNumeroConteo({ultimo_conteo_n:1, ultimo_reconteo_n:1}).includes('>Conteo 1.1<'),
     'la fila de Buscar muestra "Conteo 2", "Conteo 2.1" o "Conteo 1.1" cuando no es el primer conteo');
 
+  // Fotos de otro período en Buscar (Joel, 14/10/2026, material 11161052): la fila muestra el
+  // conteo del 14/10 (Q1-MEL2) y la cámara traía también la foto del 28/09 (Q1-MEL1); las dos
+  // decían "Conteo 1" y el PDF usaba la del 28/09.
+  const filaDosPeriodos = {conteo_id:'c-nuevo', ciclo_id:'ciclo-2', ciclo_nombre:'Q1-MEL2', fotos:[
+    {foto_url:'emp/11161052/vieja.jpg', conteo:1, reconteo:0, numero_conteo:1, fecha_conteo:'2026-09-28T20:44:09Z', conteo_id:'c-viejo', ciclo_id:'ciclo-1', ciclo_nombre:'Q1-MEL1'},
+    {foto_url:'emp/11161052/medio.jpg', conteo:1, reconteo:0, numero_conteo:1, fecha_conteo:'2026-10-14T10:00:00Z', conteo_id:'c-medio', ciclo_id:'ciclo-2', ciclo_nombre:'Q1-MEL2'},
+    {foto_url:'emp/11161052/nueva.jpg', conteo:2, reconteo:0, numero_conteo:2, fecha_conteo:'2026-10-14T13:56:56Z', conteo_id:'c-nuevo', ciclo_id:'ciclo-2', ciclo_nombre:'Q1-MEL2'},
+  ]};
+  const ordenFotos = ctx.fotosFilaBuscar(filaDosPeriodos).map(f=>f.foto_url.split('/').pop());
+  assert(JSON.stringify(ordenFotos)==='["nueva.jpg","medio.jpg","vieja.jpg"]', 'primero la foto del conteo de la fila, después las demás de la más nueva a la más antigua, obtuvo: '+JSON.stringify(ordenFotos));
+  assert(ctx.fotosFilaBuscar(filaDosPeriodos)[0].foto_url.endsWith('nueva.jpg'), 'el PDF de fichas usa la foto del conteo de la fila, no la más antigua');
+  const etiquetasFotos = ctx.fotosFilaBuscar(filaDosPeriodos).map(f=>ctx.etiquetaFotoBuscar(f, filaDosPeriodos));
+  assert(etiquetasFotos[0]==='Conteo 2' && etiquetasFotos[1]==='Conteo 1' && /^Conteo 1 · Q1-MEL1 · /.test(etiquetasFotos[2]) && etiquetasFotos[2].includes(ctx.fmtFecha('2026-09-28T20:44:09Z')),
+    'las fotos del período de la fila llevan solo su número; las de otro período, además el período y la fecha, obtuvo: '+JSON.stringify(etiquetasFotos));
+  const sinMigracion = {conteo_id:'c-nuevo', fotos:[{foto_url:'a.jpg', conteo:1, reconteo:0, numero_conteo:1}, {foto_url:'b.jpg', conteo:1, reconteo:0, numero_conteo:1}]};
+  assert(ctx.fotosFilaBuscar(sinMigracion).map(f=>f.foto_url).join()==='a.jpg,b.jpg' && ctx.etiquetaFotoBuscar(sinMigracion.fotos[0], sinMigracion)==='Conteo 1',
+    'sin conteo_id ni ciclo_id en las fotos (servidor sin la migración) quedan como antes');
+  assert(ctx.fotosFilaBuscar({fotos:[]}).length===0 && ctx.fotosFilaBuscar({}).length===0, 'una fila sin fotos sigue sin fotos');
+
   // El formulario: las dos marcas siempre; el campo de unidades solo con material dañado.
   ctx.__appstate.view = 'conteo'; ctx.__appstate.conteoMaterialDanado = false; ctx.__appstate.conteoPackingDanado = false;
   let htmlDano = ctx.renderConteo();
