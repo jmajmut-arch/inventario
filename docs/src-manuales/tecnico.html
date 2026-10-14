@@ -336,6 +336,7 @@
       <li>Configurar la frecuencia de conteo por SKU según su Clase ABC (la frecuencia existe por grupo, no por clase)</li>
     </ul>
   </div>
+  <div class="box new"><div class="tag">Nuevo · Reconteo solo desde Reconteo</div><code>conteos.es_reconteo</code> lo marca la app al guardar desde Recontar (también sin conexión). Cada conteo se numera "N.M" por material y período: N cuenta los que no son reconteo, M los reconteos de ese N (<code>skus_busqueda</code>, <code>reconteo_pendiente</code>). Panel: <code>reconteos</code> y <code>repetidos</code>; Calendario: <code>resumen_calendario_dias</code>.</div>
   <div class="box upd"><div class="tag">Actualizado · Dashboard más liviano</div>Se eliminaron "Conteos recientes" y "Materiales contados" del Operativo y el rango de fechas del Estado general de SKU: duplicaban Buscar y el Calendario y cargaban listas paginadas en cada visita. <code>resumen_general_skus</code> responde hoy en 50 ms con el maestro real.</div>
   <div class="box"><div class="tag">Informe de cierre: foto, no consulta</div>Un informe guardado se renderiza desde el jsonb almacenado (<code>renderCuerpoInformeGuardado</code>), por eso no cambia aunque después se carguen Excel nuevos o se recuente. Se puede abrir y exportar a PDF desde Períodos → Informes de cierre.</div>
 </section>

@@ -3642,7 +3642,9 @@ async function cargarCalendario(mes){
   if(!perfilCargado()) return;
   setState({calendario:{...state.calendario, mes, cargando:true}});
   try{
-    const dias = await rest('/rpc/resumen_calendario_mes', {method:'POST', body:{p_mes: mes}});
+    // resumen_calendario_dias (14/10/2026) = resumen_calendario_mes + "repetido"; R cuenta solo
+    // reconteos hechos desde Reconteo (ver conteos.es_reconteo).
+    const dias = await rest('/rpc/resumen_calendario_dias', {method:'POST', body:{p_mes: mes}});
     setState({calendario:{...state.calendario, mes, cargando:false, cargado:true, dias: dias||[]}});
   }catch(e){
     setState({calendario:{...state.calendario, cargando:false}});
@@ -9588,6 +9590,8 @@ async function procesarUnItemOffline(item){
       packing_danado: !!item.packing_danado,
       material_danado: !!item.material_danado,
       cantidad_danada: item.material_danado && item.cantidad_danada!=null ? item.cantidad_danada : null,
+      // Encolado por una versión anterior de la app: no trae la marca, cuenta como conteo.
+      es_reconteo: !!item.es_reconteo,
       idempotency_key: idempotencyKey,
     }], prefer:'resolution=ignore-duplicates,return=representation'});
     // Igual que en guardarConteo: si ya existía (un intento anterior de sincronizar este mismo
@@ -9950,6 +9954,9 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       packing_danado: !!packingDanado,
       material_danado: !!materialDanado,
       cantidad_danada: danada.valor,
+      // Reconteo solo si se llegó desde Recontar (pantalla Reconteo): cualquier otro conteo del
+      // mismo material es un conteo más ("Conteo 2"), no un reconteo. Ver conteos.es_reconteo.
+      es_reconteo: esReconteoDelSkuActual(),
       idempotency_key: idempotencyKey,
     }], prefer:'resolution=ignore-duplicates,return=representation', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
     // Si el conteo ya existía (reintento de un intento anterior que sí había llegado a guardarse
@@ -10004,6 +10011,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
         packing_danado: !!packingDanado,
         material_danado: !!materialDanado,
         cantidad_danada: danada.valor,
+        es_reconteo: esReconteoDelSkuActual(),
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
       setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
@@ -11927,13 +11935,14 @@ function renderDashboard(){
     const hayBodega = rows.some(r=>r.bodega);
     // Pedido de Joel: cuántos SKU se recontaron en cada período, junto al resto de columnas.
     return `<div class="table-wrap"><table class="dash-periodos">
-      <thead><tr><th>${keyLabel}</th>${hayBodega?'<th>Ubic. general</th>':''}<th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Reconteos</th><th class="num">Unid. contadas</th></tr></thead>
+      <thead><tr><th>${keyLabel}</th>${hayBodega?'<th>Ubic. general</th>':''}<th class="num">SKU contados</th><th class="num">Con diferencia</th><th class="num">Reconteos</th><th class="num">Repetidos</th><th class="num">Unid. contadas</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td class="mono">${formatKey(r[keyField])}</td>
         ${hayBodega?`<td>${esc(r.bodega||'—')}</td>`:''}
         <td class="num">${r.skus_contados||0}</td>
         <td class="num">${r.con_diferencia? `<span class="badge badge-warn">${r.con_diferencia}</span>` : '0'}</td>
         <td class="num">${Number(r.reconteos)||0}</td>
+        <td class="num">${Number(r.repetidos)||0}</td>
         <td class="num">${r.total_unidades_contadas!==null? Number(r.total_unidades_contadas).toLocaleString('es-CL') : '—'}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
@@ -12070,9 +12079,33 @@ function badgeReincidente(r){
 
 // Las fotos de un SKU se agregan desde TODOS sus conteos (reconteo_pendiente / skus_busqueda),
 // cada una con el número de conteo al que pertenece (1 = el conteo original, 2+ = reconteos) —
-// esta etiqueta es lo que permite distinguirlas en el visor, a pedido de Joel.
+// esta etiqueta es lo que permite distinguirlas en el visor, a pedido de Joel. Es la de antes del
+// 14/10/2026: queda para datos que no traen "conteo" (un servidor sin la migración).
 function etiquetaNumeroConteo(numero){
   return numero<=1 ? 'Conteo' : `Reconteo ${numero-1}`;
+}
+
+// "Conteo N.M" (Joel, 14/10/2026): N = cuántas veces se contó el material en el período; M =
+// cuántos reconteos (desde la pantalla Reconteo) lleva ese conteo. Conté y cuadró: "Conteo 1"; lo
+// volví a contar: "Conteo 2"; salió con diferencia y lo recontaron: "Conteo 2.1", "Conteo 2.2".
+// La palabra "reconteo" queda solo para lo que se hizo desde Reconteo (ver conteos.es_reconteo).
+function numeroConteoReconteo(conteo, reconteo){
+  if(conteo==null) return null;
+  const m = Number(reconteo)||0;
+  return `${Number(conteo)||1}${m>0? '.'+m : ''}`;
+}
+function etiquetaFotoConteo(f){
+  const n = f && numeroConteoReconteo(f.conteo, f.reconteo);
+  return n ? `Conteo ${n}` : etiquetaNumeroConteo(f && f.numero_conteo);
+}
+
+// Buscar: "Conteo 2", "Conteo 2.1"... junto al estado, solo cuando el último conteo no es el
+// primero del período (un "Conteo 1" en cada fila sería ruido). Ver numeroConteoReconteo.
+function badgeNumeroConteo(r){
+  if(!r || r.ultimo_conteo_n==null) return '';
+  if(Number(r.ultimo_conteo_n)<=1 && !(Number(r.ultimo_reconteo_n)>0)) return '';
+  const n = numeroConteoReconteo(r.ultimo_conteo_n, r.ultimo_reconteo_n);
+  return ` <span class="badge badge-steel" title="Veces que se contó en el período; el decimal son los reconteos desde Reconteo">Conteo ${n}</span>`;
 }
 
 // ocultarMagnitud (conteo ciego para operadores, ver ocultarStockOperador): muestra que hubo
@@ -13304,7 +13337,7 @@ function renderBuscar(){
             <td>${esc(r.bodega||'—')}</td>
             <td class="mono">${esc(r.storage_bin||'—')}</td>
             <td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>
-            <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}${(contado && r.reconteo_cierre_tipo)? ` ${badgeCierreReconteo(r.reconteo_cierre_tipo, r.ajuste_erp_referencia)}` : ''}</td>
+            <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}${contado? badgeNumeroConteo(r) : ''}${(contado && r.reconteo_cierre_tipo)? ` ${badgeCierreReconteo(r.reconteo_cierre_tipo, r.ajuste_erp_referencia)}` : ''}</td>
             <td>${(danosUltimoConteo(r)||[]).map(d=>`<span class="badge badge-danger" style="white-space:nowrap">${esc(d)}</span>`).join(' ') || '—'}</td>
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>
             <td class="mono" style="font-size:12px">
@@ -14755,7 +14788,7 @@ function renderCalendario(){
           if(fecha===hoy) clases.push('es-hoy');
           if(fecha===cal.diaSeleccionado) clases.push('seleccionado');
           const avancePct = d && d.planificado ? Math.round(Math.max(0, d.planificado-(d.pendiente||0))/d.planificado*100) : 0;
-          const etiqueta = `${fmtFecha(fecha)}${d && d.planificado? `: ${d.planificado} planificados, ${d.contado||0} contados, ${d.recontado||0} recontados, ${d.pendiente||0} pendientes` : ''}`;
+          const etiqueta = `${fmtFecha(fecha)}${d && d.planificado? `: ${d.planificado} planificados, ${d.contado||0} contados, ${d.recontado||0} recontados${d.repetido? `, ${d.repetido} contados otra vez` : ''}, ${d.pendiente||0} pendientes` : ''}`;
           return `
           <button type="button" class="${clases.join(' ')}" data-cal-dia="${fecha}" aria-label="${esc(etiqueta)}" title="${esc(etiqueta)}">
             <span class="cal-dia-num">${Number(fecha.slice(-2))}</span>
@@ -14774,12 +14807,13 @@ function renderCalendario(){
       ${(()=>{ const e = estadoDiaCalendario(detalle, detalle.fecha, hoy); const txt = {cumplido:['badge-ok','Cumplido'], parcial:['badge-warn','Parcial'], atrasado:['badge-danger','Atrasado'], futuro:['badge-neutral','Por venir'], vacio:['badge-neutral','Sin plan']}[e]; return `<div style="margin-bottom:8px"><span class="badge ${txt[0]}">${txt[1]}</span></div>`; })()}
       <div class="cal-detalle-fila"><span>Planificado</span><span class="cal-detalle-num">${detalle.planificado}</span></div>
       ${detalle.planificado? (()=>{ const hechos = Math.max(0, detalle.planificado-(detalle.pendiente||0)); return `<div class="cal-detalle-fila"><span>Avance del plan <span class="hint" style="display:inline">(del plan, ya contados)</span></span><span class="cal-detalle-num">${hechos} <span class="hint" style="display:inline">· ${Math.round(hechos/detalle.planificado*100)}%</span></span></div>`; })() : ''}
-      <div class="cal-detalle-fila"><span>Contado <span class="hint" style="display:inline">(ese día, dentro y fuera del plan)</span></span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
-      <div class="cal-detalle-fila"><span>Recontado</span><span class="cal-detalle-num" style="color:var(--steel)">${detalle.recontado}</span></div>
+      <div class="cal-detalle-fila"><span>Contado <span class="hint" style="display:inline">(primera vez en el período, dentro y fuera del plan)</span></span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
+      <div class="cal-detalle-fila"><span>Contado otra vez <span class="hint" style="display:inline">(ya contados en el período)</span></span><span class="cal-detalle-num">${detalle.repetido||0}</span></div>
+      <div class="cal-detalle-fila"><span>Recontado <span class="hint" style="display:inline">(desde Reconteo)</span></span><span class="cal-detalle-num" style="color:var(--steel)">${detalle.recontado}</span></div>
       <div class="cal-detalle-fila"><span>Pendiente</span><span class="cal-detalle-num" style="color:${detalle.pendiente>0?'var(--warn)':'var(--text-dim)'}">${detalle.pendiente}</span></div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button type="button" id="cal-ir-contar" class="btn btn-primary" style="width:auto;padding:8px 14px">Ir a Contar ese día</button>
-        ${detalle.contado || detalle.recontado? `<button type="button" id="cal-ir-buscar" class="btn btn-secondary" style="width:auto;padding:8px 14px">${esAdmin? 'Ver lo contado' : 'Ver lo que conté'}</button>` : ''}
+        ${detalle.contado || detalle.recontado || detalle.repetido? `<button type="button" id="cal-ir-buscar" class="btn btn-secondary" style="width:auto;padding:8px 14px">${esAdmin? 'Ver lo contado' : 'Ver lo que conté'}</button>` : ''}
         ${esAdmin? `<button type="button" id="cal-ir-plan" class="btn btn-secondary" style="width:auto;padding:8px 14px">Ver en Planificación</button>` : ''}
       </div>
     </div>
@@ -17652,7 +17686,7 @@ function bind(){
         if(!fotos.length) return;
         try{
           const urls = await Promise.all(fotos.map(f=>crearUrlFirmada(f.foto_url)));
-          const labels = fotos.map(f=>etiquetaNumeroConteo(f.numero_conteo));
+          const labels = fotos.map(etiquetaFotoConteo);
           setState({fotoModal:{urls, labels, index:0}});
         }catch(e){ toast(e.message,'err'); }
       });
@@ -17937,7 +17971,7 @@ function bind(){
         if(!fotos.length) return;
         try{
           const urls = await Promise.all(fotos.map(f=>crearUrlFirmada(f.foto_url)));
-          const labels = fotos.map(f=>etiquetaNumeroConteo(f.numero_conteo));
+          const labels = fotos.map(etiquetaFotoConteo);
           setState({fotoModal:{urls, labels, index:0}});
         }catch(e){ toast(e.message,'err'); }
       });

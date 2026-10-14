@@ -298,3 +298,45 @@ test('las fotos de Buscar numeran sus conteos dentro del período, como el resto
   assert.match(def, /row_number\(\)\s+over\s*\(\s*partition\s+by\s+c\.ciclo_id\s+order\s+by\s+c\.fecha_conteo\s*\)\s+as\s+numero_conteo/i,
     `${archivoDef}: el número de conteo de cada foto tiene que contarse dentro del período (partition by ciclo_id)`);
 });
+
+test('reconteo es solo lo hecho desde Reconteo, y los conteos se numeran N.M', () => {
+  // Joel, 14/10/2026: un segundo conteo cualquiera ya no se llama "reconteo". conteos.es_reconteo lo
+  // marca la app al guardar desde Recontar; el Panel separa reconteos de repetidos, el Calendario
+  // también, y las fotos traen "conteo" y "reconteo" para la etiqueta "Conteo 2.1".
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  const ultima = (re) => {
+    let def = null, archivo = null;
+    for (const a of fs.readdirSync(dirMig).sort()) {
+      const sql = fs.readFileSync(path.join(dirMig, a), 'utf8').replace(/--[^\n]*/g, '');
+      const m = re.exec(sql);
+      if (m) { def = m[0]; archivo = a; }
+    }
+    return { def, archivo };
+  };
+  const vista = (nombre) => ultima(new RegExp(`create\\s+(?:or\\s+replace\\s+)?view\\s+public\\.${nombre}\\b[\\s\\S]*?;`, 'i'));
+  for (const v of ['avance_diario', 'avance_semanal', 'avance_mensual']) {
+    const { def, archivo } = vista(v);
+    assert.ok(def, `no se encontró public.${v}`);
+    assert.match(def, /security_invoker\s*=\s*true/i, `${archivo}: ${v} tiene que seguir con security_invoker`);
+    assert.match(def, /count\(\*\)\s+filter\s*\(\s*where\s+c\.es_reconteo\s*\)\s+as\s+reconteos/i, `${archivo}: en ${v}, "reconteos" cuenta solo los marcados como reconteo`);
+    assert.match(def, /as\s+repetidos/i, `${archivo}: ${v} tiene que traer "repetidos"`);
+  }
+  for (const v of ['skus_busqueda', 'reconteo_pendiente']) {
+    const { def, archivo } = vista(v);
+    assert.match(def, /security_invoker\s*=\s*true/i, `${archivo}: ${v} tiene que seguir con security_invoker`);
+    assert.match(def, /'conteo',[\s\S]*?'reconteo',/, `${archivo}: las fotos de ${v} tienen que traer "conteo" y "reconteo"`);
+  }
+  const cal = ultima(/create\s+(?:or\s+replace\s+)?function\s+public\.resumen_calendario_dias\s*\([\s\S]*?\$function\$[\s\S]*?\$function\$/i);
+  assert.ok(cal.def, 'no se encontró public.resumen_calendario_dias');
+  assert.match(cal.def, /filter\s*\(\s*where\s+es_reconteo\s*\)\s+as\s+n_recontados/i, `${cal.archivo}: la R del Calendario cuenta solo reconteos`);
+  // El ALTER TABLE que apaga los triggers para marcar el historial tiene que volver a encenderlos.
+  for (const a of fs.readdirSync(dirMig)) {
+    const sql = fs.readFileSync(path.join(dirMig, a), 'utf8').replace(/--[^\n]*/g, '');
+    const apagados = [...sql.matchAll(/alter\s+table\s+public\.conteos\s+disable\s+trigger\s+(\w+)/gi)].map(m => m[1]).sort();
+    const encendidos = [...sql.matchAll(/alter\s+table\s+public\.conteos\s+enable\s+trigger\s+(\w+)/gi)].map(m => m[1]).sort();
+    assert.deepEqual(encendidos, apagados, `${a}: todo trigger de conteos que se apaga se vuelve a encender en la misma migración`);
+  }
+  const html = fs.readFileSync(path.join(RAIZ, 'app', 'index.html'), 'utf8');
+  assert.match(html, /es_reconteo: esReconteoDelSkuActual\(\)/, 'la app tiene que marcar es_reconteo al guardar desde Recontar');
+  assert.match(html, /rest\('\/rpc\/resumen_calendario_dias'/, 'el Calendario tiene que pedir resumen_calendario_dias');
+});
