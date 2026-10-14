@@ -1696,6 +1696,36 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Reconteo: un error del servidor se ve como error (14/10/2026) =====
+  // Antes, mientras cargaba y si el servidor fallaba, decía "No hay materiales con diferencias
+  // pendientes". Ahora muestra el motivo y "Reintentar", que vuelve a pedir la lista.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('reconteo-error: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    let fallar = true;
+    await page.route('**/rest/v1/reconteo_pendiente?**', route => fallar
+      ? route.fulfill({ status:500, contentType:'application/json', body: JSON.stringify({ message:'canceling statement due to statement timeout' }) })
+      : route.fulfill({ status:200, contentType:'application/json', body:'[]' }));
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('[data-tab="reconteo"]');
+    assert(await esperarVisible(page, '#btn-reintentar-reconteos'), 'con el servidor fallando, Reconteo muestra "Reintentar"');
+    assert(await page.isVisible('text=No se pudo cargar la lista de reconteo: canceling statement due to statement timeout'), 'y el motivo del error');
+    assert(!(await page.isVisible('text=No hay materiales con diferencias pendientes')), 'no se disfraza de "no hay pendientes"');
+    const desbordeRec = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeRec <= 0, 'a 420 px el aviso no desborda, obtuvo '+desbordeRec);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/reconteo-error-420.png', fullPage: true });
+    fallar = false;
+    await page.click('#btn-reintentar-reconteos');
+    assert(await esperarVisible(page, 'text=No hay materiales con diferencias pendientes'), 'al reintentar con el servidor bien, se ve la lista real (vacía)');
+    await context.close();
+  }
+
   // ===== Calendario (Fase 5 del rediseño): estados por día en el navegador =====
   // Un día pasado con pendientes se marca atrasado, uno sin pendientes cumplido, uno por venir
   // futuro; el resumen de cumplimiento aparece; tocar un día abre su detalle con el estado.
@@ -1710,6 +1740,8 @@ async function loguear(page, perfil){
       { fecha: mas(-1), planificado:31, contado:0, recontado:0, pendiente:31 },
       { fecha: mas(-2), planificado:8, contado:8, recontado:1, pendiente:0 },
       { fecha: mas(1), planificado:40, contado:0, recontado:0, pendiente:40 },
+      // Cifras grandes (como el 27/10 real de Escondida): tienen que caber en la celda a 420 px.
+      { fecha: mas(2), planificado:1149, contado:1234, recontado:128, pendiente:1149 },
     ].filter(d => d.fecha.slice(0,7) === iso(hoyCal).slice(0,7));
     await page.route('**/rest/v1/rpc/resumen_calendario_mes**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(dias) }));
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
@@ -1736,6 +1768,14 @@ async function loguear(page, perfil){
     }
     const desbordeCal = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeCal <= 0, 'a 420 px el calendario no desborda, obtuvo '+desbordeCal);
+    // C y R vuelven a la celda (14/10/2026): ninguna cifra se sale de su día, ni con miles.
+    const celdasDesbordadas = await page.$$eval('.cal-grid .cal-dia', els => els.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.dataset.calDia));
+    assert(celdasDesbordadas.length === 0, 'a 420 px ninguna celda del calendario se desborda, obtuvo '+JSON.stringify(celdasDesbordadas));
+    if (process.env.E2E_CAPTURAS){
+      await page.screenshot({ path: process.env.E2E_CAPTURAS + '/calendario-420.png', fullPage: true });
+      await page.setViewportSize({ width:1024, height:1300 });
+      await page.screenshot({ path: process.env.E2E_CAPTURAS + '/calendario-1024.png', fullPage: true });
+    }
     await context.close();
   }
 

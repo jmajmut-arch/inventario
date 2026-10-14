@@ -378,6 +378,14 @@ button.cal-nav-btn{width:auto;padding:8px 12px;flex:none;}
 .cal-dia-plan{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;line-height:1;margin-top:2px;font-variant-numeric:tabular-nums;color:var(--text);}
 .cal-dia.vacio .cal-dia-plan{display:none;}
 .cal-dia.seleccionado .cal-dia-plan{color:var(--on-amber);}
+.cal-claves{margin:-6px 0 12px;font-size:12px;}
+.cal-dia{min-width:0;}
+.cal-dia-fila{white-space:nowrap;}
+.cal-dia-fila .cal-letra{margin-right:.4em;font-weight:700;}
+.cal-corto{display:none;}
+@media (max-width:480px){ .cal-dia-fila{font-size:9px;letter-spacing:-.02em;} .cal-dia-fila .cal-letra{margin-right:1px;} .cal-largo{display:none;} .cal-corto{display:inline;} }
+@media (max-width:380px){ .cal-dia-fila{white-space:normal;} }
+@media (min-width:700px){ .cal-dia-fila{font-size:12px;} .cal-dia{min-height:72px;} }
 .cal-dia-bar{height:4px;background:var(--line);margin-top:auto;border-radius:var(--radius);overflow:hidden;}
 .cal-dia-bar span{display:block;height:100%;background:var(--ok);}
 .cal-dia.parcial .cal-dia-bar span{background:var(--warn);}
@@ -1040,6 +1048,9 @@ let state = {
   skusPagina: { rows: [], page: 0, total: 0 },
   skusSeleccionados: [],
   reconteos: [],
+  // Reconteo distingue "cargando" y "no se pudo cargar" de "no hay pendientes" (14/10/2026): antes
+  // la lista vacía inicial y un error del servidor se veían como "No hay materiales con diferencias".
+  reconteosCargados: false, reconteosError: '',
   reconteosHayMas: false,
   reconteosCargandoMas: false,
   reconteosPorSemana: [],   // [{semana:'YYYY-MM-DD' (lunes), pendientes}] -- gráfico de Reconteo por semana
@@ -1437,6 +1448,7 @@ function bodegaEstadoInicial(){
     movimientos: [], movimientosCargados: false, filtroTipo: '', fotosPorDocumento: {},
     pendientes: [], pendientesCargados: false,
     ultimosMovimientos: [], ultimosCargados: false, // tarjeta de bodega en el Dashboard
+    resumenError: '', // si falló la carga de esa tarjeta: se muestra en ella, con "Reintentar"
     valorizacion: null, // {valor_total, skus_con_costo, skus_sin_costo, skus_con_stock, bajo_minimo, sin_apertura}
     aperturaProgreso: null, // {hechos, total} mientras corre la apertura por lotes
     stockSoloBajoMinimo: false,
@@ -2531,7 +2543,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -5061,7 +5073,7 @@ async function elegirCascadaContar(cambios){
     }
     // Sin esto la lista quedaba en "Cargando SKU pendientes…" para siempre y el error solo duraba
     // lo que el toast: se muestra en su lugar, con su mensaje y un botón para reintentar.
-    setState({contarPlan:{...state.contarPlan, errorSkus: pareceFalloDeRed(e) ? 'No hay conexión con el servidor.' : (e.message || 'Error del servidor.')}});
+    setState({contarPlan:{...state.contarPlan, errorSkus: mensajeErrorCarga(e)}});
     toast(e.message,'err');
   }
 }
@@ -5877,12 +5889,15 @@ async function cargarDashboard(){
       setState({bodega:{...state.bodega,
         pendientes: d.bodega.pendientes||[], pendientesCargados:true,
         ultimosMovimientos: d.bodega.ultimosMovimientos||[], ultimosCargados:true,
-        valorizacion: d.bodega.valorizacion || state.bodega.valorizacion,
+        valorizacion: d.bodega.valorizacion || state.bodega.valorizacion, resumenError:'',
       }});
     }
   }catch(e){
     // Si había cifras de antes en pantalla, que no pasen por actuales (ver refrescarSiCargada).
     if(state.dashDesactualizado) setState({dashDesactualizado:'error'});
+    // La tarjeta de bodega viaja en esta misma respuesta: sin esto se quedaba en "Cargando…" y,
+    // para un administrador, diciendo "Sin pendientes de aprobación" sin haberlos podido leer.
+    if(moduloBodegaActivo()) setState({bodega:{...state.bodega, resumenError: mensajeErrorCarga(e)}});
     toast(e.message,'err');
   }
 }
@@ -6796,8 +6811,12 @@ async function cargarReconteos(){
     // Descartar no había hecho nada (o que aparecían pendientes nuevos de golpe).
     // La selección solo conserva lo que sigue en pantalla: lo cerrado o recontado sale de ella.
     const enPantalla = new Set((rows||[]).map(r=>r.conteo_id));
-    setState({reconteos: rows||[], reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteosSeleccionados: (state.reconteosSeleccionados||[]).filter(id=>enPantalla.has(id))});
-  }catch(e){ /* silencioso */ }
+    setState({reconteos: rows||[], reconteosCargados: true, reconteosError: '', reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteosSeleccionados: (state.reconteosSeleccionados||[]).filter(id=>enPantalla.has(id))});
+  }catch(e){
+    // A la vista, no en silencio: si había una lista en pantalla se conserva y el aviso dice que
+    // puede no estar al día; si nunca cargó, se ve el error en vez de "no hay pendientes".
+    setState({reconteosError: mensajeErrorCarga(e)});
+  }
 }
 
 // Tocar una barra del gráfico de Reconteo: filtra la tabla a esa semana (o vuelve a todas si
@@ -7106,8 +7125,8 @@ async function cargarPendientesBodega(){
   if(!(state.perfil && state.perfil.rol==='admin')) return;
   try{
     const rows = await rest('/movimientos_bodega_pendientes?select=*&order=created_at.asc') || [];
-    setState({bodega: {...state.bodega, pendientes: rows, pendientesCargados:true}});
-  }catch(e){ /* silencioso */ }
+    setState({bodega: {...state.bodega, pendientes: rows, pendientesCargados:true, resumenError:''}});
+  }catch(e){ setState({bodega: {...state.bodega, resumenError: mensajeErrorCarga(e)}}); }
 }
 
 // Stock por páginas, con el mismo mecanismo que el maestro de SKU: el rango va en cabecera y el
@@ -7536,8 +7555,8 @@ async function abrirKardexBodega(skuId, skuCode){
 async function cargarUltimosMovimientosBodega(){
   try{
     const rows = await rest('/movimientos_bodega_detalle?select=id,numero,tipo,sku_code,cantidad,unidad_medida,estado,fecha,usuario_nombre&order=created_at.desc&limit=6') || [];
-    setState({bodega:{...state.bodega, ultimosMovimientos: rows, ultimosCargados:true}});
-  }catch(e){ /* silencioso: la tarjeta muestra "Cargando…" y se reintenta al volver */ }
+    setState({bodega:{...state.bodega, ultimosMovimientos: rows, ultimosCargados:true, resumenError:''}});
+  }catch(e){ setState({bodega:{...state.bodega, resumenError: mensajeErrorCarga(e)}}); }
 }
 
 // Valorización del stock y cuántos materiales están bajo su mínimo (ver resumen_valorizacion_bodega).
@@ -9336,6 +9355,10 @@ const TIPO_ACCION_OFFLINE_LABEL = { conteo:'Conteo', sku:'SKU' };
 // Así distinguimos "no hay conexión" (encolar) de "el servidor rechazó la solicitud" (mostrar el error).
 function pareceFalloDeRed(e){
   return e instanceof TypeError;
+}
+// Motivo legible de una carga que falló, para mostrarlo en la pantalla (no solo en un toast).
+function mensajeErrorCarga(e){
+  return pareceFalloDeRed(e) ? 'No hay conexión con el servidor.' : ((e && e.message) || 'Error del servidor.');
 }
 
 // Red de seguridad global para promesas rechazadas que se le escapan a su propio catch (Sentry
@@ -12803,7 +12826,7 @@ function renderReconteo(){
       ${semanaActiva ? `<div class="hint" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>Mostrando la semana <strong>${etiquetaSemana(semanaActiva)}</strong> (${esc(rangoSemana(semanaActiva))})${porSemana.some(f=>f.semana===semanaActiva)? '' : ' · ya no quedan pendientes en esta semana'}.</span><button type="button" class="link-btn" id="btn-quitar-semana-reconteo">Ver todas las semanas</button></div>` : ''}
     </div>` : '';
   return `
-    <div class="section-head"><div><span class="eyebrow">${rows.length}${state.reconteosHayMas?'+':''}</span><h2>Reconteo</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">${state.reconteosCargados? `${rows.length}${state.reconteosHayMas?'+':''}` : '…'}</span><h2>Reconteo</h2></div></div>
     <div class="hint" style="margin-bottom:12px">Materiales cuyo último conteo tuvo diferencia contra el stock de sistema <b>del momento en que se contaron</b>. Esa diferencia queda fija -- si el stock del maestro cambia después (por otra carga, venta, etc.) el material no sale solo de la lista. Recuenta para corregir o confirmar la diferencia${esAdmin?', o descártala si el problema fue un error en el dato maestro':''}.</div>
     ${graficoSemanas}
     <div class="card">
@@ -12822,7 +12845,13 @@ function renderReconteo(){
         <button type="button" class="btn btn-secondary" id="btn-descartar-lote" style="width:auto;padding:7px 12px;font-size:12.5px">Quitar ${seleccionados.length} del reconteo</button>
         <button type="button" class="link-btn" id="btn-limpiar-seleccion-reconteo">Deseleccionar</button>
       </div>` : ''}
-      ${rows.length? `<div class="table-wrap"><table>
+      ${state.reconteosError? `
+      <div class="empty" role="alert" style="padding:14px 8px;margin-bottom:10px">
+        <div style="color:var(--danger)">${state.reconteosCargados? 'No se pudo actualizar la lista de reconteo (puede no estar al día)' : 'No se pudo cargar la lista de reconteo'}: ${esc(state.reconteosError)}</div>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-reintentar-reconteos" style="width:auto;margin-top:10px">Reintentar</button>
+      </div>` : ''}
+      ${!state.reconteosCargados? (state.reconteosError? '' : `<div class="empty" style="padding:14px 8px"><span class="spinner"></span> Cargando…</div>`) :
+      rows.length? `<div class="table-wrap"><table>
         <thead><tr>${esAdmin?`<th style="width:1%"><input type="checkbox" id="chk-reconteo-todos" aria-label="Seleccionar todos" ${todosSeleccionados?'checked':''}></th>`:''}<th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-reconteo-fila" data-conteo-id="${esc(r.conteo_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${seleccionados.includes(r.conteo_id)?'checked':''}></td>`:''}
@@ -14486,6 +14515,16 @@ function estadoDiaCalendario(d, fecha, hoy){
   return 'futuro';
 }
 
+// Cifra de C/R en una celda del calendario. En el celular la celda deja ~34 px a 420 px de ancho:
+// desde mil se agrega la forma corta ("1,2k"), que el CSS muestra solo en pantallas angostas. La
+// cifra completa sigue en el title de la celda y en el detalle del día.
+function cifraCalendario(n){
+  n = Number(n)||0;
+  const largo = n.toLocaleString('es-CL');
+  if(n < 1000) return largo;
+  return `<span class="cal-largo">${largo}</span><span class="cal-corto">${(n/1000).toLocaleString('es-CL',{maximumFractionDigits:1})}k</span>`;
+}
+
 function renderCalendario(){
   const cal = state.calendario;
   const [y, m] = cal.mes.split('-').map(Number);
@@ -14519,6 +14558,7 @@ function renderCalendario(){
       <span><i style="border-color:var(--danger)"></i>Atrasado</span>
       <span><i style="border-color:var(--line-strong)"></i>Por venir</span>
     </div>
+    <div class="hint cal-claves">Número grande: SKU planificados · <strong style="color:var(--ok)">C</strong> contados · <strong style="color:var(--steel)">R</strong> recontados · barra: avance del plan</div>
     ${cal.cargado && !cal.cargando && cumplimiento.planificado? `
     <div class="cal-kpis">
       <div class="kpi compact"><div class="kpi-label">Cumplimiento a hoy</div><div class="kpi-value">${pct(cumplimiento.pct)}%</div><div class="kpi-sub">${cumplimiento.contados.toLocaleString('es-CL')} de ${cumplimiento.planificado.toLocaleString('es-CL')} SKU del plan</div></div>
@@ -14550,6 +14590,8 @@ function renderCalendario(){
           <button type="button" class="${clases.join(' ')}" data-cal-dia="${fecha}" aria-label="${esc(etiqueta)}" title="${esc(etiqueta)}">
             <span class="cal-dia-num">${Number(fecha.slice(-2))}</span>
             <span class="cal-dia-plan">${d && d.planificado? d.planificado.toLocaleString('es-CL') : ''}</span>
+            ${d && d.contado? `<span class="cal-dia-fila c-contado"><span class="cal-letra">C</span>${cifraCalendario(d.contado)}</span>` : ''}
+            ${d && d.recontado? `<span class="cal-dia-fila c-recontado"><span class="cal-letra">R</span>${cifraCalendario(d.recontado)}</span>` : ''}
             ${d && d.planificado? `<span class="cal-dia-bar"><span style="width:${avancePct}%"></span></span>` : ''}
           </button>`;
         }).join('')}
@@ -14561,7 +14603,8 @@ function renderCalendario(){
     <div class="card">
       ${(()=>{ const e = estadoDiaCalendario(detalle, detalle.fecha, hoy); const txt = {cumplido:['badge-ok','Cumplido'], parcial:['badge-warn','Parcial'], atrasado:['badge-danger','Atrasado'], futuro:['badge-neutral','Por venir'], vacio:['badge-neutral','Sin plan']}[e]; return `<div style="margin-bottom:8px"><span class="badge ${txt[0]}">${txt[1]}</span></div>`; })()}
       <div class="cal-detalle-fila"><span>Planificado</span><span class="cal-detalle-num">${detalle.planificado}</span></div>
-      <div class="cal-detalle-fila"><span>Contado</span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
+      ${detalle.planificado? (()=>{ const hechos = Math.max(0, detalle.planificado-(detalle.pendiente||0)); return `<div class="cal-detalle-fila"><span>Avance del plan <span class="hint" style="display:inline">(del plan, ya contados)</span></span><span class="cal-detalle-num">${hechos} <span class="hint" style="display:inline">· ${Math.round(hechos/detalle.planificado*100)}%</span></span></div>`; })() : ''}
+      <div class="cal-detalle-fila"><span>Contado <span class="hint" style="display:inline">(ese día, dentro y fuera del plan)</span></span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
       <div class="cal-detalle-fila"><span>Recontado</span><span class="cal-detalle-num" style="color:var(--steel)">${detalle.recontado}</span></div>
       <div class="cal-detalle-fila"><span>Pendiente</span><span class="cal-detalle-num" style="color:${detalle.pendiente>0?'var(--warn)':'var(--text-dim)'}">${detalle.pendiente}</span></div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
@@ -15522,13 +15565,18 @@ function badgeEstadoMovimiento(e){
 function renderResumenBodegaDashboard(){
   if(!moduloBodegaActivo()) return '';
   const b = state.bodega; const pend = (b.pendientes||[]).length; const ult = b.ultimosMovimientos||[];
+  // Un administrador no puede leer "Sin pendientes" si los pendientes no se cargaron (operador: no
+  // los recibe nunca, sigue igual que antes).
+  const esAdmin = !!(state.perfil && state.perfil.rol==='admin');
+  const titulo = esAdmin && !b.pendientesCargados ? 'Pendientes de aprobación' : (pend ? `${pend} pendiente${pend===1?'':'s'} de aprobación` : 'Sin pendientes de aprobación');
   return `<div class="card" style="margin-bottom:14px${pend?';border-color:var(--amber)':''}">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      <div><span class="eyebrow">Bodega</span><h3 style="margin:0;font-size:15px">${pend ? `${pend} pendiente${pend===1?'':'s'} de aprobación` : 'Sin pendientes de aprobación'}</h3></div>
+      <div><span class="eyebrow">Bodega</span><h3 style="margin:0;font-size:15px">${titulo}</h3></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn btn-secondary" data-ir-vista="movimientos" style="width:auto;padding:6px 12px;font-size:12px">Movimientos</button><button type="button" class="btn btn-secondary" data-ir-vista="stock" style="width:auto;padding:6px 12px;font-size:12px">Stock</button><button type="button" class="btn btn-secondary" data-ir-vista="reportes" style="width:auto;padding:6px 12px;font-size:12px">Reportes</button></div>
     </div>
     ${b.valorizacion ? `<div class="hint" style="margin-bottom:6px">Stock valorizado en <strong>$${Math.round(Number(b.valorizacion.valor_total)||0).toLocaleString('es-CL')}</strong>${Number(b.valorizacion.bajo_minimo)?` · <span style="color:var(--warn)">${b.valorizacion.bajo_minimo} bajo su mínimo</span>`:''}</div>` : ''}
-    ${ult.length ? `<div class="hint" style="margin-bottom:4px">Últimos movimientos</div>${ult.map(m=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:12.5px"><span><span class="mono">${esc(m.numero)}</span> · ${etiquetaTipoMovimiento(m.tipo)} · <span class="mono">${esc(m.sku_code)}</span></span><span class="num" style="white-space:nowrap">${m.tipo==='ajuste'&&m.cantidad>0?'+':''}${m.cantidad} ${esc(m.unidad_medida||'')} ${badgeEstadoMovimiento(m.estado)}</span></div>`).join('')}` : `<div class="hint">${b.ultimosCargados?'Aún no hay movimientos.':'Cargando…'}</div>`}
+    ${ult.length ? `<div class="hint" style="margin-bottom:4px">Últimos movimientos</div>${ult.map(m=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:12.5px"><span><span class="mono">${esc(m.numero)}</span> · ${etiquetaTipoMovimiento(m.tipo)} · <span class="mono">${esc(m.sku_code)}</span></span><span class="num" style="white-space:nowrap">${m.tipo==='ajuste'&&m.cantidad>0?'+':''}${m.cantidad} ${esc(m.unidad_medida||'')} ${badgeEstadoMovimiento(m.estado)}</span></div>`).join('')}` : b.resumenError && !b.ultimosCargados ? '' : `<div class="hint">${b.ultimosCargados?'Aún no hay movimientos.':'Cargando…'}</div>`}
+    ${b.resumenError? `<div class="hint" role="alert" style="color:var(--danger);display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">No se pudo cargar la tarjeta de bodega: ${esc(b.resumenError)} <button type="button" class="btn btn-secondary btn-sm" id="btn-reintentar-resumen-bodega" style="width:auto">Reintentar</button></div>` : ''}
   </div>`;
 }
 
@@ -16370,6 +16418,12 @@ function bind(){
       setState(patch);
       if(btn.dataset.tab==='plan') refrescarPlanSiCorresponde();
     });
+  });
+
+  const btnReintentarResumenBodega = document.getElementById('btn-reintentar-resumen-bodega');
+  if(btnReintentarResumenBodega) btnReintentarResumenBodega.addEventListener('click', ()=>{
+    setState({bodega:{...state.bodega, resumenError:''}});
+    cargarPendientesBodega(); cargarUltimosMovimientosBodega();
   });
 
   document.querySelectorAll('[data-ir-vista]').forEach(btn=>{
@@ -17393,6 +17447,8 @@ function bind(){
     if(btnDescartarLote) btnDescartarLote.addEventListener('click', abrirDescartarLote);
     const btnLimpiarSelReconteo = document.getElementById('btn-limpiar-seleccion-reconteo');
     if(btnLimpiarSelReconteo) btnLimpiarSelReconteo.addEventListener('click', ()=> setState({reconteosSeleccionados:[]}));
+    const btnReintentarReconteos = document.getElementById('btn-reintentar-reconteos');
+    if(btnReintentarReconteos) btnReintentarReconteos.addEventListener('click', ()=>{ setState({reconteosError:''}); cargarReconteos(); });
     const btnCargarMasReconteo = document.getElementById('btn-cargar-mas-reconteo');
     if(btnCargarMasReconteo) btnCargarMasReconteo.addEventListener('click', cargarMasReconteos);
     // Gráfico por semana: tocar una barra filtra la tabla a esa semana (ver elegirSemanaReconteo).

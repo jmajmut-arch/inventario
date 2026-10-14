@@ -180,7 +180,7 @@ en las 14 tablas.
 | `planes` | catálogo de planes de suscripción | ver §11 para los valores reales | `flow_plan_id` (referencia al Plan creado en el dashboard de Flow) |
 | `flow_eventos` | log crudo de todo lo que pasa con Flow (registro de tarjeta, cobros) | | `tipo` (`registro_tarjeta`\|`cobro_suscripcion`), `payload` jsonb |
 | `leads_demo` | leads del formulario del landing ("pedir demo" / "contacto") | | `tipo` (`demo`\|`contacto`) |
-| `auditoria` | trazabilidad de cambios (quién cambió qué) | se purga automático a 14 días (cron) | `tabla` (`usuarios`\|`empresas`\|`conteos`\|`skus`), `accion`, `datos_antes`/`datos_despues` jsonb |
+| `auditoria` | trazabilidad de cambios (quién cambió qué) | se purga automático a 180 días (cron) | `tabla` (`usuarios`\|`empresas`\|`conteos`\|`skus`), `accion`, `datos_antes`/`datos_despues` jsonb |
 
 ### 4.3 Funciones de seguridad (el corazón del multi-tenant)
 
@@ -541,7 +541,7 @@ historial de migraciones (nombradas descriptivamente, ej.
 | `reset-demo-inventia-nocturno` | `0 8 * * *` | `select resetear_demo_inventia();` — resetea la empresa demo pública cada noche (inventario y módulo de bodega: apertura, un ingreso y una salida de ejemplo) |
 | `vencer-suscripciones-canceladas` | `0 7 * * *` | `select vencer_suscripciones_canceladas();` — pasados 31 días desde el último cobro confirmado, marca `vencida` y bloquea acceso igual que `morosa` |
 | `refrescar-clasificacion-abc-nocturno` | `0 7 * * *` | `refresh materialized view concurrently privado.skus_valor_abc_mv` |
-| `purga-auditoria-14-dias` | `0 6 * * *` | `select purgar_auditoria_antigua();` — borra auditoría de más de 14 días (evita bloat) |
+| `purga-auditoria-180-dias` | `0 6 * * *` | `select purgar_auditoria_antigua();` — borra auditoría de más de 180 días (retención desde el 19/09/2026; antes 14 días y con ese nombre) |
 
 ### 4.9 Storage
 

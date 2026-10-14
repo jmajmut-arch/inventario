@@ -8043,7 +8043,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(htmlCorr.includes('data-corregir-conteo="c-ajeno"') && htmlCorr.includes('data-corregir-conteo="c-mio"'), 'el admin ve Editar en todos, obtuvo: '+htmlCorr);
     // Reconteo: mismo botón y misma marca (la vista reconteo_pendiente trae los mismos campos).
     ctx.__appstate.view = 'reconteo';
-    const reconteosAntesCorr = ctx.__appstate.reconteos;
+    const reconteosAntesCorr = ctx.__appstate.reconteos, cargadosAntesCorr = ctx.__appstate.reconteosCargados;
+    ctx.__appstate.reconteosCargados = true;
     ctx.__appstate.reconteos = [{id:'s2', sku_code:'SKU-AJENO', descripcion:'De otro', bodega:'Nave', conteo_id:'c-ajeno', contado_por_id:'op-2', ultima_cantidad_contada:5, ultima_diferencia:-3, diferencia_abs:3, stock_sistema:8, ultimo_conteo_fecha:hoy, capturado_en:hoy, fotos:[], cantidad_original:8, corregido_en:hoy, motivo_correccion:'tecleo', observacion:'', veces_con_diferencia:1, causa_probable:'Sin patrón detectado', ubicacion_distinta:false}];
     const htmlRec = ctx.renderReconteo();
     assert(htmlRec.includes('data-corregir-conteo="c-ajeno"') && htmlRec.includes('data-corregir-cantidad="5"') && htmlRec.includes('corregido · antes 8'), 'Reconteo muestra Editar y la marca de corregido, obtuvo: '+htmlRec);
@@ -8052,6 +8053,27 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const resumenCorreccion = ctx.resumenCambioAuditoria({tabla:'conteos', accion:'UPDATE', datos_antes:{cantidad_contada:12, motivo_correccion:null}, datos_despues:{cantidad_contada:10, motivo_correccion:'mal digitado'}});
     assert(resumenCorreccion==='Cantidad: 12 → 10 · Motivo de corrección: — → mal digitado', 'Auditoría debe mostrar el motivo de la corrección junto al cambio de cantidad, obtuvo: '+resumenCorreccion);
     ctx.__appstate.reconteos = reconteosAntesCorr;
+    ctx.__appstate.reconteosCargados = cargadosAntesCorr;
+    // Bug de la misma clase que Contar (14/10/2026): mientras carga y si el servidor falla,
+    // Reconteo decía "No hay materiales con diferencias pendientes". Ahora dice qué pasa.
+    {
+      const antes = {rows: ctx.__appstate.reconteos, cargados: ctx.__appstate.reconteosCargados, error: ctx.__appstate.reconteosError};
+      Object.assign(ctx.__appstate, {reconteos:[], reconteosCargados:false, reconteosError:''});
+      let h = ctx.renderReconteo();
+      assert(h.includes('Cargando…') && !h.includes('No hay materiales con diferencias pendientes') && h.includes('<span class="eyebrow">…</span>'), 'sin cargar todavía, Reconteo dice "Cargando…", no "no hay pendientes", obtuvo: '+h);
+      const fetchAntesRec = ctx.fetch;
+      ctx.fetch = async (url, opts) => { if(String(url).includes('/reconteo_pendiente?')) return { status:500, ok:false, statusText:'Internal Server Error', headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) }; return fetchAntesRec(url, opts); };
+      await ctx.cargarReconteos();
+      h = ctx.renderReconteo();
+      assert(ctx.__appstate.reconteosError==='canceling statement due to statement timeout' && h.includes('No se pudo cargar la lista de reconteo: canceling statement due to statement timeout') && h.includes('id="btn-reintentar-reconteos"') && !h.includes('No hay materiales con diferencias pendientes') && !h.includes('Cargando…'), 'un error del servidor se ve con su mensaje y "Reintentar", obtuvo: '+h);
+      // Con una lista ya en pantalla, un refresco fallido la conserva y avisa que puede no estar al día.
+      Object.assign(ctx.__appstate, {reconteosCargados:true, reconteos:[{id:'s9', sku_code:'SKU-9', conteo_id:'c-9', ultima_cantidad_contada:1, ultima_diferencia:-1, ultimo_conteo_fecha:'2026-10-01T10:00:00Z', fotos:[]}]});
+      await ctx.cargarReconteos();
+      h = ctx.renderReconteo();
+      assert(h.includes('No se pudo actualizar la lista de reconteo (puede no estar al día)') && h.includes('SKU-9'), 'un refresco fallido conserva la lista y avisa, obtuvo: '+h);
+      ctx.fetch = fetchAntesRec;
+      Object.assign(ctx.__appstate, {reconteos: antes.rows, reconteosCargados: antes.cargados, reconteosError: antes.error});
+    }
     // El botón abre el modal con los datos de la fila (bind global: sirve en Buscar y Reconteo).
     ctx.__appstate.view = 'buscar';
     const btnCorr = makeEl('btn-corregir-prueba');
@@ -9418,6 +9440,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.bodega.ultimosMovimientos = [{id:'u1', numero:'ING-000007', tipo:'ingreso', sku_code:'BOD-001', cantidad:5, unidad_medida:'UN', estado:'aprobado', fecha:'2026-09-08'}];
     const htmlDash = ctx.renderResumenBodegaDashboard();
     assert(htmlDash.includes('2 pendientes de aprobación') && htmlDash.includes('ING-000007') && htmlDash.includes('data-ir-vista="movimientos"') && htmlDash.includes('data-ir-vista="stock"'), 'la tarjeta del Dashboard muestra pendientes, últimos movimientos y accesos, obtuvo: '+htmlDash);
+    // Bug de la misma clase que Contar (14/10/2026): para un administrador la tarjeta decía "Sin
+    // pendientes de aprobación" sin haberlos podido leer, y si fallaba quedaba en "Cargando…".
+    {
+      const bAntes = {...ctx.__appstate.bodega}, rolAntes = ctx.__appstate.perfil.rol;
+      ctx.__appstate.perfil.rol = 'admin';
+      Object.assign(ctx.__appstate.bodega, {pendientes:[], pendientesCargados:false, ultimosMovimientos:[], ultimosCargados:false, resumenError:''});
+      let h = ctx.renderResumenBodegaDashboard();
+      assert(!h.includes('Sin pendientes de aprobación') && h.includes('>Pendientes de aprobación<') && h.includes('Cargando…'), 'sin cargar, el admin no lee "Sin pendientes", obtuvo: '+h);
+      const fetchAntesBod = ctx.fetch;
+      ctx.fetch = async (url, opts) => { if(String(url).includes('/movimientos_bodega_pendientes?')) throw new ctx.__TypeError('Failed to fetch'); return fetchAntesBod(url, opts); };
+      await ctx.cargarPendientesBodega();
+      ctx.fetch = fetchAntesBod;
+      h = ctx.renderResumenBodegaDashboard();
+      assert(ctx.__appstate.bodega.resumenError==='No hay conexión con el servidor.' && h.includes('No se pudo cargar la tarjeta de bodega: No hay conexión con el servidor.') && h.includes('id="btn-reintentar-resumen-bodega"') && !h.includes('Sin pendientes de aprobación'), 'el fallo se ve en la tarjeta con "Reintentar", obtuvo: '+h);
+      await ctx.cargarPendientesBodega();
+      assert(ctx.__appstate.bodega.resumenError==='' && ctx.__appstate.bodega.pendientesCargados===true, 'reintentar con el servidor bien limpia el error, obtuvo: '+JSON.stringify({e:ctx.__appstate.bodega.resumenError, c:ctx.__appstate.bodega.pendientesCargados}));
+      ctx.__appstate.perfil.rol = rolAntes;
+      ctx.__appstate.bodega = bAntes;
+    }
     ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = false;
     assert(ctx.renderResumenBodegaDashboard()==='', 'sin el módulo no hay tarjeta de bodega en el Dashboard');
     ctx.__appstate.perfil.empresas.modulo_bodega_habilitado = true;
@@ -12519,13 +12560,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     if(dCal(-2).slice(0,7)===hoyCal.slice(0,7)) assert(/\bcumplido\b/.test(celda(dCal(-2))), 'un día sin pendientes se marca cumplido, obtuvo: '+celda(dCal(-2)));
     assert(/\bparcial\b/.test(celda(hoyCal)) && /\bes-hoy\b/.test(celda(hoyCal)), 'hoy con algo contado y pendientes se marca parcial y hoy, obtuvo: '+celda(hoyCal));
     if(dCal(1).slice(0,7)===hoyCal.slice(0,7)) assert(/\bfuturo\b/.test(celda(dCal(1))), 'un día por venir se marca futuro, obtuvo: '+celda(dCal(1)));
-    assert(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,400}<span class="cal-dia-plan">30</span>\\s*<span class="cal-dia-bar"><span style="width:33%"></span>').test(htmlCal), 'la celda muestra los planificados y una barra con el avance (10 de 30 = 33%), obtuvo: '+(htmlCal.match(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,500}'))||[''])[0]);
+    assert(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,400}<span class="cal-dia-plan">30</span>\\s*<span class="cal-dia-fila c-contado"><span class="cal-letra">C</span>10</span>\\s*<span class="cal-dia-bar"><span style="width:33%"></span>').test(htmlCal), 'la celda muestra los planificados y una barra con el avance (10 de 30 = 33%), obtuvo: '+(htmlCal.match(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,500}'))||[''])[0]);
     const finDeSemana = (htmlCal.match(/class="cal-dia [^"]*fin-semana[^"]*"/g)||[]).length;
     assert(finDeSemana>=8, 'los sábados y domingos del mes van sombreados (clase fin-semana), obtuvo '+finDeSemana);
     assert(htmlCal.includes('Cumplimiento a hoy') && htmlCal.includes('Días atrasados') && htmlCal.includes('Por venir'), 'la cabecera resume cumplimiento a hoy, días atrasados y lo por venir, obtuvo: '+(htmlCal.match(/<div class="cal-kpis">[\s\S]{0,800}/)||[''])[0]);
-    assert(!htmlCal.includes('>P </span>') && !htmlCal.includes('c-plan'), 'las letras P/C/R salen de la celda (quedan en el detalle del día)');
+    // Pedido de Joel (14/10/2026): la celda vuelve a mostrar contados (C) y recontados (R) bajo los
+    // planificados, como antes del rediseño; solo los que tienen algo (sin "C 0").
+    if(dCal(-2).slice(0,7)===hoyCal.slice(0,7)) assert(new RegExp('data-cal-dia="'+dCal(-2)+'"[\\s\\S]{0,400}<span class="cal-dia-fila c-contado"><span class="cal-letra">C</span>8</span>\\s*<span class="cal-dia-fila c-recontado"><span class="cal-letra">R</span>1</span>').test(htmlCal), 'la celda muestra C y R del día, obtuvo: '+(htmlCal.match(new RegExp('data-cal-dia="'+dCal(-2)+'"[\\s\\S]{0,500}'))||[''])[0]);
+    assert(ctx.cifraCalendario(1234)==='<span class="cal-largo">1.234</span><span class="cal-corto">1,2k</span>' && ctx.cifraCalendario(52)==='52', 'desde mil la cifra trae su forma corta para el celular, obtuvo: '+ctx.cifraCalendario(1234));
+    assert(!/<\/span>0<\/span>/.test(htmlCal) && !htmlCal.includes('c-plan'), 'no se muestran C o R en cero, ni la P vieja (el número grande ya es el planificado)');
+    assert(htmlCal.includes('Número grande: SKU planificados') && htmlCal.includes('recontados · barra: avance del plan'), 'una línea explica qué es cada cifra de la celda');
     ctx.__appstate.calendario = {...ctx.__appstate.calendario, diaSeleccionado: hoyCal};
     const htmlCalDetalle = ctx.renderCalendario();
+    assert(/Avance del plan[\s\S]{0,160}>10 <span class="hint" style="display:inline">· 33%<\/span>/.test(htmlCalDetalle), 'el detalle dice cuántos SKU del plan ya están contados (30 - 20 = 10, 33%), obtuvo: '+(htmlCalDetalle.match(/Avance del plan[\s\S]{0,300}/)||[''])[0]);
+    assert(htmlCalDetalle.includes('Contado <span class="hint" style="display:inline">(ese día, dentro y fuera del plan)</span>'), 'el detalle aclara que Contado incluye lo de fuera del plan');
     assert(htmlCalDetalle.includes('<span class="badge badge-warn">Parcial</span>') && htmlCalDetalle.includes('Detalle del día') && htmlCalDetalle.includes('Recontado'), 'el detalle del día muestra su estado y sigue trayendo P/C/R, obtuvo: '+(htmlCalDetalle.match(/Detalle del día[\s\S]{0,600}/)||[''])[0]);
   }
   ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
