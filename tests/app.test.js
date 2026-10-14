@@ -12519,13 +12519,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     if(dCal(-2).slice(0,7)===hoyCal.slice(0,7)) assert(/\bcumplido\b/.test(celda(dCal(-2))), 'un día sin pendientes se marca cumplido, obtuvo: '+celda(dCal(-2)));
     assert(/\bparcial\b/.test(celda(hoyCal)) && /\bes-hoy\b/.test(celda(hoyCal)), 'hoy con algo contado y pendientes se marca parcial y hoy, obtuvo: '+celda(hoyCal));
     if(dCal(1).slice(0,7)===hoyCal.slice(0,7)) assert(/\bfuturo\b/.test(celda(dCal(1))), 'un día por venir se marca futuro, obtuvo: '+celda(dCal(1)));
-    assert(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,400}<span class="cal-dia-plan">30</span>\\s*<span class="cal-dia-bar"><span style="width:33%"></span>').test(htmlCal), 'la celda muestra los planificados y una barra con el avance (10 de 30 = 33%), obtuvo: '+(htmlCal.match(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,500}'))||[''])[0]);
+    assert(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,400}<span class="cal-dia-plan">30</span>\\s*<span class="cal-dia-fila c-contado"><span class="cal-letra">C</span>10</span>\\s*<span class="cal-dia-bar"><span style="width:33%"></span>').test(htmlCal), 'la celda muestra los planificados y una barra con el avance (10 de 30 = 33%), obtuvo: '+(htmlCal.match(new RegExp('data-cal-dia="'+hoyCal+'"[\\s\\S]{0,500}'))||[''])[0]);
     const finDeSemana = (htmlCal.match(/class="cal-dia [^"]*fin-semana[^"]*"/g)||[]).length;
     assert(finDeSemana>=8, 'los sábados y domingos del mes van sombreados (clase fin-semana), obtuvo '+finDeSemana);
     assert(htmlCal.includes('Cumplimiento a hoy') && htmlCal.includes('Días atrasados') && htmlCal.includes('Por venir'), 'la cabecera resume cumplimiento a hoy, días atrasados y lo por venir, obtuvo: '+(htmlCal.match(/<div class="cal-kpis">[\s\S]{0,800}/)||[''])[0]);
-    assert(!htmlCal.includes('>P </span>') && !htmlCal.includes('c-plan'), 'las letras P/C/R salen de la celda (quedan en el detalle del día)');
+    // Pedido de Joel (14/10/2026): la celda vuelve a mostrar contados (C) y recontados (R) bajo los
+    // planificados, como antes del rediseño; solo los que tienen algo (sin "C 0").
+    if(dCal(-2).slice(0,7)===hoyCal.slice(0,7)) assert(new RegExp('data-cal-dia="'+dCal(-2)+'"[\\s\\S]{0,400}<span class="cal-dia-fila c-contado"><span class="cal-letra">C</span>8</span>\\s*<span class="cal-dia-fila c-recontado"><span class="cal-letra">R</span>1</span>').test(htmlCal), 'la celda muestra C y R del día, obtuvo: '+(htmlCal.match(new RegExp('data-cal-dia="'+dCal(-2)+'"[\\s\\S]{0,500}'))||[''])[0]);
+    assert(ctx.cifraCalendario(1234)==='<span class="cal-largo">1.234</span><span class="cal-corto">1,2k</span>' && ctx.cifraCalendario(52)==='52', 'desde mil la cifra trae su forma corta para el celular, obtuvo: '+ctx.cifraCalendario(1234));
+    assert(!/<\/span>0<\/span>/.test(htmlCal) && !htmlCal.includes('c-plan'), 'no se muestran C o R en cero, ni la P vieja (el número grande ya es el planificado)');
+    assert(htmlCal.includes('Número grande: SKU planificados') && htmlCal.includes('recontados · barra: avance del plan'), 'una línea explica qué es cada cifra de la celda');
     ctx.__appstate.calendario = {...ctx.__appstate.calendario, diaSeleccionado: hoyCal};
     const htmlCalDetalle = ctx.renderCalendario();
+    assert(/Avance del plan[\s\S]{0,160}>10 <span class="hint" style="display:inline">· 33%<\/span>/.test(htmlCalDetalle), 'el detalle dice cuántos SKU del plan ya están contados (30 - 20 = 10, 33%), obtuvo: '+(htmlCalDetalle.match(/Avance del plan[\s\S]{0,300}/)||[''])[0]);
+    assert(htmlCalDetalle.includes('Contado <span class="hint" style="display:inline">(ese día, dentro y fuera del plan)</span>'), 'el detalle aclara que Contado incluye lo de fuera del plan');
     assert(htmlCalDetalle.includes('<span class="badge badge-warn">Parcial</span>') && htmlCalDetalle.includes('Detalle del día') && htmlCalDetalle.includes('Recontado'), 'el detalle del día muestra su estado y sigue trayendo P/C/R, obtuvo: '+(htmlCalDetalle.match(/Detalle del día[\s\S]{0,600}/)||[''])[0]);
   }
   ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };

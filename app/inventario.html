@@ -378,6 +378,14 @@ button.cal-nav-btn{width:auto;padding:8px 12px;flex:none;}
 .cal-dia-plan{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;line-height:1;margin-top:2px;font-variant-numeric:tabular-nums;color:var(--text);}
 .cal-dia.vacio .cal-dia-plan{display:none;}
 .cal-dia.seleccionado .cal-dia-plan{color:var(--on-amber);}
+.cal-claves{margin:-6px 0 12px;font-size:12px;}
+.cal-dia{min-width:0;}
+.cal-dia-fila{white-space:nowrap;}
+.cal-dia-fila .cal-letra{margin-right:.4em;font-weight:700;}
+.cal-corto{display:none;}
+@media (max-width:480px){ .cal-dia-fila{font-size:9px;letter-spacing:-.02em;} .cal-dia-fila .cal-letra{margin-right:1px;} .cal-largo{display:none;} .cal-corto{display:inline;} }
+@media (max-width:380px){ .cal-dia-fila{white-space:normal;} }
+@media (min-width:700px){ .cal-dia-fila{font-size:12px;} .cal-dia{min-height:72px;} }
 .cal-dia-bar{height:4px;background:var(--line);margin-top:auto;border-radius:var(--radius);overflow:hidden;}
 .cal-dia-bar span{display:block;height:100%;background:var(--ok);}
 .cal-dia.parcial .cal-dia-bar span{background:var(--warn);}
@@ -14486,6 +14494,16 @@ function estadoDiaCalendario(d, fecha, hoy){
   return 'futuro';
 }
 
+// Cifra de C/R en una celda del calendario. En el celular la celda deja ~34 px a 420 px de ancho:
+// desde mil se agrega la forma corta ("1,2k"), que el CSS muestra solo en pantallas angostas. La
+// cifra completa sigue en el title de la celda y en el detalle del día.
+function cifraCalendario(n){
+  n = Number(n)||0;
+  const largo = n.toLocaleString('es-CL');
+  if(n < 1000) return largo;
+  return `<span class="cal-largo">${largo}</span><span class="cal-corto">${(n/1000).toLocaleString('es-CL',{maximumFractionDigits:1})}k</span>`;
+}
+
 function renderCalendario(){
   const cal = state.calendario;
   const [y, m] = cal.mes.split('-').map(Number);
@@ -14519,6 +14537,7 @@ function renderCalendario(){
       <span><i style="border-color:var(--danger)"></i>Atrasado</span>
       <span><i style="border-color:var(--line-strong)"></i>Por venir</span>
     </div>
+    <div class="hint cal-claves">Número grande: SKU planificados · <strong style="color:var(--ok)">C</strong> contados · <strong style="color:var(--steel)">R</strong> recontados · barra: avance del plan</div>
     ${cal.cargado && !cal.cargando && cumplimiento.planificado? `
     <div class="cal-kpis">
       <div class="kpi compact"><div class="kpi-label">Cumplimiento a hoy</div><div class="kpi-value">${pct(cumplimiento.pct)}%</div><div class="kpi-sub">${cumplimiento.contados.toLocaleString('es-CL')} de ${cumplimiento.planificado.toLocaleString('es-CL')} SKU del plan</div></div>
@@ -14550,6 +14569,8 @@ function renderCalendario(){
           <button type="button" class="${clases.join(' ')}" data-cal-dia="${fecha}" aria-label="${esc(etiqueta)}" title="${esc(etiqueta)}">
             <span class="cal-dia-num">${Number(fecha.slice(-2))}</span>
             <span class="cal-dia-plan">${d && d.planificado? d.planificado.toLocaleString('es-CL') : ''}</span>
+            ${d && d.contado? `<span class="cal-dia-fila c-contado"><span class="cal-letra">C</span>${cifraCalendario(d.contado)}</span>` : ''}
+            ${d && d.recontado? `<span class="cal-dia-fila c-recontado"><span class="cal-letra">R</span>${cifraCalendario(d.recontado)}</span>` : ''}
             ${d && d.planificado? `<span class="cal-dia-bar"><span style="width:${avancePct}%"></span></span>` : ''}
           </button>`;
         }).join('')}
@@ -14561,7 +14582,8 @@ function renderCalendario(){
     <div class="card">
       ${(()=>{ const e = estadoDiaCalendario(detalle, detalle.fecha, hoy); const txt = {cumplido:['badge-ok','Cumplido'], parcial:['badge-warn','Parcial'], atrasado:['badge-danger','Atrasado'], futuro:['badge-neutral','Por venir'], vacio:['badge-neutral','Sin plan']}[e]; return `<div style="margin-bottom:8px"><span class="badge ${txt[0]}">${txt[1]}</span></div>`; })()}
       <div class="cal-detalle-fila"><span>Planificado</span><span class="cal-detalle-num">${detalle.planificado}</span></div>
-      <div class="cal-detalle-fila"><span>Contado</span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
+      ${detalle.planificado? (()=>{ const hechos = Math.max(0, detalle.planificado-(detalle.pendiente||0)); return `<div class="cal-detalle-fila"><span>Avance del plan <span class="hint" style="display:inline">(del plan, ya contados)</span></span><span class="cal-detalle-num">${hechos} <span class="hint" style="display:inline">· ${Math.round(hechos/detalle.planificado*100)}%</span></span></div>`; })() : ''}
+      <div class="cal-detalle-fila"><span>Contado <span class="hint" style="display:inline">(ese día, dentro y fuera del plan)</span></span><span class="cal-detalle-num" style="color:var(--ok)">${detalle.contado}</span></div>
       <div class="cal-detalle-fila"><span>Recontado</span><span class="cal-detalle-num" style="color:var(--steel)">${detalle.recontado}</span></div>
       <div class="cal-detalle-fila"><span>Pendiente</span><span class="cal-detalle-num" style="color:${detalle.pendiente>0?'var(--warn)':'var(--text-dim)'}">${detalle.pendiente}</span></div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">

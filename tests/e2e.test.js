@@ -1710,6 +1710,8 @@ async function loguear(page, perfil){
       { fecha: mas(-1), planificado:31, contado:0, recontado:0, pendiente:31 },
       { fecha: mas(-2), planificado:8, contado:8, recontado:1, pendiente:0 },
       { fecha: mas(1), planificado:40, contado:0, recontado:0, pendiente:40 },
+      // Cifras grandes (como el 27/10 real de Escondida): tienen que caber en la celda a 420 px.
+      { fecha: mas(2), planificado:1149, contado:1234, recontado:128, pendiente:1149 },
     ].filter(d => d.fecha.slice(0,7) === iso(hoyCal).slice(0,7));
     await page.route('**/rest/v1/rpc/resumen_calendario_mes**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(dias) }));
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
@@ -1736,6 +1738,14 @@ async function loguear(page, perfil){
     }
     const desbordeCal = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeCal <= 0, 'a 420 px el calendario no desborda, obtuvo '+desbordeCal);
+    // C y R vuelven a la celda (14/10/2026): ninguna cifra se sale de su día, ni con miles.
+    const celdasDesbordadas = await page.$$eval('.cal-grid .cal-dia', els => els.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.dataset.calDia));
+    assert(celdasDesbordadas.length === 0, 'a 420 px ninguna celda del calendario se desborda, obtuvo '+JSON.stringify(celdasDesbordadas));
+    if (process.env.E2E_CAPTURAS){
+      await page.screenshot({ path: process.env.E2E_CAPTURAS + '/calendario-420.png', fullPage: true });
+      await page.setViewportSize({ width:1024, height:1300 });
+      await page.screenshot({ path: process.env.E2E_CAPTURAS + '/calendario-1024.png', fullPage: true });
+    }
     await context.close();
   }
 
