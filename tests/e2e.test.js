@@ -139,6 +139,41 @@ async function loguear(page, perfil){
     assert(await page.$('details.dash-detalle:not([open])') !== null, 'el bloque "Detalle" del Panel debe venir plegado');
     await context.close();
   }
+  // ===== Panel: "Estado general de SKU" separa Merma y Excedente (Joel, 14/10/2026) =====
+  // Cambiar la criticidad vuelve a pedir el resumen al servidor: la leyenda tiene que mostrar las
+  // dos porciones nuevas con lo que respondió, y no la "Diferencia" de antes.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('resumen-merma: '+err.message));
+    let cuerpoResumen = null;
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.route('**/rest/v1/rpc/resumen_general_skus_signos**', route => {
+      cuerpoResumen = route.request().postData();
+      route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ total_activo:990, no_contado:888, cuadrado:78, con_diferencia:24, merma:15, excedente:9, pendiente:0 }]) });
+    });
+    await page.evaluate(() => { const d = document.querySelector('details.dash-detalle'); if(d && !d.open) d.querySelector('summary').click(); });
+    await page.waitForSelector('#rg-criticidad', { state:'visible', timeout:ESPERA });
+    await page.selectOption('#rg-criticidad', 'criticos');
+    await page.waitForFunction(() => document.body.innerText.includes('Merma (15)'), null, { timeout:ESPERA });
+    // El bloque "Detalle" se queda abierto al repintar: antes se cerraba solo con cada cambio de
+    // criticidad o de Torta/Barras y el gráfico desaparecía de la vista.
+    assert(await page.$eval('#dash-detalle', el => el.open), 'tras cambiar la criticidad, "Detalle" debe seguir abierto');
+    await page.click('[data-resumen-grafico="barras"]');
+    await page.waitForSelector('.dash-estado-cuerpo rect', { timeout:ESPERA });
+    assert(await page.$eval('#dash-detalle', el => el.open), 'tras pasar a Barras, "Detalle" debe seguir abierto');
+    const leyenda = await page.$eval('.dash-estado-leyenda', el => el.innerText);
+    assert(leyenda.includes('Merma (15)') && leyenda.includes('Excedente (9)') && !leyenda.includes('Diferencia'), 'la leyenda debe mostrar Merma y Excedente en vez de Diferencia, obtuvo: '+leyenda);
+    assert(JSON.parse(cuerpoResumen||'{}').p_criticidad === 'criticos', 'el resumen debe pedirse con la criticidad elegida, obtuvo: '+cuerpoResumen);
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(desborde <= 0, 'a 420 px el Panel no debe desbordar a lo ancho, desborda '+desborde+' px');
+    if(process.env.CAPTURA_RESUMEN) await (await page.$('.dash-estado-cuerpo')).screenshot({ path: process.env.CAPTURA_RESUMEN });
+    // Al cerrarlo a mano queda cerrado aunque la pantalla se repinte.
+    await page.click('#dash-detalle > summary');
+    await page.evaluate(() => render());
+    assert(!(await page.$eval('#dash-detalle', el => el.open)), 'cerrado a mano, "Detalle" debe seguir cerrado tras repintar');
+    await context.close();
+  }
   // ===== Bloqueo por MFA: la cabecera y las pestañas siguen funcionando (Sentry JAVASCRIPT-E) =====
   // Con la MFA obligatoria vigente, un admin sin segundo factor ve el bloqueo en vez de la vista,
   // pero state.view sigue diciendo la vista elegida. bind() la ataba igual y cada toque de la lupa,
@@ -481,7 +516,7 @@ async function loguear(page, perfil){
       else cuerpo.universo = {};
       route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(cuerpo) });
     });
-    await page.route('**/rest/v1/usuarios?activo=eq.true&rol=eq.operador**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{id:'r1', nombre:'Pedro Soto'}, {id:'r2', nombre:'María Rojas'}]) }));
+    await page.route('**/rest/v1/usuarios?activo=eq.true&select=id,nombre,rol**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{id:'r1', nombre:'Pedro Soto', rol:'operador'}, {id:'r2', nombre:'María Rojas', rol:'operador'}]) }));
     await page.route('**/rest/v1/ubicaciones_generales**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', cantidad_skus:40, cantidad_pendiente:30}]) }));
     await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:2600, cantidad_pendiente:2500}]) }));
     // "Todas": 2 bins. Pasillo 3: 1.000 filas, el tope de PostgREST (la lista llega cortada).

@@ -656,8 +656,8 @@ const fakeFetchImpl = async (url, opts) => {
       // El estado del maestro viaja en la misma respuesta, ya filtrado por la criticidad que la
       // pantalla tenga puesta (por eso el mock mira p_criticidad en vez de ignorarlo).
       resumenGeneral: [ cuerpo.p_criticidad
-        ? {total_activo:10, no_contado:6, cuadrado:3, con_diferencia:1, pendiente:0}
-        : (resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, pendiente:2}) ],
+        ? {total_activo:10, no_contado:6, cuadrado:3, con_diferencia:1, merma:1, excedente:0, pendiente:0}
+        : (resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, merma:5, excedente:3, pendiente:2}) ],
       bodega: dashboardBodegaFixture,
     };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(panel) };
@@ -665,8 +665,10 @@ const fakeFetchImpl = async (url, opts) => {
   // Estado general de SKU (Dashboard, ver cargarResumenGeneralSkus/renderResumenGeneralSkus):
   // un count(*) con FILTER agregado, PostgREST lo devuelve como un array de una sola fila (misma
   // forma que ranking_responsable/diferencias_recientes, no un escalar).
-  if(path.startsWith('/rest/v1/rpc/resumen_general_skus')){
-    const filas = [ resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, pendiente:2} ];
+  // Desde el 14/10/2026 la app llama a resumen_general_skus_signos (trae merma y excedente); el
+  // mock no responde a resumen_general_skus a secas, para que volver a la vieja haga fallar la prueba.
+  if(path.startsWith('/rest/v1/rpc/resumen_general_skus_signos')){
+    const filas = [ resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, merma:5, excedente:3, pendiente:2} ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
   if(path.startsWith('/rest/v1/rpc/resumen_calendario_mes')){
@@ -902,16 +904,16 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/usuarios?activo=eq.true&rol=eq.operador&select=')){
-    // cargarResponsables (Planificación → Responsable): las cuentas activas con rol operador,
-    // ya no una lista aparte de "operadores" sin cuenta ni login, ni tampoco los admin.
+  if(path.startsWith('/rest/v1/usuarios?activo=eq.true&select=id,nombre,rol')){
+    // cargarResponsables (Planificación → Responsable): las cuentas activas de la empresa,
+    // operadores y administradores (desde el 14/10/2026), no una lista aparte sin cuenta.
     return {
       status: 200,
       ok: true,
       headers: { get: () => null },
       text: async () => JSON.stringify([
-        {id:'u1', nombre:'Ana Torres'},
-        {id:'u2', nombre:'Joel Majmut'},
+        {id:'u1', nombre:'Ana Torres', rol:'operador'},
+        {id:'u2', nombre:'Joel Majmut', rol:'admin'},
       ]),
     };
   }
@@ -1728,12 +1730,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const binsCall = calls.find(c=>c.url.includes('/ubicaciones_bins') && c.url.includes('bodega=eq.Nave') && c.url.includes('ubicacion=eq.Interior'));
   assert(!!binsCall, 'Debe llamarse a ubicaciones_bins con filtros bodega y ubicacion');
 
-  // cargarResponsables debe poblar state.plan.responsables solo con operadores (no admin).
+  // cargarResponsables: operadores y administradores activos (decisión de Joel, 14/10/2026: en
+  // Escondida el 69% de los conteos los hacen administradores y no podían recibir plan).
   calls.length = 0;
   await ctx.cargarResponsables();
   const responsablesAsignables = ctx.__appstate.plan.responsables;
   assert(Array.isArray(responsablesAsignables) && responsablesAsignables.length===2 && responsablesAsignables[0].nombre==='Ana Torres', 'cargarResponsables debe cargar los responsables activos, obtuvo: '+JSON.stringify(responsablesAsignables));
-  assert(calls.some(c=>c.url.includes('/usuarios') && c.url.includes('rol=eq.operador')), 'cargarResponsables debe filtrar por rol=eq.operador (no ofrecer admins como responsable), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/usuarios?activo=eq.true&select=id,nombre,rol')) && !calls.some(c=>c.url.includes('rol=eq.operador')), 'cargarResponsables ya no filtra por rol: los admins también pueden ser responsables, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.etiquetaResponsable({nombre:'Joel Majmut', rol:'admin'})==='Joel Majmut (admin)' && ctx.etiquetaResponsable({nombre:'Ana Torres', rol:'operador'})==='Ana Torres', 'en los selectores los administradores se distinguen');
+  // Bug real (14/10/2026): una entrada cuyo responsable ya no está entre los asignables caía en
+  // "Sin asignar" en el selector y guardarla borraba el responsable.
+  {
+    const pr = {responsables: responsablesAsignables};
+    // Los desplegables no muestran cuentas desactivadas (decisión de Joel, 14/10/2026), pero
+    // guardar la entrada sin tocar el selector conserva su responsable actual.
+    const conActual = ctx.opcionesResponsableEntrada(pr, {responsable_id:'u-viejo', responsable_nombre:'Pedro Antiguo'});
+    assert(!conActual.includes('u-viejo') && !conActual.includes('Pedro Antiguo') && ctx.responsableFueraDeLista(pr, {responsable_id:'u-viejo'}) && !ctx.responsableFueraDeLista(pr, {responsable_id:'u1'}), 'una cuenta desactivada no aparece en el desplegable, obtuvo: '+conActual);
+    assert(ctx.responsableElegidoEntrada({value:'', dataset:{responsableActual:'u-viejo'}})==='u-viejo', 'sin tocar el selector, guardar conserva al responsable desactivado');
+    assert(ctx.responsableElegidoEntrada({value:'', dataset:{responsableActual:'u-viejo', cambiado:'1'}})==='', 'si la persona elige "Sin asignar" a propósito, se desasigna');
+    assert(ctx.responsableElegidoEntrada({value:'u1', dataset:{responsableActual:'u-viejo', cambiado:'1'}})==='u1', 'si elige a otra persona, se reasigna');
+    assert(ctx.responsableElegidoEntrada({value:'u2', dataset:{}})==='u2', 'sin responsable fuera de lista, vale lo elegido');
+    const admin = ctx.opcionesResponsableEntrada(pr, {responsable_id:'u2', responsable_nombre:'Joel Majmut'});
+    assert(admin.includes('<option value="u2" selected>Joel Majmut (admin)</option>') && !admin.includes('(desactivado)'), 'un admin asignado aparece como tal y elegido, obtuvo: '+admin);
+    assert(ctx.opcionesResponsableEntrada(pr, {responsable_id:null}).startsWith('<option value="">Sin asignar</option><option value="u1" >'), 'sin responsable queda "Sin asignar"');
+  }
 
   // A partir de aquí, las acciones requieren sesión + perfil (con empresa_id) cargados, como en la app real.
   ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
@@ -1755,7 +1775,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlOut.includes('<select id="p-responsable">') && htmlOut.includes('<option value="">Sin asignar</option>'), 'debe existir el select de Responsable con opción "Sin asignar"');
   // Responsable ahora lista directo las cuentas del equipo (usuarios), no una lista aparte de
   // "operadores" sin cuenta ni login.
-  assert(htmlOut.includes('<option value="u1">Ana Torres</option>') && htmlOut.includes('<option value="u2">Joel Majmut</option>'), 'el select de Responsable debe listar las cuentas activas del equipo, obtuvo: '+htmlOut);
+  assert(htmlOut.includes('<option value="u1">Ana Torres</option>') && htmlOut.includes('<option value="u2">Joel Majmut (admin)</option>'), 'el select de Responsable debe listar las cuentas activas del equipo, con los admins marcados, obtuvo: '+htmlOut);
   assert(!htmlOut.includes('form-responsable') && !htmlOut.includes('form-operador'), 'la gestión de operadores ya no debe existir (Responsable usa las cuentas de Configuraciones → Equipo), obtuvo: '+htmlOut);
 
   // La sección "Operadores" (nombres sueltos sin cuenta) ya no debe existir en Configuraciones:
@@ -2777,6 +2797,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlEditando.includes('id="pe-responsable-e1"'), 'el modo edición debe incluir el select de responsable para e1');
   assert(/<option value="u1"[^>]*selected/.test(htmlEditando), 'el responsable actual (u1) debe venir preseleccionado en el modo edición, obtuvo: '+htmlEditando);
   assert(htmlEditando.includes('id="pe-nota-e1"') && htmlEditando.includes('value="Revisar merma"'), 'el modo edición debe precargar la nota de la entrada');
+  assert(!htmlEditando.includes('data-responsable-actual'), 'con un responsable activo no hace falta guardar el actual aparte');
+  // Responsable desactivado (no está en la lista): no se ofrece, pero el <select> lo guarda y una
+  // nota explica que se mantiene (decisión y bug del 14/10/2026).
+  {
+    const e1 = ctx.__appstate.plan.entradas.find(x=>x.id==='e1');
+    const antes = {id:e1.responsable_id, nombre:e1.responsable_nombre};
+    e1.responsable_id = 'u-desactivado'; e1.responsable_nombre = 'Pedro Antiguo';
+    const htmlDesact = ctx.renderPlanificacion();
+    assert(htmlDesact.includes('data-responsable-actual="u-desactivado"') && htmlDesact.includes('Hoy está asignada a Pedro Antiguo, que está desactivada. Se mantiene salvo que elijas a otra persona.') && !/<option value="u-desactivado"/.test(htmlDesact), 'el responsable desactivado no está en el desplegable, pero queda guardado y explicado, obtuvo: '+(htmlDesact.match(/pe-responsable-e1[\s\S]{0,600}/)||[''])[0]);
+    e1.responsable_id = antes.id; e1.responsable_nombre = antes.nombre;
+  }
   assert(htmlEditando.includes('data-guardar-plan="e1"') && htmlEditando.includes('data-cancelar-plan="e1"'), 'el modo edición debe tener botones Guardar y Cancelar');
   ctx.__appstate.plan.editando = null;
 
@@ -3397,10 +3428,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.resumenGeneral = {tipoGrafico:'torta', criticidad:'', datos:null, cargando:false};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
-  const resumenGeneralCall = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
-  assert(!!resumenGeneralCall && resumenGeneralCall.opts.method==='POST', 'cargarResumenGeneralSkus debe llamar al RPC resumen_general_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  const resumenGeneralCall = calls.find(c=>c.url.includes('/rpc/resumen_general_skus_signos'));
+  assert(!!resumenGeneralCall && resumenGeneralCall.opts.method==='POST', 'cargarResumenGeneralSkus debe llamar al RPC resumen_general_skus_signos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const bodyResumenGeneral = JSON.parse(resumenGeneralCall.opts.body);
-  assert(bodyResumenGeneral.p_fecha_desde===null && bodyResumenGeneral.p_fecha_hasta===null, 'sin rango de fechas elegido, el RPC debe recibir ambos límites en null, obtuvo: '+JSON.stringify(bodyResumenGeneral));
+  assert(JSON.stringify(Object.keys(bodyResumenGeneral))==='["p_criticidad"]', 'resumen_general_skus_signos solo recibe p_criticidad (sin fechas), obtuvo: '+JSON.stringify(bodyResumenGeneral));
   assert(!!ctx.__appstate.resumenGeneral.datos && ctx.__appstate.resumenGeneral.datos.total_activo===58716 && ctx.__appstate.resumenGeneral.cargando===false, 'cargarResumenGeneralSkus debe dejar la fila que devuelve el RPC en state.resumenGeneral.datos, obtuvo: '+JSON.stringify(ctx.__appstate.resumenGeneral));
 
   const htmlResumenGeneral = ctx.renderResumenGeneralSkus();
@@ -3436,7 +3467,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.resumenGeneral = {criticidad:'criticos', tipoGrafico:'torta', datos:null, cargando:false};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
-  const rpcCriticos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  const rpcCriticos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus_signos'));
   assert(JSON.parse(rpcCriticos.opts.body).p_criticidad==='criticos', 'con "Solo críticos" elegido, el RPC debe recibir p_criticidad="criticos", obtuvo: '+rpcCriticos.opts.body);
   const htmlCriticos = ctx.renderResumenGeneralSkus();
   assert(htmlCriticos.includes('id="rg-criticidad"') && htmlCriticos.includes('value="criticos" selected'), 'debe mostrar el selector de criticidad con "Solo críticos" seleccionado, obtuvo: '+htmlCriticos);
@@ -3446,7 +3477,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, criticidad:'no_criticos'};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
-  const rpcNoCriticos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  const rpcNoCriticos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus_signos'));
   assert(JSON.parse(rpcNoCriticos.opts.body).p_criticidad==='no_criticos', 'con "Solo no críticos" elegido, el RPC debe recibir p_criticidad="no_criticos", obtuvo: '+rpcNoCriticos.opts.body);
   const htmlNoCriticos = ctx.renderResumenGeneralSkus();
   assert(htmlNoCriticos.includes('id="rg-criticidad"') && htmlNoCriticos.includes('value="no_criticos" selected'), 'debe mostrar "Solo no críticos" seleccionado, obtuvo: '+htmlNoCriticos);
@@ -3456,7 +3487,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, criticidad:''};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
-  const rpcTodos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  const rpcTodos = calls.find(c=>c.url.includes('/rpc/resumen_general_skus_signos'));
   assert(JSON.parse(rpcTodos.opts.body).p_criticidad===null, 'sin criticidad elegida ("Todos"), el RPC debe recibir p_criticidad=null, obtuvo: '+rpcTodos.opts.body);
 
   // El rango de fechas de esta tarjeta se sacó a pedido de Joel ("no funciona parece"): es una
@@ -3467,12 +3498,41 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.resumenGeneral = {tipoGrafico:'torta', criticidad:'', datos:null, cargando:false};
   calls.length = 0;
   await ctx.cargarResumenGeneralSkus();
-  const rpcSinRango = calls.find(c=>c.url.includes('/rpc/resumen_general_skus'));
+  const rpcSinRango = calls.find(c=>c.url.includes('/rpc/resumen_general_skus_signos'));
   const bodySinRango = JSON.parse(rpcSinRango.opts.body);
-  assert(bodySinRango.p_fecha_desde===null && bodySinRango.p_fecha_hasta===null, 'el RPC debe seguir recibiendo los límites de fecha en null (sin rango), obtuvo: '+JSON.stringify(bodySinRango));
+  assert(!('p_fecha_desde' in bodySinRango) && !('p_fecha_hasta' in bodySinRango), 'el RPC ya no recibe límites de fecha, obtuvo: '+JSON.stringify(bodySinRango));
   const htmlSinRango = ctx.renderResumenGeneralSkus();
   assert(!htmlSinRango.includes('id="rg-fecha-desde"') && !htmlSinRango.includes('id="rg-fecha-hasta"') && !htmlSinRango.includes('fuera del rango'), 'la tarjeta ya no debe tener rango de fechas ni avisos de fuera de rango, obtuvo: '+htmlSinRango);
   assert(htmlSinRango.includes('id="rg-criticidad"') && htmlSinRango.includes('data-resumen-grafico="barras"'), 'la tarjeta debe conservar el filtro de criticidad y el tipo de gráfico, obtuvo: '+htmlSinRango);
+
+  // ===== Merma y Excedente en vez de "Diferencia" (Joel, 14/10/2026: "en vez de diferencia,
+  // incorporar mermas y diferencias"). Merma = se contó menos que el sistema; Excedente = más.
+  // Suman lo mismo que con_diferencia. Si el servidor no trae el signo (null: operador con conteo
+  // ciego), queda "Diferencia" como antes. =====
+  resumenGeneralSkusFixture = {total_activo:63964, no_contado:63223, cuadrado:413, con_diferencia:328, merma:202, excedente:126, pendiente:0};
+  ctx.__appstate.resumenGeneral = {tipoGrafico:'torta', criticidad:'', datos:null, cargando:false};
+  await ctx.cargarResumenGeneralSkus();
+  const htmlSignos = ctx.renderResumenGeneralSkus();
+  assert(htmlSignos.includes('Merma (202)') && htmlSignos.includes('Excedente (126)'), 'con merma y excedente del servidor, la leyenda debe mostrarlos por separado, obtuvo: '+htmlSignos);
+  assert(!htmlSignos.includes('Diferencia ('), 'con el signo disponible no debe quedar la porción "Diferencia" junto a Merma y Excedente, obtuvo: '+htmlSignos);
+  assert(htmlSignos.includes('No contado (63.223)') && htmlSignos.includes('Cuadrado (413)') && htmlSignos.includes('Pendiente (0)'), 'el resto del desglose no cambia, obtuvo: '+htmlSignos);
+  assert(htmlSignos.includes('var(--danger)') && htmlSignos.includes('var(--warn)'), 'Merma va en rojo (danger) y Excedente en amarillo (warn), como en el PDF, obtuvo: '+htmlSignos);
+  assert(htmlSignos.includes('Merma: se contó menos'), 'el ícono "i" debe explicar qué es merma y qué es excedente, obtuvo: '+htmlSignos);
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, tipoGrafico:'barras'};
+  const htmlSignosBarras = ctx.renderResumenGeneralSkus();
+  assert(htmlSignosBarras.includes('<rect') && htmlSignosBarras.includes('Merma (202)') && htmlSignosBarras.includes('Excedente (126)'), 'en barras también deben aparecer Merma y Excedente, obtuvo: '+htmlSignosBarras);
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, tipoGrafico:'torta'};
+  // Operador con conteo ciego (o servidor que devuelve el signo en null): una sola "Diferencia".
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, datos:{...resumenGeneralSkusFixture, merma:null, excedente:null}};
+  const htmlSinSigno = ctx.renderResumenGeneralSkus();
+  assert(htmlSinSigno.includes('Diferencia (328)') && !htmlSinSigno.includes('Merma (') && !htmlSinSigno.includes('Excedente ('), 'sin signo del servidor debe quedar "Diferencia" con el total, obtuvo: '+htmlSinSigno);
+  const perfilAntesCiego = ctx.__appstate.perfil;
+  ctx.__appstate.perfil = {...(perfilAntesCiego||{}), rol:'operador', empresas:{...((perfilAntesCiego&&perfilAntesCiego.empresas)||{}), conteo_ciego_habilitado:true}};
+  ctx.__appstate.resumenGeneral = {...ctx.__appstate.resumenGeneral, datos:{...resumenGeneralSkusFixture}};
+  const htmlCiego = ctx.renderResumenGeneralSkus();
+  assert(htmlCiego.includes('Diferencia (328)') && !htmlCiego.includes('Merma (') && !htmlCiego.includes('Excedente ('), 'con conteo ciego, un operador no debe ver el signo de las diferencias, obtuvo: '+htmlCiego);
+  ctx.__appstate.perfil = perfilAntesCiego;
+
   resumenGeneralSkusFixture = null;
   ctx.__appstate.resumenGeneral = {tipoGrafico:'torta', criticidad:'', datos:null, cargando:false};
 
@@ -4401,7 +4461,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Escondida quedaron asignadas a una operadora de Demo InventIA.
   calls.length = 0;
   await ctx.cargarResponsables();
-  assert(calls.some(c=>c.url.includes('/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre&empresa_id=eq.emp-1')), 'cargarResponsables debe pedir solo operadores de la empresa propia, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/usuarios')).map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/usuarios?activo=eq.true&select=id,nombre,rol&empresa_id=eq.emp-1')), 'cargarResponsables debe pedir solo cuentas de la empresa propia, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/usuarios')).map(c=>c.url)));
 
   // Bug real (mismo patrón que Contar/cargarPlanDeHoy): si el pedido falla, cargarEquipo NO debe
   // marcar cargado:true -- si no, un corte de red justo al entrar a Configuraciones deja "Mi
@@ -11985,7 +12045,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.view = 'buscar';
     ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, texto:'', bodega:'', ubicacion:'', usuarioId:null, usuarioNombre:null};
     let htmlPersonas = ctx.renderBuscar();
-    assert(htmlPersonas.includes('<select id="b-usuario"') && htmlPersonas.includes('>Beto Ríos<') && htmlPersonas.includes('>Marta Soto (inactivo)<'), '"Contado por" debe listar a todas las personas, marcando las inactivas, obtuvo: '+htmlPersonas);
+    // Decisión de Joel (14/10/2026): los desplegables no muestran cuentas desactivadas.
+    assert(htmlPersonas.includes('<select id="b-usuario"') && htmlPersonas.includes('>Beto Ríos<') && !htmlPersonas.includes('Marta Soto'), '"Contado por" lista solo a las personas activas, obtuvo: '+htmlPersonas);
     // Si el filtro llega desde Calendario antes de que cargue la lista, la persona elegida se ve igual.
     ctx.__appstate.personasBuscar = {cargado:false, cargando:true, filas:[], error:null};
     ctx.__appstate.busqueda.usuarioId = 'op-nasib'; ctx.__appstate.busqueda.usuarioNombre = 'Nasib V2';

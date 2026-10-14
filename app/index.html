@@ -1073,6 +1073,7 @@ let state = {
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
+  dashDetalleAbierto: false, // "Detalle" del Panel: nace plegado y se queda como la persona lo dejó (ver render())
   dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 15 filas por página
   dashDesactualizado: false, // false | true (cambiaron los datos y se está recalculando) | 'error' (no se pudo recalcular); ver refrescarSiCargada
   // Filtro de período para la sección "Adherencia al plan" del Dashboard: '' = período
@@ -2543,7 +2544,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -3249,12 +3250,33 @@ function resumenSeleccionPlan(p, ids){
   });
   return {skus, bins: bins.size, sinBin};
 }
-// Personas para el filtro: el equipo asignable y cualquier otro responsable que aparezca en las
-// entradas cargadas (alguien desactivado o de un plan antiguo), por nombre.
+// Nombre de un responsable en los selectores del plan: los administradores se distinguen.
+function etiquetaResponsable(u){
+  return `${u.nombre}${u.rol==='admin' ? ' (admin)' : ''}`;
+}
+// Selector de responsable de UNA entrada. Los desplegables no muestran cuentas desactivadas
+// (decisión de Joel, 14/10/2026). Si el responsable actual es una de ellas, no se ofrece, pero
+// tampoco se pierde: el <select> lo guarda en data-responsable-actual y, mientras la persona no
+// elija otro, guardar lo conserva (ver responsableElegidoEntrada). Bug real del mismo día: el
+// selector caía en "Sin asignar" y guardar -- aunque solo se cambiara la fecha -- lo borraba.
+function responsableFueraDeLista(p, e){
+  return !!(e.responsable_id && !(p.responsables || []).some(u=>u.id===e.responsable_id));
+}
+function opcionesResponsableEntrada(p, e){
+  const lista = p.responsables || [];
+  return `<option value="">Sin asignar</option>`
+    + lista.map(u=>`<option value="${esc(u.id)}" ${u.id===e.responsable_id?'selected':''}>${esc(etiquetaResponsable(u))}</option>`).join('');
+}
+function responsableElegidoEntrada(select){
+  if(!select) return '';
+  if(select.value==='' && select.dataset.responsableActual && select.dataset.cambiado!=='1') return select.dataset.responsableActual;
+  return select.value;
+}
+// Personas para el filtro por responsable: solo las cuentas activas asignables, por nombre. Los
+// desplegables no muestran cuentas desactivadas (decisión de Joel, 14/10/2026); sus entradas
+// siguen en la lista y se pueden reasignar.
 function opcionesResponsablePlan(p){
-  const m = new Map((p.responsables||[]).map(u=>[u.id, u.nombre]));
-  (p.entradas||[]).forEach(e=>{ if(e.responsable_id && !m.has(e.responsable_id)) m.set(e.responsable_id, e.responsable_nombre || 'Sin nombre'); });
-  return Array.from(m.entries()).sort((a,b)=> a[1].localeCompare(b[1], 'es'));
+  return (p.responsables||[]).map(u=>[u.id, u.nombre]).sort((a,b)=> a[1].localeCompare(b[1], 'es'));
 }
 
 // Hasta esta cantidad de entradas, las vistas resumidas se listan abiertas como siempre; por
@@ -3544,14 +3566,15 @@ async function excluirSkuDePlan(planId, skuCode){
 // lista aparte: así queda un solo lugar para gestionar personas (Configuraciones → Equipo).
 async function cargarResponsables(){
   try{
-    // Solo operadores: quien planifica es admin, pero el responsable de contar en terreno
-    // (a quien "Contar" le muestra su plan del día) es siempre un operador, no un admin.
+    // Operadores y administradores activos (decisión de Joel, 14/10/2026): hasta entonces solo
+    // operadores, pero en Escondida el 69% de los conteos los hacen administradores y no podían
+    // recibir plan. Contar le muestra a cada cuenta lo asignado a ella, sea cual sea su rol.
     // Siempre de la empresa propia: un súper admin puede leer usuarios de todas las empresas
     // (read_usuarios) y sin este filtro le aparecían operadores ajenos como responsables -- bug
     // real: 5 entradas de Escondida quedaron asignadas a una operadora de Demo InventIA. La base
     // ahora también lo rechaza (trigger validar_responsable_misma_empresa).
     const empresaFiltro = state.perfil && state.perfil.empresa_id ? `&empresa_id=eq.${encodeURIComponent(state.perfil.empresa_id)}` : '';
-    const rows = await rest(`/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre${empresaFiltro}&order=nombre.asc`);
+    const rows = await rest(`/usuarios?activo=eq.true&select=id,nombre,rol${empresaFiltro}&order=nombre.asc`);
     setState({plan: {...state.plan, responsables: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -5591,8 +5614,8 @@ async function cargarOpcionesGenerales(forzar){
   }catch(e){ toast(e.message,'err'); }
 }
 
-// Buscar: desplegable "Contado por" (pedido de Joel) con las personas de la empresa, activas o
-// no -- alguien desactivado sigue teniendo conteos que vale la pena encontrar. Es la misma
+// Buscar: desplegable "Contado por" (pedido de Joel) con las personas activas de la empresa (los
+// desactivados no se muestran desde el 14/10/2026, ver htmlOpcionesPersonaBuscar). Es la misma
 // consulta de "Mi equipo" (cargarEquipo la comparte). El filtro ya existía para el salto desde
 // Calendario (usuarioId, server-side: contado_por_id / p_usuario_id); esto solo lo pone en el
 // formulario. Sin setState/render(), por la misma razón que cargarUbicacionesLista.
@@ -5611,13 +5634,14 @@ async function cargarPersonasBuscar(){
 }
 function htmlOpcionesPersonaBuscar(elegidaId){
   const b = state.busqueda;
-  const filas = state.personasBuscar.filas || [];
+  // Solo cuentas activas (decisión de Joel, 14/10/2026: un desplegable no muestra desactivados).
+  const filas = (state.personasBuscar.filas || []).filter(u=>u.activo!==false);
   // Si el filtro llegó desde Calendario antes de que cargara la lista, la persona elegida se
   // muestra igual, con el nombre que ya trae el estado.
   const faltaElegida = elegidaId && !filas.some(u=>u.id===elegidaId);
   return `<option value="">Todas</option>`
     + (faltaElegida ? `<option value="${esc(elegidaId)}" selected>${esc(b.usuarioNombre||'Esta cuenta')}</option>` : '')
-    + filas.map(u=>`<option value="${esc(u.id)}" ${elegidaId===u.id?'selected':''}>${esc(u.nombre)}${u.activo===false?' (inactivo)':''}</option>`).join('');
+    + filas.map(u=>`<option value="${esc(u.id)}" ${elegidaId===u.id?'selected':''}>${esc(u.nombre)}</option>`).join('');
 }
 function textoAvisoPersonasBuscar(pb){
   if(pb.error) return `No se pudo cargar la lista de personas: ${esc(pb.error)}`;
@@ -5902,13 +5926,13 @@ async function cargarDashboard(){
   }
 }
 
-// Parámetros para el RPC resumen_general_skus. El rango de fechas se sacó a pedido de Joel: es
-// una foto del maestro completo (último conteo de cada SKU) y, con el 99,8 % de los SKU nunca
+// Parámetros para el RPC resumen_general_skus_signos. El rango de fechas se sacó a pedido de Joel:
+// es una foto del maestro completo (último conteo de cada SKU) y, con el 99,8 % de los SKU nunca
 // contados, filtrar por cuándo fue ese último conteo no cambiaba nada visible y confundía ("no
-// funciona"). Para "qué se contó entre tales fechas" está Buscar. El RPC conserva sus parámetros
-// de fecha (en null) por compatibilidad.
+// funciona"). Para "qué se contó entre tales fechas" está Buscar. resumen_general_skus (con sus
+// fechas) sigue en la base para las versiones de la app que aún la llamen.
 function parametrosResumenGeneralSkus(){
-  return { p_fecha_desde: null, p_fecha_hasta: null, p_criticidad: state.resumenGeneral.criticidad || null };
+  return { p_criticidad: state.resumenGeneral.criticidad || null };
 }
 
 // Estado general del maestro completo de SKU (Dashboard) -- independiente de cargarDashboard
@@ -5917,7 +5941,7 @@ function parametrosResumenGeneralSkus(){
 async function cargarResumenGeneralSkus(){
   setState({resumenGeneral: {...state.resumenGeneral, cargando:true}});
   try{
-    const filas = await rest('/rpc/resumen_general_skus', {method:'POST', body: parametrosResumenGeneralSkus()});
+    const filas = await rest('/rpc/resumen_general_skus_signos', {method:'POST', body: parametrosResumenGeneralSkus()});
     setState({resumenGeneral: {...state.resumenGeneral, datos: (filas&&filas[0])||null, cargando:false}});
   }catch(e){
     setState({resumenGeneral: {...state.resumenGeneral, cargando:false}});
@@ -10611,7 +10635,7 @@ function etiquetaEjeDosLineas(texto, x, y){
 // "No contado" y "Pendiente" no tienen badge de color propio en la tabla (ambas son
 // badge-neutral), así que acá se distinguen con gris y azul para que las 4 barras se
 // diferencien a simple vista.
-const COLOR_RESUMEN_ESTADO_BUSQUEDA = { 'No contado':'var(--text-faint)', 'Cuadrado':'var(--ok)', 'Diferencia':'var(--warn)', 'Diferencia positiva':'var(--warn)', 'Diferencia negativa':'var(--danger)', 'Pendiente':'var(--steel)' };
+const COLOR_RESUMEN_ESTADO_BUSQUEDA = { 'No contado':'var(--text-faint)', 'Cuadrado':'var(--ok)', 'Diferencia':'var(--warn)', 'Diferencia positiva':'var(--warn)', 'Diferencia negativa':'var(--danger)', 'Merma':'var(--danger)', 'Excedente':'var(--warn)', 'Pendiente':'var(--steel)' };
 
 // Grupo del gráfico "Resumen por estado" para un resultado de Buscar (ver renderBuscar) -- misma
 // lógica que estadoBadge para decidir en qué grupo cae cada fila, así el gráfico nunca contradice
@@ -11714,7 +11738,7 @@ function renderInformeEjecutivo({impresion=false, detalleExtra=''}={}){
 
   const bloqueDetalle = impresion
     ? `<div class="dash-banda"><h2>Detalle</h2><span class="dash-banda-linea"></span></div>${detalle}`
-    : `<details class="dash-detalle" id="dash-detalle">
+    : `<details class="dash-detalle" id="dash-detalle"${state.dashDetalleAbierto? ' open' : ''}>
         <summary><span>Detalle</span><span class="dash-detalle-sub">Estado del maestro, exactitud, adherencia por bodega, valorización, ABC, proyección y actividad reciente</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></summary>
         <div style="padding-top:4px">${detalle}</div>
       </details>`;
@@ -11945,10 +11969,16 @@ function renderDashboard(){
 function renderResumenGeneralSkus(){
   const g = state.resumenGeneral;
   const d = g.datos;
+  // "Diferencia" se separa en Merma (se contó menos de lo que dice el sistema) y Excedente (se
+  // contó más), a pedido de Joel. Si el servidor no trae el signo (merma/excedente en null: conteo
+  // ciego para un operador, o el resumen viejo), queda una sola porción "Diferencia" como antes.
+  const conSigno = !!d && d.merma!=null && d.excedente!=null && !ocultarStockOperador();
   const datosGrafico = d? [
     {dia:'No contado', n:d.no_contado},
     {dia:'Cuadrado', n:d.cuadrado},
-    {dia:'Diferencia', n:d.con_diferencia},
+    ...(conSigno
+      ? [{dia:'Merma', n:d.merma}, {dia:'Excedente', n:d.excedente}]
+      : [{dia:'Diferencia', n:d.con_diferencia}]),
     {dia:'Pendiente', n:d.pendiente},
   ] : [];
   const etiquetaGrupo = g.criticidad==='criticos' ? 'SKU críticos'
@@ -11956,7 +11986,7 @@ function renderResumenGeneralSkus(){
     : 'SKU activos';
 
   return `
-    <div class="section-head"><div><span class="eyebrow">Todo el maestro</span><h2 style="font-size:17px">Estado general de SKU ${campoConInfo('Sobre TODOS los SKU activos, sin importar el ciclo o período (a diferencia del resumen de avance por plan, más abajo, que solo mira lo elegido), según el último conteo de cada uno.')}</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Todo el maestro</span><h2 style="font-size:17px">Estado general de SKU ${campoConInfo('Sobre TODOS los SKU activos, sin importar el ciclo o período (a diferencia del resumen de avance por plan, más abajo, que solo mira lo elegido), según el último conteo de cada uno. Merma: se contó menos de lo que dice el sistema (falta). Excedente: se contó más (sobra).')}</h2></div></div>
     <div class="card">
       <div class="dash-estado-controles">
         <div style="flex:1;min-width:150px">
@@ -13726,10 +13756,10 @@ function renderPlanificacion(){
             <label for="pe-fecha-${e.id}">Fecha</label>
             <input type="date" id="pe-fecha-${e.id}" value="${e.fecha}">
             <label for="pe-responsable-${e.id}">Responsable</label>
-            <select id="pe-responsable-${e.id}">
-              <option value="">Sin asignar</option>
-              ${p.responsables.map(u=>`<option value="${esc(u.id)}" ${u.id===e.responsable_id?'selected':''}>${esc(u.nombre)}</option>`).join('')}
+            <select id="pe-responsable-${e.id}"${responsableFueraDeLista(p, e) ? ` data-responsable-actual="${esc(e.responsable_id)}"` : ''}>
+              ${opcionesResponsableEntrada(p, e)}
             </select>
+            ${responsableFueraDeLista(p, e) ? `<div class="hint" style="margin-top:4px">Hoy está asignada a ${esc(e.responsable_nombre || 'una cuenta')}, que está desactivada. Se mantiene salvo que elijas a otra persona.</div>` : ''}
             <label for="pe-nota-${e.id}">Nota</label>
             <input type="text" id="pe-nota-${e.id}" value="${esc(e.nota||'')}" placeholder="Opcional">
             <div style="display:flex;gap:8px;margin-top:12px">
@@ -13944,7 +13974,7 @@ function renderPlanificacion(){
         <label for="p-responsable">Responsable</label>
         <select id="p-responsable">
           <option value="">Sin asignar</option>
-          ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+          ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(etiquetaResponsable(u))}</option>`).join('')}
         </select>
         ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Invita a alguien de tu equipo desde Configuraciones para poder asignarlo aquí.</div>` : ''}
         <label for="p-nota">Nota</label>
@@ -13972,7 +14002,7 @@ function renderPlanificacion(){
             <select id="plan-reasignar-select" style="width:auto">
               <option value="__elegir__" selected>Reasignar a…</option>
               <option value="">Sin asignar</option>
-              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(etiquetaResponsable(u))}</option>`).join('')}
             </select>
             <button class="btn btn-secondary" id="btn-reasignar-seleccion-plan" style="width:auto;padding:8px 12px">Reasignar</button>
             <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>
@@ -16214,6 +16244,10 @@ function render(){
   // evento toggle: ese llega en una tarea aparte y un repintado puede adelantarse (pasó en CI).
   const cambiarEl = document.getElementById('contar-cambiar');
   if(cambiarEl && typeof cambiarEl.open === 'boolean') state.contarPlan.cambiarAbierto = cambiarEl.open;
+  // Lo mismo con "Detalle" del Panel (14/10/2026): cambiar la criticidad o Torta/Barras del Estado
+  // general de SKU repintaba la pantalla y el bloque se cerraba solo, justo encima de lo que se miraba.
+  const dashDetalleEl = document.getElementById('dash-detalle');
+  if(dashDetalleEl && typeof dashDetalleEl.open === 'boolean') state.dashDetalleAbierto = dashDetalleEl.open;
   const antes = document.activeElement;
   const idEnfocado = antes && antes.id ? antes.id : null;
   let posCursor = null;
@@ -17191,7 +17225,7 @@ function bind(){
     if(btnExportarInforme) btnExportarInforme.addEventListener('click', imprimirInformeCiclo);
     // Estado general de SKU (ver renderResumenGeneralSkus): el tipo de gráfico es puramente
     // client-side (no vuelve a pedir datos); la criticidad sí, porque cambia el filtro que ve el
-    // RPC resumen_general_skus.
+    // RPC resumen_general_skus_signos.
     document.querySelectorAll('[data-resumen-grafico]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({resumenGeneral: {...state.resumenGeneral, tipoGrafico: btn.dataset.resumenGrafico}}));
     });
@@ -18436,12 +18470,15 @@ function bind(){
     document.querySelectorAll('[data-cancelar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({plan:{...state.plan, editando: null}}));
     });
+    document.querySelectorAll('select[data-responsable-actual]').forEach(sel=>{
+      sel.addEventListener('change', ()=>{ sel.dataset.cambiado = '1'; });
+    });
     document.querySelectorAll('[data-guardar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id = btn.dataset.guardarPlan;
         actualizarPlanEntrada(id, {
           fecha: document.getElementById(`pe-fecha-${id}`).value,
-          responsableId: document.getElementById(`pe-responsable-${id}`).value,
+          responsableId: responsableElegidoEntrada(document.getElementById(`pe-responsable-${id}`)),
           nota: document.getElementById(`pe-nota-${id}`).value.trim(),
         });
       });

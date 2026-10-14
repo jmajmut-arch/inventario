@@ -258,3 +258,25 @@ test('la auditoría se guarda 45 días (decisión de Joel, 14/10/2026)', () => {
   assert.equal(cronNuevo, 'purga-auditoria-45-dias', 'el proceso nocturno de purga tiene que llamarse por su retención');
   assert.notEqual(cronQuitado, cronNuevo, 'la última migración no puede quitar el proceso de purga vigente');
 });
+
+test('el Estado general de SKU separa merma y excedente, sin mostrar el signo en conteo ciego', () => {
+  // Joel, 14/10/2026: la porción "Diferencia" del Panel pasó a Merma y Excedente. La app llama a
+  // resumen_general_skus_signos y el Dashboard la lee desde privado.dashboard_ejecutivo_calculo;
+  // si alguno de los dos vuelve a la función vieja, el gráfico cae a "Diferencia" sin avisar.
+  const html = fs.readFileSync(path.join(RAIZ, 'app', 'index.html'), 'utf8');
+  assert.match(html, /rest\('\/rpc\/resumen_general_skus_signos'/, 'la app tiene que pedir el resumen con merma y excedente');
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let signos = null, calculo = null, archivoCalculo = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const s = /create\s+(?:or\s+replace\s+)?function\s+public\.resumen_general_skus_signos\s*\([\s\S]*?\$\$[\s\S]*?\$\$/i.exec(sql);
+    if (s) signos = s[0];
+    const c = /create\s+(?:or\s+replace\s+)?function\s+privado\.dashboard_ejecutivo_calculo\s*\([\s\S]*?\$function\$[\s\S]*?\$function\$/i.exec(sql);
+    if (c) { calculo = c[0]; archivoCalculo = archivo; }
+  }
+  assert.ok(signos, 'no se encontró public.resumen_general_skus_signos en las migraciones');
+  assert.match(signos, /merma\s+bigint[\s\S]*excedente\s+bigint/i, 'resumen_general_skus_signos tiene que devolver merma y excedente');
+  assert.match(signos, /debe_ocultar_stock_operador\(\)/, 'con conteo ciego, un operador no puede recibir el signo de las diferencias');
+  assert.ok(calculo, 'no se encontró privado.dashboard_ejecutivo_calculo en las migraciones');
+  assert.match(calculo, /'resumenGeneral'[\s\S]*?resumen_general_skus_signos\(\s*p_criticidad\s*\)/, `${archivoCalculo}: el Dashboard tiene que traer el resumen con merma y excedente`);
+});
