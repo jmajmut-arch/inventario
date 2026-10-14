@@ -280,3 +280,21 @@ test('el Estado general de SKU separa merma y excedente, sin mostrar el signo en
   assert.ok(calculo, 'no se encontró privado.dashboard_ejecutivo_calculo en las migraciones');
   assert.match(calculo, /'resumenGeneral'[\s\S]*?resumen_general_skus_signos\(\s*p_criticidad\s*\)/, `${archivoCalculo}: el Dashboard tiene que traer el resumen con merma y excedente`);
 });
+
+test('las fotos de Buscar numeran sus conteos dentro del período, como el resto de la app', () => {
+  // Joel, 14/10/2026: Buscar marcaba como "Reconteo" fotos de un conteo. skus_busqueda numeraba
+  // los conteos de cada material sumando todos los períodos, así que el primer conteo de un
+  // período salía como "Reconteo 1" si el material ya se había contado en uno anterior (12 fotos en
+  // Escondida). Reconteo, el Panel y el Calendario numeran por período (sku + ciclo).
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let def = null, archivoDef = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const m = /create\s+(?:or\s+replace\s+)?view\s+public\.skus_busqueda\b[\s\S]*?;/i.exec(sql);
+    if (m) { def = m[0]; archivoDef = archivo; }
+  }
+  assert.ok(def, 'no se encontró la definición de public.skus_busqueda en las migraciones');
+  assert.match(def, /security_invoker\s*=\s*true/i, `${archivoDef}: skus_busqueda tiene que seguir con security_invoker (RLS de quien consulta)`);
+  assert.match(def, /row_number\(\)\s+over\s*\(\s*partition\s+by\s+c\.ciclo_id\s+order\s+by\s+c\.fecha_conteo\s*\)\s+as\s+numero_conteo/i,
+    `${archivoDef}: el número de conteo de cada foto tiene que contarse dentro del período (partition by ciclo_id)`);
+});
