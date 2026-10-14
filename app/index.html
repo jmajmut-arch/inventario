@@ -9986,13 +9986,39 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
 // calzan, no solo la primera: el mismo código puede existir en más de una bodega (cada
 // bodega es su propia fila de SKU) y quien llama decide qué hacer si hay más de un
 // resultado. Función pura para poder testearla sin cámara real.
-function resolverSkusPorCodigo(skus, codigo){
+// Formas en que puede venir escrito un mismo código leído: tal cual, en mayúsculas y, si es solo
+// dígitos con ceros a la izquierda, sin esos ceros (las etiquetas de SAP suelen imprimir el número
+// de material relleno a 18 dígitos: 000000000010475828 es el material 10475828).
+function variantesCodigoEscaneado(codigo){
   const c = (codigo||'').trim();
   if(!c) return [];
-  const cLower = c.toLowerCase();
-  const porCodigo = skus.filter(s=> (s.sku_code||'').toLowerCase() === cLower);
+  const vs = [c, c.toUpperCase()];
+  if(/^\d+$/.test(c) && c.length > 1 && c[0]==='0') vs.push(c.replace(/^0+(?=\d)/, ''));
+  return [...new Set(vs)];
+}
+
+function resolverSkusPorCodigo(skus, codigo){
+  const vs = new Set(variantesCodigoEscaneado(codigo).map(v=>v.toLowerCase()));
+  if(!vs.size) return [];
+  const porCodigo = skus.filter(s=> vs.has((s.sku_code||'').toLowerCase()));
   if(porCodigo.length) return porCodigo;
-  return skus.filter(s=> (s.codigo_barras||'').toLowerCase() === cLower);
+  return skus.filter(s=> vs.has((s.codigo_barras||'').toLowerCase()));
+}
+
+// Bug real (revisión del 14/10/2026): el escáner buscaba el código leído solo en state.skus, que
+// trae los primeros 500 materiales por orden de código. En Escondida (63.889 activos) eso es el
+// 0,8%: casi cualquier etiqueta salía "Código no encontrado", y la búsqueda para asociarlo miraba
+// los mismos 500. Ahora se pregunta al servidor por el maestro completo, por código o por código
+// de barras asociado: una consulta por igualdad que usa los dos índices únicos (12 ms medidos en
+// Escondida con RLS). Lo que vuelve se filtra con resolverSkusPorCodigo, que mantiene la regla de
+// siempre: primero el código del SKU, después el código de barras.
+const CAMPOS_SKU_ESCANEO = 'id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,codigo_barras,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor';
+async function buscarSkusPorCodigoEscaneado(codigo){
+  const vs = variantesCodigoEscaneado(codigo);
+  if(!vs.length) return [];
+  const lista = vs.map(v=> encodeURIComponent('"'+v.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"')).join(',');
+  const rows = await rest(`/skus_lectura?select=${CAMPOS_SKU_ESCANEO}&activo=eq.true&or=(sku_code.in.(${lista}),codigo_barras.in.(${lista}))&order=sku_code.asc,bodega.asc&limit=50`) || [];
+  return resolverSkusPorCodigo(rows, codigo);
 }
 
 // Un SKU escaneado se marca como "del plan" si está en la lista de pendientes que se ve ahora
@@ -10130,7 +10156,21 @@ async function onCodigoEscaneado(codigo){
     revisarCodigoSkuExistente(codigo);
     return;
   }
-  const coincidencias = resolverSkusPorCodigo(state.skus, codigo);
+  // Mientras pregunta al servidor, el modal dice qué código leyó (una sola consulta, ~0,1 s).
+  setState({escanerModal: { codigo, buscando:true, destino }});
+  let coincidencias;
+  try{
+    coincidencias = await buscarSkusPorCodigoEscaneado(codigo);
+  }catch(e){
+    if(pareceFalloDeRed(e)){
+      // Sin señal: se busca en lo que ya está en el dispositivo, como antes.
+      coincidencias = resolverSkusPorCodigo(state.skus, codigo);
+    }else{
+      setState({escanerModal: { codigo, errorBusqueda: mensajeErrorCarga(e), destino }});
+      return;
+    }
+  }
+  if(!state.escanerModal || state.escanerModal.codigo !== codigo) return; // se cerró mientras buscaba
   // Desde Ingreso o Salida de bodega: el código va al buscador de la línea.
   if(destino === 'bodega'){
     state.escanerModal = null;
@@ -10148,7 +10188,7 @@ async function onCodigoEscaneado(codigo){
     return;
   }
   if(coincidencias.length===1){
-    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: origenPlanParaSku(coincidencias[0]), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false});
+    setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: origenPlanParaSku(coincidencias[0]), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, escanerModal: null});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
   }else if(coincidencias.length>1){
     // El mismo código existe en más de una bodega o batch (el código físico es el mismo sin
@@ -10160,9 +10200,71 @@ async function onCodigoEscaneado(codigo){
   }
 }
 
+// Reintento cuando la búsqueda del código leído falló por un error del servidor.
+function reintentarBusquedaEscaneo(){
+  const m = state.escanerModal;
+  if(!m || !m.codigo) return;
+  const codigo = m.codigo;
+  state.escanerModal = { codigo:null, error:null, destino: m.destino };
+  onCodigoEscaneado(codigo);
+}
+
+// "Busca el SKU al que corresponde" (código sin asociar): busca en el maestro completo con
+// buscar_skus_lectura, igual que el buscador de Contar, y repinta SOLO la lista de resultados para
+// no reemplazar el <input> mientras se escribe (en iOS eso reinicia el teclado; ver
+// escribirBuscadorLibre). Antes filtraba state.skus: los primeros 500 materiales.
+let debounceAsociarEscaneo = null;
+let asociarEscaneoPeticionId = 0;
+function escribirBusquedaAsociar(texto){
+  const m = state.escanerModal;
+  if(!m) return;
+  m.buscarAsociar = texto;
+  clearTimeout(debounceAsociarEscaneo);
+  const q = texto.trim();
+  if(q.length < 2){ asociarEscaneoPeticionId++; m.resultadosAsociar = []; m.buscandoAsociar = false; m.errorAsociar = ''; actualizarResultadosAsociarEnPantalla(); return; }
+  m.buscandoAsociar = true; m.errorAsociar = '';
+  actualizarResultadosAsociarEnPantalla();
+  debounceAsociarEscaneo = setTimeout(()=> buscarSkusParaAsociar(q), 350);
+}
+async function buscarSkusParaAsociar(texto){
+  const miPeticion = ++asociarEscaneoPeticionId;
+  const t = sanearTextoFiltro(texto);
+  let rows = [], error = '';
+  try{
+    rows = t ? (await rest(`/rpc/buscar_skus_lectura?select=${CAMPOS_SKU_ESCANEO}`, {method:'POST', body:{p_texto: t, p_limite: 8}}) || []) : [];
+  }catch(e){ error = mensajeErrorCarga(e); }
+  if(miPeticion !== asociarEscaneoPeticionId || !state.escanerModal) return;
+  Object.assign(state.escanerModal, { resultadosAsociar: rows, buscandoAsociar: false, errorAsociar: error });
+  actualizarResultadosAsociarEnPantalla();
+}
+function htmlResultadosAsociar(m){
+  const q = (m.buscarAsociar||'').trim();
+  if(q.length < 2) return `<div class="hint">Escribe al menos 2 caracteres para buscar en todo el maestro.</div>`;
+  if(m.errorAsociar) return `<div class="hint" role="alert" style="color:var(--danger)">No se pudo buscar: ${esc(m.errorAsociar)}</div>`;
+  if(m.buscandoAsociar && !(m.resultadosAsociar||[]).length) return `<div class="hint">Buscando…</div>`;
+  const resultados = m.resultadosAsociar || [];
+  if(!resultados.length) return `<div class="hint">No se encontraron coincidencias.</div>`;
+  return resultados.map(s=>`
+              <div class="sku-pick" data-asociar="${s.id}">
+                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+                <button data-asociar-btn="${s.id}" ${m.asociando?'disabled':''}>${m.asociando?'...':'Asociar'}</button>
+              </div>`).join('');
+}
+function bindResultadosAsociar(){
+  document.querySelectorAll('[data-asociar-btn]').forEach(btn=>{
+    btn.addEventListener('click', ()=> asociarCodigoBarras(btn.dataset.asociarBtn, state.escanerModal.codigo));
+  });
+}
+function actualizarResultadosAsociarEnPantalla(){
+  const cont = document.getElementById('escaner-asociar-resultados');
+  if(!cont || !state.escanerModal) return;
+  cont.innerHTML = htmlResultadosAsociar(state.escanerModal);
+  bindResultadosAsociar();
+}
+
 // La persona elige a cuál de las bodegas encontradas corresponde el código escaneado.
 function elegirSkuEscaneado(skuId){
-  const sku = state.skus.find(s=>s.id===skuId);
+  const sku = ((state.escanerModal && state.escanerModal.opciones) || []).find(s=>s.id===skuId) || state.skus.find(s=>s.id===skuId);
   if(!sku) return;
   setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, escanerModal: null});
   toast(`SKU ${sku.sku_code} encontrado`);
@@ -10171,7 +10273,7 @@ function elegirSkuEscaneado(skuId){
 // Primera vez que se ve este código: la persona elige a mano el SKU correcto y desde
 // ahora ese código queda asociado — la próxima lectura lo va a reconocer solo.
 async function asociarCodigoBarras(skuId, codigo){
-  const sku = state.skus.find(s=>s.id===skuId);
+  const sku = ((state.escanerModal && state.escanerModal.resultadosAsociar) || []).find(s=>s.id===skuId) || state.skus.find(s=>s.id===skuId);
   if(!sku) return;
   setState({escanerModal: {...state.escanerModal, asociando:true}});
   try{
@@ -11236,11 +11338,7 @@ function renderOfflineModal(){
 function renderEscanerModal(){
   if(!state.escanerModal) return '';
   const m = state.escanerModal;
-  const q = (m.buscarAsociar||'').trim().toLowerCase();
-  const resultados = q.length? state.skus.filter(s =>
-    s.sku_code.toLowerCase().includes(q) || (s.descripcion||'').toLowerCase().includes(q)
-  ).slice(0,8) : [];
-  const titulo = m.opciones? 'Más de una coincidencia' : m.codigo? 'Código no encontrado' : 'Escanear código';
+  const titulo = m.opciones? 'Más de una coincidencia' : m.buscando? 'Buscando el código' : m.errorBusqueda? 'No se pudo buscar el código' : m.codigo? 'Código no encontrado' : 'Escanear código';
   return `<div class="foto-modal-backdrop" id="escaner-modal-backdrop">
     <div class="card" style="width:min(92vw,440px);max-height:88vh;overflow-y:auto;margin-bottom:0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -11256,6 +11354,13 @@ function renderEscanerModal(){
               <button data-escaner-elegir-btn="${s.id}">Elegir</button>
             </div>`).join('')}
         </div>
+      ` : m.buscando? `
+        <div class="selected-sku" style="margin:8px 0"><div class="code">${esc(m.codigo)}</div></div>
+        <div class="hint"><span class="spinner"></span> Buscando en el maestro…</div>
+      ` : m.errorBusqueda? `
+        <div class="selected-sku" style="margin:8px 0"><div class="code">${esc(m.codigo)}</div></div>
+        <div role="alert" style="color:var(--danger);font-size:13px">No se pudo buscar el código: ${esc(m.errorBusqueda)}</div>
+        <button type="button" class="btn btn-secondary btn-sm" id="escaner-reintentar-busqueda" style="width:auto;margin-top:10px">Reintentar</button>
       ` : !m.codigo? `
         <div id="escaner-reader" style="width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:220px"></div>
         <div class="hint" style="margin-top:10px">Apunta la cámara al código de barras o QR pegado en el SKU.</div>
@@ -11265,15 +11370,7 @@ function renderEscanerModal(){
         <div class="selected-sku" style="margin:8px 0"><div class="code">${esc(m.codigo)}</div></div>
         <label for="escaner-buscar">Busca el SKU al que corresponde</label>
         <input type="text" id="escaner-buscar" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" value="${esc(m.buscarAsociar)}" autocomplete="off">
-        <div style="margin-top:10px">
-          ${q.length===0? `<div class="hint">Escribe para buscar entre ${state.skus.length} SKU activos.</div>` :
-            resultados.length? resultados.map(s=>`
-              <div class="sku-pick" data-asociar="${s.id}">
-                <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
-                <button data-asociar-btn="${s.id}" ${m.asociando?'disabled':''}>${m.asociando?'...':'Asociar'}</button>
-              </div>`).join('') :
-            `<div class="hint">No se encontraron coincidencias.</div>`}
-        </div>
+        <div style="margin-top:10px" id="escaner-asociar-resultados">${htmlResultadosAsociar(m)}</div>
       `}
     </div>
   </div>`;
@@ -16298,13 +16395,17 @@ function bind(){
       });
     }else if(!state.escanerModal.codigo){
       if(!state.escanerModal.error) iniciarEscaner();
+    }else if(state.escanerModal.buscando){
+      // Esperando al servidor: nada que atar.
+    }else if(state.escanerModal.errorBusqueda){
+      const btnReintentar = document.getElementById('escaner-reintentar-busqueda');
+      if(btnReintentar) btnReintentar.addEventListener('click', reintentarBusquedaEscaneo);
     }else{
       const buscar = document.getElementById('escaner-buscar');
-      buscar.addEventListener('input', e=> setState({escanerModal: {...state.escanerModal, buscarAsociar: e.target.value}}));
+      // Sin setState por tecla: escribirBusquedaAsociar repinta solo la lista de resultados.
+      buscar.addEventListener('input', e=> escribirBusquedaAsociar(e.target.value));
       buscar.focus(); buscar.selectionStart = buscar.selectionEnd = buscar.value.length;
-      document.querySelectorAll('[data-asociar-btn]').forEach(btn=>{
-        btn.addEventListener('click', ()=> asociarCodigoBarras(btn.dataset.asociarBtn, state.escanerModal.codigo));
-      });
+      bindResultadosAsociar();
     }
   }
   if(state.mfaDesafio){
