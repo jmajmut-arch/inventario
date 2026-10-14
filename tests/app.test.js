@@ -671,11 +671,13 @@ const fakeFetchImpl = async (url, opts) => {
     const filas = [ resumenGeneralSkusFixture || {total_activo:100, no_contado:70, cuadrado:20, con_diferencia:8, merma:5, excedente:3, pendiente:2} ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/rpc/resumen_calendario_mes')){
+  // Desde el 14/10/2026 la app pide resumen_calendario_dias (trae además "repetido"); el mock no
+  // responde a resumen_calendario_mes, para que volver a la vieja haga fallar la prueba.
+  if(path.startsWith('/rest/v1/rpc/resumen_calendario_dias')){
     const filas = calendarioFixture || [
-      {fecha:'2026-09-01', planificado:24, contado:20, recontado:3, pendiente:4},
-      {fecha:'2026-09-02', planificado:8, contado:21, recontado:2, pendiente:0},
-      {fecha:'2026-09-03', planificado:0, contado:0, recontado:0, pendiente:0},
+      {fecha:'2026-09-01', planificado:24, contado:20, recontado:3, repetido:1, pendiente:4},
+      {fecha:'2026-09-02', planificado:8, contado:21, recontado:2, repetido:0, pendiente:0},
+      {fecha:'2026-09-03', planificado:0, contado:0, recontado:0, repetido:0, pendiente:0},
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
@@ -2984,7 +2986,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       dia: `2026-08-${String(24-i).padStart(2,'0')}T00:00:00+00:00`,
       bodega:'Nave Mina', skus_contados:5, con_diferencia:1, reconteos:2, total_unidades_contadas:20,
     })),
-    semanal: [{semana:'2026-08-17T00:00:00+00:00', bodega:'Nave Mina', skus_contados:20, con_diferencia:3, reconteos:4, total_unidades_contadas:150}],
+    semanal: [{semana:'2026-08-17T00:00:00+00:00', bodega:'Nave Mina', skus_contados:20, con_diferencia:3, reconteos:4, total_unidades_contadas:150, repetidos:7}],
     mensual: [{mes:'2026-08-01T00:00:00+00:00', bodega:'Nave Mina', skus_contados:80, con_diferencia:5, reconteos:9, total_unidades_contadas:600}],
   };
   ctx.__appstate.dashDiarioPagina = 0;
@@ -2993,6 +2995,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlDashPeriodos.includes('Agosto 2026'), 'Mensual debe mostrar el nombre del mes, no la fecha cruda del día 1, obtuvo: '+htmlDashPeriodos);
   // Pedido de Joel: Diario/Semanal/Mensual deben mostrar cuántos SKU se recontaron.
   assert((htmlDashPeriodos.match(/<th class="num">Reconteos<\/th>/g)||[]).length===3, 'las tres tablas (Diario/Semanal/Mensual) deben tener columna "Reconteos", obtuvo: '+htmlDashPeriodos);
+  // Regla del 14/10/2026: "Reconteos" son solo los hechos desde Reconteo; lo que se volvió a contar
+  // por otro lado va en "Repetidos", al lado. Un servidor sin la columna muestra 0, no "undefined".
+  assert((htmlDashPeriodos.match(/<th class="num">Reconteos<\/th><th class="num">Repetidos<\/th>/g)||[]).length===3, 'las tres tablas deben tener "Repetidos" junto a "Reconteos", obtuvo: '+htmlDashPeriodos);
+  assert(/Semana 34 \(2026\)[\s\S]{0,400}<td class="num">4<\/td>\s*<td class="num">7<\/td>/.test(htmlDashPeriodos) && !htmlDashPeriodos.includes('>undefined<') && !htmlDashPeriodos.includes('>NaN<'), 'Semanal muestra 4 reconteos y 7 repetidos; sin dato, 0, obtuvo: '+(htmlDashPeriodos.match(/Semana 34[\s\S]{0,500}/)||[''])[0]);
   assert(htmlDashPeriodos.includes('24 ago') && !htmlDashPeriodos.includes('09 ago'), 'Diario (página 1) debe mostrar los primeros 15 días (24 ago a 10 ago), no el día 16 (9 ago), obtuvo: '+htmlDashPeriodos);
   assert(htmlDashPeriodos.includes('id="dash-diario-next"') && !/id="dash-diario-next"[^>]*disabled/.test(htmlDashPeriodos), 'con 20 filas (2 páginas de 15), el botón Siguiente debe estar habilitado, obtuvo: '+htmlDashPeriodos);
   assert(/id="dash-diario-prev"[^>]*disabled/.test(htmlDashPeriodos), 'en la primera página, el botón Anterior debe estar deshabilitado, obtuvo: '+htmlDashPeriodos);
@@ -7883,6 +7889,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(conDano && conDano.packing_danado===true && conDano.material_danado===true && conDano.cantidad_danada===2, 'el conteo encolado con daños los manda al sincronizar, obtuvo: '+JSON.stringify(conDano));
   assert(viejo && viejo.packing_danado===false && viejo.material_danado===false && viejo.cantidad_danada===null, 'un conteo encolado sin los campos de daño llega sin daños, obtuvo: '+JSON.stringify(viejo));
   assert(ctx.__appstate.colaOffline.length===0, 'los dos se sincronizan y la cola queda vacía, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+  // Reconteo solo desde Recontar (14/10/2026): la marca viaja en la cola; un item encolado por una
+  // versión anterior (sin el campo) llega como conteo, nunca como error.
+  assert(viejo.es_reconteo===false && conDano.es_reconteo===false, 'sin la marca, el conteo sincronizado no es reconteo, obtuvo: '+JSON.stringify({viejo, conDano}));
+  ctx.encolarAccionOffline('conteo', {sku_id:'sku-recontado', sku_code:'SKU-RC', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:3, ubicacion_contada:null, bodega:null, observacion:null, es_reconteo:true});
+  calls.length = 0;
+  await ctx.sincronizarColaOffline();
+  const cuerpoRecontadoCola = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos?')).map(c=>JSON.parse(c.opts.body)[0]).find(b=>b.sku_id==='sku-recontado');
+  assert(cuerpoRecontadoCola && cuerpoRecontadoCola.es_reconteo===true, 'un reconteo guardado sin conexión se sincroniza con es_reconteo=true, obtuvo: '+JSON.stringify(cuerpoRecontadoCola));
 
   // Si sigue sin haber conexión al sincronizar (falla de nuevo con TypeError), el conteo
   // debe quedar en la cola para el próximo intento, sin perderse ni reintentarse en bucle.
@@ -11615,6 +11629,34 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!postConteoDe() && toastsDano.some(t=>t.className==='toast err' && t.textContent.includes('no pueden ser más que la cantidad contada')), 'más unidades dañadas que contadas no se guarda y se explica, obtuvo: '+JSON.stringify(toastsDano));
   assert(ctx.__appstate.skuSeleccionado===skuDano, 'tras el error, el material sigue elegido para corregir');
 
+  // Reconteo solo desde Recontar (Joel, 14/10/2026): un conteo normal viaja con es_reconteo=false;
+  // el que se abrió desde Recontar (conteoReconteo del mismo material), con true. Si la persona
+  // cambia de material, ya no es reconteo.
+  ctx.__appstate.skuSeleccionado = skuDano; ctx.__appstate.conteoReconteo = null; ctx.__appstate.conteoFotos = [];
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'', bodega:'Nave Mina', observacion:''});
+  assert(postConteoDe() && JSON.parse(postConteoDe().opts.body)[0].es_reconteo===false, 'un conteo normal se guarda con es_reconteo=false, obtuvo: '+JSON.stringify(postConteoDe() && postConteoDe().opts.body));
+  ctx.__appstate.skuSeleccionado = skuDano; ctx.__appstate.conteoReconteo = {skuId:'sku-001-id', fecha:'2026-10-10', cantidad:3, diferencia:-1};
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'', bodega:'Nave Mina', observacion:''});
+  assert(postConteoDe() && JSON.parse(postConteoDe().opts.body)[0].es_reconteo===true, 'el conteo abierto desde Recontar se guarda con es_reconteo=true, obtuvo: '+JSON.stringify(postConteoDe() && postConteoDe().opts.body));
+  assert(ctx.__appstate.conteoReconteo===null, 'tras guardar, la marca de reconteo se limpia para el próximo material');
+  ctx.__appstate.skuSeleccionado = {...skuDano, id:'otro-sku'}; ctx.__appstate.conteoReconteo = {skuId:'sku-001-id'};
+  calls.length = 0;
+  await ctx.guardarConteo({cantidad:'4', ubicacion:'', bodega:'Nave Mina', observacion:''});
+  assert(postConteoDe() && JSON.parse(postConteoDe().opts.body)[0].es_reconteo===false, 'si se cambió de material, ya no es reconteo, obtuvo: '+JSON.stringify(postConteoDe() && postConteoDe().opts.body));
+  ctx.__appstate.conteoReconteo = null;
+  ctx.__appstate.skuSeleccionado = skuDano; // lo que sigue espera el material elegido, como antes de este bloque
+
+  // Etiquetas "Conteo N.M" (fotos de Buscar y Reconteo) y la de la fila de Buscar.
+  assert(ctx.etiquetaFotoConteo({conteo:1, reconteo:0})==='Conteo 1' && ctx.etiquetaFotoConteo({conteo:2, reconteo:0})==='Conteo 2' && ctx.etiquetaFotoConteo({conteo:2, reconteo:1})==='Conteo 2.1' && ctx.etiquetaFotoConteo({conteo:2, reconteo:2})==='Conteo 2.2' && ctx.etiquetaFotoConteo({conteo:3, reconteo:0})==='Conteo 3',
+    'las fotos se etiquetan Conteo 1, 2, 2.1, 2.2, 3, obtuvo: '+[{conteo:1,reconteo:0},{conteo:2,reconteo:0},{conteo:2,reconteo:1},{conteo:2,reconteo:2},{conteo:3,reconteo:0}].map(ctx.etiquetaFotoConteo).join(' | '));
+  assert(ctx.etiquetaFotoConteo({numero_conteo:2})==='Reconteo 1' && ctx.etiquetaFotoConteo({numero_conteo:null})==='Conteo', 'sin "conteo" (servidor sin la migración, o fotos de Bodega) se usa la etiqueta anterior');
+  assert(!JSON.stringify([1,2,3].map(n=>ctx.etiquetaFotoConteo({conteo:n, reconteo:0}))).includes('Reconteo'), 'un conteo repetido nunca se llama "Reconteo"');
+  assert(ctx.badgeNumeroConteo({ultimo_conteo_n:1, ultimo_reconteo_n:0})==='' && ctx.badgeNumeroConteo({})==='', 'la fila de Buscar no marca el primer conteo (sería ruido en cada fila)');
+  assert(ctx.badgeNumeroConteo({ultimo_conteo_n:2, ultimo_reconteo_n:0}).includes('>Conteo 2<') && ctx.badgeNumeroConteo({ultimo_conteo_n:2, ultimo_reconteo_n:1}).includes('>Conteo 2.1<') && ctx.badgeNumeroConteo({ultimo_conteo_n:1, ultimo_reconteo_n:1}).includes('>Conteo 1.1<'),
+    'la fila de Buscar muestra "Conteo 2", "Conteo 2.1" o "Conteo 1.1" cuando no es el primer conteo');
+
   // El formulario: las dos marcas siempre; el campo de unidades solo con material dañado.
   ctx.__appstate.view = 'conteo'; ctx.__appstate.conteoMaterialDanado = false; ctx.__appstate.conteoPackingDanado = false;
   let htmlDano = ctx.renderConteo();
@@ -12764,7 +12806,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.calendario = {...ctx.__appstate.calendario, diaSeleccionado: hoyCal};
     const htmlCalDetalle = ctx.renderCalendario();
     assert(/Avance del plan[\s\S]{0,160}>10 <span class="hint" style="display:inline">· 33%<\/span>/.test(htmlCalDetalle), 'el detalle dice cuántos SKU del plan ya están contados (30 - 20 = 10, 33%), obtuvo: '+(htmlCalDetalle.match(/Avance del plan[\s\S]{0,300}/)||[''])[0]);
-    assert(htmlCalDetalle.includes('Contado <span class="hint" style="display:inline">(ese día, dentro y fuera del plan)</span>'), 'el detalle aclara que Contado incluye lo de fuera del plan');
+    assert(htmlCalDetalle.includes('Contado <span class="hint" style="display:inline">(primera vez en el período, dentro y fuera del plan)</span>'), 'el detalle aclara que Contado es la primera vez en el período e incluye lo de fuera del plan');
+    // Regla del 14/10/2026: "Recontado" es solo lo hecho desde Reconteo; lo que se volvió a contar
+    // por otro lado va en "Contado otra vez".
+    assert(htmlCalDetalle.includes('Contado otra vez') && htmlCal.length && htmlCalDetalle.includes('Recontado <span class="hint" style="display:inline">(desde Reconteo)</span>'), 'el detalle separa "Contado otra vez" de "Recontado (desde Reconteo)", obtuvo: '+(htmlCalDetalle.match(/Detalle del día[\s\S]{0,1200}/)||[''])[0]);
     assert(htmlCalDetalle.includes('<span class="badge badge-warn">Parcial</span>') && htmlCalDetalle.includes('Detalle del día') && htmlCalDetalle.includes('Recontado'), 'el detalle del día muestra su estado y sigue trayendo P/C/R, obtuvo: '+(htmlCalDetalle.match(/Detalle del día[\s\S]{0,600}/)||[''])[0]);
   }
   ctx.__appstate.perfil = { id:1, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
@@ -12775,13 +12820,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // en state.calendario.dias (el alcance por rol lo resuelve el propio RPC en el servidor).
   ctx.__appstate.perfil = { id:2, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   calendarioFixture = [
-    {fecha:'2026-09-01', planificado:24, contado:20, recontado:3, pendiente:4},
-    {fecha:'2026-09-15', planificado:5, contado:5, recontado:0, pendiente:0},
+    {fecha:'2026-09-01', planificado:24, contado:20, recontado:3, repetido:2, pendiente:4},
+    {fecha:'2026-09-15', planificado:5, contado:5, recontado:0, repetido:0, pendiente:0},
   ];
   ctx.__appstate.calendario = { mes:'2026-09-01', cargando:false, cargado:false, dias:[], diaSeleccionado:null };
   await ctx.cargarCalendario('2026-09-01');
   assert(ctx.__appstate.calendario.cargado===true && ctx.__appstate.calendario.dias.length===2, 'cargarCalendario debe dejar los días devueltos en state.calendario.dias, obtuvo: '+JSON.stringify(ctx.__appstate.calendario.dias));
-  const callCalendario = calls.find(c=>c.url.includes('/rpc/resumen_calendario_mes'));
+  const callCalendario = calls.find(c=>c.url.includes('/rpc/resumen_calendario_dias'));
   assert(!!callCalendario && callCalendario.opts && JSON.parse(callCalendario.opts.body).p_mes==='2026-09-01', 'cargarCalendario debe mandar p_mes en el body del RPC, obtuvo: '+JSON.stringify(callCalendario && callCalendario.opts));
 
   // renderCalendario: grilla del mes con un botón data-cal-dia por día, mostrando P/C/R solo
@@ -12792,7 +12837,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlCal.includes('data-cal-dia="2026-09-01"') && htmlCal.includes('data-cal-dia="2026-09-15"') && htmlCal.includes('data-cal-dia="2026-09-30"'), 'debe generar un botón por cada día del mes con data-cal-dia, obtuvo: '+htmlCal.slice(0,3000));
   // Fase 5 del rediseño: la celda muestra los planificados y una barra de avance; planificado /
   // contado / recontado completos van en el aria-label (y en el detalle al tocar el día).
-  assert(/data-cal-dia="2026-09-01"[^>]*aria-label="[^"]*24 planificados, 20 contados, 3 recontados, 4 pendientes"[\s\S]{0,300}<span class="cal-dia-plan">24<\/span>/.test(htmlCal), 'un día con datos debe mostrar sus planificados en la celda y el detalle P/C/R en la etiqueta accesible, obtuvo: '+(htmlCal.match(/data-cal-dia="2026-09-01"[\s\S]{0,500}/)||[''])[0]);
+  assert(/data-cal-dia="2026-09-01"[^>]*aria-label="[^"]*24 planificados, 20 contados, 3 recontados, 2 contados otra vez, 4 pendientes"[\s\S]{0,300}<span class="cal-dia-plan">24<\/span>/.test(htmlCal), 'un día con datos debe mostrar sus planificados en la celda y el detalle P/C/R en la etiqueta accesible, obtuvo: '+(htmlCal.match(/data-cal-dia="2026-09-01"[\s\S]{0,500}/)||[''])[0]);
   assert(/data-cal-dia="2026-09-03"[^>]*aria-label="[^"]*"[\s\S]{0,200}<span class="cal-dia-plan"><\/span>/.test(htmlCal) && !/data-cal-dia="2026-09-03"[^>]*planificados/.test(htmlCal), 'los días sin actividad no muestran cifras ni barra, obtuvo: '+(htmlCal.match(/data-cal-dia="2026-09-03"[\s\S]{0,400}/)||[''])[0]);
   // Leyenda -- a pedido de Joel ("para que el cliente sepa"): ahora explica los estados de color.
   assert(htmlCal.includes('Cumplido') && htmlCal.includes('Parcial') && htmlCal.includes('Atrasado') && htmlCal.includes('Por venir'), 'debe mostrar una leyenda con los estados de cada día, obtuvo: '+htmlCal);

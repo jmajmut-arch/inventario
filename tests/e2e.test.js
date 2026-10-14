@@ -1732,7 +1732,7 @@ async function loguear(page, perfil){
     page.on('pageerror', err => erroresPagina.push('buscar-filtros: '+err.message));
     await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
     await page.route('**/rest/v1/rpc/filas_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
-      { sku_id:'s-e2e-1', sku_code:'11164514', descripcion:'CLIP,ELEC,PRESS', bodega:'B501', ubicacion:'0102', storage_bin:'N1E-027-B1', batch:null, conteo_id:'c-1', cantidad_contada:3, estado:'con_diferencia', diferencia:-1, fecha_conteo:'2026-10-01T12:00:00Z', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, packing_danado:true, material_danado:true, cantidad_danada:2 },
+      { sku_id:'s-e2e-1', sku_code:'11164514', descripcion:'CLIP,ELEC,PRESS', bodega:'B501', ubicacion:'0102', storage_bin:'N1E-027-B1', batch:null, conteo_id:'c-1', cantidad_contada:3, estado:'con_diferencia', diferencia:-1, fecha_conteo:'2026-10-01T12:00:00Z', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, packing_danado:true, material_danado:true, cantidad_danada:2, ultimo_conteo_n:2, ultimo_reconteo_n:1 },
     ]) }));
     await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body:'1' }));
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
@@ -1752,6 +1752,8 @@ async function loguear(page, perfil){
     assert(!(await page.isVisible('#b-estado')), 'tras buscar, los filtros se pliegan');
     const chips = await page.$$eval('#buscar-filtros .fchip', els => els.map(e => e.textContent.trim()));
     assert(chips.join('|') === '“11164514”|Con diferencia', 'los chips resumen la búsqueda hecha, obtuvo '+JSON.stringify(chips));
+    // Regla del 14/10/2026: la fila dice qué conteo es ("Conteo 2.1" = 2.º conteo, 1.er reconteo).
+    assert(await page.isVisible('.badge-steel:has-text("Conteo 2.1")'), 'la fila de Buscar muestra "Conteo 2.1" junto al estado');
     // Filtro por daños (14/10/2026): viaja como p_estado y el chip lo nombra.
     await page.click('#buscar-filtros > summary');
     await page.waitForSelector('#b-estado', { state:'visible', timeout:ESPERA });
@@ -1817,12 +1819,13 @@ async function loguear(page, perfil){
     const mas = n => { const d = new Date(hoyCal); d.setDate(d.getDate()+n); return iso(d); };
     const dias = [
       { fecha: mas(-1), planificado:31, contado:0, recontado:0, pendiente:31 },
-      { fecha: mas(-2), planificado:8, contado:8, recontado:1, pendiente:0 },
+      { fecha: mas(-2), planificado:8, contado:8, recontado:1, repetido:2, pendiente:0 },
       { fecha: mas(1), planificado:40, contado:0, recontado:0, pendiente:40 },
       // Cifras grandes (como el 27/10 real de Escondida): tienen que caber en la celda a 420 px.
       { fecha: mas(2), planificado:1149, contado:1234, recontado:128, pendiente:1149 },
     ].filter(d => d.fecha.slice(0,7) === iso(hoyCal).slice(0,7));
-    await page.route('**/rest/v1/rpc/resumen_calendario_mes**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(dias) }));
+    // resumen_calendario_dias desde el 14/10/2026 (trae "repetido"; ver la regla de reconteo).
+    await page.route('**/rest/v1/rpc/resumen_calendario_dias**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(dias) }));
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
     await page.fill('#f-email', 'ana@minera-andes.cl');
     await page.fill('#f-pass', '123456');
@@ -1844,6 +1847,14 @@ async function loguear(page, perfil){
       await page.click(`[data-cal-dia="${atrasado.fecha}"]`);
       assert(await esperarVisible(page, 'text=Detalle del día'), 'tocar un día abre su detalle');
       assert(await page.isVisible('.badge-danger:has-text("Atrasado")'), 'el detalle del día atrasado lleva su etiqueta');
+    }
+    // Regla del 14/10/2026: el detalle separa lo que se volvió a contar de lo recontado desde Reconteo.
+    const cumplido = dias.find(d => d.fecha < iso(hoyCal) && d.repetido);
+    if(cumplido){
+      await page.click(`[data-cal-dia="${cumplido.fecha}"]`);
+      await page.waitForFunction(f => document.body.innerText.includes('Contado otra vez'), cumplido.fecha, { timeout:ESPERA });
+      const filasDetalle = await page.$$eval('.cal-detalle-fila', els => els.map(e => e.innerText.replace(/\s+/g,' ').trim()));
+      assert(filasDetalle.some(t => /^Contado otra vez .*2$/.test(t)) && filasDetalle.some(t => /^Recontado \(desde Reconteo\) 1$/.test(t)), 'el detalle muestra "Contado otra vez 2" y "Recontado (desde Reconteo) 1", obtuvo '+JSON.stringify(filasDetalle));
     }
     const desbordeCal = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeCal <= 0, 'a 420 px el calendario no desborda, obtuvo '+desbordeCal);

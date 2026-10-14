@@ -53,6 +53,7 @@
       "corregido_por",
       "diferencia",
       "empresa_id",
+      "es_reconteo",
       "estado",
       "fecha_conteo",
       "foto_url",
