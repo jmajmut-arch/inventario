@@ -24,10 +24,11 @@
 -- cerrar: justo lo que ofrece la pantalla Reconteo. En Escondida: 37 de los 58 que hoy figuran
 -- como reconteo; los otros 21 (el anterior estaba cuadrado) pasan a "repetidos".
 --
--- Para marcarlos se apagan, solo dentro de esta transacción, los triggers de conteos:
--- calcular_diferencia_conteo recalcula la diferencia con el stock DE HOY en cualquier UPDATE (sin
--- apagarlo, marcar un conteo viejo le cambiaría la diferencia), y los demás sincronizarían skus,
--- tomarían turnos y escribirían auditoría por un cambio que no toca ningún dato del conteo. Otras
+-- Para marcarlos se apagan, solo dentro de esta transacción, los triggers de conteos: hasta
+-- 20261014_diferencia_conteo_no_se_recalcula, calcular_diferencia_conteo recalculaba la diferencia
+-- con el stock DE HOY en cualquier UPDATE (apagarlo protege igual si esta migración corriera sin la
+-- otra), y los demás sincronizarían skus, tomarían turnos y escribirían auditoría por un cambio que
+-- no toca ningún dato del conteo. Otras
 -- sesiones nunca los ven apagados: el ALTER TABLE las hace esperar hasta el COMMIT, y antes del
 -- COMMIT vuelven a quedar encendidos.
 

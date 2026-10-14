@@ -340,3 +340,23 @@ test('reconteo es solo lo hecho desde Reconteo, y los conteos se numeran N.M', (
   assert.match(html, /es_reconteo: esReconteoDelSkuActual\(\)/, 'la app tiene que marcar es_reconteo al guardar desde Recontar');
   assert.match(html, /rest\('\/rpc\/resumen_calendario_dias'/, 'el Calendario tiene que pedir resumen_calendario_dias');
 });
+
+test('la diferencia de un conteo es una foto: modificarlo no la recalcula con el stock de hoy', () => {
+  // Joel, 14/10/2026: calcular_diferencia_conteo recalculaba en cada UPDATE contra el stock actual,
+  // así que cerrar por ERP, descartar o renombrar una ubicación reescribía la merma (en el ensayo,
+  // una merma de -1 pasó a -127). Un conteo nuevo se calcula contra el stock actual; un UPDATE sin
+  // cambio de cantidad no la toca; una corrección se mide contra el stock del día del conteo.
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let def = null, archivoDef = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const m = /create\s+(?:or\s+replace\s+)?function\s+public\.calcular_diferencia_conteo\s*\([\s\S]*?\$function\$[\s\S]*?\$function\$/i.exec(sql);
+    if (m) { def = m[0]; archivoDef = archivo; }
+  }
+  assert.ok(def, 'no se encontró public.calcular_diferencia_conteo en las migraciones');
+  assert.match(def, /tg_op\s*=\s*'UPDATE'[\s\S]*?new\.cantidad_contada\s+is\s+not\s+distinct\s+from\s+old\.cantidad_contada[\s\S]*?return\s+new/i,
+    `${archivoDef}: un UPDATE que no cambia la cantidad tiene que dejar la diferencia como estaba`);
+  assert.match(def, /new\.cantidad_contada\s*-\s*\(\s*old\.cantidad_contada\s*-\s*old\.diferencia\s*\)/i,
+    `${archivoDef}: corregir la cantidad se mide contra el stock que había al contar (cantidad anterior - diferencia anterior)`);
+  assert.doesNotMatch(def, /security\s+definer/i, `${archivoDef}: el trigger no necesita SECURITY DEFINER`);
+});
