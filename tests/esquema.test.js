@@ -239,3 +239,22 @@ test('cada opción de Estado en Buscar la entiende el servidor', () => {
     }
   }
 });
+
+test('la auditoría se guarda 45 días (decisión de Joel, 14/10/2026)', () => {
+  // Cambiar la retención es una decisión de negocio, no un detalle técnico: si una migración la
+  // mueve sin querer (como pasó de 14 a 180 y el nombre del cron quedó diciendo 14), esta prueba lo
+  // hace visible. Para cambiarla a propósito, actualizar también esta prueba y el runbook.
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let def = null, archivoDef = null, cronNuevo = null, cronQuitado = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const m = /create\s+(?:or\s+replace\s+)?function\s+public\.purgar_auditoria_antigua\s*\([\s\S]*?\$function\$[\s\S]*?\$function\$/i.exec(sql);
+    if (m) { def = m[0]; archivoDef = archivo; }
+    const s = /cron\.schedule\(\s*'(purga-auditoria-[^']+)'/i.exec(sql); if (s) cronNuevo = s[1];
+    const u = /cron\.unschedule\(\s*'(purga-auditoria-[^']+)'/i.exec(sql); if (u) cronQuitado = u[1];
+  }
+  assert.ok(def, 'no se encontró public.purgar_auditoria_antigua en las migraciones');
+  assert.match(def, /interval\s+'45 days'/i, `${archivoDef}: la purga de auditoría tiene que conservar 45 días`);
+  assert.equal(cronNuevo, 'purga-auditoria-45-dias', 'el proceso nocturno de purga tiene que llamarse por su retención');
+  assert.notEqual(cronQuitado, cronNuevo, 'la última migración no puede quitar el proceso de purga vigente');
+});
