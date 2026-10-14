@@ -149,6 +149,8 @@ let informesCicloFixture = null; // filas de informes_ciclo (ver cargarInformesC
 // devuelve el id ya guardado, en vez del habitual {id:'conteo-nuevo-1'}.
 let conteoIdempotenteYaExistente = null;
 const calls = [];
+let maestroEscanerFixture = null; // maestro completo que "tiene el servidor" para el escáner; null = state.skus
+let escanerBusquedaFalla = null;  // mensaje de error del servidor al buscar el código leído; null = responde bien
 let fotoFixtureConteoFotos = null; // filas de conteo_fotos para comprimirFotosExistentes (null = comportamiento previo)
 let etagPublicado = '"v1"';   // ETag que devuelve el servidor para el propio HTML (ver verificarVersionNueva)
 let headVersionFalla = false;  // simula sin señal en el HEAD de versión
@@ -163,6 +165,14 @@ const fakeFetchImpl = async (url, opts) => {
   }
   const u = new URL(url);
   const path = u.pathname + u.search;
+  // Escáner (14/10/2026): el código leído se busca en el servidor contra el maestro completo. En
+  // las pruebas el "maestro" es maestroEscanerFixture si se definió; si no, state.skus (la lista
+  // precargada), así las pruebas de antes siguen describiendo el mismo comportamiento.
+  if(path.startsWith('/rest/v1/skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,codigo_barras') && path.includes('&or=(sku_code.in.(')){
+    if(escanerBusquedaFalla) return { status:500, ok:false, statusText:'Internal Server Error', headers:{get:()=>null}, text: async()=>JSON.stringify({message: escanerBusquedaFalla}) };
+    const maestro = maestroEscanerFixture || (ctx.__appstate && ctx.__appstate.skus) || [];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(maestro) };
+  }
   if(path.startsWith('/rest/v1/rpc/mi_estado_bloqueo')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([estadoBloqueoRespuesta]) };
   }
@@ -10641,10 +10651,13 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.__appstate.escanerModal = { codigo:null, error:null };
   const htmlEscanerLector = ctx.renderEscanerModal();
   assert(htmlEscanerLector.includes('id="escaner-reader"'), 'en fase de lectura debe existir el contenedor de la cámara, obtuvo: '+htmlEscanerLector);
-  ctx.__appstate.escanerModal = { codigo:'RAW-999', buscarAsociar:'perno', asociando:false };
+  // La búsqueda para asociar va al servidor (maestro completo); el modal pinta lo que volvió.
+  ctx.__appstate.escanerModal = { codigo:'RAW-999', buscarAsociar:'perno', asociando:false, resultadosAsociar:[{id:'sku-a', sku_code:'SKU-A', descripcion:'Perno', bodega:'Nave Mina'}] };
   const htmlEscanerAsociar = ctx.renderEscanerModal();
-  assert(htmlEscanerAsociar.includes('RAW-999') && htmlEscanerAsociar.includes('id="escaner-buscar"'), 'sin coincidencia debe mostrar el código leído y el buscador para asociarlo, obtuvo: '+htmlEscanerAsociar);
-  assert(htmlEscanerAsociar.includes('data-asociar-btn="sku-a"') && !htmlEscanerAsociar.includes('data-asociar-btn="sku-b"'), 'el buscador de asociación debe filtrar igual que el buscador normal de SKU, obtuvo: '+htmlEscanerAsociar);
+  assert(htmlEscanerAsociar.includes('RAW-999') && htmlEscanerAsociar.includes('id="escaner-buscar"') && htmlEscanerAsociar.includes('id="escaner-asociar-resultados"'), 'sin coincidencia debe mostrar el código leído y el buscador para asociarlo, obtuvo: '+htmlEscanerAsociar);
+  assert(htmlEscanerAsociar.includes('data-asociar-btn="sku-a"') && !htmlEscanerAsociar.includes('data-asociar-btn="sku-b"'), 'el buscador de asociación muestra lo que devolvió el servidor, obtuvo: '+htmlEscanerAsociar);
+  ctx.__appstate.escanerModal = { codigo:'RAW-999', buscarAsociar:'p', asociando:false };
+  assert(ctx.renderEscanerModal().includes('Escribe al menos 2 caracteres para buscar en todo el maestro'), 'con menos de 2 caracteres pide seguir escribiendo');
   ctx.__appstate.escanerModal = null;
 
   // onCodigoEscaneado: código conocido (coincide con un SKU existente) selecciona el SKU
@@ -10679,6 +10692,69 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.elegirSkuEscaneado('sku-a-planta');
   assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-a-planta' && ctx.__appstate.skuSeleccionado.bodega==='Planta', 'debe seleccionar exactamente la fila elegida (la de Planta, no la de Nave), obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
   assert(ctx.__appstate.escanerModal===null, 'tras elegir, el modal debe cerrarse');
+
+  // Bug real (revisión del 14/10/2026): el escáner solo reconocía los primeros 500 materiales
+  // precargados (state.skus). En Escondida, 63.889 activos: casi todo salía "Código no encontrado".
+  {
+    const skusAntesEsc = ctx.__appstate.skus;
+    ctx.__appstate.skus = [{id:'pre-1', sku_code:'00000001', descripcion:'Precargado', bodega:'B501'}];
+    maestroEscanerFixture = [
+      {id:'pre-1', sku_code:'00000001', descripcion:'Precargado', bodega:'B501'},
+      {id:'lejos', sku_code:'10475828', descripcion:'REDUCER,LH,FLENDER', bodega:'B501', ubicacion:'0100', storage_bin:'3029-A'},
+      {id:'con-barras', sku_code:'11172553', codigo_barras:'7801234567890', descripcion:'MOTOR', bodega:'B501'},
+    ];
+    ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+    ctx.__appstate.skuSeleccionado = null;
+    calls.length = 0;
+    await ctx.onCodigoEscaneado('10475828');
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='lejos' && ctx.__appstate.escanerModal===null, 'un material que no está entre los 500 precargados se encuentra en el servidor, obtuvo: '+JSON.stringify({s:ctx.__appstate.skuSeleccionado, m:ctx.__appstate.escanerModal}));
+    const urlEsc = (calls.find(c=>c.url.includes('/skus_lectura?select=id,sku_code') && c.url.includes('or=(sku_code.in.'))||{}).url||'';
+    assert(decodeURIComponent(urlEsc).includes('or=(sku_code.in.("10475828"),codigo_barras.in.("10475828"))') && urlEsc.includes('activo=eq.true'), 'pregunta por código o código de barras, entre los activos, obtuvo: '+urlEsc);
+    // Etiqueta SAP con el número relleno a 18 dígitos.
+    ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+    ctx.__appstate.skuSeleccionado = null;
+    calls.length = 0;
+    await ctx.onCodigoEscaneado('000000000010475828');
+    const urlCeros = decodeURIComponent((calls.find(c=>c.url.includes('or=(sku_code.in.'))||{}).url||'');
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='lejos' && urlCeros.includes('"10475828"'), 'el código con ceros a la izquierda encuentra el material, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado)+' '+urlCeros);
+    // Código de barras ya asociado, fuera de los 500.
+    ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+    await ctx.onCodigoEscaneado('7801234567890');
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='con-barras', 'un código de barras asociado se resuelve en el servidor, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
+    // Sin señal: usa lo que ya está en el dispositivo, como antes.
+    const fetchAntesEsc = ctx.fetch;
+    ctx.fetch = async (url, opts) => { if(String(url).includes('or=(sku_code.in.')) throw new ctx.__TypeError('Failed to fetch'); return fetchAntesEsc(url, opts); };
+    ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+    ctx.__appstate.skuSeleccionado = null;
+    await ctx.onCodigoEscaneado('00000001');
+    ctx.fetch = fetchAntesEsc;
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='pre-1', 'sin señal, el escáner sigue resolviendo con lo precargado, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
+    // Error del servidor: se ve, con Reintentar; no se disfraza de "código no encontrado".
+    escanerBusquedaFalla = 'canceling statement due to statement timeout';
+    ctx.__appstate.escanerModal = { codigo:null, error:null, destino:'conteo' };
+    ctx.__appstate.skuSeleccionado = null;
+    await ctx.onCodigoEscaneado('10475828');
+    const htmlErrEsc = ctx.renderEscanerModal();
+    assert(ctx.__appstate.escanerModal && ctx.__appstate.escanerModal.errorBusqueda==='canceling statement due to statement timeout' && htmlErrEsc.includes('No se pudo buscar el código: canceling statement due to statement timeout') && htmlErrEsc.includes('id="escaner-reintentar-busqueda"') && !htmlErrEsc.includes('Código no encontrado'), 'un error del servidor se ve con su mensaje y Reintentar, obtuvo: '+htmlErrEsc);
+    escanerBusquedaFalla = null;
+    ctx.reintentarBusquedaEscaneo();
+    await new Promise(r=>setTimeout(r, 30));
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='lejos', 'Reintentar vuelve a buscar y encuentra el material, obtuvo: '+JSON.stringify(ctx.__appstate.skuSeleccionado));
+    // Asociar un código nuevo: la búsqueda va al maestro completo del servidor, no a los 500.
+    ctx.__appstate.escanerModal = { codigo:'RAW-NUEVO', buscarAsociar:'', asociando:false, destino:'conteo' };
+    calls.length = 0;
+    ctx.escribirBusquedaAsociar('filtro');
+    await new Promise(r=>setTimeout(r, 420));
+    assert(calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura')) && (ctx.__appstate.escanerModal.resultadosAsociar||[]).some(r=>r.id==='id-libre-1'), 'buscar para asociar consulta el maestro completo, obtuvo: '+JSON.stringify({urls:calls.map(c=>c.url), r:ctx.__appstate.escanerModal.resultadosAsociar}));
+    calls.length = 0;
+    await ctx.asociarCodigoBarras('id-libre-1', 'RAW-NUEVO');
+    const patchBarras = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/skus?id=eq.id-libre-1'));
+    assert(patchBarras && JSON.parse(patchBarras.opts.body).codigo_barras==='RAW-NUEVO' && ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='id-libre-1', 'asociar guarda el código en el material elegido aunque no esté precargado, obtuvo: '+JSON.stringify({p:patchBarras && patchBarras.opts.body, s:ctx.__appstate.skuSeleccionado}));
+    maestroEscanerFixture = null;
+    ctx.__appstate.skus = skusAntesEsc;
+    ctx.__appstate.skuSeleccionado = null;
+    ctx.__appstate.escanerModal = null;
+  }
   ctx.__appstate.skus = skusEscaner;
 
   // onCodigoEscaneado con destino 'campo-sku' (botón de escanear en "Agregar SKU a maestro de

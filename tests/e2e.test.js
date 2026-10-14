@@ -221,6 +221,35 @@ async function loguear(page, perfil){
     await page.click('#escaner-modal-close');
     await page.waitForTimeout(200);
     assert(!(await page.isVisible('#escaner-modal-backdrop')), 'al cerrar el modal de escáner debe desaparecer del DOM/quedar oculto');
+    // Lectura de un material que NO está entre los 500 precargados (bug real, 14/10/2026): el
+    // código se busca en el servidor. La cámara no existe en el navegador de pruebas: la lectura se
+    // simula llamando al mismo callback que usa la librería.
+    await page.route('**/rest/v1/skus_lectura?select=id,sku_code,**', route => {
+      const u = decodeURIComponent(route.request().url());
+      if(!u.includes('or=(sku_code.in.')) return route.fallback();
+      const filas = u.includes('"10475828"') ? [{ id:'e2e-lejos', sku_code:'10475828', descripcion:'REDUCER,LH,FLENDER', bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', stock_sistema:1, unidad_medida:'EA' }] : [];
+      return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) });
+    });
+    await page.route('**/rest/v1/rpc/buscar_skus_lectura**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'e2e-asociar', sku_code:'11172553', descripcion:'MOTOR,MTR,2300KW', bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', stock_sistema:2, unidad_medida:'EA' } ]) }));
+    await page.click('#btn-abrir-escaner');
+    await page.waitForSelector('#escaner-modal-backdrop', { timeout:ESPERA });
+    await page.evaluate(() => onCodigoEscaneado('000000000010475828'));
+    assert(await esperarVisible(page, '#c-cant'), 'un código leído fuera de los 500 precargados abre el formulario de conteo de ese material');
+    assert(await page.isVisible('text=10475828'), 'el formulario es del material leído');
+    // Código desconocido: buscar para asociar sin reemplazar el campo mientras se escribe (iOS).
+    await page.click('#btn-quitar-sku').catch(()=>{});
+    await page.click('#btn-abrir-escaner');
+    await page.waitForSelector('#escaner-modal-backdrop', { timeout:ESPERA });
+    await page.evaluate(() => onCodigoEscaneado('CODIGO-SIN-ASOCIAR'));
+    await page.waitForSelector('#escaner-buscar', { timeout:ESPERA });
+    await page.evaluate(() => { window.__campoAsociar = document.getElementById('escaner-buscar'); });
+    await page.type('#escaner-buscar', 'motor', { delay:40 });
+    assert(await esperarVisible(page, '[data-asociar-btn="e2e-asociar"]'), 'la búsqueda para asociar trae resultados del maestro completo');
+    assert(await page.evaluate(() => window.__campoAsociar === document.getElementById('escaner-buscar') && document.activeElement === window.__campoAsociar), 'el campo no se reemplaza ni pierde el foco mientras se escribe');
+    const desbordeEsc = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeEsc <= 0, 'a 420 px el escáner no desborda, obtuvo '+desbordeEsc);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/escaner-asociar-420.png' });
     await context.close();
   }
 
