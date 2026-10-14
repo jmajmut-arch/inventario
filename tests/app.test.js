@@ -902,16 +902,16 @@ const fakeFetchImpl = async (url, opts) => {
     ];
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
   }
-  if(path.startsWith('/rest/v1/usuarios?activo=eq.true&rol=eq.operador&select=')){
-    // cargarResponsables (Planificación → Responsable): las cuentas activas con rol operador,
-    // ya no una lista aparte de "operadores" sin cuenta ni login, ni tampoco los admin.
+  if(path.startsWith('/rest/v1/usuarios?activo=eq.true&select=id,nombre,rol')){
+    // cargarResponsables (Planificación → Responsable): las cuentas activas de la empresa,
+    // operadores y administradores (desde el 14/10/2026), no una lista aparte sin cuenta.
     return {
       status: 200,
       ok: true,
       headers: { get: () => null },
       text: async () => JSON.stringify([
-        {id:'u1', nombre:'Ana Torres'},
-        {id:'u2', nombre:'Joel Majmut'},
+        {id:'u1', nombre:'Ana Torres', rol:'operador'},
+        {id:'u2', nombre:'Joel Majmut', rol:'admin'},
       ]),
     };
   }
@@ -1728,12 +1728,24 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const binsCall = calls.find(c=>c.url.includes('/ubicaciones_bins') && c.url.includes('bodega=eq.Nave') && c.url.includes('ubicacion=eq.Interior'));
   assert(!!binsCall, 'Debe llamarse a ubicaciones_bins con filtros bodega y ubicacion');
 
-  // cargarResponsables debe poblar state.plan.responsables solo con operadores (no admin).
+  // cargarResponsables: operadores y administradores activos (decisión de Joel, 14/10/2026: en
+  // Escondida el 69% de los conteos los hacen administradores y no podían recibir plan).
   calls.length = 0;
   await ctx.cargarResponsables();
   const responsablesAsignables = ctx.__appstate.plan.responsables;
   assert(Array.isArray(responsablesAsignables) && responsablesAsignables.length===2 && responsablesAsignables[0].nombre==='Ana Torres', 'cargarResponsables debe cargar los responsables activos, obtuvo: '+JSON.stringify(responsablesAsignables));
-  assert(calls.some(c=>c.url.includes('/usuarios') && c.url.includes('rol=eq.operador')), 'cargarResponsables debe filtrar por rol=eq.operador (no ofrecer admins como responsable), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/usuarios?activo=eq.true&select=id,nombre,rol')) && !calls.some(c=>c.url.includes('rol=eq.operador')), 'cargarResponsables ya no filtra por rol: los admins también pueden ser responsables, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  assert(ctx.etiquetaResponsable({nombre:'Joel Majmut', rol:'admin'})==='Joel Majmut (admin)' && ctx.etiquetaResponsable({nombre:'Ana Torres', rol:'operador'})==='Ana Torres', 'en los selectores los administradores se distinguen');
+  // Bug real (14/10/2026): una entrada cuyo responsable ya no está entre los asignables caía en
+  // "Sin asignar" en el selector y guardarla borraba el responsable.
+  {
+    const pr = {responsables: responsablesAsignables};
+    const conActual = ctx.opcionesResponsableEntrada(pr, {responsable_id:'u-viejo', responsable_nombre:'Pedro Antiguo'});
+    assert(conActual.includes('<option value="u-viejo" selected>Pedro Antiguo (desactivado)</option>') && !/<option value="" selected/.test(conActual), 'el responsable actual se ofrece y queda elegido aunque no esté entre los asignables, obtuvo: '+conActual);
+    const admin = ctx.opcionesResponsableEntrada(pr, {responsable_id:'u2', responsable_nombre:'Joel Majmut'});
+    assert(admin.includes('<option value="u2" selected>Joel Majmut (admin)</option>') && !admin.includes('(desactivado)'), 'un admin asignado aparece como tal y elegido, obtuvo: '+admin);
+    assert(ctx.opcionesResponsableEntrada(pr, {responsable_id:null}).startsWith('<option value="">Sin asignar</option><option value="u1" >'), 'sin responsable queda "Sin asignar"');
+  }
 
   // A partir de aquí, las acciones requieren sesión + perfil (con empresa_id) cargados, como en la app real.
   ctx.__appstate.session = { access_token:'x', user:{email:'a@b.com'} };
@@ -1755,7 +1767,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlOut.includes('<select id="p-responsable">') && htmlOut.includes('<option value="">Sin asignar</option>'), 'debe existir el select de Responsable con opción "Sin asignar"');
   // Responsable ahora lista directo las cuentas del equipo (usuarios), no una lista aparte de
   // "operadores" sin cuenta ni login.
-  assert(htmlOut.includes('<option value="u1">Ana Torres</option>') && htmlOut.includes('<option value="u2">Joel Majmut</option>'), 'el select de Responsable debe listar las cuentas activas del equipo, obtuvo: '+htmlOut);
+  assert(htmlOut.includes('<option value="u1">Ana Torres</option>') && htmlOut.includes('<option value="u2">Joel Majmut (admin)</option>'), 'el select de Responsable debe listar las cuentas activas del equipo, con los admins marcados, obtuvo: '+htmlOut);
   assert(!htmlOut.includes('form-responsable') && !htmlOut.includes('form-operador'), 'la gestión de operadores ya no debe existir (Responsable usa las cuentas de Configuraciones → Equipo), obtuvo: '+htmlOut);
 
   // La sección "Operadores" (nombres sueltos sin cuenta) ya no debe existir en Configuraciones:
@@ -4401,7 +4413,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // Escondida quedaron asignadas a una operadora de Demo InventIA.
   calls.length = 0;
   await ctx.cargarResponsables();
-  assert(calls.some(c=>c.url.includes('/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre&empresa_id=eq.emp-1')), 'cargarResponsables debe pedir solo operadores de la empresa propia, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/usuarios')).map(c=>c.url)));
+  assert(calls.some(c=>c.url.includes('/usuarios?activo=eq.true&select=id,nombre,rol&empresa_id=eq.emp-1')), 'cargarResponsables debe pedir solo cuentas de la empresa propia, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/usuarios')).map(c=>c.url)));
 
   // Bug real (mismo patrón que Contar/cargarPlanDeHoy): si el pedido falla, cargarEquipo NO debe
   // marcar cargado:true -- si no, un corte de red justo al entrar a Configuraciones deja "Mi

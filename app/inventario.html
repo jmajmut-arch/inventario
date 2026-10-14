@@ -3249,6 +3249,20 @@ function resumenSeleccionPlan(p, ids){
   });
   return {skus, bins: bins.size, sinBin};
 }
+// Nombre de un responsable en los selectores del plan: los administradores se distinguen.
+function etiquetaResponsable(u){
+  return `${u.nombre}${u.rol==='admin' ? ' (admin)' : ''}`;
+}
+// Selector de responsable de UNA entrada: si su responsable actual ya no está entre los asignables
+// (cuenta desactivada), se ofrece igual y queda elegido. Bug real (14/10/2026): el selector caía en
+// "Sin asignar" y guardar la entrada -- aunque solo se cambiara la fecha -- borraba el responsable.
+function opcionesResponsableEntrada(p, e){
+  const lista = p.responsables || [];
+  const actualFuera = e.responsable_id && !lista.some(u=>u.id===e.responsable_id);
+  return `<option value="">Sin asignar</option>`
+    + (actualFuera ? `<option value="${esc(e.responsable_id)}" selected>${esc(e.responsable_nombre || 'Responsable actual')} (desactivado)</option>` : '')
+    + lista.map(u=>`<option value="${esc(u.id)}" ${u.id===e.responsable_id?'selected':''}>${esc(etiquetaResponsable(u))}</option>`).join('');
+}
 // Personas para el filtro: el equipo asignable y cualquier otro responsable que aparezca en las
 // entradas cargadas (alguien desactivado o de un plan antiguo), por nombre.
 function opcionesResponsablePlan(p){
@@ -3544,14 +3558,15 @@ async function excluirSkuDePlan(planId, skuCode){
 // lista aparte: así queda un solo lugar para gestionar personas (Configuraciones → Equipo).
 async function cargarResponsables(){
   try{
-    // Solo operadores: quien planifica es admin, pero el responsable de contar en terreno
-    // (a quien "Contar" le muestra su plan del día) es siempre un operador, no un admin.
+    // Operadores y administradores activos (decisión de Joel, 14/10/2026): hasta entonces solo
+    // operadores, pero en Escondida el 69% de los conteos los hacen administradores y no podían
+    // recibir plan. Contar le muestra a cada cuenta lo asignado a ella, sea cual sea su rol.
     // Siempre de la empresa propia: un súper admin puede leer usuarios de todas las empresas
     // (read_usuarios) y sin este filtro le aparecían operadores ajenos como responsables -- bug
     // real: 5 entradas de Escondida quedaron asignadas a una operadora de Demo InventIA. La base
     // ahora también lo rechaza (trigger validar_responsable_misma_empresa).
     const empresaFiltro = state.perfil && state.perfil.empresa_id ? `&empresa_id=eq.${encodeURIComponent(state.perfil.empresa_id)}` : '';
-    const rows = await rest(`/usuarios?activo=eq.true&rol=eq.operador&select=id,nombre${empresaFiltro}&order=nombre.asc`);
+    const rows = await rest(`/usuarios?activo=eq.true&select=id,nombre,rol${empresaFiltro}&order=nombre.asc`);
     setState({plan: {...state.plan, responsables: rows||[]}});
   }catch(e){ toast(e.message,'err'); }
 }
@@ -13727,8 +13742,7 @@ function renderPlanificacion(){
             <input type="date" id="pe-fecha-${e.id}" value="${e.fecha}">
             <label for="pe-responsable-${e.id}">Responsable</label>
             <select id="pe-responsable-${e.id}">
-              <option value="">Sin asignar</option>
-              ${p.responsables.map(u=>`<option value="${esc(u.id)}" ${u.id===e.responsable_id?'selected':''}>${esc(u.nombre)}</option>`).join('')}
+              ${opcionesResponsableEntrada(p, e)}
             </select>
             <label for="pe-nota-${e.id}">Nota</label>
             <input type="text" id="pe-nota-${e.id}" value="${esc(e.nota||'')}" placeholder="Opcional">
@@ -13944,7 +13958,7 @@ function renderPlanificacion(){
         <label for="p-responsable">Responsable</label>
         <select id="p-responsable">
           <option value="">Sin asignar</option>
-          ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+          ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(etiquetaResponsable(u))}</option>`).join('')}
         </select>
         ${!p.responsables.length? `<div class="hint" style="margin:4px 0 0">Invita a alguien de tu equipo desde Configuraciones para poder asignarlo aquí.</div>` : ''}
         <label for="p-nota">Nota</label>
@@ -13972,7 +13986,7 @@ function renderPlanificacion(){
             <select id="plan-reasignar-select" style="width:auto">
               <option value="__elegir__" selected>Reasignar a…</option>
               <option value="">Sin asignar</option>
-              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(u.nombre)}</option>`).join('')}
+              ${p.responsables.map(u=>`<option value="${esc(u.id)}">${esc(etiquetaResponsable(u))}</option>`).join('')}
             </select>
             <button class="btn btn-secondary" id="btn-reasignar-seleccion-plan" style="width:auto;padding:8px 12px">Reasignar</button>
             <button class="btn btn-secondary" id="btn-cancelar-seleccion-plan" style="width:auto;padding:8px 12px">Cancelar</button>

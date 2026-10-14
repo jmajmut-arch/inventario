@@ -481,7 +481,7 @@ async function loguear(page, perfil){
       else cuerpo.universo = {};
       route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(cuerpo) });
     });
-    await page.route('**/rest/v1/usuarios?activo=eq.true&rol=eq.operador**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{id:'r1', nombre:'Pedro Soto'}, {id:'r2', nombre:'María Rojas'}]) }));
+    await page.route('**/rest/v1/usuarios?activo=eq.true&select=id,nombre,rol**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{id:'r1', nombre:'Pedro Soto', rol:'operador'}, {id:'r2', nombre:'María Rojas', rol:'operador'}]) }));
     await page.route('**/rest/v1/ubicaciones_generales**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', cantidad_skus:40, cantidad_pendiente:30}]) }));
     await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:2600, cantidad_pendiente:2500}]) }));
     // "Todas": 2 bins. Pasillo 3: 1.000 filas, el tope de PostgREST (la lista llega cortada).
