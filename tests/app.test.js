@@ -1740,8 +1740,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // "Sin asignar" en el selector y guardarla borraba el responsable.
   {
     const pr = {responsables: responsablesAsignables};
+    // Los desplegables no muestran cuentas desactivadas (decisión de Joel, 14/10/2026), pero
+    // guardar la entrada sin tocar el selector conserva su responsable actual.
     const conActual = ctx.opcionesResponsableEntrada(pr, {responsable_id:'u-viejo', responsable_nombre:'Pedro Antiguo'});
-    assert(conActual.includes('<option value="u-viejo" selected>Pedro Antiguo (desactivado)</option>') && !/<option value="" selected/.test(conActual), 'el responsable actual se ofrece y queda elegido aunque no esté entre los asignables, obtuvo: '+conActual);
+    assert(!conActual.includes('u-viejo') && !conActual.includes('Pedro Antiguo') && ctx.responsableFueraDeLista(pr, {responsable_id:'u-viejo'}) && !ctx.responsableFueraDeLista(pr, {responsable_id:'u1'}), 'una cuenta desactivada no aparece en el desplegable, obtuvo: '+conActual);
+    assert(ctx.responsableElegidoEntrada({value:'', dataset:{responsableActual:'u-viejo'}})==='u-viejo', 'sin tocar el selector, guardar conserva al responsable desactivado');
+    assert(ctx.responsableElegidoEntrada({value:'', dataset:{responsableActual:'u-viejo', cambiado:'1'}})==='', 'si la persona elige "Sin asignar" a propósito, se desasigna');
+    assert(ctx.responsableElegidoEntrada({value:'u1', dataset:{responsableActual:'u-viejo', cambiado:'1'}})==='u1', 'si elige a otra persona, se reasigna');
+    assert(ctx.responsableElegidoEntrada({value:'u2', dataset:{}})==='u2', 'sin responsable fuera de lista, vale lo elegido');
     const admin = ctx.opcionesResponsableEntrada(pr, {responsable_id:'u2', responsable_nombre:'Joel Majmut'});
     assert(admin.includes('<option value="u2" selected>Joel Majmut (admin)</option>') && !admin.includes('(desactivado)'), 'un admin asignado aparece como tal y elegido, obtuvo: '+admin);
     assert(ctx.opcionesResponsableEntrada(pr, {responsable_id:null}).startsWith('<option value="">Sin asignar</option><option value="u1" >'), 'sin responsable queda "Sin asignar"');
@@ -2789,6 +2795,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlEditando.includes('id="pe-responsable-e1"'), 'el modo edición debe incluir el select de responsable para e1');
   assert(/<option value="u1"[^>]*selected/.test(htmlEditando), 'el responsable actual (u1) debe venir preseleccionado en el modo edición, obtuvo: '+htmlEditando);
   assert(htmlEditando.includes('id="pe-nota-e1"') && htmlEditando.includes('value="Revisar merma"'), 'el modo edición debe precargar la nota de la entrada');
+  assert(!htmlEditando.includes('data-responsable-actual'), 'con un responsable activo no hace falta guardar el actual aparte');
+  // Responsable desactivado (no está en la lista): no se ofrece, pero el <select> lo guarda y una
+  // nota explica que se mantiene (decisión y bug del 14/10/2026).
+  {
+    const e1 = ctx.__appstate.plan.entradas.find(x=>x.id==='e1');
+    const antes = {id:e1.responsable_id, nombre:e1.responsable_nombre};
+    e1.responsable_id = 'u-desactivado'; e1.responsable_nombre = 'Pedro Antiguo';
+    const htmlDesact = ctx.renderPlanificacion();
+    assert(htmlDesact.includes('data-responsable-actual="u-desactivado"') && htmlDesact.includes('Hoy está asignada a Pedro Antiguo, que está desactivada. Se mantiene salvo que elijas a otra persona.') && !/<option value="u-desactivado"/.test(htmlDesact), 'el responsable desactivado no está en el desplegable, pero queda guardado y explicado, obtuvo: '+(htmlDesact.match(/pe-responsable-e1[\s\S]{0,600}/)||[''])[0]);
+    e1.responsable_id = antes.id; e1.responsable_nombre = antes.nombre;
+  }
   assert(htmlEditando.includes('data-guardar-plan="e1"') && htmlEditando.includes('data-cancelar-plan="e1"'), 'el modo edición debe tener botones Guardar y Cancelar');
   ctx.__appstate.plan.editando = null;
 
@@ -11997,7 +12014,8 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.view = 'buscar';
     ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, texto:'', bodega:'', ubicacion:'', usuarioId:null, usuarioNombre:null};
     let htmlPersonas = ctx.renderBuscar();
-    assert(htmlPersonas.includes('<select id="b-usuario"') && htmlPersonas.includes('>Beto Ríos<') && htmlPersonas.includes('>Marta Soto (inactivo)<'), '"Contado por" debe listar a todas las personas, marcando las inactivas, obtuvo: '+htmlPersonas);
+    // Decisión de Joel (14/10/2026): los desplegables no muestran cuentas desactivadas.
+    assert(htmlPersonas.includes('<select id="b-usuario"') && htmlPersonas.includes('>Beto Ríos<') && !htmlPersonas.includes('Marta Soto'), '"Contado por" lista solo a las personas activas, obtuvo: '+htmlPersonas);
     // Si el filtro llega desde Calendario antes de que cargue la lista, la persona elegida se ve igual.
     ctx.__appstate.personasBuscar = {cargado:false, cargando:true, filas:[], error:null};
     ctx.__appstate.busqueda.usuarioId = 'op-nasib'; ctx.__appstate.busqueda.usuarioNombre = 'Nasib V2';

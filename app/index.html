@@ -3253,22 +3253,29 @@ function resumenSeleccionPlan(p, ids){
 function etiquetaResponsable(u){
   return `${u.nombre}${u.rol==='admin' ? ' (admin)' : ''}`;
 }
-// Selector de responsable de UNA entrada: si su responsable actual ya no está entre los asignables
-// (cuenta desactivada), se ofrece igual y queda elegido. Bug real (14/10/2026): el selector caía en
-// "Sin asignar" y guardar la entrada -- aunque solo se cambiara la fecha -- borraba el responsable.
+// Selector de responsable de UNA entrada. Los desplegables no muestran cuentas desactivadas
+// (decisión de Joel, 14/10/2026). Si el responsable actual es una de ellas, no se ofrece, pero
+// tampoco se pierde: el <select> lo guarda en data-responsable-actual y, mientras la persona no
+// elija otro, guardar lo conserva (ver responsableElegidoEntrada). Bug real del mismo día: el
+// selector caía en "Sin asignar" y guardar -- aunque solo se cambiara la fecha -- lo borraba.
+function responsableFueraDeLista(p, e){
+  return !!(e.responsable_id && !(p.responsables || []).some(u=>u.id===e.responsable_id));
+}
 function opcionesResponsableEntrada(p, e){
   const lista = p.responsables || [];
-  const actualFuera = e.responsable_id && !lista.some(u=>u.id===e.responsable_id);
   return `<option value="">Sin asignar</option>`
-    + (actualFuera ? `<option value="${esc(e.responsable_id)}" selected>${esc(e.responsable_nombre || 'Responsable actual')} (desactivado)</option>` : '')
     + lista.map(u=>`<option value="${esc(u.id)}" ${u.id===e.responsable_id?'selected':''}>${esc(etiquetaResponsable(u))}</option>`).join('');
 }
-// Personas para el filtro: el equipo asignable y cualquier otro responsable que aparezca en las
-// entradas cargadas (alguien desactivado o de un plan antiguo), por nombre.
+function responsableElegidoEntrada(select){
+  if(!select) return '';
+  if(select.value==='' && select.dataset.responsableActual && select.dataset.cambiado!=='1') return select.dataset.responsableActual;
+  return select.value;
+}
+// Personas para el filtro por responsable: solo las cuentas activas asignables, por nombre. Los
+// desplegables no muestran cuentas desactivadas (decisión de Joel, 14/10/2026); sus entradas
+// siguen en la lista y se pueden reasignar.
 function opcionesResponsablePlan(p){
-  const m = new Map((p.responsables||[]).map(u=>[u.id, u.nombre]));
-  (p.entradas||[]).forEach(e=>{ if(e.responsable_id && !m.has(e.responsable_id)) m.set(e.responsable_id, e.responsable_nombre || 'Sin nombre'); });
-  return Array.from(m.entries()).sort((a,b)=> a[1].localeCompare(b[1], 'es'));
+  return (p.responsables||[]).map(u=>[u.id, u.nombre]).sort((a,b)=> a[1].localeCompare(b[1], 'es'));
 }
 
 // Hasta esta cantidad de entradas, las vistas resumidas se listan abiertas como siempre; por
@@ -5606,8 +5613,8 @@ async function cargarOpcionesGenerales(forzar){
   }catch(e){ toast(e.message,'err'); }
 }
 
-// Buscar: desplegable "Contado por" (pedido de Joel) con las personas de la empresa, activas o
-// no -- alguien desactivado sigue teniendo conteos que vale la pena encontrar. Es la misma
+// Buscar: desplegable "Contado por" (pedido de Joel) con las personas activas de la empresa (los
+// desactivados no se muestran desde el 14/10/2026, ver htmlOpcionesPersonaBuscar). Es la misma
 // consulta de "Mi equipo" (cargarEquipo la comparte). El filtro ya existía para el salto desde
 // Calendario (usuarioId, server-side: contado_por_id / p_usuario_id); esto solo lo pone en el
 // formulario. Sin setState/render(), por la misma razón que cargarUbicacionesLista.
@@ -5626,13 +5633,14 @@ async function cargarPersonasBuscar(){
 }
 function htmlOpcionesPersonaBuscar(elegidaId){
   const b = state.busqueda;
-  const filas = state.personasBuscar.filas || [];
+  // Solo cuentas activas (decisión de Joel, 14/10/2026: un desplegable no muestra desactivados).
+  const filas = (state.personasBuscar.filas || []).filter(u=>u.activo!==false);
   // Si el filtro llegó desde Calendario antes de que cargara la lista, la persona elegida se
   // muestra igual, con el nombre que ya trae el estado.
   const faltaElegida = elegidaId && !filas.some(u=>u.id===elegidaId);
   return `<option value="">Todas</option>`
     + (faltaElegida ? `<option value="${esc(elegidaId)}" selected>${esc(b.usuarioNombre||'Esta cuenta')}</option>` : '')
-    + filas.map(u=>`<option value="${esc(u.id)}" ${elegidaId===u.id?'selected':''}>${esc(u.nombre)}${u.activo===false?' (inactivo)':''}</option>`).join('');
+    + filas.map(u=>`<option value="${esc(u.id)}" ${elegidaId===u.id?'selected':''}>${esc(u.nombre)}</option>`).join('');
 }
 function textoAvisoPersonasBuscar(pb){
   if(pb.error) return `No se pudo cargar la lista de personas: ${esc(pb.error)}`;
@@ -13741,9 +13749,10 @@ function renderPlanificacion(){
             <label for="pe-fecha-${e.id}">Fecha</label>
             <input type="date" id="pe-fecha-${e.id}" value="${e.fecha}">
             <label for="pe-responsable-${e.id}">Responsable</label>
-            <select id="pe-responsable-${e.id}">
+            <select id="pe-responsable-${e.id}"${responsableFueraDeLista(p, e) ? ` data-responsable-actual="${esc(e.responsable_id)}"` : ''}>
               ${opcionesResponsableEntrada(p, e)}
             </select>
+            ${responsableFueraDeLista(p, e) ? `<div class="hint" style="margin-top:4px">Hoy está asignada a ${esc(e.responsable_nombre || 'una cuenta')}, que está desactivada. Se mantiene salvo que elijas a otra persona.</div>` : ''}
             <label for="pe-nota-${e.id}">Nota</label>
             <input type="text" id="pe-nota-${e.id}" value="${esc(e.nota||'')}" placeholder="Opcional">
             <div style="display:flex;gap:8px;margin-top:12px">
@@ -18450,12 +18459,15 @@ function bind(){
     document.querySelectorAll('[data-cancelar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({plan:{...state.plan, editando: null}}));
     });
+    document.querySelectorAll('select[data-responsable-actual]').forEach(sel=>{
+      sel.addEventListener('change', ()=>{ sel.dataset.cambiado = '1'; });
+    });
     document.querySelectorAll('[data-guardar-plan]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id = btn.dataset.guardarPlan;
         actualizarPlanEntrada(id, {
           fecha: document.getElementById(`pe-fecha-${id}`).value,
-          responsableId: document.getElementById(`pe-responsable-${id}`).value,
+          responsableId: responsableElegidoEntrada(document.getElementById(`pe-responsable-${id}`)),
           nota: document.getElementById(`pe-nota-${id}`).value.trim(),
         });
       });
