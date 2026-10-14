@@ -668,6 +668,15 @@ textarea{resize:vertical;min-height:60px;}
 .plan-dia-meta{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
 .plan-dia-meta .plan-dia-sin-resp,.plan-sin-resp{color:var(--warn);font-weight:600;}
 .plan-dia-cuerpo{padding:0 14px 6px;border-top:1px solid var(--line);}
+/* Casilla "Seleccionar día" (Semana/Mes): marca todas las entradas visibles de ese día de una vez,
+   para reasignar o eliminar en masa sin cambiar a la vista Día. La etiqueta entera es el área
+   táctil (44 px de ancho y el alto del encabezado). */
+.plan-dia-cabecera{display:flex;align-items:stretch;}
+.plan-dia-cabecera .plan-dia-toggle{padding-left:4px;}
+.plan-dia-check{display:flex;align-items:center;justify-content:center;flex:none;min-width:44px;min-height:44px;padding:0 0 0 6px;margin:0;cursor:pointer;}
+.plan-dia-check input{width:22px;height:22px;margin:0;accent-color:var(--amber);cursor:pointer;}
+.plan-dia-head{justify-content:flex-start;align-items:center;gap:2px;}
+.plan-dia-head .plan-dia-check{padding:0;justify-content:flex-start;min-width:36px;}
 @media (prefers-reduced-motion:reduce){ .plan-dia-chevron{transition:none;} }
 /* Agregar a la planificación: el formulario queda detrás de un botón para que en el celular lo
    primero que se vea sea el plan, no el formulario. */
@@ -5428,6 +5437,17 @@ async function confirmarYBorrarPlanEntrada(id){
 function alternarSeleccionPlan(id){
   const actual = state.plan.seleccionados;
   const seleccionados = actual.includes(id) ? actual.filter(x=>x!==id) : [...actual, id];
+  setState({plan: {...state.plan, seleccionados}});
+}
+
+// "Seleccionar día" (pedido de Joel, 14/10/2026): marca o desmarca de una vez las entradas
+// visibles de ese día, sumándolas a lo que ya estuviera elegido en otros días. Respeta los mismos
+// filtros que la lista (responsable, período): nunca elige algo que no se ve.
+function alternarSeleccionDiaPlan(iso){
+  const ids = entradasVisiblesPlan(state.plan).filter(e=>e.fecha===iso).map(e=>e.id);
+  const actual = state.plan.seleccionados;
+  const yaTodos = ids.length>0 && ids.every(id=>actual.includes(id));
+  const seleccionados = yaTodos ? actual.filter(id=>!ids.includes(id)) : [...actual, ...ids.filter(id=>!actual.includes(id))];
   setState({plan: {...state.plan, seleccionados}});
 }
 
@@ -13805,6 +13825,16 @@ function renderPlanificacion(){
             </div>
           </div>
         `;
+  // Casilla "Seleccionar día" (ver alternarSeleccionDiaPlan). En la vista Día no va: ahí
+  // "Seleccionar todo" ya es el día. Marcada si están todas sus entradas; a medias (indeterminate,
+  // ver bind) si solo algunas.
+  const checkDia = d => {
+    if(p.diaFiltro) return '';
+    const ids = d.entradas.map(e=>e.id);
+    const n = ids.filter(id=>p.seleccionados.includes(id)).length;
+    return `<label class="plan-dia-check"><input type="checkbox" data-select-dia="${esc(d.iso)}" ${n && n===ids.length?'checked':''} ${n && n<ids.length?'data-parcial="1"':''} aria-label="Seleccionar las ${ids.length} entrada${ids.length===1?'':'s'} del ${esc(d.label)}${d.corta? ' '+esc(d.corta) : ''}"></label>`;
+  };
+
   // Un día plegable (ver diasPlegables): encabezado con sus totales y, abierto, sus entradas.
   const htmlDiaPlegable = d => {
     const abierto = diaAbierto(d.iso);
@@ -13812,6 +13842,7 @@ function renderPlanificacion(){
     const sku = cantidadPorDia.get(d.iso)||0;
     return `
       <div class="card plan-dia">
+        <div class="plan-dia-cabecera">${checkDia(d)}
         <button type="button" class="plan-dia-toggle" data-plan-dia="${esc(d.iso)}" aria-expanded="${abierto}">
           <svg class="plan-dia-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
           <span class="plan-dia-textos">
@@ -13819,6 +13850,7 @@ function renderPlanificacion(){
             <span class="plan-dia-meta">${d.entradas.length} entrada${d.entradas.length===1?'':'s'} · ${sku} SKU${sinResp? ` · <span class="plan-dia-sin-resp">${sinResp} sin responsable</span>` : ''}</span>
           </span>
         </button>
+        </div>
         ${abierto? `<div class="plan-dia-cuerpo">${d.entradas.map(htmlEntradaPlan).join('')}</div>` : ''}
       </div>
     `;
@@ -14016,7 +14048,7 @@ function renderPlanificacion(){
     ` : ''}
 
     ${grupos.filter(d=>d.entradas.length).map(d=> diasPlegables ? htmlDiaPlegable(d) : `
-      <div class="section-head"><h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${modo==='semana'? ' · '+d.corta : ''}</h2></div>
+      <div class="section-head${p.diaFiltro? '' : ' plan-dia-head'}">${checkDia(d)}<h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${modo==='semana'? ' · '+d.corta : ''}</h2></div>
       <div class="card">
         ${d.entradas.map(htmlEntradaPlan).join('')}
       </div>
@@ -18448,6 +18480,10 @@ function bind(){
     });
     const chkTodoPlan = document.getElementById('chk-seleccionar-todo-plan');
     if(chkTodoPlan) chkTodoPlan.addEventListener('change', alternarSeleccionTodoPlan);
+    document.querySelectorAll('[data-select-dia]').forEach(chk=>{
+      if(chk.dataset.parcial) chk.indeterminate = true;
+      chk.addEventListener('change', ()=> alternarSeleccionDiaPlan(chk.dataset.selectDia));
+    });
     const btnBorrarSeleccion = document.getElementById('btn-borrar-seleccion-plan');
     if(btnBorrarSeleccion) btnBorrarSeleccion.addEventListener('click', async ()=>{
       await confirmarYBorrarSeleccionPlan();

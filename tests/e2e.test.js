@@ -553,6 +553,21 @@ async function loguear(page, perfil){
     const barraSel = await page.evaluate(() => ({ resumen: document.querySelector('.plan-seleccion-resumen').textContent, derecha: Math.max(...['plan-reasignar-select','btn-reasignar-seleccion-plan','btn-cancelar-seleccion-plan','btn-borrar-seleccion-plan'].map(id => document.getElementById(id).getBoundingClientRect().right)), ancho: window.innerWidth }));
     assert(barraSel.resumen === '156 SKU · 0 storage bin · 13 entradas sin storage bin fijo' && barraSel.derecha <= barraSel.ancho, 'la barra de selección resume SKU y bins y sus botones caben a 420 px, obtuvo '+JSON.stringify(barraSel));
     await page.click('#btn-cancelar-seleccion-plan');
+    // "Seleccionar día" (Joel, 14/10/2026): la casilla del encabezado elige las entradas de ese día
+    // sin abrirlo ni cerrarlo, la barra de acciones masivas aparece y el área táctil mide 44 px.
+    const cerrado = dias.find(d=>!d.abierto && d.iso!==otro).iso;
+    const esperadasDia = entradas.filter(e=>e.fecha===cerrado).map(e=>e.id).sort();
+    const areaDia = await page.$eval(`[data-select-dia="${cerrado}"]`, el => { const r = el.closest('label').getBoundingClientRect(); return {w:Math.round(r.width), h:Math.round(r.height)}; });
+    assert(areaDia.w >= 44 && areaDia.h >= 44, 'la casilla del día debe tener un área táctil de al menos 44 px, obtuvo '+JSON.stringify(areaDia));
+    await page.click(`[data-select-dia="${cerrado}"]`);
+    await page.waitForSelector('#btn-reasignar-seleccion-plan', { timeout:ESPERA });
+    const selDia = await page.evaluate(iso => ({ ids: state.plan.seleccionados.slice().sort(), marcada: document.querySelector(`[data-select-dia="${iso}"]`).checked, abierto: document.querySelector(`[data-plan-dia="${iso}"]`).getAttribute('aria-expanded') }), cerrado);
+    assert(JSON.stringify(selDia.ids) === JSON.stringify(esperadasDia) && selDia.marcada && selDia.abierto === 'false', 'marcar el día elige solo sus entradas y no lo abre, obtuvo '+JSON.stringify(selDia));
+    const desbordePlan = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(desbordePlan <= 0, 'a 420 px Planificación no debe desbordar a lo ancho con la casilla por día, desborda '+desbordePlan+' px');
+    if(process.env.CAPTURA_PLAN_DIA) await page.screenshot({ path: process.env.CAPTURA_PLAN_DIA, clip: await (await page.$(`[data-plan-dia="${cerrado}"]`)).evaluate(el => { const c = el.closest('.plan-dia').getBoundingClientRect(); return {x:0, y:Math.max(0, c.top-170+window.scrollY), width:420, height:330}; }), fullPage:true });
+    await page.click(`[data-select-dia="${cerrado}"]`);
+    await page.waitForFunction(() => state.plan.seleccionados.length === 0, null, { timeout:ESPERA });
     // "+ Agregar": el formulario aparece; Ubicación específica y Storage bin apilados; bins crece.
     assert(!(await page.isVisible('#form-plan')), 'con entradas, el formulario parte oculto');
     await page.click('#btn-toggle-agregar-plan');

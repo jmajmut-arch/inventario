@@ -2417,6 +2417,44 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ctx.alternarSeleccionTodoPlan();
   assert(ctx.__appstate.plan.seleccionados.length===0, 'alternarSeleccionTodoPlan debe deseleccionar todo si ya estaba todo seleccionado, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
 
+  // "Seleccionar día" (Joel, 14/10/2026: "¿es posible seleccionar un día completo? Así puedo
+  // accionar masivo"): en Semana/Mes cada día trae su casilla, que marca solo las entradas
+  // visibles de ese día y se suma a lo ya elegido en otros días. Antes había que pasar a la
+  // vista Día para usar "Seleccionar todo".
+  {
+    const planOriginal = ctx.__appstate.plan;
+    const ent = (id, fecha, resp=null) => ({id, fecha, bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-'+id, responsable_id:resp, responsable_nombre:resp, nota:''});
+    ctx.__appstate.plan = {...planOriginal, semanaInicio:'2026-08-10', diaFiltro:null, cicloFiltro:null, rango:'semana', responsableFiltro:'',
+      entradas:[ent('d1','2026-08-10'), ent('d2','2026-08-10'), ent('d3','2026-08-11'), ent('d4','2026-08-11','r1')],
+      universos:{d1:1, d2:1, d3:1, d4:1}, detalle:{}, propios:{}, responsables:[], editando:null, seleccionados:[]};
+    const htmlDias = ctx.renderPlanificacion();
+    assert(htmlDias.includes('data-select-dia="2026-08-10"') && htmlDias.includes('data-select-dia="2026-08-11"'), 'en Semana cada día con entradas debe traer su casilla "Seleccionar día", obtuvo: '+htmlDias);
+    assert(!htmlDias.includes('data-select-dia="2026-08-12"'), 'un día sin entradas no se lista ni trae casilla');
+    ctx.alternarSeleccionDiaPlan('2026-08-10');
+    assert(JSON.stringify(ctx.__appstate.plan.seleccionados.slice().sort())===JSON.stringify(['d1','d2']), 'marcar el lunes debe seleccionar solo sus dos entradas, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+    const htmlLunes = ctx.renderPlanificacion();
+    assert(/data-select-dia="2026-08-10"[^>]*checked/.test(htmlLunes) && !/data-select-dia="2026-08-11"[^>]*checked/.test(htmlLunes), 'la casilla del lunes queda marcada y la del martes no, obtuvo: '+htmlLunes);
+    assert(htmlLunes.includes('2 entradas seleccionadas') && htmlLunes.includes('id="btn-reasignar-seleccion-plan"') && htmlLunes.includes('id="btn-borrar-seleccion-plan"'), 'con el día marcado aparece la barra de acciones masivas, obtuvo: '+htmlLunes);
+    ctx.alternarSeleccionDiaPlan('2026-08-11');
+    assert(ctx.__appstate.plan.seleccionados.length===4, 'marcar otro día suma sus entradas a las ya elegidas, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+    ctx.alternarSeleccionDiaPlan('2026-08-10');
+    assert(JSON.stringify(ctx.__appstate.plan.seleccionados.slice().sort())===JSON.stringify(['d3','d4']), 'desmarcar el lunes quita solo las suyas, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+    // A medias: con una sola entrada del día elegida a mano, la casilla queda indeterminada, y
+    // marcarla completa el día (no lo vacía).
+    ctx.__appstate.plan = {...ctx.__appstate.plan, seleccionados:['d1']};
+    assert(/data-select-dia="2026-08-10"[^>]*data-parcial="1"/.test(ctx.renderPlanificacion()), 'con parte del día elegida, la casilla debe marcarse a medias');
+    ctx.alternarSeleccionDiaPlan('2026-08-10');
+    assert(JSON.stringify(ctx.__appstate.plan.seleccionados.slice().sort())===JSON.stringify(['d1','d2']), 'marcar un día a medias lo completa, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+    // Respeta el filtro por responsable: nunca elige entradas que no se ven.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, responsableFiltro:'r1', seleccionados:[]};
+    ctx.alternarSeleccionDiaPlan('2026-08-11');
+    assert(JSON.stringify(ctx.__appstate.plan.seleccionados)===JSON.stringify(['d4']), 'con filtro por responsable, el día marca solo las entradas visibles, obtuvo: '+JSON.stringify(ctx.__appstate.plan.seleccionados));
+    // En la vista Día no hace falta: "Seleccionar todo" ya es ese día.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, responsableFiltro:'', diaFiltro:'2026-08-10', seleccionados:[]};
+    assert(!ctx.renderPlanificacion().includes('data-select-dia='), 'en la vista Día no debe aparecer la casilla por día');
+    ctx.__appstate.plan = planOriginal;
+  }
+
   // resumenSeleccionPlan (pedido de Joel, 30/09): la barra de selección dice cuántos SKU y cuántas
   // posiciones de storage bin abarcan las entradas marcadas, sin consultas.
   {
