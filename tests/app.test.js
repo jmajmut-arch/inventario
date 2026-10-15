@@ -11691,6 +11691,201 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     'sin conteo_id ni ciclo_id en las fotos (servidor sin la migración) quedan como antes');
   assert(ctx.fotosFilaBuscar({fotos:[]}).length===0 && ctx.fotosFilaBuscar({}).length===0, 'una fila sin fotos sigue sin fotos');
 
+  // ===== Crear y contar un SKU sin señal (Joel, 14/10/2026) =====
+  // Un conteo se amarra al material por su id, que pone el servidor al crear el SKU: sin señal no
+  // existe. El conteo espera en la cola detrás de su SKU y sale con el id que el SKU recibió.
+  {
+    const fetchAntesCrearContar = ctx.fetch;
+    let servidorCaido = true;
+    // Sin señal también para navigator.onLine: guardarConteo intenta enviar de una vez cuando cree
+    // que hay señal, y esa pasada en segundo plano se cruzaría con las de la prueba.
+    const onLineAntes = ctx.navigator.onLine;
+    const sinSenal = v => { servidorCaido = v; ctx.navigator.onLine = !v; };
+    sinSenal(true);
+    let perderRespuestaSku = false;
+    const skusServidor = [{id:'srv-existente', sku_code:'OTRO-1', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'Z-9', batch:null, activo:true, capturado_en:'2026-10-01T10:00:00.000Z'},
+      {id:'srv-inactivo', sku_code:'VIEJO-1', bodega:'Nave Mina', ubicacion:null, storage_bin:null, batch:null, activo:false, capturado_en:'2026-01-01T10:00:00.000Z'}];
+    const conteosServidor = [];
+    const pedidos = [];
+    const respuesta = (status, cuerpo) => ({status, ok: status<300, headers:{get:()=>null}, text: async()=> cuerpo===undefined ? '' : JSON.stringify(cuerpo)});
+    const posKey = f => [f.sku_code, f.bodega||'', f.batch||'', f.ubicacion||'', f.storage_bin||''].join('|');
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      const metodo = (opts && opts.method) || 'GET';
+      if(servidorCaido) throw new ctx.__TypeError('Failed to fetch');
+      if(u.pathname==='/rest/v1/skus' && metodo==='POST'){
+        const fila = JSON.parse(opts.body)[0];
+        pedidos.push({tipo:'sku', fila});
+        if(skusServidor.some(s=> posKey(s)===posKey(fila))) return respuesta(409, {message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'});
+        const creada = {id:'srv-'+fila.sku_code, activo:true, ...fila};
+        skusServidor.push(creada);
+        if(perderRespuestaSku){ perderRespuestaSku = false; throw new ctx.__TypeError('Failed to fetch'); }
+        return respuesta(201, [creada]);
+      }
+      if(u.pathname==='/rest/v1/skus' && metodo==='GET' && u.search.includes('sku_code=eq.')){
+        const codigo = decodeURIComponent(u.search.split('sku_code=eq.')[1].split('&')[0]);
+        return respuesta(200, skusServidor.filter(s=> s.sku_code===codigo));
+      }
+      if(u.pathname==='/rest/v1/conteos' && metodo==='POST'){
+        const fila = JSON.parse(opts.body)[0];
+        pedidos.push({tipo:'conteo', fila});
+        conteosServidor.push(fila);
+        return respuesta(201, [{id:'conteo-'+conteosServidor.length}]);
+      }
+      return fetchAntesCrearContar(url, opts);
+    };
+    const datosSku = {sku_code:'NUEVO-1', descripcion:'Válvula de bola', categoria:null, batch:null, unidad_medida:'UN', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'Z-1', stock_sistema:3, costo_unitario:1500, critico:true};
+    ctx.guardarColaOffline([]);
+    ctx.__appstate.skuRecienCreado = null;
+
+    // 1. Sin señal: el SKU queda en la cola y se ofrece contarlo.
+    const okCrear = await ctx.crearSkuManual({...datosSku});
+    const itemSku = ctx.leerColaOffline()[0];
+    assert(okCrear===true && itemSku && itemSku.tipo==='sku', 'sin señal el SKU se encola, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    assert(ctx.__appstate.skuRecienCreado && ctx.__appstate.skuRecienCreado.id===null && ctx.__appstate.skuRecienCreado.sku_local_id===itemSku.id,
+      'el SKU recién creado sin señal queda para "Contar ahora", amarrado a su item de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.skuRecienCreado));
+    ctx.__appstate.view = 'skus';
+    const htmlSkus = ctx.renderSkus();
+    assert(htmlSkus.includes('id="btn-contar-sku-creado"') && htmlSkus.includes('Sin enviar') && htmlSkus.includes('NUEVO-1'), 'la pantalla SKU ofrece "Contar ahora" y dice que el SKU no se ha enviado');
+
+    // 2. "Contar ahora": Contar con el SKU elegido y el aviso de que espera envío.
+    ctx.contarSkuRecienCreado();
+    assert(ctx.__appstate.view==='conteo' && ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.sku_local_id===itemSku.id && !ctx.__appstate.skuSeleccionado.id,
+      '"Contar ahora" lleva a Contar con el SKU nuevo elegido, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, sku:ctx.__appstate.skuSeleccionado}));
+    assert(ctx.__appstate.skuRecienCreado===null, 'el aviso de SKU recién creado se cierra al ir a contarlo');
+    assert(ctx.renderConteo().includes('SKU nuevo, sin enviar'), 'la ficha de Contar avisa que el SKU todavía no se envía');
+
+    // 3. Guardar el conteo: a la cola, con el id local del SKU, sin intentar /conteos.
+    ctx.__appstate.conteoFotos = [];
+    elements['toast-root'].hijos.length = 0;
+    pedidos.length = 0;
+    await ctx.guardarConteo({cantidad:'2', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    const colaConConteo = ctx.leerColaOffline();
+    const itemConteo = colaConConteo.find(i=> i.tipo==='conteo');
+    assert(colaConConteo.length===2 && itemConteo && itemConteo.sku_local_id===itemSku.id && !itemConteo.sku_id && itemConteo.cantidad_contada===2,
+      'el conteo de un SKU sin enviar queda en la cola con el id local del SKU, obtuvo: '+JSON.stringify(colaConConteo));
+    assert(!pedidos.some(p=> p.tipo==='conteo'), 'nunca se manda un conteo sin el id de su material');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('después del SKU nuevo NUEVO-1'), 'el aviso dice que el conteo sale después del SKU, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert(ctx.__appstate.skuSeleccionado===null, 'tras guardar, Contar queda listo para el siguiente material');
+
+    // 4. El buscador de Contar encuentra el SKU sin enviar (por código o descripción) y, sin
+    // señal, dice que no pudo buscar en el maestro en vez de "No se encontraron coincidencias".
+    ctx.__appstate.skuSearch = 'nuevo';
+    await ctx.buscarSkusLibre('nuevo');
+    assert(ctx.__appstate.buscadorLibre.error, 'una búsqueda que falla queda como error, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
+    const htmlBuscador = ctx.renderResultadosBuscadorLibre();
+    assert(htmlBuscador.includes('data-pick-local-btn="'+itemSku.id+'"') && htmlBuscador.includes('Sin enviar') && htmlBuscador.includes('No se pudo buscar en el maestro') && !htmlBuscador.includes('No se encontraron coincidencias'),
+      'sin señal, el buscador muestra el SKU sin enviar y el error del maestro, obtuvo: '+htmlBuscador);
+    ctx.__appstate.skuSearch = 'válvula';
+    assert(ctx.renderResultadosBuscadorLibre().includes('NUEVO-1'), 'también lo encuentra por descripción');
+    assert(ctx.skusPendientesQueCoinciden('n').length===0, 'con menos de 2 caracteres no busca, igual que el servidor');
+    ctx.__appstate.skuSearch = ''; ctx.__appstate.buscadorLibre = {resultados:[], buscando:false};
+
+    // 5. El panel: el conteo "Espera al SKU" (sin Reintentar) y el SKU dice cuántos lo esperan.
+    ctx.__appstate.offlineModal = true;
+    const htmlPanel = ctx.renderOfflineModal();
+    ctx.__appstate.offlineModal = false;
+    assert(htmlPanel.includes('Espera al SKU') && htmlPanel.includes('1 conteo espera a este SKU') && (htmlPanel.match(/data-reintentar-offline=/g)||[]).length===1,
+      'el panel muestra el conteo esperando a su SKU, sin botón de reintentar propio, obtuvo: '+htmlPanel);
+
+    // 6. Vuelve la señal: primero el SKU (con costo y crítico), después el conteo con el id nuevo.
+    sinSenal(false);
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    assert(pedidos.length===2 && pedidos[0].tipo==='sku' && pedidos[1].tipo==='conteo', 'se envía el SKU y después su conteo, obtuvo: '+JSON.stringify(pedidos.map(p=>p.tipo)));
+    assert(pedidos[0].fila.costo_unitario===1500 && pedidos[0].fila.critico===true, 'el SKU creado sin señal llega con su costo y su marca de crítico, obtuvo: '+JSON.stringify(pedidos[0].fila));
+    assert(pedidos[1].fila.sku_id==='srv-NUEVO-1', 'el conteo sale amarrado al id que el servidor le dio al SKU, obtuvo: '+pedidos[1].fila.sku_id);
+    assert(pedidos[1].fila.capturado_en===new Date(itemConteo.creado_en).toISOString(), 'el conteo conserva la hora en que se contó, no la de envío');
+    assert(ctx.leerColaOffline().length===0, 'la cola queda vacía, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+
+    // 7. La respuesta del SKU se pierde (el servidor sí lo creó): al reintentar no se duplica ni
+    // queda en error; se reconoce por su capturado_en y el conteo sale con ese id.
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-2'});
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'5', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    sinSenal(false); perderRespuestaSku = true;
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    assert(ctx.leerColaOffline().length===2 && ctx.leerColaOffline().every(i=> i.estado==='pendiente') && !pedidos.some(p=> p.tipo==='conteo'),
+      'si la respuesta del SKU se pierde, ni el SKU ni su conteo se dan por enviados, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    await ctx.sincronizarColaOffline();
+    assert(skusServidor.filter(s=> s.sku_code==='NUEVO-2').length===1, 'el SKU no se crea dos veces');
+    const conteoNuevo2 = conteosServidor[conteosServidor.length-1];
+    assert(conteoNuevo2.sku_id==='srv-NUEVO-2' && conteoNuevo2.cantidad_contada===5 && ctx.leerColaOffline().length===0,
+      'al reintentar, el SKU ya creado se reconoce y su conteo sale con ese id, obtuvo: '+JSON.stringify({conteoNuevo2, cola: ctx.leerColaOffline()}));
+
+    // 8. Otra persona ya lo había creado en esa posición: el SKU queda en error con "Usar el que
+    // ya existe"; su conteo espera (no se manda, no se marca error) y con ese botón sale sobre el
+    // material existente.
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'OTRO-1', storage_bin:'Z-9'});
+    const itemOtro = ctx.leerColaOffline()[0];
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'7', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    sinSenal(false);
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    const colaOtro = ctx.leerColaOffline();
+    const skuOtro = colaOtro.find(i=> i.id===itemOtro.id);
+    const conteoOtro = colaOtro.find(i=> i.tipo==='conteo');
+    assert(skuOtro && skuOtro.estado==='error' && /ya existe/.test(skuOtro.error) && skuOtro.sku_existente && skuOtro.sku_existente.id==='srv-existente',
+      'el SKU que ya existe queda en error con el material existente a mano, obtuvo: '+JSON.stringify(skuOtro));
+    assert(conteoOtro && conteoOtro.estado==='pendiente' && !pedidos.some(p=> p.tipo==='conteo'), 'su conteo espera, sin enviarse ni marcarse error, obtuvo: '+JSON.stringify(conteoOtro));
+    ctx.__appstate.offlineModal = true;
+    assert(ctx.renderOfflineModal().includes('data-usar-sku-existente="'+itemOtro.id+'"'), 'el panel ofrece "Usar el que ya existe"');
+    ctx.__appstate.offlineModal = false;
+    confirmRespuesta = true; confirmLlamadas.length = 0;
+    await ctx.usarSkuExistenteEnCola(itemOtro.id);
+    assert(confirmLlamadas.length===1 && /ya existe en esa misma posición/.test(confirmLlamadas[0]) && /El conteo guardado se enviará/.test(confirmLlamadas[0]), 'pide confirmación explicando qué pasa, obtuvo: '+JSON.stringify(confirmLlamadas));
+    assert(conteosServidor[conteosServidor.length-1].sku_id==='srv-existente' && conteosServidor[conteosServidor.length-1].cantidad_contada===7 && ctx.leerColaOffline().length===0,
+      'el conteo sale sobre el material que ya existía y la cola queda vacía, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+
+    // 9. Existe pero inactivo: se explica, sin "Usar el que ya existe" (contar sobre un material
+    // inactivo lo dejaría fuera de Buscar).
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'VIEJO-1', ubicacion:null, storage_bin:null});
+    sinSenal(false);
+    await ctx.sincronizarColaOffline();
+    const skuViejo = ctx.leerColaOffline()[0];
+    assert(skuViejo && skuViejo.estado==='error' && /inactivo/.test(skuViejo.error), 'si el que existe está inactivo, se dice, obtuvo: '+JSON.stringify(skuViejo));
+    ctx.__appstate.offlineModal = true;
+    assert(!ctx.renderOfflineModal().includes('data-usar-sku-existente='), 'no se ofrece usar un material inactivo');
+    ctx.__appstate.offlineModal = false;
+
+    // 10. Descartar un SKU con conteos esperándolo: se avisa y se van juntos.
+    ctx.guardarColaOffline([]);
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-3'});
+    const itemNuevo3 = ctx.leerColaOffline()[0];
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'1', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    confirmRespuesta = true; confirmLlamadas.length = 0;
+    await ctx.descartarAccionOffline(itemNuevo3.id);
+    assert(/También se descartará el conteo guardado/.test(confirmLlamadas[0]||'') && ctx.leerColaOffline().length===0,
+      'descartar el SKU avisa y descarta también su conteo, obtuvo: '+JSON.stringify({confirm:confirmLlamadas, cola:ctx.leerColaOffline()}));
+
+    // 11. Contar un SKU nuevo que ya no está en la cola: no se guarda un conteo huérfano.
+    ctx.__appstate.skuSeleccionado = {id:null, sku_local_id:'local-ya-no-esta', sku_code:'NUEVO-3', bodega:'Nave Mina'};
+    elements['toast-root'].hijos.length = 0;
+    await ctx.guardarConteo({cantidad:'1', ubicacion:'', bodega:'Nave Mina', observacion:''});
+    assert(ctx.leerColaOffline().length===0 && JSON.stringify(elements['toast-root'].hijos).includes('ya no está pendiente'), 'un conteo sin SKU al que esperar no se guarda y se explica');
+
+    // 12. Con señal también se ofrece "Contar ahora", con el id real.
+    sinSenal(false);
+    ctx.__appstate.skuRecienCreado = null;
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-4'});
+    assert(ctx.__appstate.skuRecienCreado && ctx.__appstate.skuRecienCreado.id==='srv-NUEVO-4' && ctx.leerColaOffline().length===0,
+      'con señal, el SKU recién creado queda con su id real para contarlo, obtuvo: '+JSON.stringify(ctx.__appstate.skuRecienCreado));
+
+    ctx.fetch = fetchAntesCrearContar;
+    ctx.navigator.onLine = onLineAntes;
+    ctx.guardarColaOffline([]);
+    ctx.__appstate.skuRecienCreado = null;
+    ctx.__appstate.view = 'conteo';
+    ctx.__appstate.skuSeleccionado = skuDano; // lo que sigue espera el material elegido, como antes de este bloque
+  }
+
   // El formulario: las dos marcas siempre; el campo de unidades solo con material dañado.
   ctx.__appstate.view = 'conteo'; ctx.__appstate.conteoMaterialDanado = false; ctx.__appstate.conteoPackingDanado = false;
   let htmlDano = ctx.renderConteo();

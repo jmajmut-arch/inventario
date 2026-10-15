@@ -194,7 +194,7 @@
     <ul class="checks">
       <li>Mostrar el plan del día del responsable vinculado a la cuenta, en cascada bodega → ubicación, juntando todas las entradas que calzan (incluidas las de bins distintos), deduplicadas por fila de SKU</li>
       <li>Buscar cualquier material del maestro completo para contarlo "fuera de plan"</li>
-      <li>Guardar sin conexión: el conteo y sus fotos quedan en el dispositivo y se sincronizan solos; guardado idempotente (<code>idempotency_key</code>) con reintento si la señal está lenta</li>
+      <li>Guardar sin conexión: el conteo y sus fotos quedan en el dispositivo y se sincronizan solos; guardado idempotente (<code>idempotency_key</code>) con reintento si la señal está lenta; también de un SKU creado sin señal (<code>sku_local_id</code>)</li>
       <li>Avisar (sin bloquear) si la cantidad se ve atípica (RPC <code>verificar_conteo_atipico</code>, sin revelar el stock en conteo ciego); avisar si ya fue contado en el período (<code>veces_contado_periodo</code>)</li>
       <li>Detectar materiales que una carga posterior movió de bin o ubicación desde que se planificaron (foto en <code>plan_semanal_skus</code>) y mostrarlos igual, marcados</li>
       <li>Exigir al menos una foto por conteo y reconteo si la empresa lo activó (<code>empresas.foto_obligatoria_conteo</code>, apagado por defecto), salvo cantidad 0; se valida en el guardado, con y sin señal</li>
