@@ -33,7 +33,7 @@
 <!-- PORTADA -->
 <section class="page cover">
   <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
-  <div class="doc-kind">Pendientes priorizados · 14 de octubre de 2026</div>
+  <div class="doc-kind">Pendientes priorizados · 15 de octubre de 2026</div>
   <h1>Lo que queda por hacer, ordenado por lo que más cuesta si no se hace.</h1>
   <p class="lead">Veintiocho puntos en tres niveles. Cada uno lleva por delante su <b>ámbito</b>, su <b>esfuerzo</b> y quién lo tiene en la mano. La prioridad no mide cuánto trabajo es, sino qué pasa si no se hace: primero lo que protege datos, tiene fecha o condiciona vender; después lo que mejora el producto; al final lo que espera demanda.</p>
   <div class="contact">inventiapp.cl · contacto@inventiapp.cl</div>
@@ -67,9 +67,9 @@
     <h2>Contenido</h2>
     <div class="toc-grid">
       <div class="toc-row"><span><span class="n">01</span>Prioridad alta: siete puntos</span><span class="p">pág. 2</span></div>
-      <div class="toc-row"><span><span class="n">03</span>Prioridad baja: ocho puntos</span><span class="p">pág. 5-6</span></div>
+      <div class="toc-row"><span><span class="n">03</span>Prioridad baja: ocho puntos</span><span class="p">pág. 5-7</span></div>
       <div class="toc-row"><span><span class="n">02</span>Prioridad media: trece puntos</span><span class="p">pág. 3-4</span></div>
-      <div class="toc-row"><span><span class="n">04</span>Hecho desde el 23 de septiembre</span><span class="p">pág. 7-8</span></div>
+      <div class="toc-row"><span><span class="n">04</span>Hecho desde el 23 de septiembre</span><span class="p">pág. 8-9</span></div>
     </div>
   </div>
   <div class="note">Lo que más rinde por hora: los puntos 1, 3 y 4 son minutos y cierran riesgos reales. El 6 (capacidad de la base) es el que condiciona sumar clientes: hoy caben unas 300 personas contando a la vez.</div>
@@ -266,31 +266,43 @@
 <section class="page">
   <div class="kicker">03 · Prioridad baja (continuación)</div>
   <h2 class="title">Operador logístico: varios clientes dentro de una empresa</h2>
-  <p class="intro">Espera a que aparezca el primer operador logístico interesado. Queda escrito para responder bien cuando pregunte.</p>
+  <p class="intro">Espera a que aparezca el primer operador logístico interesado. Queda escrito para responder bien cuando pregunte; las etapas, en la página siguiente.</p>
 
   <div class="item">
-    <div class="head"><span class="num">28</span><span class="h">Cliente dueño de la mercadería, dentro de la empresa</span><span class="amb producto">Producto</span></div>
-    <p>Un operador logístico tiene dos niveles: la empresa (sus bodegas, su equipo, quien paga) y sus clientes, dueños de la mercadería guardada, que quieren su inventario y sus informes por separado. InventIA tiene solo el primero: cada empresa ve lo suyo, y cada persona pertenece a una sola empresa (una cuenta, una empresa).</p>
-    <div class="meta"><span><b>Quién:</b> desarrollo, con las respuestas de un operador real</span><span><b>Esfuerzo:</b> <span class="esf alto">Alto</span></span><span><b>Cuándo:</b> con el primer operador logístico en conversación</span></div>
+    <div class="head"><span class="num">28</span><span class="h">Cliente dueño de la mercadería, como un dato del material</span><span class="amb producto">Producto</span></div>
+    <p>Un operador logístico tiene dos niveles: la empresa (sus bodegas, su equipo, quien paga) y sus clientes, dueños de la mercadería guardada, que quieren su inventario y sus informes por separado. InventIA tiene solo el primero. La propuesta: el cliente como un dato más de cada material, que se muestra y se filtra, <b>sin tocar su identidad</b> (código + ubicación general + específica + bin + batch).</p>
+    <div class="meta"><span><b>Quién:</b> desarrollo, con las respuestas de un operador real</span><span><b>Esfuerzo:</b> <span class="esf alto">Alto</span> (piloto: 3 a 3,5 días)</span><span><b>Cuándo:</b> con el primer operador en conversación</span></div>
   </div>
 
+  <div class="box new"><div class="tag">Por qué basta con un dato</div>Si el mismo código es de dos clientes y cada uno lo guarda en su bin o zona, ya son dos materiales distintos: el cliente solo hay que mostrarlo (buscador, escáner, ficha de Contar, Buscar) y filtrarlo (Plan, Reconteo, Panel, Excel). No se rehacen el índice único, la carga ni las funciones de lectura, y nada cambia para las empresas que no lo usan.</div>
+
+  <div class="box warn"><div class="tag">El único caso que no cubre, y cómo se protege</div>El mismo código, en el mismo bin y con el mismo batch, de dos clientes: la carga los juntaría en una fila y un stock pisaría al otro. Es raro y es un problema físico (quien cuenta tampoco puede separarlos). La carga lo <b>detecta y lo rechaza</b> con un mensaje claro ("10371892 en A-12 es de Agrosur y el archivo lo trae para Frutícola Sur"). Salida de emergencia sin cambiar nada: usar el <b>batch</b> para distinguir dueños, si ese cliente no lo usa para otra cosa.</div>
+
+  <div class="box warn"><div class="tag">Riesgo de datos que hay que cerrar sí o sí</div>Al terminar una carga, la app revisa lo que el archivo "no trajo" en <b>toda</b> la empresa (<code>resumen_skus_no_traidos</code>, <code>desactivar_skus_no_traidos</code>). Con un Excel por cliente, cargar el de A ofrecería desactivar todo lo de B y C, y "Reemplazar completo" lo desactivaría directo. Se acota al cliente del archivo en la etapa 3. Mientras tanto: un solo Excel con todos los clientes, en "Agregar / complementar", sin aceptar la limpieza de sobrantes.</div>
+
+  <div class="box"><div class="tag">Preguntar al operador antes de partir</div>1. ¿Un mismo código puede ser de dos clientes en el mismo bin? 2. ¿Bodegas compartidas o una zona por cliente? 3. ¿El cliente final necesita entrar a ver su inventario? 4. ¿El Excel viene uno por cliente o uno con todos? La 1 dice si alcanza el rechazo del choque; la 3, si hace falta la etapa 8.</div>
+</section>
+
+<!-- 03 BAJA (cont. 2): ETAPAS DEL PUNTO 28 -->
+<section class="page">
+  <div class="kicker">03 · Prioridad baja · punto 28 por etapas</div>
+  <h2 class="title">Una conversación y ocho etapas, cada una publicable sola</h2>
+  <p class="intro">Todo queda detrás de un interruptor por empresa (<code>empresas.multi_cliente</code>), apagado por defecto: cada etapa se publica sola sin que Escondida ni ninguna otra empresa note un cambio. Las etapas 1 a 5 son el piloto; las siguientes, cuando el operador las pida.</p>
   <table class="t">
-    <thead><tr><th>Con lo de hoy</th><th>A favor</th><th>En contra</th></tr></thead>
+    <thead><tr><th>Etapa</th><th>Qué incluye</th><th>Esfuerzo</th><th>Riesgo</th></tr></thead>
     <tbody>
-      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">Una empresa por cliente</td><td>Separación total; informes por cliente sin hacer nada; se le puede dar acceso al cliente final.</td><td>Cada trabajador necesita una cuenta y un correo por cliente; sin vista consolidada ni plan común; bodegas compartidas repetidas; N suscripciones.</td></tr>
-      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">Una empresa, cliente en un campo</td><td>Un equipo, un plan, un panel. Se anota en Ubicación general, Categoría o Tipo de material, y Buscar filtra por él.</td><td>El mismo código de dos clientes en el mismo bin es un solo material. Sin acceso para el cliente final: vería todo. Riesgo de datos al cargar (abajo).</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">0 · Descubrimiento</td><td>Las cuatro preguntas y un Excel real del operador, para probar con su forma de datos. Joel, una reunión.</td><td>Sin desarrollo</td><td>—</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">1 · Base</td><td>Catálogo <code>clientes</code> por empresa, con RLS; columna <code>cliente_id</code> en <code>skus</code> (vacía = como hoy) y en las vistas que la leen; interruptor <code>multi_cliente</code>; <code>esquema-supabase.json</code> y advisor. Nada visible.</td><td>0,5 día</td><td>Bajo</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">2 · Administrar clientes</td><td>Configuraciones → Clientes (crear, renombrar, desactivar), visible solo con el interruptor; el súper admin lo enciende por empresa.</td><td>0,5 día</td><td>Bajo</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">3 · Carga masiva</td><td>Columna Cliente en el Excel, o "cliente de este archivo"; clientes nuevos con confirmación; rechazo del choque (misma posición, otro cliente); sobrantes y "Reemplazar" acotados al cliente. Medido con los 63.000 materiales de Escondida.</td><td>1 día</td><td><b>Datos</b>: la más delicada</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">4 · Alta manual</td><td>Campo Cliente en el formulario de SKU y en "SKU nuevo" de Recepción, también sin señal (cola).</td><td>0,5 día</td><td>Bajo</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">5 · Verlo al contar y buscar</td><td>El cliente en el buscador y el escáner de Contar, en la ficha y en el plan del día; columna y filtro Cliente en Buscar, sus Excel y el PDF de fichas.</td><td>0,5 a 1 día</td><td>Bajo</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">6 · Filtrar en el resto</td><td>Filtro Cliente en Plan (planificar por cliente), Reconteo, Panel y Exportar. El Panel va en <code>dashboard_ejecutivo_calculo</code>, detrás de la puerta de sobrecarga.</td><td>1 día</td><td>Medio: Panel y Plan son las pantallas más usadas</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">7 · Informes por cliente</td><td>Informe de cierre de período y Excel por cliente: lo que el operador le entrega a cada uno.</td><td>1 a 2 días</td><td>Bajo</td></tr>
+      <tr><td style="font-family:inherit;font-weight:700;white-space:normal">8 · Portal del cliente</td><td>Usuario "cliente" de solo lectura que ve únicamente su mercadería: política RLS en cada tabla y vista, y filtro por cliente en las 21 funciones con permisos elevados. Revisión de seguridad propia.</td><td>3 a 5 días</td><td><b>Seguridad</b>: un olvido muestra lo de otro cliente</td></tr>
     </tbody>
   </table>
-
-  <div class="box warn" style="margin-top:8px"><div class="tag">Riesgo de datos con un Excel por cliente</div>Al terminar una carga, la app revisa lo que el archivo "no trajo" en <b>toda</b> la empresa (<code>resumen_skus_no_traidos</code>, <code>desactivar_skus_no_traidos</code>, sin filtro por bodega). Cargar el Excel del cliente A ofrecería desactivar todo lo de B y C; "Reemplazar completo" lo desactivaría directo. Hoy, solo un Excel con todos los clientes, en "Agregar / complementar" y sin aceptar la limpieza de sobrantes.</div>
-
-  <div class="box new"><div class="tag">Propuesta · en la base, con interruptor por empresa apagado por defecto</div>
-    <b>Fase 1, operar:</b> catálogo de Clientes por empresa y columna <code>cliente</code> en <code>skus</code> (vacía = como hoy); el cliente entra a la identidad del material; el Excel trae la columna Cliente, o se elige al cargar, y los sobrantes y el reemplazo quedan acotados a ese cliente; filtro Cliente en Contar, Plan, Buscar, Reconteo, Panel y los Excel.<br>
-    <b>Fase 2:</b> informe de cierre de período por cliente.<br>
-    <b>Fase 3, opcional:</b> usuario "cliente" de solo lectura que ve únicamente su mercadería, con política RLS, no solo oculto en pantalla.
-  </div>
-
-  <div class="box"><div class="tag">Preguntar antes de construir</div>1. ¿Un mismo código puede ser de dos clientes? 2. ¿Bodegas compartidas o una zona por cliente? 3. ¿El cliente final necesita entrar a ver su inventario? 4. ¿El Excel viene uno por cliente o uno con todos? Con eso se sabe si basta la fase 1 o hace falta llegar a la 3.</div>
+  <div class="box" style="margin-top:8px"><div class="tag">Cuánto es en total</div><b>Piloto (etapas 1 a 5): 3 a 3,5 días.</b> Con filtros en todo (hasta la 6): 4 a 4,5. Con informes (hasta la 7): 5 a 6,5. Con portal del cliente (hasta la 8): 8 a 11,5. Cada etapa lleva sus pruebas, el espejo de la app, revisión a 420 px y, si toca la base, advisor y <code>gucs_invalidos_en_funciones()</code>, como cualquier cambio.</div>
 </section>
 
 <!-- 04 HECHO -->
@@ -344,7 +356,7 @@
       <tr><td>27/09</td><td>App con el tema "Negro y Ámbar" por defecto; plazo de la MFA movido al 1 de diciembre, con aviso de 15 segundos (#499, #506, #507).</td><td>Seguridad</td></tr>
     </tbody>
   </table>
-  <div class="foot-note">Es una lectura del estado real al 14 de octubre de 2026, no una hoja de ruta comprometida. Las prioridades se ajustan en conversación. Preguntas puntuales: contacto@inventiapp.cl.</div>
+  <div class="foot-note">Es una lectura del estado real al 15 de octubre de 2026, no una hoja de ruta comprometida. Las prioridades se ajustan en conversación. Preguntas puntuales: contacto@inventiapp.cl.</div>
 </section>
 
 </body></html>
