@@ -10647,13 +10647,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.busqueda.filtroContadoPor===null, 'sin ninguna persona elegida el filtro queda en null, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor));
 
   // renderBuscar con el filtro activo: la tabla solo debe mostrar las filas de la persona
-  // seleccionada, con el chip "Filtrando por" visible y sin controles de paginación (es un
-  // drill-down sobre lo ya cargado, no una página más).
+  // seleccionada, con el chip "Filtrando por" visible. Desde el 15/10/2026 también pagina de a 15
+  // (antes salía entera): con 3 filas, una sola página y "Siguiente" deshabilitado.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: filasQuienContoInteractivo, yaBuscado:true, filtroContadoPor:'Ana', busquedaPagina:0, hayMas:false};
   const htmlFiltradoAna = ctx.renderBuscar();
   assert(htmlFiltradoAna.includes('id="btn-quitar-filtro-contador"') && htmlFiltradoAna.includes('Filtrando por'), 'con el filtro activo debe verse el chip "Filtrando por" con su botón para quitarlo, obtuvo: '+htmlFiltradoAna);
   assert((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length===3, 'filtrando por Ana la tabla debe mostrar solo sus 3 filas, obtuvo: '+((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length));
-  assert(!htmlFiltradoAna.includes('id="buscar-pagina-prev"'), 'con el filtro activo no deben verse los controles de paginación, obtuvo: '+htmlFiltradoAna);
+  assert(htmlFiltradoAna.includes('1–3 de 3 · pág. 1') && /id="buscar-pagina-next"[^>]*disabled/.test(htmlFiltradoAna), 'con el filtro activo la paginación cuenta las filas filtradas y no ofrece una página siguiente que no existe, obtuvo: '+htmlFiltradoAna);
+
+  // Con más de 15 filas filtradas: páginas de 15 sobre lo filtrado, sin pedir más al servidor, y
+  // elegir otra porción vuelve a la página 1.
+  {
+    const muchasAna = Array.from({length:20}, (_, i)=> ({...filasQuienContoInteractivo[0], sku_id:'ana-'+i, sku_code:'ANA-'+String(i).padStart(2,'0'), contado_por:'Ana', contado_por_id:'u-ana'}));
+    const resultadosAntes = ctx.__appstate.busqueda.resultados;
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: [...muchasAna, ...filasQuienContoInteractivo.filter(r=>r.contado_por!=='Ana')], filtroContadoPor:['Ana'], filtroEstado:null, busquedaPagina:0, hayMas:true, seleccionados:[]};
+    const pag1 = ctx.renderBuscar();
+    assert((pag1.match(/<tr>\s*<td/g)||[]).length===15 && pag1.includes('1–15 de 20 · pág. 1') && !/id="buscar-pagina-next"[^>]*disabled/.test(pag1), 'filtrando 20 filas, la primera página muestra 15 y ofrece la siguiente, obtuvo '+((pag1.match(/<tr>\s*<td/g)||[]).length)+' filas');
+    const callsAntesPagina = calls.length;
+    await ctx.avanzarPaginaBuscar();
+    assert(calls.length===callsAntesPagina, 'avanzar de página con el filtro activo no pide más tandas al servidor, obtuvo '+(calls.length-callsAntesPagina)+' llamadas');
+    const pag2 = ctx.renderBuscar();
+    assert(ctx.__appstate.busqueda.busquedaPagina===1 && (pag2.match(/<tr>\s*<td/g)||[]).length===5 && pag2.includes('16–20 de 20 · pág. 2') && /id="buscar-pagina-next"[^>]*disabled/.test(pag2), 'la segunda página muestra las 5 filas que quedan y no hay tercera, obtuvo: '+(pag2.match(/<tr>\s*<td/g)||[]).length+' filas');
+    ctx.toggleFiltroContadoPor('Beto');
+    assert(ctx.__appstate.busqueda.busquedaPagina===0, 'elegir otra porción vuelve a la página 1, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
+    ctx.toggleFiltroEstado('Cuadrado');
+    assert(ctx.__appstate.busqueda.busquedaPagina===0, 'elegir una porción del estado también vuelve a la página 1');
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: resultadosAntes, filtroContadoPor:'Ana', filtroEstado:null, busquedaPagina:0, hayMas:false};
+  }
 
   // Exportar con el filtro "Quién contó" activo: es un drill-down sobre lo ya cargado (ver
   // renderBuscar más arriba), así que debe exportar esa misma selección sin volver a pedirle
