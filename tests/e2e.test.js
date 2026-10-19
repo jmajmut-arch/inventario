@@ -490,6 +490,90 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Crear y contar un SKU sin señal (Joel, 14/10/2026) =====
+  // En el navegador real: sin señal se crea el SKU desde el formulario, "Contar ahora" lleva a
+  // Contar con el material elegido, el conteo queda guardado detrás del SKU y, al volver la señal,
+  // sale primero el SKU y después el conteo con el id que el servidor le dio.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('crear-contar-sin-senal: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    let conSenal = false;
+    const enviados = [];
+    await page.route('**/rest/v1/rpc/catalogos_pantalla_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
+      categorias:['Repuestos'], unidades:['EA'], batches:[],
+      generales:[{bodega:'Nave Mina', cantidad_skus:3}],
+      ubicaciones:[{id:'u1', bodega:'Nave Mina', ubicacion:null, activo:true}],
+    }) }));
+    await page.route('**/rest/v1/skus?activo=eq.true&sku_code=eq.**', route => conSenal
+      ? route.fulfill({ status:200, contentType:'application/json', body:'[]' }) : route.abort('internetdisconnected'));
+    await page.route('**/rest/v1/skus', route => {
+      if(route.request().method() !== 'POST') return route.fallback();
+      if(!conSenal) return route.abort('internetdisconnected');
+      const fila = JSON.parse(route.request().postData())[0];
+      enviados.push({ tipo:'sku', fila });
+      return route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'srv-sku-77', activo:true, ...fila }]) });
+    });
+    await page.route('**/rest/v1/conteos?on_conflict=**', route => {
+      if(!conSenal) return route.abort('internetdisconnected');
+      const fila = JSON.parse(route.request().postData())[0];
+      enviados.push({ tipo:'conteo', fila });
+      return route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'conteo-77' }]) });
+    });
+    await page.route('**/rest/v1/rpc/buscar_skus_lectura**', route => conSenal
+      ? route.fulfill({ status:200, contentType:'application/json', body:'[]' }) : route.abort('internetdisconnected'));
+
+    await page.evaluate(() => setState({view:'skus'}));
+    await page.waitForSelector('#form-sku');
+    if(!(await page.isVisible('#s-code'))) await page.click('#skus-agregar > summary');
+    await page.waitForSelector('#s-code', { state:'visible', timeout:ESPERA });
+    await page.waitForFunction(() => [...document.querySelectorAll('#s-bodega option')].some(o=>o.value==='Nave Mina'), null, { timeout:ESPERA });
+    await page.fill('#s-code', 'NUEVO-77');
+    await page.press('#s-code', 'Tab');
+    // Sin señal la revisión del código falla y lo dice (no lo da por nuevo); el alta sigue igual.
+    assert(await esperarCondicion(page, () => (document.getElementById('form-sku')||{}).textContent.includes('No se pudo revisar si el código ya existe')), 'sin señal, la revisión del código avisa que no se pudo hacer');
+    await page.fill('#s-desc', 'Valvula de bola');
+    await page.selectOption('#s-bodega', 'Nave Mina');
+    await page.fill('#s-stock', '3');
+    await page.click('#form-sku button[type=submit]');
+    assert(await esperarVisible(page, '#btn-contar-sku-creado'), 'sin señal, el SKU guardado ofrece "Contar ahora"');
+    assert((await page.textContent('#sku-recien-creado')).includes('Sin enviar'), 'el aviso dice que el SKU no se ha enviado');
+    const desbordeAvisoSku = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeAvisoSku <= 0, 'a 420 px el aviso del SKU creado no desborda, obtuvo '+desbordeAvisoSku);
+    // El desplazamiento es suave: se espera a que termine. El aviso entero queda bajo la cabecera.
+    const avisoVisible = await esperarCondicion(page, () => { const r = document.getElementById('sku-recien-creado').getBoundingClientRect(); const cab = document.querySelector('.topbar').getBoundingClientRect().bottom; return r.top >= cab && r.bottom <= window.innerHeight; });
+    assert(avisoVisible, 'tras guardar, el aviso con "Contar ahora" queda entero a la vista');
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/sku-creado-sin-senal-420.png' });
+
+    await page.click('#btn-contar-sku-creado');
+    await page.waitForSelector('#form-conteo', { timeout:ESPERA });
+    const ficha = await page.textContent('.conteo-ficha');
+    assert(ficha.includes('SKU nuevo, sin enviar') && ficha.includes('Valvula de bola'), 'la ficha de Contar muestra el SKU nuevo y avisa que no se ha enviado, obtuvo '+ficha);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-sku-sin-enviar-420.png' });
+    await page.fill('#c-cant', '1');
+    await page.click('#form-conteo button[type=submit]');
+    const guardado = await esperarCondicion(page, () => state.colaOffline.length === 2 && state.colaOffline.some(i => i.tipo==='conteo' && i.sku_local_id && !i.sku_id) && !state.skuSeleccionado);
+    assert(guardado, 'el conteo queda en la cola detrás de su SKU');
+    assert(!enviados.length, 'sin señal no se envía nada');
+
+    // El buscador de Contar lo encuentra aunque no esté en el servidor.
+    await page.click('#sku-search');
+    await page.keyboard.type('NUEVO-77');
+    assert(await esperarVisible(page, '[data-pick-local-btn]'), 'el buscador de Contar muestra el SKU sin enviar');
+    assert(await esperarCondicion(page, () => document.getElementById('buscador-libre-resultados').textContent.includes('No se pudo buscar en el maestro')), 'sin señal, el buscador dice que no pudo buscar, no que no hay coincidencias');
+    assert(await page.isVisible('[data-pick-local-btn]'), 'el SKU sin enviar sigue en la lista junto al error del maestro');
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscador-sin-senal-420.png' });
+
+    conSenal = true;
+    await page.evaluate(() => sincronizarColaOffline());
+    const enviado = await esperarCondicion(page, () => state.colaOffline.length === 0);
+    assert(enviado, 'con señal, la cola se vacía');
+    assert(enviados.length === 2 && enviados[0].tipo === 'sku' && enviados[1].tipo === 'conteo' && enviados[1].fila.sku_id === 'srv-sku-77' && enviados[1].fila.cantidad_contada === 1,
+      'sale el SKU y después su conteo, con el id del SKU, obtuvo '+JSON.stringify(enviados.map(e => ({ tipo:e.tipo, sku_id:e.fila.sku_id }))));
+    await context.close();
+  }
+
   // ===== Planificación en el celular (Joel, 29/09): días plegables, "Agregar" plegado, Asignar =====
   // Con el navegador real a 420 px: con muchas entradas en Mes cada día es un bloque (solo hoy
   // abierto), el resumen va antes del formulario, "+ Agregar" abre el formulario con Ubicación
@@ -1866,6 +1950,68 @@ async function loguear(page, perfil){
       await page.setViewportSize({ width:1024, height:1300 });
       await page.screenshot({ path: process.env.E2E_CAPTURAS + '/calendario-1024.png', fullPage: true });
     }
+    await context.close();
+  }
+
+  // ===== Buscar con más de mil resultados (Joel, 19/10/2026: "me sale primeros 1.000, eso no
+  // sirve, deben ser los datos reales") =====
+  // Con 1.218 resultados: los gráficos salen del resumen del servidor mientras la lista completa
+  // llega en segundo plano, con su avance a la vista, y al terminar se puede tocar una porción.
+  // Con 5.003 la lista no se trae entera, pero los gráficos igual cuentan los 5.003.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('buscar-total-real: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    let total = 1218;
+    const fila = i => ({ sku_id:'M-'+i, sku_code:'M-'+i, descripcion:'Material '+i, bodega:'B501', ubicacion:'0102', storage_bin:null, batch:null, conteo_id:'c-'+i, cantidad_contada:5, estado: i%5===0 ? 'con_diferencia' : 'aprobado', diferencia: i%5===0 ? -1 : 0, fecha_conteo:'2026-10-16T12:00:00Z', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, contado_por: i%2 ? 'Ana' : 'Beto', contado_por_id:'u-'+(i%2) });
+    let soltarSegundaTanda;
+    let segundaTanda = new Promise(r => { soltarSegundaTanda = r; });
+    await page.route('**/rest/v1/rpc/filas_busqueda_skus**', async route => {
+      const b = route.request().postDataJSON() || {};
+      if(b.p_offset>0) await segundaTanda;
+      const filas = [];
+      for(let i=b.p_offset; i<Math.min(total, b.p_offset+b.p_limite); i++) filas.push(fila(i));
+      await route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) });
+    });
+    await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: String(total) }));
+    await page.route('**/rest/v1/rpc/resumen_busqueda_skus**', route => {
+      const neg = Math.floor((total-1)/5)+1;
+      route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ total, estados:{ no_contado:0, negativa:neg, positiva:0, pendiente:0, cuadrado: total-neg }, personas:[{nombre:'Beto', n:Math.ceil(total/2)}, {nombre:'Ana', n:Math.floor(total/2)}] }) });
+    });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('#btn-ir-buscar');
+    await page.waitForSelector('#b-texto', { timeout:ESPERA });
+    await page.click('.buscar-btn');
+    await page.waitForSelector('#buscar-progreso-carga', { timeout:ESPERA });
+    assert(await esperarVisible(page, 'text=Los 1.218 resultados'), 'mientras carga el resto, los gráficos ya cuentan los 1.218');
+    const textoCargando = await page.evaluate(() => document.body.textContent.replace(/\s+/g,' '));
+    assert(textoCargando.includes('1.218 resultados') && textoCargando.includes('Cuadrado (974)') && textoCargando.includes('Diferencia negativa (244)') && !textoCargando.includes('Primeros 1000'), 'título y gráficos con el total real, no con los mil primeros, obtuvo '+textoCargando.slice(textoCargando.indexOf('resultados')-20, textoCargando.indexOf('resultados')+500));
+    assert((await page.$$('[data-estado-clave]')).length===0, 'mientras falta cargar, las porciones no filtran');
+    if(process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-1218-cargando-420.png', fullPage: true });
+    soltarSegundaTanda();
+    await page.waitForSelector('#buscar-progreso-carga', { state:'detached', timeout:ESPERA });
+    assert(await esperarVisible(page, 'text=1–15 de 1.218'), 'terminada la carga, la tabla pagina sobre los 1.218');
+    await page.click('span[data-estado-clave="Diferencia negativa"]');
+    await page.waitForSelector('#btn-quitar-filtro-estado', { timeout:ESPERA });
+    const textoFiltrado = await page.evaluate(() => document.body.textContent.replace(/\s+/g,' '));
+    assert(textoFiltrado.includes('244 de 1218 resultados'), 'tocar una porción filtra sobre los 1.218, obtuvo '+textoFiltrado.slice(textoFiltrado.indexOf('Filtrando'), textoFiltrado.indexOf('Filtrando')+120));
+    if(process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-1218-completo-420.png', fullPage: true });
+
+    // Más ancha que el tope de carga completa: solo la primera tanda, gráficos del total.
+    total = 5003;
+    segundaTanda = Promise.resolve();
+    await page.click('.buscar-btn');
+    assert(await esperarVisible(page, 'text=Los 5.003 resultados'), 'con 5.003, los gráficos cuentan los 5.003');
+    const textoAncho = await page.evaluate(() => document.body.textContent.replace(/\s+/g,' '));
+    assert(textoAncho.includes('Mostrando los primeros 1.000 de 5.003') && textoAncho.includes('acota la búsqueda a 5.000 resultados o menos'), 'el aviso dice cuánto de la tabla está cargado y cómo filtrar por porción, obtuvo '+textoAncho.slice(textoAncho.indexOf('Mostrando'), textoAncho.indexOf('Mostrando')+300));
+    const anchoPagina = await page.evaluate(() => document.documentElement.scrollWidth);
+    assert(anchoPagina<=420, 'a 420 px la pantalla no se desborda, ancho '+anchoPagina);
+    if(process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-5003-420.png', fullPage: true });
     await context.close();
   }
 

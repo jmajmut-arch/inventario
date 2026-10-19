@@ -66,6 +66,7 @@ let avanceGruposFalla = null; // mensaje de error de avance_por_grupo; null = re
 let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
+let resumenBusquedaFalla = null;
 let resumenGeneralSkusFixture = null;
 let ubicacionesFixture = [
   {id:'ub-1', bodega:'Nave Mina', ubicacion:null, activo:true},
@@ -591,6 +592,23 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/contar_busqueda_skus')){
     const total = skusBusquedaFixture ? skusBusquedaFixture.length : 34;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(total) };
+  }
+  // Resumen de Buscar con el total real (ver cargarResumenBusqueda): agrega el mismo fixture con
+  // las reglas de resumen_busqueda_skus (grupos de grupoEstadoBusqueda, personas sobre lo contado).
+  if(path.startsWith('/rest/v1/rpc/resumen_busqueda_skus')){
+    if(resumenBusquedaFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: resumenBusquedaFalla}) };
+    const filas = skusBusquedaFixture || Array.from({length:34}, (_,i)=>({conteo_id:'busq-'+i, estado:'aprobado', diferencia:0, contado_por:'Persona '+(i%3)}));
+    const estados = {no_contado:0, negativa:0, positiva:0, pendiente:0, cuadrado:0};
+    const personas = {};
+    filas.forEach(f=>{
+      if(!f.conteo_id){ estados.no_contado++; return; }
+      const d = Number(f.diferencia)||0;
+      if(d<0) estados.negativa++; else if(d>0) estados.positiva++; else if(f.estado==='pendiente_revision') estados.pendiente++; else estados.cuadrado++;
+      const nombre = f.contado_por || 'Sin asignar';
+      personas[nombre] = (personas[nombre]||0)+1;
+    });
+    const lista = Object.entries(personas).map(([nombre,n])=>({nombre,n})).sort((a,b)=>b.n-a.n);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total: filas.length, estados, personas: lista}) };
   }
   if(path.startsWith('/rest/v1/conteos?select=')){
     const offsetMatch = path.match(/offset=(\d+)/);
@@ -10488,24 +10506,79 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
-  // ===== Buscar: carga inicial hasta TOPE_CARGA_TOTAL_BUSQUEDA de una vez, con el total real
-  // pedido en paralelo al RPC contar_busqueda_skus -- ver buscarConteos. Con más de mil filas (un
-  // caso ancho, sin filtro), no alcanza a traer todo de una: sigue paginando con
-  // "Siguiente"/buscarMasConteos. =====
+  // ===== Buscar: carga inicial de TOPE_CARGA_TOTAL_BUSQUEDA, con el total real pedido en
+  // paralelo al RPC contar_busqueda_skus -- ver buscarConteos. Si el total cabe bajo
+  // TOPE_CARGA_COMPLETA_BUSQUEDA, el resto se trae solo, de a mil (Joel, 19/10/2026: con 1.218
+  // resultados, "me sale primeros 1.000, eso no sirve, deben ser los datos reales"). =====
   const filaBusquedaGenerica = (i) => ({sku_id:'sku-ancho-'+i, sku_code:'SKU-ANCHO-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_id:null, ciclo_nombre:null, fotos:[], batch:null, contado_por:null, critico:false, clase_abc:null});
   skusBusquedaFixture = Array.from({length:1005}, (_,i)=>filaBusquedaGenerica(i));
   ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   calls.length = 0;
   await ctx.buscarConteos();
-  const busquedaCallInicial = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
-  assert(!!busquedaCallInicial && JSON.parse(busquedaCallInicial.opts.body).p_limite===1000, 'la carga inicial debe pedir hasta TOPE_CARGA_TOTAL_BUSQUEDA, no solo TAM_PAGINA_LISTA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===true, 'con más filas que el tope, debe cargar hasta el tope y saber el total real (1005) vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
-  assert(ctx.__appstate.busqueda.paginaOffset===1000, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
+  const pedidosFilasBusqueda = calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).map(c=>JSON.parse(c.opts.body));
+  assert(pedidosFilasBusqueda.length===2 && pedidosFilasBusqueda[0].p_limite===1000 && pedidosFilasBusqueda[0].p_offset===0 && pedidosFilasBusqueda[1].p_offset===1000 && pedidosFilasBusqueda[1].p_limite===1000, 'con 1.005 resultados debe pedir la primera tanda de mil y después el resto desde donde quedó, obtuvo: '+JSON.stringify(pedidosFilasBusqueda.map(c=>[c.p_offset,c.p_limite])));
+  assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===false && ctx.__appstate.busqueda.paginaOffset===1005 && !ctx.__appstate.busqueda.cargandoResto, 'con un total bajo el tope de carga completa, debe quedar TODO cargado (1.005, no 1.000), obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas, off:ctx.__appstate.busqueda.paginaOffset}));
+  const htmlBuscar1005 = ctx.renderBuscar();
+  assert(htmlBuscar1005.includes('>1.005 resultados<') && !htmlBuscar1005.includes('Primeros 1000') && !htmlBuscar1005.includes('Mostrando los primeros') && htmlBuscar1005.includes('No contado (1.005)'), 'con todo cargado, el título, los gráficos y su leyenda cuentan los 1.005, obtuvo: '+htmlBuscar1005.slice(htmlBuscar1005.indexOf('resultado')-60, htmlBuscar1005.indexOf('resultado')+900));
+  assert(htmlBuscar1005.includes('data-estado-clave="No contado"'), 'con todo cargado, tocar una porción sigue filtrando la tabla, obtuvo: '+htmlBuscar1005.slice(0,200));
+
+  // Dos búsquedas seguidas (la persona cambia el orden o un filtro mientras carga): lo que llega
+  // de la anterior se descarta. Sin el número de búsqueda, las dos cargas en segundo plano
+  // sumaban sus tandas a la misma lista y quedaban filas repetidas (1.010 en vez de 1.005).
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  const busquedaVieja = ctx.buscarConteos();
+  const busquedaNueva = ctx.buscarConteos();
+  await Promise.all([busquedaVieja, busquedaNueva]);
+  const idsBusquedaDoble = ctx.__appstate.busqueda.resultados.map(r=>r.sku_id);
+  assert(idsBusquedaDoble.length===1005 && new Set(idsBusquedaDoble).size===1005, 'dos búsquedas seguidas no deben mezclar sus filas, obtuvo: '+idsBusquedaDoble.length+' filas, '+new Set(idsBusquedaDoble).size+' distintas');
+
+  // Más ancha que el tope de carga completa (5.003): trae solo la primera tanda, como antes, y los
+  // gráficos salen del resumen del servidor con el total real. Tocar una porción no se ofrece
+  // (filtraría solo lo cargado) y el aviso dice cómo lograrlo.
+  skusBusquedaFixture = Array.from({length:5003}, (_,i)=> i<3000 ? filaBusquedaGenerica(i) : {...filaBusquedaGenerica(i), conteo_id:'c-'+i, estado:'aprobado', diferencia: i<3100 ? -1 : 0, contado_por: i%2 ? 'Ana' : 'Luis'});
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).length===1, 'sobre el tope de carga completa no debe traer el resto en segundo plano, obtuvo: '+calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).length+' pedidos de filas');
+  const pedidoResumen = calls.find(c=>c.url.includes('/rpc/resumen_busqueda_skus'));
+  assert(!!pedidoResumen && JSON.parse(pedidoResumen.opts.body).p_solo_con_fotos===false && 'p_texto' in JSON.parse(pedidoResumen.opts.body), 'con resultados sin cargar debe pedir el resumen con los mismos filtros, obtuvo: '+(pedidoResumen && pedidoResumen.opts.body));
+  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.hayMas===true && ctx.__appstate.busqueda.resumenServidor && ctx.__appstate.busqueda.resumenServidor.total===5003, 'debe quedar con la primera tanda y el resumen del servidor, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, r:ctx.__appstate.busqueda.resumenServidor}));
+  const htmlBuscarAncho = ctx.renderBuscar();
+  assert(htmlBuscarAncho.includes('>5.003 resultados<') && htmlBuscarAncho.includes('Los 5.003 resultados') && !htmlBuscarAncho.includes('Primeros 1000'), 'los gráficos deben decir que cuentan los 5.003, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('5.003')-80, htmlBuscarAncho.indexOf('5.003')+600));
+  assert(htmlBuscarAncho.includes('No contado (3.000)') && htmlBuscarAncho.includes('Cuadrado (1.903)') && htmlBuscarAncho.includes('Diferencia negativa (100)') && htmlBuscarAncho.includes('De 2.003 contados'), 'el resumen por estado debe ser el del total, no el de los mil cargados (que eran todos "No contado"), obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Resumen por estado'), htmlBuscarAncho.indexOf('Resumen por estado')+1500));
+  assert(htmlBuscarAncho.includes('Quién contó') && htmlBuscarAncho.includes('Luis (1.002)') && htmlBuscarAncho.includes('Ana (1.001)'), 'quién contó también sale del total, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Quién contó'), htmlBuscarAncho.indexOf('Quién contó')+1500));
+  assert(!htmlBuscarAncho.includes('data-estado-clave') && !htmlBuscarAncho.includes('data-porcion-clave'), 'con la lista incompleta, las porciones no deben ofrecerse para filtrar (filtrarían solo lo cargado)');
+  assert(htmlBuscarAncho.includes('Mostrando los primeros 1.000 de 5.003') && htmlBuscarAncho.includes('acota la búsqueda a 5.000 resultados o menos'), 'el aviso debe decir cuánto de la tabla está cargado y cómo filtrar tocando los gráficos, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Mostrando'), htmlBuscarAncho.indexOf('Mostrando')+400));
   calls.length = 0;
   await ctx.buscarMasConteos();
   const busquedaCallMas = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
   assert(!!busquedaCallMas && JSON.parse(busquedaCallMas.opts.body).p_offset===1000, 'buscarMasConteos debe pedir la página siguiente desde donde quedó, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las filas restantes hasta completar el total real y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  assert(ctx.__appstate.busqueda.resultados.length===1030 && ctx.__appstate.busqueda.hayMas===true, 'debe agregar la tanda siguiente y seguir sabiendo que hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+
+  // Si el resumen del servidor falla, el error se ve (no se disfraza): los gráficos vuelven a
+  // armarse con lo cargado y lo dicen.
+  resumenBusquedaFalla = 'canceling statement due to statement timeout';
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  await ctx.buscarConteos();
+  resumenBusquedaFalla = null;
+  const htmlBuscarResumenFalla = ctx.renderBuscar();
+  assert(htmlBuscarResumenFalla.includes('No se pudo calcular el resumen con el total: canceling statement due to statement timeout') && htmlBuscarResumenFalla.includes('Primeros 1000 de 5.003'), 'con el resumen caído, el error debe verse y los gráficos decir que cuentan solo lo cargado, obtuvo: '+htmlBuscarResumenFalla.slice(htmlBuscarResumenFalla.indexOf('resultados<'), htmlBuscarResumenFalla.indexOf('resultados<')+900));
+
+  // Mientras el resumen no llega, los gráficos no muestran lo parcial como si fuera el total.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resumenServidor:null, resumenError:'', resumenPendiente:true};
+  const htmlBuscarCalculando = ctx.renderBuscar();
+  assert(htmlBuscarCalculando.includes('Calculando con todos los resultados…') && !htmlBuscarCalculando.includes('Primeros 1000'), 'mientras calcula, debe decirlo en vez de mostrar el parcial, obtuvo: '+htmlBuscarCalculando.slice(htmlBuscarCalculando.indexOf('Resumen por estado')-200, htmlBuscarCalculando.indexOf('Resumen por estado')+600));
+  // "Solo con fotografías" se filtra en la app sobre lo cargado, así que el total del conteo no
+  // vale; el resumen del servidor sí lo aplica, y con él el total vuelve a ser exacto (antes: "1000+").
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloConFotos:true, resumenPendiente:false, resumenServidor:{total:12, estados:{no_contado:0, negativa:2, positiva:0, pendiente:0, cuadrado:10}, personas:[{nombre:'Ana', n:12}]}};
+  const htmlBuscarFotosTotal = ctx.renderBuscar();
+  assert(htmlBuscarFotosTotal.includes('>12 resultados<') && htmlBuscarFotosTotal.includes('Los 12 resultados'), 'con "Solo con fotografías", el total debe ser el del resumen del servidor, obtuvo: '+htmlBuscarFotosTotal.slice(htmlBuscarFotosTotal.indexOf('resultados<')-60, htmlBuscarFotosTotal.indexOf('resultados<')+200));
+  // Mientras se trae la lista completa en segundo plano, el avance se ve (y tiene el id que
+  // cargarRestoBusqueda actualiza sin repintar la pantalla).
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloConFotos:false, total:1218, resumenServidor:{total:1218, estados:{no_contado:0, negativa:228, positiva:184, pendiente:0, cuadrado:806}, personas:[{nombre:'Ana', n:1218}]}, cargandoResto:{cargados:1000, objetivo:1218}};
+  const htmlBuscarCargandoResto = ctx.renderBuscar();
+  assert(htmlBuscarCargandoResto.includes('id="buscar-progreso-carga"') && htmlBuscarCargandoResto.includes('Cargando la lista completa: 1.000 de 1.218') && htmlBuscarCargandoResto.includes('Cuadrado (806)'), 'mientras carga el resto, debe verse el avance y los gráficos con el total, obtuvo: '+htmlBuscarCargandoResto.slice(htmlBuscarCargandoResto.indexOf('resultados<')-60, htmlBuscarCargandoResto.indexOf('resultados<')+400));
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, cargandoResto:null, resumenServidor:null};
 
   // Caso típico (un total chico, por debajo del tope): queda TODO cargado en la primera llamada,
   // sin necesidad de "Siguiente" -- así el conteo de arriba y los gráficos ya reflejan el total
@@ -10647,13 +10720,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.busqueda.filtroContadoPor===null, 'sin ninguna persona elegida el filtro queda en null, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor));
 
   // renderBuscar con el filtro activo: la tabla solo debe mostrar las filas de la persona
-  // seleccionada, con el chip "Filtrando por" visible y sin controles de paginación (es un
-  // drill-down sobre lo ya cargado, no una página más).
+  // seleccionada, con el chip "Filtrando por" visible. Desde el 15/10/2026 también pagina de a 15
+  // (antes salía entera): con 3 filas, una sola página y "Siguiente" deshabilitado.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: filasQuienContoInteractivo, yaBuscado:true, filtroContadoPor:'Ana', busquedaPagina:0, hayMas:false};
   const htmlFiltradoAna = ctx.renderBuscar();
   assert(htmlFiltradoAna.includes('id="btn-quitar-filtro-contador"') && htmlFiltradoAna.includes('Filtrando por'), 'con el filtro activo debe verse el chip "Filtrando por" con su botón para quitarlo, obtuvo: '+htmlFiltradoAna);
   assert((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length===3, 'filtrando por Ana la tabla debe mostrar solo sus 3 filas, obtuvo: '+((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length));
-  assert(!htmlFiltradoAna.includes('id="buscar-pagina-prev"'), 'con el filtro activo no deben verse los controles de paginación, obtuvo: '+htmlFiltradoAna);
+  assert(htmlFiltradoAna.includes('1–3 de 3 · pág. 1') && /id="buscar-pagina-next"[^>]*disabled/.test(htmlFiltradoAna), 'con el filtro activo la paginación cuenta las filas filtradas y no ofrece una página siguiente que no existe, obtuvo: '+htmlFiltradoAna);
+
+  // Con más de 15 filas filtradas: páginas de 15 sobre lo filtrado, sin pedir más al servidor, y
+  // elegir otra porción vuelve a la página 1.
+  {
+    const muchasAna = Array.from({length:20}, (_, i)=> ({...filasQuienContoInteractivo[0], sku_id:'ana-'+i, sku_code:'ANA-'+String(i).padStart(2,'0'), contado_por:'Ana', contado_por_id:'u-ana'}));
+    const resultadosAntes = ctx.__appstate.busqueda.resultados;
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: [...muchasAna, ...filasQuienContoInteractivo.filter(r=>r.contado_por!=='Ana')], filtroContadoPor:['Ana'], filtroEstado:null, busquedaPagina:0, hayMas:true, seleccionados:[]};
+    const pag1 = ctx.renderBuscar();
+    assert((pag1.match(/<tr>\s*<td/g)||[]).length===15 && pag1.includes('1–15 de 20 · pág. 1') && !/id="buscar-pagina-next"[^>]*disabled/.test(pag1), 'filtrando 20 filas, la primera página muestra 15 y ofrece la siguiente, obtuvo '+((pag1.match(/<tr>\s*<td/g)||[]).length)+' filas');
+    const callsAntesPagina = calls.length;
+    await ctx.avanzarPaginaBuscar();
+    assert(calls.length===callsAntesPagina, 'avanzar de página con el filtro activo no pide más tandas al servidor, obtuvo '+(calls.length-callsAntesPagina)+' llamadas');
+    const pag2 = ctx.renderBuscar();
+    assert(ctx.__appstate.busqueda.busquedaPagina===1 && (pag2.match(/<tr>\s*<td/g)||[]).length===5 && pag2.includes('16–20 de 20 · pág. 2') && /id="buscar-pagina-next"[^>]*disabled/.test(pag2), 'la segunda página muestra las 5 filas que quedan y no hay tercera, obtuvo: '+(pag2.match(/<tr>\s*<td/g)||[]).length+' filas');
+    ctx.toggleFiltroContadoPor('Beto');
+    assert(ctx.__appstate.busqueda.busquedaPagina===0, 'elegir otra porción vuelve a la página 1, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
+    ctx.toggleFiltroEstado('Cuadrado');
+    assert(ctx.__appstate.busqueda.busquedaPagina===0, 'elegir una porción del estado también vuelve a la página 1');
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: resultadosAntes, filtroContadoPor:'Ana', filtroEstado:null, busquedaPagina:0, hayMas:false};
+  }
 
   // Exportar con el filtro "Quién contó" activo: es un drill-down sobre lo ya cargado (ver
   // renderBuscar más arriba), así que debe exportar esa misma selección sin volver a pedirle
@@ -11690,6 +11783,201 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.fotosFilaBuscar(sinMigracion).map(f=>f.foto_url).join()==='a.jpg,b.jpg' && ctx.etiquetaFotoBuscar(sinMigracion.fotos[0], sinMigracion)==='Conteo 1',
     'sin conteo_id ni ciclo_id en las fotos (servidor sin la migración) quedan como antes');
   assert(ctx.fotosFilaBuscar({fotos:[]}).length===0 && ctx.fotosFilaBuscar({}).length===0, 'una fila sin fotos sigue sin fotos');
+
+  // ===== Crear y contar un SKU sin señal (Joel, 14/10/2026) =====
+  // Un conteo se amarra al material por su id, que pone el servidor al crear el SKU: sin señal no
+  // existe. El conteo espera en la cola detrás de su SKU y sale con el id que el SKU recibió.
+  {
+    const fetchAntesCrearContar = ctx.fetch;
+    let servidorCaido = true;
+    // Sin señal también para navigator.onLine: guardarConteo intenta enviar de una vez cuando cree
+    // que hay señal, y esa pasada en segundo plano se cruzaría con las de la prueba.
+    const onLineAntes = ctx.navigator.onLine;
+    const sinSenal = v => { servidorCaido = v; ctx.navigator.onLine = !v; };
+    sinSenal(true);
+    let perderRespuestaSku = false;
+    const skusServidor = [{id:'srv-existente', sku_code:'OTRO-1', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'Z-9', batch:null, activo:true, capturado_en:'2026-10-01T10:00:00.000Z'},
+      {id:'srv-inactivo', sku_code:'VIEJO-1', bodega:'Nave Mina', ubicacion:null, storage_bin:null, batch:null, activo:false, capturado_en:'2026-01-01T10:00:00.000Z'}];
+    const conteosServidor = [];
+    const pedidos = [];
+    const respuesta = (status, cuerpo) => ({status, ok: status<300, headers:{get:()=>null}, text: async()=> cuerpo===undefined ? '' : JSON.stringify(cuerpo)});
+    const posKey = f => [f.sku_code, f.bodega||'', f.batch||'', f.ubicacion||'', f.storage_bin||''].join('|');
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      const metodo = (opts && opts.method) || 'GET';
+      if(servidorCaido) throw new ctx.__TypeError('Failed to fetch');
+      if(u.pathname==='/rest/v1/skus' && metodo==='POST'){
+        const fila = JSON.parse(opts.body)[0];
+        pedidos.push({tipo:'sku', fila});
+        if(skusServidor.some(s=> posKey(s)===posKey(fila))) return respuesta(409, {message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'});
+        const creada = {id:'srv-'+fila.sku_code, activo:true, ...fila};
+        skusServidor.push(creada);
+        if(perderRespuestaSku){ perderRespuestaSku = false; throw new ctx.__TypeError('Failed to fetch'); }
+        return respuesta(201, [creada]);
+      }
+      if(u.pathname==='/rest/v1/skus' && metodo==='GET' && u.search.includes('sku_code=eq.')){
+        const codigo = decodeURIComponent(u.search.split('sku_code=eq.')[1].split('&')[0]);
+        return respuesta(200, skusServidor.filter(s=> s.sku_code===codigo));
+      }
+      if(u.pathname==='/rest/v1/conteos' && metodo==='POST'){
+        const fila = JSON.parse(opts.body)[0];
+        pedidos.push({tipo:'conteo', fila});
+        conteosServidor.push(fila);
+        return respuesta(201, [{id:'conteo-'+conteosServidor.length}]);
+      }
+      return fetchAntesCrearContar(url, opts);
+    };
+    const datosSku = {sku_code:'NUEVO-1', descripcion:'Válvula de bola', categoria:null, batch:null, unidad_medida:'UN', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'Z-1', stock_sistema:3, costo_unitario:1500, critico:true};
+    ctx.guardarColaOffline([]);
+    ctx.__appstate.skuRecienCreado = null;
+
+    // 1. Sin señal: el SKU queda en la cola y se ofrece contarlo.
+    const okCrear = await ctx.crearSkuManual({...datosSku});
+    const itemSku = ctx.leerColaOffline()[0];
+    assert(okCrear===true && itemSku && itemSku.tipo==='sku', 'sin señal el SKU se encola, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    assert(ctx.__appstate.skuRecienCreado && ctx.__appstate.skuRecienCreado.id===null && ctx.__appstate.skuRecienCreado.sku_local_id===itemSku.id,
+      'el SKU recién creado sin señal queda para "Contar ahora", amarrado a su item de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.skuRecienCreado));
+    ctx.__appstate.view = 'skus';
+    const htmlSkus = ctx.renderSkus();
+    assert(htmlSkus.includes('id="btn-contar-sku-creado"') && htmlSkus.includes('Sin enviar') && htmlSkus.includes('NUEVO-1'), 'la pantalla SKU ofrece "Contar ahora" y dice que el SKU no se ha enviado');
+
+    // 2. "Contar ahora": Contar con el SKU elegido y el aviso de que espera envío.
+    ctx.contarSkuRecienCreado();
+    assert(ctx.__appstate.view==='conteo' && ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.sku_local_id===itemSku.id && !ctx.__appstate.skuSeleccionado.id,
+      '"Contar ahora" lleva a Contar con el SKU nuevo elegido, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, sku:ctx.__appstate.skuSeleccionado}));
+    assert(ctx.__appstate.skuRecienCreado===null, 'el aviso de SKU recién creado se cierra al ir a contarlo');
+    assert(ctx.renderConteo().includes('SKU nuevo, sin enviar'), 'la ficha de Contar avisa que el SKU todavía no se envía');
+
+    // 3. Guardar el conteo: a la cola, con el id local del SKU, sin intentar /conteos.
+    ctx.__appstate.conteoFotos = [];
+    elements['toast-root'].hijos.length = 0;
+    pedidos.length = 0;
+    await ctx.guardarConteo({cantidad:'2', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    const colaConConteo = ctx.leerColaOffline();
+    const itemConteo = colaConConteo.find(i=> i.tipo==='conteo');
+    assert(colaConConteo.length===2 && itemConteo && itemConteo.sku_local_id===itemSku.id && !itemConteo.sku_id && itemConteo.cantidad_contada===2,
+      'el conteo de un SKU sin enviar queda en la cola con el id local del SKU, obtuvo: '+JSON.stringify(colaConConteo));
+    assert(!pedidos.some(p=> p.tipo==='conteo'), 'nunca se manda un conteo sin el id de su material');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('después del SKU nuevo NUEVO-1'), 'el aviso dice que el conteo sale después del SKU, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert(ctx.__appstate.skuSeleccionado===null, 'tras guardar, Contar queda listo para el siguiente material');
+
+    // 4. El buscador de Contar encuentra el SKU sin enviar (por código o descripción) y, sin
+    // señal, dice que no pudo buscar en el maestro en vez de "No se encontraron coincidencias".
+    ctx.__appstate.skuSearch = 'nuevo';
+    await ctx.buscarSkusLibre('nuevo');
+    assert(ctx.__appstate.buscadorLibre.error, 'una búsqueda que falla queda como error, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
+    const htmlBuscador = ctx.renderResultadosBuscadorLibre();
+    assert(htmlBuscador.includes('data-pick-local-btn="'+itemSku.id+'"') && htmlBuscador.includes('Sin enviar') && htmlBuscador.includes('No se pudo buscar en el maestro') && !htmlBuscador.includes('No se encontraron coincidencias'),
+      'sin señal, el buscador muestra el SKU sin enviar y el error del maestro, obtuvo: '+htmlBuscador);
+    ctx.__appstate.skuSearch = 'válvula';
+    assert(ctx.renderResultadosBuscadorLibre().includes('NUEVO-1'), 'también lo encuentra por descripción');
+    assert(ctx.skusPendientesQueCoinciden('n').length===0, 'con menos de 2 caracteres no busca, igual que el servidor');
+    ctx.__appstate.skuSearch = ''; ctx.__appstate.buscadorLibre = {resultados:[], buscando:false};
+
+    // 5. El panel: el conteo "Espera al SKU" (sin Reintentar) y el SKU dice cuántos lo esperan.
+    ctx.__appstate.offlineModal = true;
+    const htmlPanel = ctx.renderOfflineModal();
+    ctx.__appstate.offlineModal = false;
+    assert(htmlPanel.includes('Espera al SKU') && htmlPanel.includes('1 conteo espera a este SKU') && (htmlPanel.match(/data-reintentar-offline=/g)||[]).length===1,
+      'el panel muestra el conteo esperando a su SKU, sin botón de reintentar propio, obtuvo: '+htmlPanel);
+
+    // 6. Vuelve la señal: primero el SKU (con costo y crítico), después el conteo con el id nuevo.
+    sinSenal(false);
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    assert(pedidos.length===2 && pedidos[0].tipo==='sku' && pedidos[1].tipo==='conteo', 'se envía el SKU y después su conteo, obtuvo: '+JSON.stringify(pedidos.map(p=>p.tipo)));
+    assert(pedidos[0].fila.costo_unitario===1500 && pedidos[0].fila.critico===true, 'el SKU creado sin señal llega con su costo y su marca de crítico, obtuvo: '+JSON.stringify(pedidos[0].fila));
+    assert(pedidos[1].fila.sku_id==='srv-NUEVO-1', 'el conteo sale amarrado al id que el servidor le dio al SKU, obtuvo: '+pedidos[1].fila.sku_id);
+    assert(pedidos[1].fila.capturado_en===new Date(itemConteo.creado_en).toISOString(), 'el conteo conserva la hora en que se contó, no la de envío');
+    assert(ctx.leerColaOffline().length===0, 'la cola queda vacía, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+
+    // 7. La respuesta del SKU se pierde (el servidor sí lo creó): al reintentar no se duplica ni
+    // queda en error; se reconoce por su capturado_en y el conteo sale con ese id.
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-2'});
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'5', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    sinSenal(false); perderRespuestaSku = true;
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    assert(ctx.leerColaOffline().length===2 && ctx.leerColaOffline().every(i=> i.estado==='pendiente') && !pedidos.some(p=> p.tipo==='conteo'),
+      'si la respuesta del SKU se pierde, ni el SKU ni su conteo se dan por enviados, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    await ctx.sincronizarColaOffline();
+    assert(skusServidor.filter(s=> s.sku_code==='NUEVO-2').length===1, 'el SKU no se crea dos veces');
+    const conteoNuevo2 = conteosServidor[conteosServidor.length-1];
+    assert(conteoNuevo2.sku_id==='srv-NUEVO-2' && conteoNuevo2.cantidad_contada===5 && ctx.leerColaOffline().length===0,
+      'al reintentar, el SKU ya creado se reconoce y su conteo sale con ese id, obtuvo: '+JSON.stringify({conteoNuevo2, cola: ctx.leerColaOffline()}));
+
+    // 8. Otra persona ya lo había creado en esa posición: el SKU queda en error con "Usar el que
+    // ya existe"; su conteo espera (no se manda, no se marca error) y con ese botón sale sobre el
+    // material existente.
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'OTRO-1', storage_bin:'Z-9'});
+    const itemOtro = ctx.leerColaOffline()[0];
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'7', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    sinSenal(false);
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    const colaOtro = ctx.leerColaOffline();
+    const skuOtro = colaOtro.find(i=> i.id===itemOtro.id);
+    const conteoOtro = colaOtro.find(i=> i.tipo==='conteo');
+    assert(skuOtro && skuOtro.estado==='error' && /ya existe/.test(skuOtro.error) && skuOtro.sku_existente && skuOtro.sku_existente.id==='srv-existente',
+      'el SKU que ya existe queda en error con el material existente a mano, obtuvo: '+JSON.stringify(skuOtro));
+    assert(conteoOtro && conteoOtro.estado==='pendiente' && !pedidos.some(p=> p.tipo==='conteo'), 'su conteo espera, sin enviarse ni marcarse error, obtuvo: '+JSON.stringify(conteoOtro));
+    ctx.__appstate.offlineModal = true;
+    assert(ctx.renderOfflineModal().includes('data-usar-sku-existente="'+itemOtro.id+'"'), 'el panel ofrece "Usar el que ya existe"');
+    ctx.__appstate.offlineModal = false;
+    confirmRespuesta = true; confirmLlamadas.length = 0;
+    await ctx.usarSkuExistenteEnCola(itemOtro.id);
+    assert(confirmLlamadas.length===1 && /ya existe en esa misma posición/.test(confirmLlamadas[0]) && /El conteo guardado se enviará/.test(confirmLlamadas[0]), 'pide confirmación explicando qué pasa, obtuvo: '+JSON.stringify(confirmLlamadas));
+    assert(conteosServidor[conteosServidor.length-1].sku_id==='srv-existente' && conteosServidor[conteosServidor.length-1].cantidad_contada===7 && ctx.leerColaOffline().length===0,
+      'el conteo sale sobre el material que ya existía y la cola queda vacía, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+
+    // 9. Existe pero inactivo: se explica, sin "Usar el que ya existe" (contar sobre un material
+    // inactivo lo dejaría fuera de Buscar).
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'VIEJO-1', ubicacion:null, storage_bin:null});
+    sinSenal(false);
+    await ctx.sincronizarColaOffline();
+    const skuViejo = ctx.leerColaOffline()[0];
+    assert(skuViejo && skuViejo.estado==='error' && /inactivo/.test(skuViejo.error), 'si el que existe está inactivo, se dice, obtuvo: '+JSON.stringify(skuViejo));
+    ctx.__appstate.offlineModal = true;
+    assert(!ctx.renderOfflineModal().includes('data-usar-sku-existente='), 'no se ofrece usar un material inactivo');
+    ctx.__appstate.offlineModal = false;
+
+    // 10. Descartar un SKU con conteos esperándolo: se avisa y se van juntos.
+    ctx.guardarColaOffline([]);
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-3'});
+    const itemNuevo3 = ctx.leerColaOffline()[0];
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'1', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    confirmRespuesta = true; confirmLlamadas.length = 0;
+    await ctx.descartarAccionOffline(itemNuevo3.id);
+    assert(/También se descartará el conteo guardado/.test(confirmLlamadas[0]||'') && ctx.leerColaOffline().length===0,
+      'descartar el SKU avisa y descarta también su conteo, obtuvo: '+JSON.stringify({confirm:confirmLlamadas, cola:ctx.leerColaOffline()}));
+
+    // 11. Contar un SKU nuevo que ya no está en la cola: no se guarda un conteo huérfano.
+    ctx.__appstate.skuSeleccionado = {id:null, sku_local_id:'local-ya-no-esta', sku_code:'NUEVO-3', bodega:'Nave Mina'};
+    elements['toast-root'].hijos.length = 0;
+    await ctx.guardarConteo({cantidad:'1', ubicacion:'', bodega:'Nave Mina', observacion:''});
+    assert(ctx.leerColaOffline().length===0 && JSON.stringify(elements['toast-root'].hijos).includes('ya no está pendiente'), 'un conteo sin SKU al que esperar no se guarda y se explica');
+
+    // 12. Con señal también se ofrece "Contar ahora", con el id real.
+    sinSenal(false);
+    ctx.__appstate.skuRecienCreado = null;
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-4'});
+    assert(ctx.__appstate.skuRecienCreado && ctx.__appstate.skuRecienCreado.id==='srv-NUEVO-4' && ctx.leerColaOffline().length===0,
+      'con señal, el SKU recién creado queda con su id real para contarlo, obtuvo: '+JSON.stringify(ctx.__appstate.skuRecienCreado));
+
+    ctx.fetch = fetchAntesCrearContar;
+    ctx.navigator.onLine = onLineAntes;
+    ctx.guardarColaOffline([]);
+    ctx.__appstate.skuRecienCreado = null;
+    ctx.__appstate.view = 'conteo';
+    ctx.__appstate.skuSeleccionado = skuDano; // lo que sigue espera el material elegido, como antes de este bloque
+  }
 
   // El formulario: las dos marcas siempre; el campo de unidades solo con material dañado.
   ctx.__appstate.view = 'conteo'; ctx.__appstate.conteoMaterialDanado = false; ctx.__appstate.conteoPackingDanado = false;

@@ -649,6 +649,8 @@ textarea{resize:vertical;min-height:60px;}
 .plan-item-ubic{font-size:13.5px;font-weight:600;color:var(--text);}
 .sku-pick button[disabled]{opacity:.5;cursor:default;}
 .sku-pick .badge{margin-right:8px;vertical-align:middle;}
+/* "Sin enviar" (SKU creado sin señal, ver renderResultadosBuscadorLibre): del ancho de su texto, no de la fila. */
+.sku-pick div span.badge{display:inline-block;margin-top:3px;}
 .plan-sku-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
 .plan-sku-chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 8px;border-radius:100px;background:var(--bg);border:1px solid var(--line);}
 .plan-sku-chip button{border:0;background:transparent;color:var(--danger);font-size:14px;line-height:1;cursor:pointer;padding:0 2px;}
@@ -1104,6 +1106,9 @@ let state = {
   auditoria: { cargado: false, cargando: false, cargandoMas: false, filas: [], filtroTabla: '', hayMas: false },
   colaOffline: (()=>{ try{ return JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]'); }catch(e){ return []; } })(),
   sincronizandoOffline: false,
+  // El último SKU creado a mano en esta sesión, para ofrecer "Contar ahora" (ver
+  // renderSkuRecienCreado). Con señal trae su id; sin señal, sku_local_id (ver skuDesdeAccionOffline).
+  skuRecienCreado: null,
   versionNueva: false,
   // Instalar la app (ver formaInstalarApp): hayEvento = el navegador ofreció instalarla directo
   // (beforeinstallprompt, Chrome/Edge/Samsung); instalada = corre desde el ícono; bannerOculto =
@@ -1248,7 +1253,15 @@ const TAM_PAGINA_LISTA = 30;
 // 1.000 filas en vez de 30 no le agrega costo real al motor -- solo más datos para transferir.
 // Por eso el tope: cubre holgado un filtro típico (cientos de SKU), sin arriesgarse a mandar
 // una búsqueda sin filtro (decenas de miles de SKU) entera por la red.
+// Desde el 19/10/2026 ("me sale primeros 1.000, eso no sirve, deben ser los datos reales"): los
+// gráficos salen del servidor (resumen_busqueda_skus) cuando falta cargar, y si el total cabe bajo
+// TOPE_CARGA_COMPLETA_BUSQUEDA el resto se trae en segundo plano, de a TANDA_CARGA_BUSQUEDA (el
+// máximo que entrega filas_busqueda_skus por llamada), para que tocar una porción filtre todo y no
+// solo lo primero. Una búsqueda más ancha (sin filtro: decenas de miles) sigue trayendo solo la
+// primera tanda, como antes: ~1,65 KB por fila, 5.000 ya son ~8 MB por la red del celular.
 const TOPE_CARGA_TOTAL_BUSQUEDA = 1000;
+const TANDA_CARGA_BUSQUEDA = 1000;
+const TOPE_CARGA_COMPLETA_BUSQUEDA = 5000;
 // Guardar conteo: si el guardado tarda más que esto (señal mala en bodega/mina), se muestra una
 // barra de "esto está tardando más de lo normal" además del spinner del botón -- para que la
 // persona sepa que la app sigue intentando, no que se colgó. No cambia CUÁNDO se considera
@@ -2764,6 +2777,13 @@ function bindBuscadorLibreResultados(){
       setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false});
     });
   });
+  document.querySelectorAll('[data-pick-local-btn]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const sku = skusPendientesEnCola().find(s=> s.sku_local_id===btn.dataset.pickLocalBtn);
+      if(!sku) return;
+      setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false});
+    });
+  });
 }
 
 // El ERP manda el material dos veces: la fila del bin, y otra sin ubicación con lo que viene en
@@ -2795,9 +2815,12 @@ async function buscarSkusLibre(texto){
     actualizarResultadosBuscadorLibreEnPantalla();
   }catch(e){
     if(miPeticion !== buscadorLibrePeticionId) return;
-    state.buscadorLibre = { resultados: [], buscando: false };
+    // El error queda en la lista, donde la persona está mirando (ver renderResultadosBuscadorLibre):
+    // antes era solo un aviso flotante que se iba, y la lista decía "No se encontraron
+    // coincidencias" -- sin señal parecía que el material no existía. Sin el aviso flotante, que
+    // sin señal salía de nuevo en cada letra.
+    state.buscadorLibre = { resultados: [], buscando: false, error: mensajeErrorCarga(e) };
     actualizarResultadosBuscadorLibreEnPantalla();
-    toast(e.message,'err');
   }
 }
 
@@ -6113,7 +6136,16 @@ function irABuscarDelDia(fecha){
 // calculan sobre `resultados`) ya reflejan el total real, no solo lo primero cargado. Si el total
 // supera el tope (una búsqueda ancha, sin filtro), se sigue paginando de a TAM_PAGINA_LISTA con
 // "Siguiente"/buscarMasConteos, como antes.
+// Si falta cargar, después pide el resumen del servidor (cargarResumenBusqueda: los gráficos con el
+// total real) y, si el total cabe bajo TOPE_CARGA_COMPLETA_BUSQUEDA, el resto de las filas en
+// segundo plano (cargarRestoBusqueda). Cada búsqueda lleva su número (busquedaPeticionId): si la
+// persona cambia los filtros o el orden mientras tanto, lo que llegue de la búsqueda anterior se
+// descarta en vez de mezclarse con la nueva.
+let busquedaPeticionId = 0;
+let cargaRestoBusquedaPromesa = null;
 async function buscarConteos(){
+  const miPeticion = ++busquedaPeticionId;
+  cargaRestoBusquedaPromesa = null;
   try{
     // Filas y total en paralelo, con los mismos filtros (el grupo viaja como p_grupo_id y lo
     // resuelve el servidor por código+bodega, ver filas_busqueda_skus).
@@ -6121,13 +6153,62 @@ async function buscarConteos(){
       pedirFilasBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA),
       rest('/rpc/contar_busqueda_skus', { method:'POST', body: construirParametrosBusquedaRpc() }),
     ]);
+    if(miPeticion!==busquedaPeticionId) return;
     const rows = data || [];
     const resultados = filtrarResultadosBusqueda(rows);
-    setState({busqueda: {...state.busqueda, resultados, total, buscando:false, hayMas: total!=null ? rows.length<total : rows.length===TOPE_CARGA_TOTAL_BUSQUEDA, paginaOffset: rows.length, busquedaPagina:0}});
+    const hayMas = total!=null ? rows.length<total : rows.length===TOPE_CARGA_TOTAL_BUSQUEDA;
+    const cargarResto = hayMas && total!=null && total<=TOPE_CARGA_COMPLETA_BUSQUEDA && rows.length===TOPE_CARGA_TOTAL_BUSQUEDA;
+    setState({busqueda: {...state.busqueda, resultados, total, buscando:false, hayMas, paginaOffset: rows.length, busquedaPagina:0,
+      resumenServidor:null, resumenPendiente: hayMas, resumenError:'', cargaRestoError:'', cargandoResto: cargarResto ? {cargados: rows.length, objetivo: total} : null}});
+    if(!hayMas) return;
+    if(cargarResto) cargaRestoBusquedaPromesa = cargarRestoBusqueda(miPeticion, total);
+    await Promise.all([cargarResumenBusqueda(miPeticion), cargaRestoBusquedaPromesa]);
   }catch(e){
+    if(miPeticion!==busquedaPeticionId) return;
     setState({busqueda: {...state.busqueda, buscando:false}});
     toast(e.message,'err');
   }
+}
+
+// Los gráficos de Buscar con el total real, calculados en la base sobre todo lo que calza con los
+// filtros (ver resumen_busqueda_skus), para cuando no está todo cargado. Un error se muestra como
+// error junto al gráfico (resumenError), que vuelve a armarse con lo cargado y lo dice.
+async function cargarResumenBusqueda(miPeticion){
+  let resumen = null, error = '';
+  try{
+    resumen = await rest('/rpc/resumen_busqueda_skus', {method:'POST', body: {...construirParametrosBusquedaRpc(), p_solo_con_fotos: !!state.busqueda.soloConFotos}});
+  }catch(e){ error = e.message || 'Error desconocido'; }
+  if(miPeticion!==busquedaPeticionId) return;
+  setState({busqueda: {...state.busqueda, resumenServidor: resumen || null, resumenPendiente:false, resumenError: error}});
+}
+
+// Trae en segundo plano, de a TANDA_CARGA_BUSQUEDA, lo que falta hasta `objetivo`. No llama a
+// render() en cada tanda (rehace la pantalla entera: un filtro a medio escribir perdería el
+// teclado, ver CLAUDE.md): actualiza solo el texto del avance (#buscar-progreso-carga) y pinta una
+// vez al final. Si una tanda falla, se queda con lo que alcanzó a traer, deja "Siguiente" para
+// seguir a mano y muestra el error.
+async function cargarRestoBusqueda(miPeticion, objetivo){
+  let filas = [], offset = state.busqueda.paginaOffset, error = '';
+  while(offset<objetivo){
+    let rows;
+    try{
+      rows = await pedirFilasBusqueda(offset, TANDA_CARGA_BUSQUEDA);
+    }catch(e){ error = e.message || 'Error desconocido'; break; }
+    if(miPeticion!==busquedaPeticionId) return;
+    if(!rows.length) break;
+    filas = filas.concat(rows);
+    offset += rows.length;
+    if(state.busqueda.cargandoResto) state.busqueda.cargandoResto.cargados = offset;
+    const progreso = document.getElementById('buscar-progreso-carga');
+    if(progreso) progreso.textContent = textoProgresoCargaBuscar(offset, objetivo);
+  }
+  if(miPeticion!==busquedaPeticionId) return;
+  const b = state.busqueda;
+  setState({busqueda: {...b, resultados: b.resultados.concat(filtrarResultadosBusqueda(filas)), paginaOffset: offset,
+    hayMas: offset<objetivo, cargandoResto:null, cargaRestoError: error}});
+}
+function textoProgresoCargaBuscar(cargados, objetivo){
+  return `Cargando la lista completa: ${cargados.toLocaleString('es-CL')} de ${objetivo.toLocaleString('es-CL')}… Los gráficos ya cuentan todo; tocar una porción se activa al terminar.`;
 }
 
 async function buscarMasConteos(){
@@ -6151,7 +6232,15 @@ async function buscarMasConteos(){
 // servidor todavía tenga más (hayMas).
 async function avanzarPaginaBuscar(){
   const siguiente = (state.busqueda.busquedaPagina||0) + 1;
-  while(siguiente*TAM_PAGINA_BUSCAR >= state.busqueda.resultados.length && state.busqueda.hayMas){
+  // Si la lista completa se está trayendo en segundo plano (cargarRestoBusqueda), se espera a que
+  // termine en vez de pedir las mismas filas dos veces.
+  if(cargaRestoBusquedaPromesa && state.busqueda.cargandoResto){
+    await cargaRestoBusquedaPromesa;
+  }
+  // Con porciones de los gráficos elegidas, la tabla pagina sobre lo ya cargado (ver
+  // filtrarResultadosCargadosBuscar): no se piden más tandas al servidor.
+  const filtrando = !!filtrarResultadosCargadosBuscar(state.busqueda);
+  while(!filtrando && siguiente*TAM_PAGINA_BUSCAR >= state.busqueda.resultados.length && state.busqueda.hayMas){
     await buscarMasConteos();
   }
   setState({busqueda: {...state.busqueda, busquedaPagina: siguiente}});
@@ -6189,13 +6278,14 @@ function alternarEnFiltroBuscar(actual, clave){
 // Filtro de la tabla de resultados al hacer clic en una porción/leyenda de "Quién contó" (ver
 // renderBuscar). Cada clic suma o quita esa persona: se pueden marcar varias.
 function toggleFiltroContadoPor(nombre){
-  setState({busqueda: {...state.busqueda, filtroContadoPor: alternarEnFiltroBuscar(state.busqueda.filtroContadoPor, nombre)}});
+  // Vuelve a la página 1: la tabla filtrada también pagina de a TAM_PAGINA_BUSCAR (ver renderBuscar).
+  setState({busqueda: {...state.busqueda, filtroContadoPor: alternarEnFiltroBuscar(state.busqueda.filtroContadoPor, nombre), busquedaPagina:0}});
 }
 
 // Igual que toggleFiltroContadoPor, para las porciones de "Resumen por estado": suma o quita ese
 // grupo (Cuadrado, Diferencia negativa, etc.).
 function toggleFiltroEstado(clave){
-  setState({busqueda: {...state.busqueda, filtroEstado: alternarEnFiltroBuscar(state.busqueda.filtroEstado, clave)}});
+  setState({busqueda: {...state.busqueda, filtroEstado: alternarEnFiltroBuscar(state.busqueda.filtroEstado, clave), busquedaPagina:0}});
 }
 
 // Sobre qué filas se arman los gráficos de Buscar, su lectura y el drill-down: si hay casillas
@@ -8795,15 +8885,20 @@ async function crearSkuManual(payload){
   if(!perfilCargado()) return false;
   const capturadoEn = new Date().toISOString();
   try{
-    await rest('/skus', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id, capturado_en: capturadoEn}], prefer:'return=minimal'});
+    const filas = await rest('/skus', {method:'POST', body:[{...payload, empresa_id: state.perfil.empresa_id, capturado_en: capturadoEn}], prefer:'return=representation'});
+    const creado = filas && filas[0];
+    // "Contar ahora" (ver renderSkuRecienCreado): con el id que devolvió el servidor.
+    state.skuRecienCreado = creado && creado.id ? {...payload, ...creado, sku_local_id:null} : null;
     toast('SKU guardado correctamente');
     refrescarListaSkus();
     return true;
   }catch(e){
     // Sin conexión de verdad (no un error del servidor): igual que con los conteos, el
-    // SKU se guarda en este dispositivo y se sube solo al volver la señal.
+    // SKU se guarda en este dispositivo y se sube solo al volver la señal. Se puede contar
+    // igual: el conteo espera en la cola y sale después del SKU (ver skuDesdeAccionOffline).
     if(pareceFalloDeRed(e)){
-      encolarAccionOffline('sku', {...payload, empresa_id: state.perfil.empresa_id});
+      const item = encolarAccionOffline('sku', {...payload, empresa_id: state.perfil.empresa_id});
+      state.skuRecienCreado = skuDesdeAccionOffline(item);
       toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return true;
     }
@@ -9458,8 +9553,90 @@ function quitarDeColaOffline(id){
   guardarColaOffline(leerColaOffline().filter(i=>i.id!==id));
 }
 
-function marcarErrorEnColaOffline(id, mensaje){
-  guardarColaOffline(leerColaOffline().map(i => i.id===id ? {...i, estado:'error', error:mensaje} : i));
+// `extra`: datos para resolver el error desde el panel (ver usarSkuExistenteEnCola).
+function marcarErrorEnColaOffline(id, mensaje, extra){
+  guardarColaOffline(leerColaOffline().map(i => i.id===id ? {...i, ...(extra||{}), estado:'error', error:mensaje} : i));
+}
+
+/* -----------------------------------------------------------------------
+   Crear y contar sin señal (Joel, 14/10/2026: "quiero crear un SKU pero
+   estoy sin señal, quiero crearlo y contarlo"). Un conteo se amarra al
+   material por su id, y ese id lo pone el servidor al crear el SKU: sin
+   señal todavía no existe. El SKU guardado en la cola hace de material
+   mientras tanto (id null + sku_local_id = id del item en la cola); el
+   conteo se encola con ese sku_local_id y, al sincronizar, sale recién
+   después de que el SKU se creó y devolvió su id (ver
+   amarrarConteosAlSkuCreado). Si el SKU no se puede crear, sus conteos
+   esperan visibles en el panel; nunca se envían sueltos ni se pierden.
+   ----------------------------------------------------------------------- */
+function esConteoOffline(item){ return !!item && (item.tipo||'conteo')==='conteo'; }
+function skuDesdeAccionOffline(item){
+  return { id:null, sku_local_id:item.id, sku_code:item.sku_code, descripcion:item.descripcion||null,
+    categoria:item.categoria||null, batch:item.batch||null, unidad_medida:item.unidad_medida||null,
+    bodega:item.bodega||null, ubicacion:item.ubicacion||null, storage_bin:item.storage_bin||null,
+    stock_sistema: item.stock_sistema==null ? null : item.stock_sistema, critico:!!item.critico, clase_abc:null };
+}
+function skusPendientesEnCola(){
+  return (state.colaOffline||[]).filter(i=> i.tipo==='sku').map(skuDesdeAccionOffline);
+}
+// Mismo criterio que el buscador del servidor: código o descripción, desde 2 caracteres.
+function skusPendientesQueCoinciden(texto){
+  const q = String(texto||'').trim().toLowerCase();
+  if(q.length < 2) return [];
+  return skusPendientesEnCola().filter(s=> (s.sku_code||'').toLowerCase().includes(q) || (s.descripcion||'').toLowerCase().includes(q));
+}
+// Clave de un material en listas que mezclan los del maestro (id) con los aún sin enviar.
+function claveSku(s){ return s ? (s.id || s.sku_local_id || '') : ''; }
+function skuSigueEnCola(localId){
+  return !!localId && leerColaOffline().some(i=> i.id===localId && i.tipo==='sku');
+}
+// Conteos encolados que esperan al SKU nuevo `localId` (todavía sin sku_id).
+function conteosQueEsperanSku(localId, cola){
+  return (cola || leerColaOffline()).filter(i=> esConteoOffline(i) && i.sku_local_id===localId && !i.sku_id);
+}
+function conteoEsperaSkuEnCola(item, cola){
+  return esConteoOffline(item) && !item.sku_id && !!item.sku_local_id && (cola || leerColaOffline()).some(i=> i.id===item.sku_local_id && i.tipo==='sku');
+}
+// El SKU nuevo ya tiene id: se lo pasa a sus conteos encolados (antes de sacar el SKU de la cola,
+// para que un corte entre medio no los deje huérfanos) y al material elegido en Contar o recién
+// creado, si son ese mismo.
+function amarrarConteosAlSkuCreado(localId, skuId){
+  if(!localId || !skuId) return;
+  guardarColaOffline(leerColaOffline().map(i=> (esConteoOffline(i) && i.sku_local_id===localId && !i.sku_id) ? {...i, sku_id: skuId} : i));
+  if(state.skuSeleccionado && !state.skuSeleccionado.id && state.skuSeleccionado.sku_local_id===localId){
+    state.skuSeleccionado = {...state.skuSeleccionado, id: skuId, sku_local_id: null};
+  }
+  if(state.skuRecienCreado && !state.skuRecienCreado.id && state.skuRecienCreado.sku_local_id===localId){
+    state.skuRecienCreado = {...state.skuRecienCreado, id: skuId, sku_local_id: null};
+  }
+}
+// La fila del maestro en la misma posición (código + las cuatro partes de la identidad, ver
+// skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key), activa o no.
+async function skuEnMismaPosicion(item){
+  const filas = await rest(`/skus?sku_code=eq.${encodeURIComponent(item.sku_code)}&select=id,activo,capturado_en,bodega,ubicacion,storage_bin,batch&limit=200`) || [];
+  return posicionSkuRepetida(filas, item);
+}
+function mismoInstante(a, b){
+  if(!a || !b) return false;
+  const ta = new Date(a).getTime(), tb = new Date(b).getTime();
+  return !isNaN(ta) && ta===tb;
+}
+// "Usar el que ya existe": el SKU nuevo chocó con uno que ya está en el maestro en esa misma
+// posición (lo creó otra persona, o llegó en un Excel). Sus conteos se envían sobre ese material y
+// el SKU nuevo se descarta, en vez de crear el mismo material dos veces.
+async function usarSkuExistenteEnCola(id){
+  const item = leerColaOffline().find(i=> i.id===id);
+  if(!item || !item.sku_existente || !item.sku_existente.id || !item.sku_existente.activo) return;
+  const n = conteosQueEsperanSku(id).length;
+  const sitio = describirUbicacion(item) + (item.batch ? ` · Batch ${item.batch}` : '');
+  const detalle = n
+    ? `${n===1 ? 'El conteo guardado se enviará' : `Los ${n} conteos guardados se enviarán`} sobre ese material, y este SKU nuevo se descarta.`
+    : 'Este SKU nuevo se descarta: el material ya está en el maestro.';
+  if(!confirm(`El código ${item.sku_code} ya existe en esa misma posición (${sitio}).\n\n${detalle}`)) return;
+  amarrarConteosAlSkuCreado(id, item.sku_existente.id);
+  quitarDeColaOffline(id);
+  render();
+  if(n) await sincronizarColaOffline();
 }
 
 /* -----------------------------------------------------------------------
@@ -9525,9 +9702,18 @@ async function borrarFotosOffline(itemId){
 async function descartarAccionOffline(id){
   const item = leerColaOffline().find(i=>i.id===id);
   const tipoTexto = item && item.tipo==='sku' ? 'este SKU guardado' : item && item.tipo==='documento_bodega' ? 'este documento de bodega guardado' : 'este conteo guardado';
-  if(!confirm(`¿Descartar ${tipoTexto} sin conexión? Esta acción no se puede deshacer.`)) return;
-  quitarDeColaOffline(id);
-  await borrarFotosOffline(id).catch(()=>{});
+  // Los conteos de un SKU nuevo no pueden enviarse sin él (no tienen a qué material amarrarse):
+  // se avisa y se descartan juntos, en vez de dejarlos esperando a un SKU que ya no va a llegar.
+  const dependientes = item && item.tipo==='sku' ? conteosQueEsperanSku(id) : [];
+  const aviso = dependientes.length
+    ? `\n\nTambién se ${dependientes.length===1 ? 'descartará el conteo guardado' : `descartarán los ${dependientes.length} conteos guardados`} de este SKU.`
+    : '';
+  if(!confirm(`¿Descartar ${tipoTexto} sin conexión? Esta acción no se puede deshacer.${aviso}`)) return;
+  const ids = [id, ...dependientes.map(d=> d.id)];
+  guardarColaOffline(leerColaOffline().filter(i=> !ids.includes(i.id)));
+  await Promise.all(ids.map(x=> borrarFotosOffline(x).catch(()=>{})));
+  if(state.skuSeleccionado && !state.skuSeleccionado.id && state.skuSeleccionado.sku_local_id===id) state.skuSeleccionado = null;
+  if(state.skuRecienCreado && state.skuRecienCreado.sku_local_id===id) state.skuRecienCreado = null;
   render();
 }
 
@@ -9554,20 +9740,55 @@ async function procesarUnItemOffline(item){
       return {ok:true};
     }
     if(item.tipo==='sku'){
-      await rest('/skus', {method:'POST', body:[{
-        sku_code: item.sku_code,
-        descripcion: item.descripcion,
-        categoria: item.categoria,
-        batch: item.batch,
-        unidad_medida: item.unidad_medida,
-        bodega: item.bodega,
-        ubicacion: item.ubicacion,
-        storage_bin: item.storage_bin,
-        stock_sistema: item.stock_sistema,
-        empresa_id: item.empresa_id,
-        capturado_en: capturadoEn,
-      }], prefer:'return=minimal'});
-      return {ok:true};
+      let filas;
+      try{
+        filas = await rest('/skus', {method:'POST', body:[{
+          sku_code: item.sku_code,
+          descripcion: item.descripcion,
+          categoria: item.categoria,
+          batch: item.batch,
+          unidad_medida: item.unidad_medida,
+          bodega: item.bodega,
+          ubicacion: item.ubicacion,
+          storage_bin: item.storage_bin,
+          stock_sistema: item.stock_sistema,
+          // Se perdían al sincronizar (el formulario sí los manda, ver crearSkuManual): un SKU
+          // creado sin señal quedaba sin costo y sin marca de crítico.
+          costo_unitario: item.costo_unitario==null ? null : item.costo_unitario,
+          critico: !!item.critico,
+          empresa_id: item.empresa_id,
+          capturado_en: capturadoEn,
+        }], prefer:'return=representation'});
+      }catch(e){
+        if(pareceFalloDeRed(e) || !esErrorCodigoSkuDuplicado(e)) throw e;
+        // Ya existe en esa posición. Si es ESTE mismo SKU (un intento anterior sí llegó, pero la
+        // respuesta se perdió con la señal), se reconoce por su capturado_en, que es la hora en
+        // que se encoló: se sigue con su id, sin duplicar ni marcar error. Si es otro, queda en
+        // error con el material existente a mano para "Usar el que ya existe".
+        const existente = await skuEnMismaPosicion(item);
+        if(existente && mismoInstante(existente.capturado_en, capturadoEn)) return {ok:true, skuId: existente.id};
+        return {ok:false, red:false,
+          mensaje: existente && !existente.activo
+            ? `El código ${item.sku_code} ya existe en esa misma posición, pero está inactivo (no venía en la última carga). Vuelve a cargarlo por Excel para activarlo o descarta este SKU.`
+            : mensajeCodigoSkuDuplicado(item.sku_code, item.bodega, item.batch, item.ubicacion, item.storage_bin),
+          extra: {sku_existente: existente ? {id: existente.id, activo: !!existente.activo} : null}};
+      }
+      let skuId = filas && filas[0] && filas[0].id;
+      // Sin id en la respuesta (no debería pasar) y con conteos esperándolo: se busca, para no
+      // dejarlos sin material.
+      if(!skuId && conteosQueEsperanSku(item.id).length){
+        const creado = await skuEnMismaPosicion(item);
+        skuId = creado && creado.id;
+      }
+      return {ok:true, skuId};
+    }
+    // Conteo de un SKU nuevo que todavía no tiene id: no se manda (no hay a qué amarrarlo). Lo
+    // normal es que sincronizarColaOffline ni siquiera lo intente mientras su SKU siga en la cola;
+    // llegar acá significa que el SKU ya no está (se descartó en otra versión de la app).
+    if(esConteoOffline(item) && !item.sku_id && item.sku_local_id){
+      return {ok:false, red:false, mensaje: skuSigueEnCola(item.sku_local_id)
+        ? `Se envía después del SKU nuevo ${item.sku_code}.`
+        : `Este conteo era del SKU nuevo ${item.sku_code}, que ya no está pendiente de envío. Descártalo y vuelve a contarlo.`};
     }
 
     // Compatibilidad: un item encolado antes de agregar idempotencia no trae la llave -- se le
@@ -9644,12 +9865,21 @@ async function sincronizarColaOffline(){
   render();
   let enviados = 0;
   let seCorto = false;
-  for(const item of pendientes){
+  for(const original of pendientes){
     if(seCorto) break;
+    // Se relee de la cola: un SKU nuevo que se acaba de crear le pasó su id a sus conteos (ver
+    // amarrarConteosAlSkuCreado), y la copia leída antes del ciclo no lo tiene.
+    const item = leerColaOffline().find(i=> i.id===original.id);
+    if(!item || item.estado==='error') continue;
+    // Su SKU nuevo sigue en la cola (por enviar, o con error): espera, sin marcarse error.
+    if(conteoEsperaSkuEnCola(item)) continue;
     const resultado = await procesarUnItemOffline(item);
-    if(resultado.ok){ quitarDeColaOffline(item.id); enviados++; }
+    if(resultado.ok){
+      if(item.tipo==='sku') amarrarConteosAlSkuCreado(item.id, resultado.skuId);
+      quitarDeColaOffline(item.id); enviados++;
+    }
     else if(resultado.red) seCorto = true;
-    else marcarErrorEnColaOffline(item.id, resultado.mensaje);
+    else marcarErrorEnColaOffline(item.id, resultado.mensaje, resultado.extra);
   }
   state.sincronizandoOffline = false;
   if(enviados>0){
@@ -9657,6 +9887,13 @@ async function sincronizarColaOffline(){
     cargarSkus(); invalidarCacheAgregados(['generales','sinUbicacion']); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
   }
   render();
+  // Lo que se guardó mientras esta pasada corría (ej. el conteo de un SKU nuevo, tocado justo
+  // cuando volvió la señal) no estaba en `pendientes`: sale ahora, no en el próximo "online".
+  if(!seCorto){
+    const vistos = new Set(pendientes.map(i=> i.id));
+    const colaAhora = leerColaOffline();
+    if(colaAhora.some(i=> !vistos.has(i.id) && i.estado!=='error' && !conteoEsperaSkuEnCola(i, colaAhora))) await sincronizarColaOffline();
+  }
 }
 
 // Reintento manual de un item puntual (desde el panel de detalle), sin
@@ -9666,21 +9903,29 @@ async function reintentarAccionOffline(id){
   if(!state.session || state.sincronizandoOffline) return;
   const item = leerColaOffline().find(i=>i.id===id);
   if(!item) return;
+  if(conteoEsperaSkuEnCola(item)){ toast(`Primero tiene que enviarse el SKU nuevo ${item.sku_code}: reintenta ese.`,'err'); return; }
   state.sincronizandoOffline = true;
   render();
   const resultado = await procesarUnItemOffline(item);
+  let siguenConteos = false;
   if(resultado.ok){
+    if(item.tipo==='sku'){
+      siguenConteos = conteosQueEsperanSku(id).length>0;
+      amarrarConteosAlSkuCreado(id, resultado.skuId);
+    }
     quitarDeColaOffline(id);
     toast(item.tipo==='sku' ? 'SKU sincronizado' : 'Conteo sincronizado');
     cargarSkus(); invalidarCacheAgregados(['generales','sinUbicacion']); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
   }else if(resultado.red){
     toast('Sigue sin haber conexión','err');
   }else{
-    marcarErrorEnColaOffline(id, resultado.mensaje);
+    marcarErrorEnColaOffline(id, resultado.mensaje, resultado.extra);
     toast(`No se pudo sincronizar: ${resultado.mensaje}`,'err');
   }
   state.sincronizandoOffline = false;
   render();
+  // Los conteos que esperaban a este SKU ya tienen su id: salen ahora, sin otro toque.
+  if(siguenConteos) await sincronizarColaOffline();
 }
 
 // Agregar o quitar una foto exige volver a renderizar toda la pantalla (para mostrar la
@@ -9926,13 +10171,21 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   if(!perfilCargado()) return;
   await esperarFotosEnProceso(); // ver comprimirFoto: una foto recién tomada puede seguir comprimiéndose
   if(faltaFotoObligatoria(cantidad, state.conteoFotos)){ toast('Falta el respaldo fotográfico: toma al menos una foto del material (solo se puede omitir al contar 0)','err'); return; }
+  // SKU nuevo sin enviar (ver skuDesdeAccionOffline): sin id no hay a qué amarrar el conteo en el
+  // servidor; va directo a la cola, detrás de su SKU. Si el SKU ya no está en la cola (se descartó),
+  // no se guarda: quedaría esperando a un material que no va a llegar.
+  const skuSinEnviar = !state.skuSeleccionado.id;
+  if(skuSinEnviar && !skuSigueEnCola(state.skuSeleccionado.sku_local_id)){
+    toast('Este SKU nuevo ya no está pendiente de envío. Vuelve y búscalo de nuevo.','err');
+    return;
+  }
   // Con conteo ciego, la persona no ve el stock del sistema -- este es el reemplazo del chequeo
   // de cordura que antes hacía ella misma al ver un número muy distinto al que tenía en pantalla.
   // Nunca revela cuál es el valor esperado, solo que el ingresado se aleja mucho de lo habitual.
   // stock_sistema ahora llega enmascarado (null) para un operador con conteo ciego -- ver
   // skus_lectura/skus_planificables y debe_ocultar_stock_operador() -- así que la comparación se
   // hace en el servidor (verificar_conteo_atipico), contra el valor real, sin mandarlo nunca acá.
-  if(ocultarStockOperador()){
+  if(ocultarStockOperador() && !skuSinEnviar){
     let atipico = false;
     try{ atipico = !!(await rest('/rpc/verificar_conteo_atipico', {method:'POST', body:{p_sku_id: state.skuSeleccionado.id, p_cantidad: Number(cantidad)}})); }
     catch(e){ /* si falla la verificación, no se bloquea el guardado -- sigue como si no fuera atípico */ }
@@ -9956,6 +10209,8 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   // El finally de más abajo lo limpia siempre, gane quien gane la carrera.
   const timerLento = setTimeout(()=> setState({conteoGuardandoLento:true}), UMBRAL_GUARDADO_LENTO_MS);
   try{
+    // Mismo camino que "sin conexión" (el catch de abajo), con o sin señal: ver skuSinEnviar.
+    if(skuSinEnviar){ const e = new TypeError('SKU nuevo sin enviar'); e.skuSinEnviar = true; throw e; }
     let filas = await rest('/conteos?on_conflict=idempotency_key', {method:'POST', body:[{
       sku_id: state.skuSeleccionado.id,
       usuario_id: state.perfil ? state.perfil.id : null,
@@ -10014,6 +10269,8 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       const item = encolarAccionOffline('conteo', {
         idempotency_key: idempotencyKey,
         sku_id: state.skuSeleccionado.id,
+        // SKU nuevo sin enviar: el id llega al sincronizar (ver amarrarConteosAlSkuCreado).
+        sku_local_id: skuSinEnviar ? state.skuSeleccionado.sku_local_id : null,
         sku_code: state.skuSeleccionado.sku_code,
         usuario_id: state.perfil ? state.perfil.id : null,
         empresa_id: state.perfil.empresa_id,
@@ -10031,9 +10288,13 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       });
       if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
       setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
-      toast(e.motivoTimeout
+      toast(e.skuSinEnviar
+        ? `Conteo guardado en este dispositivo. Se enviará después del SKU nuevo ${item.sku_code}, cuando haya señal.`
+        : e.motivoTimeout
         ? 'La conexión está muy lenta: el conteo quedó guardado en este dispositivo y se enviará solo cuando mejore la señal.'
         : 'Sin conexión: conteo guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
+      // Con señal (el SKU se creó sin ella y todavía no se envía): sale de una vez, SKU y conteo.
+      if(e.skuSinEnviar && typeof navigator!=='undefined' && navigator.onLine!==false) sincronizarColaOffline().catch(err=> toast(err.message,'err'));
       return;
     }
     setState({loading:false, conteoGuardandoLento:false});
@@ -10255,6 +10516,8 @@ async function onCodigoEscaneado(codigo){
     toast(`Buscando ${skuCode} en Reconteo`);
     return;
   }
+  // Contar: también los SKU creados sin señal que siguen en la cola (no están en el servidor).
+  coincidencias = [...coincidencias, ...resolverSkusPorCodigo(skusPendientesEnCola(), codigo)];
   if(coincidencias.length===1){
     setState({skuSeleccionado: coincidencias[0], conteoOrigenPlan: origenPlanParaSku(coincidencias[0]), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, escanerModal: null});
     toast(`SKU ${coincidencias[0].sku_code} encontrado`);
@@ -10332,7 +10595,8 @@ function actualizarResultadosAsociarEnPantalla(){
 
 // La persona elige a cuál de las bodegas encontradas corresponde el código escaneado.
 function elegirSkuEscaneado(skuId){
-  const sku = ((state.escanerModal && state.escanerModal.opciones) || []).find(s=>s.id===skuId) || state.skus.find(s=>s.id===skuId);
+  // claveSku: entre las opciones puede haber un SKU nuevo sin enviar (sin id, ver skuDesdeAccionOffline).
+  const sku = ((state.escanerModal && state.escanerModal.opciones) || []).find(s=>claveSku(s)===skuId) || state.skus.find(s=>s.id===skuId);
   if(!sku) return;
   setState({skuSeleccionado: sku, conteoOrigenPlan: origenPlanParaSku(sku), conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, escanerModal: null});
   toast(`SKU ${sku.sku_code} encontrado`);
@@ -10816,6 +11080,30 @@ function resumenQuienConto(resultados){
   const resto = ordenado.slice(TOPE);
   const otros = resto.reduce((s,d)=>s+d.n, 0);
   return [...ordenado.slice(0,TOPE), {nombre:'Otros', n:otros, nombres: resto.map(d=>d.nombre)}];
+}
+
+// Los mismos dos resúmenes, armados con lo que calcula la base (resumen_busqueda_skus) cuando no
+// está todo cargado: mismo orden, mismos grupos y mismo tope de 5 personas + "Otros" que
+// resumenEstadoBusqueda y resumenQuienConto, para que el gráfico no cambie de forma al terminar
+// de cargar. Sin separarSigno (conteo ciego) faltante y sobrante se juntan en "Diferencia".
+function resumenEstadoServidorBusqueda(estados, separarSigno){
+  const e = estados || {};
+  const n = k => Number(e[k]) || 0;
+  const grupos = {
+    'No contado': n('no_contado'), 'Cuadrado': n('cuadrado'), 'Pendiente': n('pendiente'),
+    'Diferencia': n('positiva') + n('negativa'), 'Diferencia positiva': n('positiva'), 'Diferencia negativa': n('negativa'),
+  };
+  return ORDEN_RESUMEN_ESTADO_BUSQUEDA
+    .filter(g=> separarSigno ? g!=='Diferencia' : (g!=='Diferencia positiva' && g!=='Diferencia negativa'))
+    .map(dia=>({dia, n:grupos[dia]}));
+}
+function resumenQuienContoServidorBusqueda(personas){
+  const ordenado = (personas || []).map(p=>({nombre: p.nombre || 'Sin asignar', n: Number(p.n) || 0}))
+    .filter(d=>d.n>0).sort((a,b)=>b.n-a.n);
+  const TOPE = 5;
+  if(ordenado.length<=TOPE) return ordenado;
+  const resto = ordenado.slice(TOPE);
+  return [...ordenado.slice(0,TOPE), {nombre:'Otros', n: resto.reduce((s,d)=>s+d.n, 0), nombres: resto.map(d=>d.nombre)}];
 }
 
 // Resuelve a qué nombre(s) de contador corresponde la porción/leyenda seleccionada: la propia
@@ -11383,20 +11671,27 @@ function renderOfflineModal(){
       </div>
       ${cola.length? cola.map(item=>{
         const esSku = item.tipo==='sku';
+        // Conteo de un SKU nuevo que todavía no se envía: no es un error, espera su turno.
+        const esperaSku = item.estado!=='error' && conteoEsperaSkuEnCola(item, cola);
+        const dependientes = esSku ? conteosQueEsperanSku(item.id, cola).length : 0;
+        const puedeUsarExistente = esSku && item.estado==='error' && item.sku_existente && item.sku_existente.id && item.sku_existente.activo;
         return `
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <span style="font-weight:600">${esc(TIPO_ACCION_OFFLINE_LABEL[item.tipo||'conteo'])} · ${esc(item.sku_code||item.sku_id)}</span>
-            <span class="badge ${item.estado==='error'?'badge-danger':'badge-warn'}">${item.estado==='error'?'Error':'Pendiente'}</span>
+            <span class="badge ${item.estado==='error'?'badge-danger':esperaSku?'badge-steel':'badge-warn'}">${item.estado==='error'?'Error':esperaSku?'Espera al SKU':'Pendiente'}</span>
           </div>
           ${esSku
-            ? `<div class="hint">${esc(item.descripcion||'Sin descripción')}${item.bodega?' · '+esc(item.bodega):''}</div>`
+            ? `<div class="hint">${esc(item.descripcion||'Sin descripción')}${item.bodega?' · '+esc(item.bodega):''}${item.ubicacion?' · '+esc(item.ubicacion):''}${item.storage_bin?' · Bin '+esc(item.storage_bin):''}${item.batch?' · Batch '+esc(item.batch):''}</div>`
             : `<div class="hint">Cantidad: ${item.cantidad_contada}${item.ubicacion_contada?' · '+esc(item.ubicacion_contada):''}${item.bodega?' · '+esc(item.bodega):''}</div>`}
+          ${dependientes? `<div class="hint">${dependientes===1?'1 conteo espera':`${dependientes} conteos esperan`} a este SKU para enviarse.</div>` : ''}
+          ${esperaSku? `<div class="hint">Se envía después del SKU nuevo ${esc(item.sku_code)}.</div>` : ''}
           ${item.fotosCount? `<div class="hint">${item.fotosCount} foto${item.fotosCount===1?'':'s'} pendiente${item.fotosCount===1?'':'s'} de subir</div>` : ''}
           <div class="hint" style="font-size:12px">${esc(new Date(item.creado_en).toLocaleString('es-CL'))}</div>
           ${item.estado==='error'? `<div style="color:var(--danger);font-size:12.5px;margin-top:4px">${esc(item.error||'No se pudo sincronizar')}</div>` : ''}
-          <div style="margin-top:8px;display:flex;gap:8px">
-            <button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px" data-reintentar-offline="${item.id}" ${state.sincronizandoOffline?'disabled':''}>Reintentar</button>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            ${esperaSku? '' : `<button class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px" data-reintentar-offline="${item.id}" ${state.sincronizandoOffline?'disabled':''}>Reintentar</button>`}
+            ${puedeUsarExistente? `<button class="btn btn-primary" style="width:auto;padding:6px 12px;font-size:12px" data-usar-sku-existente="${item.id}" ${state.sincronizandoOffline?'disabled':''}>Usar el que ya existe</button>` : ''}
             ${item.estado==='error'? `<button class="btn btn-danger" style="width:auto;padding:6px 12px;font-size:12px" data-descartar-offline="${item.id}">Descartar</button>` : ''}
           </div>
         </div>
@@ -11419,9 +11714,9 @@ function renderEscanerModal(){
         <div class="hint">Este código existe en más de una bodega, ubicación o batch. Elige cuál estás contando:</div>
         <div style="margin-top:10px">
           ${m.opciones.map(s=>`
-            <div class="sku-pick" data-escaner-elegir="${s.id}">
-              <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'Sin ubicación general')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
-              <button data-escaner-elegir-btn="${s.id}">Elegir</button>
+            <div class="sku-pick" data-escaner-elegir="${esc(claveSku(s))}">
+              <div><span class="code">${esc(s.sku_code)}</span>${s.id? '' : ' <span class="badge badge-warn">Sin enviar</span>'}<span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'Sin ubicación general')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+              <button data-escaner-elegir-btn="${esc(claveSku(s))}">Elegir</button>
             </div>`).join('')}
         </div>
       ` : m.buscando? `
@@ -12253,6 +12548,7 @@ function renderSkus(){
   const agregarAbierto = typeof state.skusAgregarAbierto==='boolean' ? state.skusAgregarAbierto : !state.skusPagina.total;
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de materiales</span><h2>SKU</h2></div></div>
+    ${renderSkuRecienCreado()}
     <details class="plegable" id="skus-agregar" ${agregarAbierto? 'open' : ''}>
       <summary><div class="section-head"><h2 style="font-size:15px">Agregar SKU a mano</h2></div><span class="plegable-sub">Un material a la vez al maestro. Para muchos, usa Carga masiva.</span><span class="plegable-cta">${agregarAbierto? 'Cerrar' : '+ Agregar'}</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></summary>
     <div class="card">
@@ -12297,6 +12593,43 @@ function renderSkus(){
 
     ${renderTablaSkus()}
   `;
+}
+
+// Recién creado: se ofrece contarlo de inmediato (Joel, 14/10/2026). Sin señal es lo único que
+// permite contarlo en el momento: el buscador de Contar consulta al servidor (aunque también
+// muestra los SKU sin enviar, ver skusPendientesQueCoinciden).
+function renderSkuRecienCreado(){
+  const s = state.skuRecienCreado;
+  if(!s) return '';
+  const pendiente = !s.id;
+  const sitio = describirUbicacion(s) + (s.batch ? ` · Batch ${s.batch}` : '');
+  return `<div class="card" id="sku-recien-creado" role="status" style="border-color:${pendiente?'var(--warn)':'var(--ok)'};scroll-margin-top:84px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div style="min-width:0">
+        <div style="font-weight:600"><span class="mono">${esc(s.sku_code)}</span> ${pendiente? '<span class="badge badge-warn">Sin enviar</span>' : '<span class="badge badge-ok">Guardado</span>'}</div>
+        <div class="hint" style="margin-top:2px">${esc(s.descripcion||'Sin descripción')} · ${esc(sitio)}</div>
+      </div>
+      <button type="button" id="btn-cerrar-sku-creado" class="icon-btn" aria-label="Cerrar aviso">${ICONS.x}</button>
+    </div>
+    <div class="hint" style="margin-top:8px">${pendiente
+      ? 'Quedó en este dispositivo y se enviará solo cuando vuelva la señal. Ya puedes contarlo: el conteo se envía después del SKU.'
+      : 'Ya está en el maestro. ¿Lo cuentas ahora?'}</div>
+    <button type="button" id="btn-contar-sku-creado" class="btn btn-primary" style="margin-top:10px">Contar ahora</button>
+  </div>`;
+}
+// Lleva el material a Contar ya elegido, como si se hubiera tocado "Elegir" en el buscador.
+function contarSkuRecienCreado(){
+  const s = state.skuRecienCreado;
+  if(!s) return;
+  if(!s.id && !skuSigueEnCola(s.sku_local_id)){
+    setState({skuRecienCreado:null});
+    toast('Ese SKU ya no está pendiente de envío. Búscalo en Contar.', 'err');
+    return;
+  }
+  detenerEscaner();
+  setState({view:'conteo', contarPlan: contarPlanAlEntrar(state.contarPlan), skuSeleccionado: s, conteoOrigenPlan: origenPlanParaSku(s),
+    conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], conteoVecesPeriodo:null,
+    conteoReconteo:null, skuSearch:'', buscadorLibre: resetBuscadorLibre(), skuRecienCreado:null});
 }
 
 // Ícono de color para el último conteo de un SKU: verde = cuadrado (sin diferencia), amarillo =
@@ -12832,15 +13165,24 @@ function renderPlanDelDia(){
 function renderResultadosBuscadorLibre(){
   const q = state.skuSearch.trim();
   const resultados = state.buscadorLibre.resultados;
-  return q.length===0? `<div class="hint">Escribe para buscar en el maestro de materiales.</div>` :
-    q.length===1? `<div class="hint">Sigue escribiendo (mínimo 2 letras)…</div>` :
-    state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
+  if(q.length===0) return `<div class="hint">Escribe para buscar en el maestro de materiales.</div>`;
+  if(q.length===1) return `<div class="hint">Sigue escribiendo (mínimo 2 letras)…</div>`;
+  // Los SKU creados sin señal todavía no están en el servidor: se buscan en la cola del
+  // dispositivo y van primero, con o sin señal (ver skusPendientesQueCoinciden).
+  const locales = skusPendientesQueCoinciden(q).map(s=>`
+      <div class="sku-pick" data-pick-local="${esc(s.sku_local_id)}">
+        <div><span class="code">${esc(s.sku_code)}</span> <span class="badge badge-warn">Sin enviar</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+        <button data-pick-local-btn="${esc(s.sku_local_id)}">Elegir</button>
+      </div>`).join('');
+  const delMaestro = state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
+    state.buscadorLibre.error? `<div class="hint" style="color:var(--danger)">No se pudo buscar en el maestro: ${esc(state.buscadorLibre.error)}</div>` :
     resultados.length? resultados.map(s=>`
       <div class="sku-pick" data-pick="${s.id}">
         <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
         <button data-pick-btn="${s.id}">Elegir</button>
       </div>`).join('') :
-    `<div class="hint">No se encontraron coincidencias.</div>`;
+    (locales ? '' : `<div class="hint">No se encontraron coincidencias.</div>`);
+  return locales + delMaestro;
 }
 
 // Aviso de "ya contado este período" en la tarjeta del SKU elegido en Contar (ver
@@ -12848,6 +13190,10 @@ function renderResultadosBuscadorLibre(){
 // todavía este período -- solo aparece cuando hay algo que avisar.
 function avisoVecesContadoPeriodo(){
   if(!state.skuSeleccionado) return '';
+  if(!state.skuSeleccionado.id && state.skuSeleccionado.sku_local_id){
+    const yaEnCola = conteosQueEsperanSku(state.skuSeleccionado.sku_local_id, state.colaOffline).length;
+    return `<div class="hint" style="margin-top:6px;color:var(--warn);font-weight:600">SKU nuevo, sin enviar: el conteo queda en este dispositivo y se envía después del SKU${yaEnCola? ` (ya ${yaEnCola===1?'hay un conteo guardado':`hay ${yaEnCola} conteos guardados`})` : ''}.</div>`;
+  }
   if(esReconteoDelSkuActual()){
     const r = state.conteoReconteo;
     const conDif = r.diferencia != null && r.cantidad != null;
@@ -13188,37 +13534,57 @@ function renderBuscar(){
   // resultadosBaseBuscar).
   const baseGraficos = resultadosBaseBuscar(b);
   const haySeleccion = baseGraficos!==resultados;
-  const quienConto = resumenQuienConto(baseGraficos);
+  // Si falta cargar, los gráficos salen del servidor, con el total real (resumen_busqueda_skus,
+  // ver cargarResumenBusqueda) -- Joel, 19/10/2026: "me sale primeros 1.000, eso no sirve". Mientras
+  // llega se dice que se está calculando; si falla, se arman con lo cargado y se avisa. Con casillas
+  // marcadas o porciones elegidas se sigue usando lo cargado: esas son filas de la tabla.
+  const hayFiltroGrafico = listaFiltroBuscar(b.filtroContadoPor).length>0 || listaFiltroBuscar(b.filtroEstado).length>0;
+  const graficosDelServidor = !haySeleccion && !hayFiltroGrafico && b.hayMas;
+  const resumenSrv = graficosDelServidor ? (b.resumenServidor || null) : null;
+  const calculandoResumen = graficosDelServidor && !resumenSrv && !!b.resumenPendiente;
+  // Tocar una porción filtra la tabla sobre lo cargado: solo tiene sentido con todo cargado.
+  const graficosClickeables = !resumenSrv && !calculandoResumen;
+  const quienConto = resumenSrv ? resumenQuienContoServidorBusqueda(resumenSrv.personas) : resumenQuienConto(baseGraficos);
   // Selección desde el gráfico "Quién contó" (ver toggleFiltroContadoPor): filtra la tabla de
-  // abajo por esa persona (o, si se eligió "Otros", por todas las que agrupa ese bucket). Se
-  // muestra sin paginar -- es un drill-down sobre lo ya cargado, no una nueva búsqueda al
-  // servidor, así que no tiene sentido reusar avanzarPaginaBuscar/hayMas (esos dependen del total
-  // sin filtrar).
+  // abajo por esa persona (o, si se eligió "Otros", por todas las que agrupa ese bucket). Es un
+  // drill-down sobre lo ya cargado, no una nueva búsqueda al servidor: pagina de a
+  // TAM_PAGINA_BUSCAR sobre lo filtrado, sin pedir más tandas (hayMas depende del total sin filtrar).
   const resultadosFiltrados = filtrarResultadosCargadosBuscar(b);
   // El gráfico de estado abre la diferencia en faltante/sobrante salvo para quien no puede ver la
   // magnitud (operador en conteo ciego) -- misma regla que el badge de cada fila.
   const separarSignoEstado = !ocultarStockOperador();
-  const resumenEstado = resumenEstadoBusqueda(baseGraficos, separarSignoEstado);
+  const resumenEstado = resumenSrv ? resumenEstadoServidorBusqueda(resumenSrv.estados, separarSignoEstado) : resumenEstadoBusqueda(baseGraficos, separarSignoEstado);
   // Igual que Diario (Dashboard operativo): 15 filas por página sobre lo ya cargado del
-  // servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar.
-  const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(resultados.length/TAM_PAGINA_BUSCAR)-1));
-  const resultadosPagina = resultadosFiltrados || resultados.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
-  const busquedaHaySiguiente = !resultadosFiltrados && ((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < resultados.length || b.hayMas);
+  // servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar. Con porciones de los gráficos
+  // elegidas también pagina (Joel, 15/10/2026: con varias porciones a la vez la lista salía
+  // entera), pero sobre lo filtrado y sin pedir más tandas: el filtro es sobre lo cargado.
+  const listaTabla = resultadosFiltrados || resultados;
+  const busquedaPaginaActual = Math.min(b.busquedaPagina||0, Math.max(0, Math.ceil(listaTabla.length/TAM_PAGINA_BUSCAR)-1));
+  const resultadosPagina = listaTabla.slice(busquedaPaginaActual*TAM_PAGINA_BUSCAR, busquedaPaginaActual*TAM_PAGINA_BUSCAR + TAM_PAGINA_BUSCAR);
+  const busquedaHaySiguiente = (busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR < listaTabla.length || (!resultadosFiltrados && b.hayMas);
   // Total real que calza con el filtro (ver buscarConteos/TOPE_CARGA_TOTAL_BUSQUEDA) -- cuando se
   // conoce, se usa en vez de "lo cargado hasta ahora" en el título, los gráficos y arriba de la
   // tabla, para que se entienda la dimensión real de los resultados (a pedido de Joel). Si "Solo
   // con fotografías" está activo Y todavía falta cargar del servidor, el total no se puede saber
   // con certeza (ese filtro se aplica en el cliente sobre lo ya cargado -- no sabemos cuántas de
   // las filas que faltan tendrán foto), así que en ese caso se degrada a "lo cargado hasta ahora".
-  const totalConocido = !b.hayMas || (b.total!=null && !b.soloConFotos);
-  const totalReal = totalConocido ? (b.hayMas ? b.total : resultados.length) : resultados.length;
+  // El resumen del servidor sí aplica "Solo con fotografías", así que con él el total se conoce.
+  const totalServidor = b.hayMas && b.resumenServidor && b.resumenServidor.total!=null ? Number(b.resumenServidor.total) : null;
+  const totalConocido = !b.hayMas || totalServidor!=null || (b.total!=null && !b.soloConFotos);
+  const totalReal = totalConocido ? (b.hayMas ? (totalServidor!=null ? totalServidor : b.total) : resultados.length) : resultados.length;
   const alcanceBusqueda = (etiquetaCompleto) => haySeleccion
     ? `${baseGraficos.length} seleccionado${baseGraficos.length===1?'':'s'} de ${resultados.length} cargados`
+    : resumenSrv
+    ? `Los ${totalReal.toLocaleString('es-CL')} resultados`
+    : calculandoResumen
+    ? 'Calculando con el total…'
     : !totalConocido
     ? `Primeros ${resultados.length} cargados`
-    : (resultados.length<totalReal ? `Primeros ${resultados.length} de ${totalReal}` : etiquetaCompleto);
+    : (resultados.length<totalReal ? `Primeros ${resultados.length} de ${totalReal.toLocaleString('es-CL')}` : etiquetaCompleto);
   const desdeTabla = busquedaPaginaActual*TAM_PAGINA_BUSCAR + 1;
-  const hastaTabla = Math.min((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR, resultados.length);
+  const hastaTabla = Math.min((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR, listaTabla.length);
+  // Total que se muestra junto a la paginación: con porciones elegidas, cuántas filas calzan.
+  const totalTabla = resultadosFiltrados ? resultadosFiltrados.length : totalReal;
   // El checkbox del encabezado de la tabla solo marca la página visible (15 filas). Este botón
   // marca/desmarca de una vez TODO lo cargado en pantalla (que puede ser más de una página), sin
   // necesidad de ir página por página -- a pedido de Joel.
@@ -13231,6 +13597,20 @@ function renderBuscar(){
   const masFiltrosActivos = [b.ciclo, b.grupoId, b.usuarioId, b.fechaDesde, b.fechaHasta].filter(Boolean).length + (b.soloConFotos?1:0) + (b.soloFueraDePlan?1:0);
   const filtrosAbiertos = typeof b.filtrosAbiertos==='boolean' ? b.filtrosAbiertos : !b.yaBuscado;
   const masAbierto = typeof b.masFiltrosAbierto==='boolean' ? b.masFiltrosAbierto : masFiltrosActivos>0;
+  // Bajo el título: cuánto de la lista está cargado y qué hacer con el resto. Mientras se trae la
+  // lista completa en segundo plano, el avance (cargarRestoBusqueda lo actualiza en su lugar); si
+  // eso o el resumen fallaron, el error, en rojo y con su mensaje.
+  const avisosCarga = [];
+  if(b.cargandoResto){
+    avisosCarga.push(`<div class="hint" id="buscar-progreso-carga" style="margin-top:2px">${esc(textoProgresoCargaBuscar(b.cargandoResto.cargados, b.cargandoResto.objetivo))}</div>`);
+  }else if(!totalConocido || resultados.length<totalReal){
+    const acotar = resumenSrv && totalReal>TOPE_CARGA_COMPLETA_BUSQUEDA
+      ? ` Los gráficos cuentan los ${totalReal.toLocaleString('es-CL')}; para filtrar la tabla tocándolos, acota la búsqueda a ${TOPE_CARGA_COMPLETA_BUSQUEDA.toLocaleString('es-CL')} resultados o menos.` : '';
+    avisosCarga.push(`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length.toLocaleString('es-CL')}${totalConocido?` de ${totalReal.toLocaleString('es-CL')}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.${acotar}</div>`);
+  }
+  if(b.cargaRestoError) avisosCarga.push(`<div class="hint" style="margin-top:2px;color:var(--danger)">No se pudo cargar la lista completa: ${esc(b.cargaRestoError)}. La tabla quedó con lo que alcanzó a llegar; "Siguiente" sigue cargando.</div>`);
+  if(b.resumenError && graficosDelServidor) avisosCarga.push(`<div class="hint" style="margin-top:2px;color:var(--danger)">No se pudo calcular el resumen con el total: ${esc(b.resumenError)}. Los gráficos cuentan solo lo cargado.</div>`);
+  const avisoCargaBuscar = avisosCarga.join('');
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card buscar-card">
@@ -13325,7 +13705,7 @@ function renderBuscar(){
     </div>
     ` : ''}
     ${b.yaBuscado? `
-    <div class="section-head" style="flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 220px;min-width:0"><h2 style="font-size:15px">${(totalConocido?totalReal:resultados.length).toLocaleString('es-CL')}${totalConocido?'':'+'} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal.toLocaleString('es-CL')}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
+    <div class="section-head" style="flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 220px;min-width:0"><h2 style="font-size:15px">${(totalConocido?totalReal:resultados.length).toLocaleString('es-CL')}${totalConocido?'':'+'} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${avisoCargaBuscar}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto">
         ${idsTodosCargados.length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-seleccionar-todo-buscar" data-ids="${esc(JSON.stringify(idsTodosCargados))}" style="width:auto;flex:none">${todosSeleccionadosCargados? 'Quitar selección' : `Seleccionar todos (${idsTodosCargados.length})`}</button>` : ''}
         ${(b.seleccionados||[]).length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-buscar-pdf" style="width:auto;flex:none;display:flex;align-items:center;gap:6px" ${b.exportandoPdf?'disabled':''}>${b.exportandoPdf?'<span class="spinner"></span> Generando…':`${ICONS.download} Exportar ${b.seleccionados.length} seleccionado${b.seleccionados.length===1?'':'s'} a PDF`}</button>` : ''}
@@ -13335,18 +13715,19 @@ function renderBuscar(){
     ${resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Resumen por estado ${campoConInfo(separarSignoEstado
-        ? 'Cómo salió cada resultado cargado en pantalla. Diferencia negativa: se contó menos de lo que dice el sistema (faltante). Diferencia positiva: se contó más (sobrante). Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.'
-        : 'Cómo salió cada resultado cargado en pantalla. Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.')}</h2></div></div>
-      ${renderPieChart(resumenEstado, 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d.dia, {clave:d=>d.dia, activo:b.filtroEstado, atributo:'data-estado-clave'})}
-      ${renderLeyendaColores(resumenEstado.filter(d=>d.n>0).map(d=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', `${d.dia} (${d.n})`, d.dia]), b.filtroEstado, 'data-estado-clave')}
-      ${lecturaResumenEstadoBusqueda(resumenEstado, separarSignoEstado)}
+        ? 'Cómo salió cada resultado de la búsqueda (o de lo marcado, si hay selección). Diferencia negativa: se contó menos de lo que dice el sistema (faltante). Diferencia positiva: se contó más (sobrante). Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.'
+        : 'Cómo salió cada resultado de la búsqueda (o de lo marcado, si hay selección). Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.')}</h2></div></div>
+      ${calculandoResumen ? `<div class="empty">Calculando con todos los resultados…</div>` : `
+      ${renderPieChart(resumenEstado, 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d.dia, graficosClickeables ? {clave:d=>d.dia, activo:b.filtroEstado, atributo:'data-estado-clave'} : {})}
+      ${renderLeyendaColores(resumenEstado.filter(d=>d.n>0).map(d=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', `${d.dia} (${d.n.toLocaleString('es-CL')})`, graficosClickeables ? d.dia : null]), b.filtroEstado, 'data-estado-clave')}
+      ${lecturaResumenEstadoBusqueda(resumenEstado, separarSignoEstado)}`}
     </div>
     ` : ''}
-    ${quienConto.length? `
+    ${(quienConto.length && !calculandoResumen)? `
     <div class="card">
-      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esas personas; otro toque quita la porción.')}</h2></div></div>
-      ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre, {clave:d=>d.nombre, activo:b.filtroContadoPor})}
-      ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n})`, d.nombre]), b.filtroContadoPor)}
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esas personas; otro toque quita la porción.')}</h2></div></div>
+      ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre, graficosClickeables ? {clave:d=>d.nombre, activo:b.filtroContadoPor} : {})}
+      ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n.toLocaleString('es-CL')})`, graficosClickeables ? d.nombre : null]), b.filtroContadoPor)}
     </div>
     ` : ''}
     ${listaFiltroBuscar(b.filtroContadoPor).length? `
@@ -13362,7 +13743,7 @@ function renderBuscar(){
     </div>
     ` : ''}
     <div class="card">
-      ${(resultados.length && !resultadosFiltrados)? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalReal}</div>` : ''}
+      ${listaTabla.length? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalTabla.toLocaleString('es-CL')}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
         <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
@@ -13391,9 +13772,9 @@ function renderBuscar(){
           </tr>`;
         }).join('')}</tbody>
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
-      ${(resultados.length && !resultadosFiltrados)? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
+      ${listaTabla.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
         <button class="btn btn-secondary" id="buscar-pagina-prev" style="width:auto;flex:none;padding:8px 14px" ${busquedaPaginaActual<=0?'disabled':''}>Anterior</button>
-        <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`${desdeTabla}–${hastaTabla} de ${totalReal} · pág. ${busquedaPaginaActual+1}`}</span>
+        <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`${desdeTabla}–${hastaTabla} de ${totalTabla.toLocaleString('es-CL')} · pág. ${busquedaPaginaActual+1}`}</span>
         <button class="btn btn-secondary" id="buscar-pagina-next" style="width:auto;flex:none;padding:8px 14px" ${(!busquedaHaySiguiente || b.buscandoMas)?'disabled':''}>Siguiente</button>
       </div>` : ''}
     </div>
@@ -16515,6 +16896,9 @@ function bind(){
     document.querySelectorAll('[data-reintentar-offline]').forEach(btn=>{
       btn.addEventListener('click', ()=> reintentarAccionOffline(btn.dataset.reintentarOffline));
     });
+    document.querySelectorAll('[data-usar-sku-existente]').forEach(btn=>{
+      btn.addEventListener('click', ()=> usarSkuExistenteEnCola(btn.dataset.usarSkuExistente).catch(e=> toast(e.message,'err')));
+    });
     document.querySelectorAll('[data-descartar-offline]').forEach(btn=>{
       btn.addEventListener('click', ()=> descartarAccionOffline(btn.dataset.descartarOffline));
     });
@@ -17392,6 +17776,10 @@ function bind(){
       el.addEventListener('input', ev=>{ state.skuForm = {...state.skuForm, [campo]: ev.target.value}; });
       if(document.activeElement!==el && !el.value){ el.focus(); }
     });
+    const btnContarSkuCreado = document.getElementById('btn-contar-sku-creado');
+    if(btnContarSkuCreado) btnContarSkuCreado.addEventListener('click', contarSkuRecienCreado);
+    const btnCerrarSkuCreado = document.getElementById('btn-cerrar-sku-creado');
+    if(btnCerrarSkuCreado) btnCerrarSkuCreado.addEventListener('click', ()=> conservandoCamposSku(()=> setState({skuRecienCreado:null})));
     document.getElementById('form-sku').addEventListener('submit', async e=>{
       e.preventDefault();
       const payload = {
@@ -17446,6 +17834,10 @@ function bind(){
         revisionCodigoSkuPeticionId++;
         revisionCodigoSkuPromesa = null;
         setState({loading:false, skuForm: skuFormInicial(), skuFormOpciones:{ubicaciones:[], bins:[]}});
+        // El aviso con "Contar ahora" queda sobre el formulario: en el celular, el botón Guardar
+        // está una pantalla más abajo (scroll-margin-top deja el aviso bajo la cabecera fija).
+        const aviso = document.getElementById('sku-recien-creado');
+        if(aviso && aviso.scrollIntoView) aviso.scrollIntoView({block:'start', behavior:'smooth'});
       }else{
         conservandoCamposSku(()=> setState({loading:false}));
       }
@@ -17597,7 +17989,8 @@ function bind(){
       // conteoVecesPeriodo.skuId de inmediato, antes de esperar la respuesta del servidor).
       // Si viene de Recontar no se consulta: la tarjeta ya sabe de qué conteo viene y se ahorra
       // la ida y vuelta (ver avisoVecesContadoPeriodo).
-      if(!esReconteoDelSkuActual() && (!state.conteoVecesPeriodo || state.conteoVecesPeriodo.skuId !== state.skuSeleccionado.id)) cargarVecesContadoPeriodo(state.skuSeleccionado);
+      // Un SKU nuevo sin enviar no tiene id ni conteos en el servidor: no hay nada que preguntar.
+      if(state.skuSeleccionado.id && !esReconteoDelSkuActual() && (!state.conteoVecesPeriodo || state.conteoVecesPeriodo.skuId !== state.skuSeleccionado.id)) cargarVecesContadoPeriodo(state.skuSeleccionado);
       document.getElementById('btn-quitar-sku').addEventListener('click', ()=> setState({skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], conteoVecesPeriodo:null, conteoReconteo:null}));
       document.getElementById('c-foto').addEventListener('change', e=>{
         const files = Array.from(e.target.files || []);
