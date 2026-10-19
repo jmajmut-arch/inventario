@@ -1641,7 +1641,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // "+ Otra…" (antes texto libre: "Bodega central" creaba otra bodega sin aviso).
   assert(/<select id="s-bodega">[\s\S]*<option value="Nave Mina"[\s\S]*<option value="Nave Planta"[\s\S]*<option value="__nueva"[^>]*>\+ Otra…/.test(htmlSkus), 'Ubicación general debe ser un desplegable con las bodegas existentes y la opción de agregar una nueva, obtuvo: '+htmlSkus);
   assert(/<select id="s-ubic">[\s\S]*<option value="Interior Nave"/.test(htmlSkus), 'Ubicación específica debe ser un desplegable con las ubicaciones de la bodega elegida, obtuvo: '+htmlSkus);
-  assert(/<select id="s-bin">[\s\S]*<option value="A-01"/.test(htmlSkus), 'Storage bin debe ser un desplegable con los bins de esa ubicación, obtuvo: '+htmlSkus);
+  // El bin se escribe (Joel, 19/10/2026: "que uno pueda escribir la ubicación"), con los bins de
+  // esa ubicación como sugerencias; uno escrito con otras mayúsculas es el mismo bin.
+  assert(htmlSkus.includes('<input type="text" id="s-bin" list="dl-bins-sku"') && /<datalist id="dl-bins-sku"><option value="A-01">/.test(htmlSkus) && !htmlSkus.includes('<select id="s-bin"'), 'Storage bin debe ser texto con los bins de esa ubicación como sugerencias, obtuvo: '+htmlSkus);
+  assert(ctx.binSkuConocido(' a-01 ')==='A-01' && ctx.binSkuConocido('B-77')==='B-77' && ctx.binSkuConocido('  ')===null, 'un bin escrito con otras mayúsculas o espacios es el bin existente; uno nuevo queda tal cual');
   assert(!htmlSkus.includes('dl-sku-bodegas') && !htmlSkus.includes('id="s-bodega-nueva"'), 'sin elegir "nueva" no hay campo de texto para la bodega, obtuvo: '+htmlSkus);
   ctx.__appstate.skuForm = {...ctx.skuFormInicial(), nuevaBodega:true, bodega:'Bodega Norte'};
   const htmlSkusNueva = ctx.renderSkus();
@@ -1684,6 +1687,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const htmlFalla = ctx.renderSkus();
     assert(htmlFalla.includes('No se pudo revisar si el código ya existe: servidor caído') && !htmlFalla.includes('Código nuevo'), 'un fallo del servidor se muestra como error, obtuvo: '+htmlFalla);
     skusPorCodigoFalla = null;
+    // Sin señal no es una falla del servidor: se dice sin rojo y deja claro que se puede guardar
+    // igual (Joel, 19/10/2026: "el mensaje hay que mejorarlo, lleva a confusión").
+    ctx.__appstate.skuForm = {...ctx.__appstate.skuForm, existente:{codigo:'SIN-1', cargando:false, filas:[], error:'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', sinSenal:true}};
+    const htmlSinSenalCodigo = ctx.renderSkus();
+    assert(htmlSinSenalCodigo.includes('id="sku-codigo-sin-senal"') && htmlSinSenalCodigo.includes('Puedes guardarlo igual: queda en este dispositivo y se envía al volver la señal') && !htmlSinSenalCodigo.includes('No se pudo revisar si el código ya existe'), 'sin señal, el aviso dice que se puede guardar igual, obtuvo: '+htmlSinSenalCodigo.slice(htmlSinSenalCodigo.indexOf('s-code'), htmlSinSenalCodigo.indexOf('s-code')+900));
+    assert(ctx.pareceFalloDeRed(new ctx.__TypeError('x')) && !ctx.pareceFalloDeRed(new Error('servidor caído')), 'la marca sin señal sale de pareceFalloDeRed');
+
+    // La lista de SKU que no carga no se disfraza de "Aún no hay SKU cargados" ni de "(0)".
+    const spAntes = ctx.__appstate.skusPagina;
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0, error:'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', sinSenal:true};
+    const htmlListaSinSenal = ctx.renderSkus();
+    assert(htmlListaSinSenal.includes('SKU activos (—)') && htmlListaSinSenal.includes('Sin señal: la lista de SKU no se puede cargar ahora') && !htmlListaSinSenal.includes('Aún no hay SKU cargados'), 'sin señal la lista lo dice, obtuvo: '+htmlListaSinSenal.slice(htmlListaSinSenal.indexOf('SKU activos'), htmlListaSinSenal.indexOf('SKU activos')+500));
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0, error:'permission denied', sinSenal:false};
+    assert(ctx.renderSkus().includes('No se pudo cargar la lista de SKU: permission denied'), 'un error del servidor se muestra con su mensaje');
+    ctx.__appstate.skusPagina = spAntes;
     await ctx.revisarCodigoSkuExistente('');
     assert(ctx.__appstate.skuForm.existente===null, 'con el código vacío se limpia la revisión');
 

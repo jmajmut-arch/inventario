@@ -2867,8 +2867,12 @@ async function fetchSkusPagina(page){
 async function cargarSkusPagina(page=0){
   try{
     const { data, total } = await fetchSkusPagina(page);
-    setState({skusPagina: { rows: data, page, total }, skusSeleccionados: []});
-  }catch(e){ toast(e.message,'err'); }
+    setState({skusPagina: { rows: data, page, total, error:null }, skusSeleccionados: []});
+  }catch(e){
+    // Se muestra en la tabla, no como "Aún no hay SKU cargados" (Joel, 19/10/2026: sin señal, la
+    // pantalla decía "SKU activos (0)").
+    setState({skusPagina: {...state.skusPagina, error: e.message || 'Error desconocido', sinSenal: pareceFalloDeRed(e)}});
+  }
 }
 
 async function eliminarSkusSeleccionados(){
@@ -10080,6 +10084,8 @@ function conservandoCamposSku(fn){
 // para escribirla -- mismo patrón que Cambio de ubicación (ahí dice "+ Agregar una nueva…"; acá es
 // más corto porque a 420 px el desplegable va a media columna y se cortaba). Antes eran texto libre con
 // sugerencias, y "Bodega central" en vez de "Bodega Central" creaba otra bodega sin aviso.
+// El bin volvió a ser texto con sugerencias el 19/10/2026 (ver campoBinSku): el mismo riesgo se
+// cubre con binSkuConocido, que toma el bin existente si lo escrito solo difiere en mayúsculas.
 function skuFormInicial(){
   return { bodega:'', nuevaBodega:false, ubicacion:'', nuevaUbicacion:false, storage_bin:'', nuevoBin:false, existente:null };
 }
@@ -10097,6 +10103,22 @@ function campoSitioSku(id, etiqueta, valor, opciones, escribiendo, marcaNueva, a
       <option value="${marcaNueva}" ${escribiendo?'selected':''}>+ Otra…</option>
     </select>
     ${escribiendo ? `<input type="text" id="${id}-nueva" value="${esc(valor||'')}" placeholder="${ayuda}" autocomplete="off" style="margin-top:6px">` : ''}`;
+}
+// Storage bin del alta manual: se escribe (Joel, 19/10/2026: "que uno pueda escribir la
+// ubicación"), con los bins conocidos de la ubicación elegida como sugerencias. Un desplegable no
+// servía: una bodega tiene miles de bins, y escribir uno nuevo exigía encontrar "+ Otra…" al
+// final de la lista.
+function campoBinSku(){
+  const bins = state.skuFormOpciones.bins.map(b=>b.storage_bin).filter(Boolean);
+  return `<label for="s-bin">Storage bin</label>
+    <input type="text" id="s-bin" list="dl-bins-sku" value="${esc(state.skuForm.storage_bin||'')}" placeholder="Escribe o elige, ej. A-12-03" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <datalist id="dl-bins-sku">${bins.map(b=>`<option value="${esc(b)}"></option>`).join('')}</datalist>`;
+}
+// Un bin escrito que ya existe con otras mayúsculas o espacios ("n1e-347-a2") es ese mismo bin.
+function binSkuConocido(texto){
+  const t = String(texto||'').trim();
+  if(!t) return null;
+  return state.skuFormOpciones.bins.map(b=>b.storage_bin).find(b=> b && mismoNombreSitio(b, t)) || t;
 }
 // Mismo texto sin importar mayúsculas ni espacios: "Bodega central" y "bodega Central " son la
 // misma bodega para quien la escribió, aunque para la base sean dos.
@@ -10134,7 +10156,7 @@ async function revisarCodigoSkuExistente(codigoTecleado){
       if(miPeticion !== revisionCodigoSkuPeticionId) return state.skuForm.existente;
       // Se muestra como error (no como "código nuevo"): si no, un fallo del servidor haría creer
       // que el material no existe.
-      const existente = {codigo, cargando:false, filas:[], error: e.message || 'error desconocido'};
+      const existente = {codigo, cargando:false, filas:[], error: e.message || 'error desconocido', sinSenal: pareceFalloDeRed(e)};
       conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, existente}}));
       return existente;
     }
@@ -10161,6 +10183,10 @@ function renderRevisionCodigoSku(){
   const x = state.skuForm.existente;
   if(!x) return '';
   if(x.cargando) return `<div class="hint" style="margin-top:6px">Revisando si el código ya existe…</div>`;
+  // Sin señal no es una falla: la revisión no se puede hacer ahora, y el material igual se puede
+  // guardar (queda en el dispositivo). Joel, 19/10/2026: el texto en rojo "No se pudo revisar si
+  // el código ya existe: No se pudo conectar…" hacía pensar que no se podía guardar.
+  if(x.error && x.sinSenal) return `<div class="hint" id="sku-codigo-sin-senal" style="margin-top:6px;color:var(--warn)">Sin señal: por ahora no se puede revisar si este código ya existe. Puedes guardarlo igual: queda en este dispositivo y se envía al volver la señal. Si esa misma posición ya existía, ahí te lo avisamos.</div>`;
   if(x.error) return `<div class="hint" style="margin-top:6px;color:var(--danger)">No se pudo revisar si el código ya existe: ${esc(x.error)}</div>`;
   if(!x.filas.length) return `<div class="hint" style="margin-top:6px">Código nuevo en el maestro.</div>`;
   const n = x.filas.length;
@@ -12588,7 +12614,7 @@ function renderSkus(){
           <div>${campoSitioSku('s-ubic','Ubicación específica', state.skuForm.ubicacion, opcionesConActual(state.skuFormOpciones.ubicaciones.map(u=>u.ubicacion), state.skuForm.nuevaUbicacion ? '' : state.skuForm.ubicacion), state.skuForm.nuevaUbicacion, '__nueva', 'Nombre de la ubicación nueva')}</div>
         </div>
         <div class="row2">
-          <div>${campoSitioSku('s-bin','Storage bin', state.skuForm.storage_bin, opcionesConActual(state.skuFormOpciones.bins.map(b=>b.storage_bin), state.skuForm.nuevoBin ? '' : state.skuForm.storage_bin), state.skuForm.nuevoBin, '__nuevo', 'Ej. A-12-03')}</div>
+          <div>${campoBinSku()}</div>
           <div><label for="s-batch">Batch</label><input type="text" id="s-batch" list="dl-batches" autocomplete="off" placeholder="Ej. L-2026-045"></div>
         </div>
         <div class="row2">
@@ -12681,7 +12707,7 @@ function renderTablaSkus(){
   const todosMarcados = sp.rows.length>0 && sp.rows.every(s=>seleccionados.includes(s.id));
 
   return `
-    <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.total})</h2></div>
+    <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.error && !sp.rows.length ? '—' : sp.total.toLocaleString('es-CL')})</h2></div>
     <div class="card">
       ${esAdmin && sp.rows.length? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
         <label class="conteo-check" style="margin:0">
@@ -12715,7 +12741,10 @@ function renderTablaSkus(){
         <button class="btn btn-secondary" id="skus-pag-prev" style="width:auto;flex:none;padding:8px 14px" ${sp.page<=0?'disabled':''}>Anterior</button>
         <span class="hint" style="margin:0">${desde}–${hasta} de ${sp.total} · pág. ${paginaActual}/${totalPaginas}</span>
         <button class="btn btn-secondary" id="skus-pag-next" style="width:auto;flex:none;padding:8px 14px" ${paginaActual>=totalPaginas?'disabled':''}>Siguiente</button>
-      </div>` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
+      </div>` : sp.error ? `<div class="empty" id="skus-lista-error" style="color:${sp.sinSenal?'var(--warn)':'var(--danger)'}">${sp.sinSenal
+        ? 'Sin señal: la lista de SKU no se puede cargar ahora. Lo que guardes arriba queda en este dispositivo y se envía al volver la señal.'
+        : `No se pudo cargar la lista de SKU: ${esc(sp.error)}`}</div>` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
+      ${sp.error && sp.rows.length? `<div class="hint" style="margin-top:8px;color:${sp.sinSenal?'var(--warn)':'var(--danger)'}">${sp.sinSenal? 'Sin señal: esta lista puede no estar al día.' : `No se pudo actualizar la lista: ${esc(sp.error)}`}</div>` : ''}
       ${esAdmin? `<details class="acciones-masivas" id="skus-acciones-masivas">
         <summary>Acciones masivas</summary>
         <div class="acciones-masivas-cuerpo">
@@ -17786,13 +17815,11 @@ function bind(){
       if(state.skuForm.bodega!==bodega || state.skuForm.ubicacion!==v) return;
       conservandoCamposSku(()=> setState({skuFormOpciones:{...state.skuFormOpciones, bins}}));
     });
-    document.getElementById('s-bin').addEventListener('change', e=>{
-      const v = e.target.value, nuevo = v==='__nuevo';
-      conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, storage_bin: nuevo ? '' : v, nuevoBin: nuevo}}));
-    });
+    // El bin se escribe (ver campoBinSku): va al estado en cada tecla, sin repintar.
+    document.getElementById('s-bin').addEventListener('input', e=>{ state.skuForm = {...state.skuForm, storage_bin: e.target.value}; });
     // Lo que se escribe en "nueva" va al estado en cada tecla, sin repintar (repintar reemplaza el
     // input y en iPad reinicia el teclado); recién al abrirse el campo se le da el foco.
-    [['s-bodega-nueva','bodega'],['s-ubic-nueva','ubicacion'],['s-bin-nueva','storage_bin']].forEach(([id, campo])=>{
+    [['s-bodega-nueva','bodega'],['s-ubic-nueva','ubicacion']].forEach(([id, campo])=>{
       const el = document.getElementById(id);
       if(!el) return;
       el.addEventListener('input', ev=>{ state.skuForm = {...state.skuForm, [campo]: ev.target.value}; });
@@ -17812,7 +17839,7 @@ function bind(){
         unidad_medida: document.getElementById('s-um').value.trim() || null,
         bodega: String(state.skuForm.bodega||'').trim() || null,
         ubicacion: String(state.skuForm.ubicacion||'').trim() || null,
-        storage_bin: String(state.skuForm.storage_bin||'').trim() || null,
+        storage_bin: binSkuConocido(document.getElementById('s-bin').value),
         stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
         costo_unitario: document.getElementById('s-costo').value !== '' ? Number(document.getElementById('s-costo').value) : null,
         critico: document.getElementById('s-critico').checked,
