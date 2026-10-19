@@ -17840,7 +17840,9 @@ function bind(){
         bodega: String(state.skuForm.bodega||'').trim() || null,
         ubicacion: String(state.skuForm.ubicacion||'').trim() || null,
         storage_bin: binSkuConocido(document.getElementById('s-bin').value),
-        stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : null,
+        // En blanco es 0 (Joel, 19/10/2026: "que stock por defecto sea cero"), lo mismo que muestra
+        // el campo vacío. Antes quedaba null y la tabla decía "—".
+        stock_sistema: document.getElementById('s-stock').value !== '' ? Number(document.getElementById('s-stock').value) : 0,
         costo_unitario: document.getElementById('s-costo').value !== '' ? Number(document.getElementById('s-costo').value) : null,
         critico: document.getElementById('s-critico').checked,
       };

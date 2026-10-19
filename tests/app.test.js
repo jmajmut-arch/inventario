@@ -1738,6 +1738,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await enviarSku();
     const postNuevo = calls.find(c=>c.url.endsWith('/rest/v1/skus') && c.opts && c.opts.method==='POST');
     assert(!!postNuevo && JSON.parse(postNuevo.opts.body)[0].bodega==='Nave Mina' && JSON.parse(postNuevo.opts.body)[0].batch==='L-NUEVO', 'al aceptar se guarda en la bodega existente, obtuvo: '+(postNuevo && postNuevo.opts.body));
+    assert(JSON.parse(postNuevo.opts.body)[0].stock_sistema===0, 'con el stock en blanco, el SKU se guarda con stock 0 (no null), obtuvo: '+(postNuevo && postNuevo.opts.body));
     assert(ctx.__appstate.skuForm.bodega==='' && ctx.__appstate.skuForm.existente===null, 'tras guardar, el formulario vuelve a empezar, obtuvo: '+JSON.stringify(ctx.__appstate.skuForm));
     // Sin señal la revisión falla por red: igual se guarda (a la cola), no se bloquea.
     ctx.guardarColaOffline([]);
