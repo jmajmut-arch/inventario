@@ -8979,6 +8979,13 @@ function agruparDetalleErrores(detalleErrores){
 // de bin: una empresa cuyo maestro no maneja ubicaciones no cambia. Stock en blanco no es cero,
 // es desconocido: esa fila se carga.
 const MOTIVO_FILA_SIN_UBICACION_NI_STOCK = 'Sin ubicación, sin storage bin y con stock 0, con el material ya ubicado en otra fila (no se cargan; su tránsito pasa a la fila del bin)';
+// La otra mitad de esa regla (Joel, 19/10/2026: el 10418772 mostraba 2 en tránsito y en SAP no
+// había): si un material llegó antes SOLO con su línea de bodega, se cargó como fila propia, y
+// cuando después apareció en un bin esa fila vieja quedó en la base con su tránsito congelado,
+// sumándose al del material (824 filas en Escondida). Al terminar la carga,
+// desactivar_filas_sin_sitio_de_carga desactiva las filas sin sitio y stock 0 que esta carga no
+// tocó y cuyo material sí vino con bin; no toca las que tienen conteos ni movimientos de bodega.
+const MOTIVO_FILA_SIN_SITIO_DESACTIVADA = 'Filas sin ubicación ni storage bin de cargas anteriores, desactivadas: su material ya viene con bin (su tránsito era viejo y se sumaba al del material)';
 const CAMPOS_STOCK_TRASPASABLES = ['stock_bloqueado','stock_transito_1','stock_transito_2','stock_transferencia'];
 function claveMaterialCarga(valor, row){ return valor(row,'sku_code') + '|' + valor(row,'bodega'); }
 // Materiales (código + bodega) que en el archivo traen al menos una fila con ubicación o bin.
@@ -9329,7 +9336,12 @@ async function confirmarCargaMasiva(){
     });
   }
   // Las omitidas no son error, pero el historial tiene que explicar por qué ok + error no suma el total.
-  const detalleCarga = () => omitidas ? [...resumenErroresAArray(resumenErrores), {motivo: MOTIVO_FILA_SIN_UBICACION_NI_STOCK, cantidad: omitidas}] : resumenErroresAArray(resumenErrores);
+  let desactivadasSinSitio = 0;
+  const detalleCarga = () => [
+    ...resumenErroresAArray(resumenErrores),
+    ...(omitidas ? [{motivo: MOTIVO_FILA_SIN_UBICACION_NI_STOCK, cantidad: omitidas}] : []),
+    ...(desactivadasSinSitio ? [{motivo: MOTIVO_FILA_SIN_SITIO_DESACTIVADA, cantidad: desactivadasSinSitio}] : []),
+  ];
   // Módulo de bodega: después de la apertura el stock lo llevan los movimientos, no el Excel.
   const bodegaActiva = moduloBodegaActivo();
   const aperturaYaHecha = bodegaActiva ? await hayAperturaBodega() : false;
@@ -9357,6 +9369,15 @@ async function confirmarCargaMasiva(){
     if(modo==='reemplazar' && lote.length){
       await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
     }
+    // Ver MOTIVO_FILA_SIN_SITIO_DESACTIVADA. Solo si el archivo trae ubicación o bin (la misma
+    // condición de la regla de omitir). Si falla, la carga ya quedó guardada: se avisa con el
+    // error, no se tumba la carga.
+    let errorSinSitio = '';
+    if(modo!=='reemplazar' && (mapeo.ubicacion || mapeo.storage_bin) && lote.length){
+      try{
+        desactivadasSinSitio = Number(await rest('/rpc/desactivar_filas_sin_sitio_de_carga', {method:'POST', body:{p_marca: marcaTiempo}})) || 0;
+      }catch(e){ errorSinSitio = e.message || 'Error desconocido'; }
+    }
     // La clasificación ABC (ver skus_valor_abc) está materializada por rendimiento -- no se
     // recalcula sola. Una carga masiva es justo cuando más cambia (costo/stock de miles de SKU de
     // una vez), así que se refresca acá; si por lo que sea falla, no debe tumbar una carga que ya
@@ -9366,7 +9387,8 @@ async function confirmarCargaMasiva(){
     }
     const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, detalleCarga(), marcaTiempo);
     const nuevos = await contarSkusNuevosDeCarga(marcaTiempo);
-    toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}${omitidas?`, ${omitidas} omitidas (sin ubicación ni bin y stock 0; su tránsito pasó a la fila del bin)`:''}`);
+    toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}${omitidas?`, ${omitidas} omitidas (sin ubicación ni bin y stock 0; su tránsito pasó a la fila del bin)`:''}${desactivadasSinSitio?`, ${desactivadasSinSitio} filas viejas sin ubicación ni bin desactivadas (su material ya viene con bin)`:''}`);
+    if(errorSinSitio) toast(`La carga quedó guardada, pero no se pudieron desactivar las filas viejas sin ubicación ni bin: ${errorSinSitio}`, 'err');
     refrescarListaSkus();
     setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null, cargaResultado: {
       cargaId, archivo: file.name, fecha: new Date().toISOString(), segundos: Math.round((Date.now()-inicioCarga)/1000), modo,

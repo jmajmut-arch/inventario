@@ -67,6 +67,8 @@ let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (v
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
 let resumenBusquedaFalla = null;
+let desactivarSinSitioRespuesta = 0;
+let desactivarSinSitioFalla = null;
 let resumenGeneralSkusFixture = null;
 let ubicacionesFixture = [
   {id:'ub-1', bodega:'Nave Mina', ubicacion:null, activo:true},
@@ -592,6 +594,12 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/contar_busqueda_skus')){
     const total = skusBusquedaFixture ? skusBusquedaFixture.length : 34;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(total) };
+  }
+  // Carga masiva: filas viejas sin ubicación ni bin cuyo material ya viene con bin (ver
+  // desactivar_filas_sin_sitio_de_carga). Devuelve cuántas desactivó.
+  if(path.startsWith('/rest/v1/rpc/desactivar_filas_sin_sitio_de_carga')){
+    if(desactivarSinSitioFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: desactivarSinSitioFalla}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(desactivarSinSitioRespuesta) };
   }
   // Resumen de Buscar con el total real (ver cargarResumenBusqueda): agrega el mismo fixture con
   // las reglas de resumen_busqueda_skus (grupos de grupoEstadoBusqueda, personas sobre lo contado).
@@ -5162,7 +5170,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const toastRootOmit = elements['toast-root'];
   const toastsAntesOmit = toastRootOmit.hijos.length;
   calls.length = 0;
+  desactivarSinSitioRespuesta = 2;
   await ctx.confirmarCargaMasiva();
+  desactivarSinSitioRespuesta = 0;
   const postOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   const filasOmit = JSON.parse(postOmit.opts.body);
   assert(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo).materiales===filasOmit.length, 'el resumen previo debe prometer exactamente los materiales que llegan al upsert (tránsito), obtuvo: '+JSON.stringify(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo))+' vs '+filasOmit.length);
@@ -5182,6 +5192,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert((cuerpoOmit.detalle_errores||[]).some(e=>/sin ubicación, sin storage bin y con stock 0/i.test(e.motivo) && e.cantidad===3), 'el historial deja constancia de cuántas se omitieron y por qué, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
   const toastsOmit = toastRootOmit.hijos.slice(toastsAntesOmit).map(t=>t.textContent);
   assert(toastsOmit.some(t=>t.includes('8 SKUs cargados') && t.includes('3 omitidas')), 'el aviso final dice cuántas se omitieron, obtuvo: '+JSON.stringify(toastsOmit));
+  await new Promise(r=>setTimeout(r, 0));
+
+  // La otra mitad de la regla (Joel, 19/10/2026: el 10418772 mostraba 2 en tránsito y en SAP no
+  // había): la fila sin sitio que quedó de una carga ANTERIOR, cuando el material todavía no
+  // venía con bin, se desactiva al terminar la carga, con el sello de esta carga.
+  const pedidoSinSitio = calls.find(c=>c.url.includes('/rpc/desactivar_filas_sin_sitio_de_carga'));
+  assert(!!pedidoSinSitio && JSON.parse(pedidoSinSitio.opts.body).p_marca===binOmit.updated_at, 'tras el upsert debe pedir desactivar las filas viejas sin sitio con el sello de esta carga, obtuvo: '+(pedidoSinSitio && pedidoSinSitio.opts.body)+' vs '+binOmit.updated_at);
+  assert(calls.indexOf(pedidoSinSitio) > calls.indexOf(postOmit), 'se pide después de guardar las filas (si no, las hermanas ubicadas todavía no tienen el sello)');
+  assert((cuerpoOmit.detalle_errores||[]).some(e=>/desactivadas: su material ya viene con bin/.test(e.motivo) && e.cantidad===2), 'el historial deja constancia de cuántas filas viejas se desactivaron, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
+  assert(toastsOmit.some(t=>t.includes('2 filas viejas sin ubicación ni bin desactivadas')), 'el aviso final lo dice, obtuvo: '+JSON.stringify(toastsOmit));
+
+  // Si eso falla, la carga ya quedó guardada: se avisa el error, no se esconde.
+  desactivarSinSitioFalla = 'permission denied for table skus';
+  ctx.__appstate.cargaPreview = previewOmit;
+  const toastsAntesFalla = toastRootOmit.hijos.length;
+  await ctx.confirmarCargaMasiva();
+  desactivarSinSitioFalla = null;
+  const toastsFalla = toastRootOmit.hijos.slice(toastsAntesFalla).map(t=>t.textContent);
+  assert(toastsFalla.some(t=>t.includes('La carga quedó guardada, pero no se pudieron desactivar las filas viejas sin ubicación ni bin: permission denied for table skus')), 'el error se muestra con su mensaje, obtuvo: '+JSON.stringify(toastsFalla));
+  await new Promise(r=>setTimeout(r, 0));
+
+  // Un archivo sin columna de ubicación ni de bin no usa la regla: no se pide nada.
+  ctx.__appstate.cargaPreview = {...previewOmit, mapeo: {...previewOmit.mapeo, ubicacion:'', storage_bin:''}};
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  assert(!calls.some(c=>c.url.includes('/rpc/desactivar_filas_sin_sitio_de_carga')), 'sin ubicación ni bin en el archivo no debe desactivar nada');
   await new Promise(r=>setTimeout(r, 0));
 
   // El historial muestra las omitidas y su motivo aunque no haya errores.
