@@ -1253,7 +1253,15 @@ const TAM_PAGINA_LISTA = 30;
 // 1.000 filas en vez de 30 no le agrega costo real al motor -- solo más datos para transferir.
 // Por eso el tope: cubre holgado un filtro típico (cientos de SKU), sin arriesgarse a mandar
 // una búsqueda sin filtro (decenas de miles de SKU) entera por la red.
+// Desde el 19/10/2026 ("me sale primeros 1.000, eso no sirve, deben ser los datos reales"): los
+// gráficos salen del servidor (resumen_busqueda_skus) cuando falta cargar, y si el total cabe bajo
+// TOPE_CARGA_COMPLETA_BUSQUEDA el resto se trae en segundo plano, de a TANDA_CARGA_BUSQUEDA (el
+// máximo que entrega filas_busqueda_skus por llamada), para que tocar una porción filtre todo y no
+// solo lo primero. Una búsqueda más ancha (sin filtro: decenas de miles) sigue trayendo solo la
+// primera tanda, como antes: ~1,65 KB por fila, 5.000 ya son ~8 MB por la red del celular.
 const TOPE_CARGA_TOTAL_BUSQUEDA = 1000;
+const TANDA_CARGA_BUSQUEDA = 1000;
+const TOPE_CARGA_COMPLETA_BUSQUEDA = 5000;
 // Guardar conteo: si el guardado tarda más que esto (señal mala en bodega/mina), se muestra una
 // barra de "esto está tardando más de lo normal" además del spinner del botón -- para que la
 // persona sepa que la app sigue intentando, no que se colgó. No cambia CUÁNDO se considera
@@ -6128,7 +6136,16 @@ function irABuscarDelDia(fecha){
 // calculan sobre `resultados`) ya reflejan el total real, no solo lo primero cargado. Si el total
 // supera el tope (una búsqueda ancha, sin filtro), se sigue paginando de a TAM_PAGINA_LISTA con
 // "Siguiente"/buscarMasConteos, como antes.
+// Si falta cargar, después pide el resumen del servidor (cargarResumenBusqueda: los gráficos con el
+// total real) y, si el total cabe bajo TOPE_CARGA_COMPLETA_BUSQUEDA, el resto de las filas en
+// segundo plano (cargarRestoBusqueda). Cada búsqueda lleva su número (busquedaPeticionId): si la
+// persona cambia los filtros o el orden mientras tanto, lo que llegue de la búsqueda anterior se
+// descarta en vez de mezclarse con la nueva.
+let busquedaPeticionId = 0;
+let cargaRestoBusquedaPromesa = null;
 async function buscarConteos(){
+  const miPeticion = ++busquedaPeticionId;
+  cargaRestoBusquedaPromesa = null;
   try{
     // Filas y total en paralelo, con los mismos filtros (el grupo viaja como p_grupo_id y lo
     // resuelve el servidor por código+bodega, ver filas_busqueda_skus).
@@ -6136,13 +6153,62 @@ async function buscarConteos(){
       pedirFilasBusqueda(0, TOPE_CARGA_TOTAL_BUSQUEDA),
       rest('/rpc/contar_busqueda_skus', { method:'POST', body: construirParametrosBusquedaRpc() }),
     ]);
+    if(miPeticion!==busquedaPeticionId) return;
     const rows = data || [];
     const resultados = filtrarResultadosBusqueda(rows);
-    setState({busqueda: {...state.busqueda, resultados, total, buscando:false, hayMas: total!=null ? rows.length<total : rows.length===TOPE_CARGA_TOTAL_BUSQUEDA, paginaOffset: rows.length, busquedaPagina:0}});
+    const hayMas = total!=null ? rows.length<total : rows.length===TOPE_CARGA_TOTAL_BUSQUEDA;
+    const cargarResto = hayMas && total!=null && total<=TOPE_CARGA_COMPLETA_BUSQUEDA && rows.length===TOPE_CARGA_TOTAL_BUSQUEDA;
+    setState({busqueda: {...state.busqueda, resultados, total, buscando:false, hayMas, paginaOffset: rows.length, busquedaPagina:0,
+      resumenServidor:null, resumenPendiente: hayMas, resumenError:'', cargaRestoError:'', cargandoResto: cargarResto ? {cargados: rows.length, objetivo: total} : null}});
+    if(!hayMas) return;
+    if(cargarResto) cargaRestoBusquedaPromesa = cargarRestoBusqueda(miPeticion, total);
+    await Promise.all([cargarResumenBusqueda(miPeticion), cargaRestoBusquedaPromesa]);
   }catch(e){
+    if(miPeticion!==busquedaPeticionId) return;
     setState({busqueda: {...state.busqueda, buscando:false}});
     toast(e.message,'err');
   }
+}
+
+// Los gráficos de Buscar con el total real, calculados en la base sobre todo lo que calza con los
+// filtros (ver resumen_busqueda_skus), para cuando no está todo cargado. Un error se muestra como
+// error junto al gráfico (resumenError), que vuelve a armarse con lo cargado y lo dice.
+async function cargarResumenBusqueda(miPeticion){
+  let resumen = null, error = '';
+  try{
+    resumen = await rest('/rpc/resumen_busqueda_skus', {method:'POST', body: {...construirParametrosBusquedaRpc(), p_solo_con_fotos: !!state.busqueda.soloConFotos}});
+  }catch(e){ error = e.message || 'Error desconocido'; }
+  if(miPeticion!==busquedaPeticionId) return;
+  setState({busqueda: {...state.busqueda, resumenServidor: resumen || null, resumenPendiente:false, resumenError: error}});
+}
+
+// Trae en segundo plano, de a TANDA_CARGA_BUSQUEDA, lo que falta hasta `objetivo`. No llama a
+// render() en cada tanda (rehace la pantalla entera: un filtro a medio escribir perdería el
+// teclado, ver CLAUDE.md): actualiza solo el texto del avance (#buscar-progreso-carga) y pinta una
+// vez al final. Si una tanda falla, se queda con lo que alcanzó a traer, deja "Siguiente" para
+// seguir a mano y muestra el error.
+async function cargarRestoBusqueda(miPeticion, objetivo){
+  let filas = [], offset = state.busqueda.paginaOffset, error = '';
+  while(offset<objetivo){
+    let rows;
+    try{
+      rows = await pedirFilasBusqueda(offset, TANDA_CARGA_BUSQUEDA);
+    }catch(e){ error = e.message || 'Error desconocido'; break; }
+    if(miPeticion!==busquedaPeticionId) return;
+    if(!rows.length) break;
+    filas = filas.concat(rows);
+    offset += rows.length;
+    if(state.busqueda.cargandoResto) state.busqueda.cargandoResto.cargados = offset;
+    const progreso = document.getElementById('buscar-progreso-carga');
+    if(progreso) progreso.textContent = textoProgresoCargaBuscar(offset, objetivo);
+  }
+  if(miPeticion!==busquedaPeticionId) return;
+  const b = state.busqueda;
+  setState({busqueda: {...b, resultados: b.resultados.concat(filtrarResultadosBusqueda(filas)), paginaOffset: offset,
+    hayMas: offset<objetivo, cargandoResto:null, cargaRestoError: error}});
+}
+function textoProgresoCargaBuscar(cargados, objetivo){
+  return `Cargando la lista completa: ${cargados.toLocaleString('es-CL')} de ${objetivo.toLocaleString('es-CL')}… Los gráficos ya cuentan todo; tocar una porción se activa al terminar.`;
 }
 
 async function buscarMasConteos(){
@@ -6166,6 +6232,11 @@ async function buscarMasConteos(){
 // servidor todavía tenga más (hayMas).
 async function avanzarPaginaBuscar(){
   const siguiente = (state.busqueda.busquedaPagina||0) + 1;
+  // Si la lista completa se está trayendo en segundo plano (cargarRestoBusqueda), se espera a que
+  // termine en vez de pedir las mismas filas dos veces.
+  if(cargaRestoBusquedaPromesa && state.busqueda.cargandoResto){
+    await cargaRestoBusquedaPromesa;
+  }
   // Con porciones de los gráficos elegidas, la tabla pagina sobre lo ya cargado (ver
   // filtrarResultadosCargadosBuscar): no se piden más tandas al servidor.
   const filtrando = !!filtrarResultadosCargadosBuscar(state.busqueda);
@@ -11011,6 +11082,30 @@ function resumenQuienConto(resultados){
   return [...ordenado.slice(0,TOPE), {nombre:'Otros', n:otros, nombres: resto.map(d=>d.nombre)}];
 }
 
+// Los mismos dos resúmenes, armados con lo que calcula la base (resumen_busqueda_skus) cuando no
+// está todo cargado: mismo orden, mismos grupos y mismo tope de 5 personas + "Otros" que
+// resumenEstadoBusqueda y resumenQuienConto, para que el gráfico no cambie de forma al terminar
+// de cargar. Sin separarSigno (conteo ciego) faltante y sobrante se juntan en "Diferencia".
+function resumenEstadoServidorBusqueda(estados, separarSigno){
+  const e = estados || {};
+  const n = k => Number(e[k]) || 0;
+  const grupos = {
+    'No contado': n('no_contado'), 'Cuadrado': n('cuadrado'), 'Pendiente': n('pendiente'),
+    'Diferencia': n('positiva') + n('negativa'), 'Diferencia positiva': n('positiva'), 'Diferencia negativa': n('negativa'),
+  };
+  return ORDEN_RESUMEN_ESTADO_BUSQUEDA
+    .filter(g=> separarSigno ? g!=='Diferencia' : (g!=='Diferencia positiva' && g!=='Diferencia negativa'))
+    .map(dia=>({dia, n:grupos[dia]}));
+}
+function resumenQuienContoServidorBusqueda(personas){
+  const ordenado = (personas || []).map(p=>({nombre: p.nombre || 'Sin asignar', n: Number(p.n) || 0}))
+    .filter(d=>d.n>0).sort((a,b)=>b.n-a.n);
+  const TOPE = 5;
+  if(ordenado.length<=TOPE) return ordenado;
+  const resto = ordenado.slice(TOPE);
+  return [...ordenado.slice(0,TOPE), {nombre:'Otros', n: resto.reduce((s,d)=>s+d.n, 0), nombres: resto.map(d=>d.nombre)}];
+}
+
 // Resuelve a qué nombre(s) de contador corresponde la porción/leyenda seleccionada: la propia
 // persona, o -- si se seleccionó "Otros" -- la lista de nombres que ese bucket agrupa.
 function nombresParaFiltroContador(quienConto, clave){
@@ -13439,7 +13534,17 @@ function renderBuscar(){
   // resultadosBaseBuscar).
   const baseGraficos = resultadosBaseBuscar(b);
   const haySeleccion = baseGraficos!==resultados;
-  const quienConto = resumenQuienConto(baseGraficos);
+  // Si falta cargar, los gráficos salen del servidor, con el total real (resumen_busqueda_skus,
+  // ver cargarResumenBusqueda) -- Joel, 19/10/2026: "me sale primeros 1.000, eso no sirve". Mientras
+  // llega se dice que se está calculando; si falla, se arman con lo cargado y se avisa. Con casillas
+  // marcadas o porciones elegidas se sigue usando lo cargado: esas son filas de la tabla.
+  const hayFiltroGrafico = listaFiltroBuscar(b.filtroContadoPor).length>0 || listaFiltroBuscar(b.filtroEstado).length>0;
+  const graficosDelServidor = !haySeleccion && !hayFiltroGrafico && b.hayMas;
+  const resumenSrv = graficosDelServidor ? (b.resumenServidor || null) : null;
+  const calculandoResumen = graficosDelServidor && !resumenSrv && !!b.resumenPendiente;
+  // Tocar una porción filtra la tabla sobre lo cargado: solo tiene sentido con todo cargado.
+  const graficosClickeables = !resumenSrv && !calculandoResumen;
+  const quienConto = resumenSrv ? resumenQuienContoServidorBusqueda(resumenSrv.personas) : resumenQuienConto(baseGraficos);
   // Selección desde el gráfico "Quién contó" (ver toggleFiltroContadoPor): filtra la tabla de
   // abajo por esa persona (o, si se eligió "Otros", por todas las que agrupa ese bucket). Es un
   // drill-down sobre lo ya cargado, no una nueva búsqueda al servidor: pagina de a
@@ -13448,7 +13553,7 @@ function renderBuscar(){
   // El gráfico de estado abre la diferencia en faltante/sobrante salvo para quien no puede ver la
   // magnitud (operador en conteo ciego) -- misma regla que el badge de cada fila.
   const separarSignoEstado = !ocultarStockOperador();
-  const resumenEstado = resumenEstadoBusqueda(baseGraficos, separarSignoEstado);
+  const resumenEstado = resumenSrv ? resumenEstadoServidorBusqueda(resumenSrv.estados, separarSignoEstado) : resumenEstadoBusqueda(baseGraficos, separarSignoEstado);
   // Igual que Diario (Dashboard operativo): 15 filas por página sobre lo ya cargado del
   // servidor, ver avanzarPaginaBuscar/retrocederPaginaBuscar. Con porciones de los gráficos
   // elegidas también pagina (Joel, 15/10/2026: con varias porciones a la vez la lista salía
@@ -13463,13 +13568,19 @@ function renderBuscar(){
   // con fotografías" está activo Y todavía falta cargar del servidor, el total no se puede saber
   // con certeza (ese filtro se aplica en el cliente sobre lo ya cargado -- no sabemos cuántas de
   // las filas que faltan tendrán foto), así que en ese caso se degrada a "lo cargado hasta ahora".
-  const totalConocido = !b.hayMas || (b.total!=null && !b.soloConFotos);
-  const totalReal = totalConocido ? (b.hayMas ? b.total : resultados.length) : resultados.length;
+  // El resumen del servidor sí aplica "Solo con fotografías", así que con él el total se conoce.
+  const totalServidor = b.hayMas && b.resumenServidor && b.resumenServidor.total!=null ? Number(b.resumenServidor.total) : null;
+  const totalConocido = !b.hayMas || totalServidor!=null || (b.total!=null && !b.soloConFotos);
+  const totalReal = totalConocido ? (b.hayMas ? (totalServidor!=null ? totalServidor : b.total) : resultados.length) : resultados.length;
   const alcanceBusqueda = (etiquetaCompleto) => haySeleccion
     ? `${baseGraficos.length} seleccionado${baseGraficos.length===1?'':'s'} de ${resultados.length} cargados`
+    : resumenSrv
+    ? `Los ${totalReal.toLocaleString('es-CL')} resultados`
+    : calculandoResumen
+    ? 'Calculando con el total…'
     : !totalConocido
     ? `Primeros ${resultados.length} cargados`
-    : (resultados.length<totalReal ? `Primeros ${resultados.length} de ${totalReal}` : etiquetaCompleto);
+    : (resultados.length<totalReal ? `Primeros ${resultados.length} de ${totalReal.toLocaleString('es-CL')}` : etiquetaCompleto);
   const desdeTabla = busquedaPaginaActual*TAM_PAGINA_BUSCAR + 1;
   const hastaTabla = Math.min((busquedaPaginaActual+1)*TAM_PAGINA_BUSCAR, listaTabla.length);
   // Total que se muestra junto a la paginación: con porciones elegidas, cuántas filas calzan.
@@ -13486,6 +13597,20 @@ function renderBuscar(){
   const masFiltrosActivos = [b.ciclo, b.grupoId, b.usuarioId, b.fechaDesde, b.fechaHasta].filter(Boolean).length + (b.soloConFotos?1:0) + (b.soloFueraDePlan?1:0);
   const filtrosAbiertos = typeof b.filtrosAbiertos==='boolean' ? b.filtrosAbiertos : !b.yaBuscado;
   const masAbierto = typeof b.masFiltrosAbierto==='boolean' ? b.masFiltrosAbierto : masFiltrosActivos>0;
+  // Bajo el título: cuánto de la lista está cargado y qué hacer con el resto. Mientras se trae la
+  // lista completa en segundo plano, el avance (cargarRestoBusqueda lo actualiza en su lugar); si
+  // eso o el resumen fallaron, el error, en rojo y con su mensaje.
+  const avisosCarga = [];
+  if(b.cargandoResto){
+    avisosCarga.push(`<div class="hint" id="buscar-progreso-carga" style="margin-top:2px">${esc(textoProgresoCargaBuscar(b.cargandoResto.cargados, b.cargandoResto.objetivo))}</div>`);
+  }else if(!totalConocido || resultados.length<totalReal){
+    const acotar = resumenSrv && totalReal>TOPE_CARGA_COMPLETA_BUSQUEDA
+      ? ` Los gráficos cuentan los ${totalReal.toLocaleString('es-CL')}; para filtrar la tabla tocándolos, acota la búsqueda a ${TOPE_CARGA_COMPLETA_BUSQUEDA.toLocaleString('es-CL')} resultados o menos.` : '';
+    avisosCarga.push(`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length.toLocaleString('es-CL')}${totalConocido?` de ${totalReal.toLocaleString('es-CL')}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.${acotar}</div>`);
+  }
+  if(b.cargaRestoError) avisosCarga.push(`<div class="hint" style="margin-top:2px;color:var(--danger)">No se pudo cargar la lista completa: ${esc(b.cargaRestoError)}. La tabla quedó con lo que alcanzó a llegar; "Siguiente" sigue cargando.</div>`);
+  if(b.resumenError && graficosDelServidor) avisosCarga.push(`<div class="hint" style="margin-top:2px;color:var(--danger)">No se pudo calcular el resumen con el total: ${esc(b.resumenError)}. Los gráficos cuentan solo lo cargado.</div>`);
+  const avisoCargaBuscar = avisosCarga.join('');
   return `
     <div class="section-head"><div><span class="eyebrow">Maestro de SKU</span><h2>Buscar</h2></div></div>
     <div class="card buscar-card">
@@ -13580,7 +13705,7 @@ function renderBuscar(){
     </div>
     ` : ''}
     ${b.yaBuscado? `
-    <div class="section-head" style="flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 220px;min-width:0"><h2 style="font-size:15px">${(totalConocido?totalReal:resultados.length).toLocaleString('es-CL')}${totalConocido?'':'+'} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${(!totalConocido || resultados.length<totalReal)?`<div class="hint" style="margin-top:2px">Mostrando los primeros ${resultados.length}${totalConocido?` de ${totalReal.toLocaleString('es-CL')}`:''} -- toca "Siguiente" para seguir cargando, o usa "Exportar a Excel" para traerlos todos de una vez.</div>`:''}</div>
+    <div class="section-head" style="flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 220px;min-width:0"><h2 style="font-size:15px">${(totalConocido?totalReal:resultados.length).toLocaleString('es-CL')}${totalConocido?'':'+'} resultado${(totalConocido?totalReal:resultados.length)===1?'':'s'}</h2>${avisoCargaBuscar}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto">
         ${idsTodosCargados.length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-seleccionar-todo-buscar" data-ids="${esc(JSON.stringify(idsTodosCargados))}" style="width:auto;flex:none">${todosSeleccionadosCargados? 'Quitar selección' : `Seleccionar todos (${idsTodosCargados.length})`}</button>` : ''}
         ${(b.seleccionados||[]).length? `<button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-buscar-pdf" style="width:auto;flex:none;display:flex;align-items:center;gap:6px" ${b.exportandoPdf?'disabled':''}>${b.exportandoPdf?'<span class="spinner"></span> Generando…':`${ICONS.download} Exportar ${b.seleccionados.length} seleccionado${b.seleccionados.length===1?'':'s'} a PDF`}</button>` : ''}
@@ -13590,18 +13715,19 @@ function renderBuscar(){
     ${resultados.length? `
     <div class="card">
       <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Resumen por estado ${campoConInfo(separarSignoEstado
-        ? 'Cómo salió cada resultado cargado en pantalla. Diferencia negativa: se contó menos de lo que dice el sistema (faltante). Diferencia positiva: se contó más (sobrante). Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.'
-        : 'Cómo salió cada resultado cargado en pantalla. Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.')}</h2></div></div>
-      ${renderPieChart(resumenEstado, 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d.dia, {clave:d=>d.dia, activo:b.filtroEstado, atributo:'data-estado-clave'})}
-      ${renderLeyendaColores(resumenEstado.filter(d=>d.n>0).map(d=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', `${d.dia} (${d.n})`, d.dia]), b.filtroEstado, 'data-estado-clave')}
-      ${lecturaResumenEstadoBusqueda(resumenEstado, separarSignoEstado)}
+        ? 'Cómo salió cada resultado de la búsqueda (o de lo marcado, si hay selección). Diferencia negativa: se contó menos de lo que dice el sistema (faltante). Diferencia positiva: se contó más (sobrante). Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.'
+        : 'Cómo salió cada resultado de la búsqueda (o de lo marcado, si hay selección). Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esos estados; otro toque quita la porción.')}</h2></div></div>
+      ${calculandoResumen ? `<div class="empty">Calculando con todos los resultados…</div>` : `
+      ${renderPieChart(resumenEstado, 'n', d=>COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', d=>d.dia, graficosClickeables ? {clave:d=>d.dia, activo:b.filtroEstado, atributo:'data-estado-clave'} : {})}
+      ${renderLeyendaColores(resumenEstado.filter(d=>d.n>0).map(d=>[COLOR_RESUMEN_ESTADO_BUSQUEDA[d.dia]||'var(--steel)', `${d.dia} (${d.n.toLocaleString('es-CL')})`, graficosClickeables ? d.dia : null]), b.filtroEstado, 'data-estado-clave')}
+      ${lecturaResumenEstadoBusqueda(resumenEstado, separarSignoEstado)}`}
     </div>
     ` : ''}
-    ${quienConto.length? `
+    ${(quienConto.length && !calculandoResumen)? `
     <div class="card">
-      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados entre lo cargado en pantalla (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esas personas; otro toque quita la porción.')}</h2></div></div>
-      ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre, {clave:d=>d.nombre, activo:b.filtroContadoPor})}
-      ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n})`, d.nombre]), b.filtroContadoPor)}
+      <div class="section-head" style="margin:0 0 8px"><div><span class="eyebrow">${alcanceBusqueda('Resultados cargados')}</span><h2 style="font-size:15px">Quién contó ${campoConInfo('Solo los resultados ya contados (no los "No contado", que no tienen a quién atribuirse). Con más de 5 personas, el resto se agrupa en "Otros". Toca una o varias porciones (o sus nombres en la leyenda) para filtrar la tabla de abajo por esas personas; otro toque quita la porción.')}</h2></div></div>
+      ${renderPieChart(quienConto, 'n', colorQuienConto, d=>d.nombre, graficosClickeables ? {clave:d=>d.nombre, activo:b.filtroContadoPor} : {})}
+      ${renderLeyendaColores(quienConto.map((d,i)=>[colorQuienConto(d,i), `${d.nombre} (${d.n.toLocaleString('es-CL')})`, graficosClickeables ? d.nombre : null]), b.filtroContadoPor)}
     </div>
     ` : ''}
     ${listaFiltroBuscar(b.filtroContadoPor).length? `
@@ -13617,7 +13743,7 @@ function renderBuscar(){
     </div>
     ` : ''}
     <div class="card">
-      ${listaTabla.length? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalTabla}</div>` : ''}
+      ${listaTabla.length? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalTabla.toLocaleString('es-CL')}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
         <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
@@ -13648,7 +13774,7 @@ function renderBuscar(){
       </table></div>` : `<div class="empty"><div class="glyph">🔍</div>Sin resultados con estos filtros.</div>`}
       ${listaTabla.length? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
         <button class="btn btn-secondary" id="buscar-pagina-prev" style="width:auto;flex:none;padding:8px 14px" ${busquedaPaginaActual<=0?'disabled':''}>Anterior</button>
-        <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`${desdeTabla}–${hastaTabla} de ${totalTabla} · pág. ${busquedaPaginaActual+1}`}</span>
+        <span class="hint" style="margin:0">${b.buscandoMas?'Cargando…':`${desdeTabla}–${hastaTabla} de ${totalTabla.toLocaleString('es-CL')} · pág. ${busquedaPaginaActual+1}`}</span>
         <button class="btn btn-secondary" id="buscar-pagina-next" style="width:auto;flex:none;padding:8px 14px" ${(!busquedaHaySiguiente || b.buscandoMas)?'disabled':''}>Siguiente</button>
       </div>` : ''}
     </div>

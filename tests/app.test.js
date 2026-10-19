@@ -66,6 +66,7 @@ let avanceGruposFalla = null; // mensaje de error de avance_por_grupo; null = re
 let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
+let resumenBusquedaFalla = null;
 let resumenGeneralSkusFixture = null;
 let ubicacionesFixture = [
   {id:'ub-1', bodega:'Nave Mina', ubicacion:null, activo:true},
@@ -591,6 +592,23 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/contar_busqueda_skus')){
     const total = skusBusquedaFixture ? skusBusquedaFixture.length : 34;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(total) };
+  }
+  // Resumen de Buscar con el total real (ver cargarResumenBusqueda): agrega el mismo fixture con
+  // las reglas de resumen_busqueda_skus (grupos de grupoEstadoBusqueda, personas sobre lo contado).
+  if(path.startsWith('/rest/v1/rpc/resumen_busqueda_skus')){
+    if(resumenBusquedaFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: resumenBusquedaFalla}) };
+    const filas = skusBusquedaFixture || Array.from({length:34}, (_,i)=>({conteo_id:'busq-'+i, estado:'aprobado', diferencia:0, contado_por:'Persona '+(i%3)}));
+    const estados = {no_contado:0, negativa:0, positiva:0, pendiente:0, cuadrado:0};
+    const personas = {};
+    filas.forEach(f=>{
+      if(!f.conteo_id){ estados.no_contado++; return; }
+      const d = Number(f.diferencia)||0;
+      if(d<0) estados.negativa++; else if(d>0) estados.positiva++; else if(f.estado==='pendiente_revision') estados.pendiente++; else estados.cuadrado++;
+      const nombre = f.contado_por || 'Sin asignar';
+      personas[nombre] = (personas[nombre]||0)+1;
+    });
+    const lista = Object.entries(personas).map(([nombre,n])=>({nombre,n})).sort((a,b)=>b.n-a.n);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total: filas.length, estados, personas: lista}) };
   }
   if(path.startsWith('/rest/v1/conteos?select=')){
     const offsetMatch = path.match(/offset=(\d+)/);
@@ -10488,24 +10506,79 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
-  // ===== Buscar: carga inicial hasta TOPE_CARGA_TOTAL_BUSQUEDA de una vez, con el total real
-  // pedido en paralelo al RPC contar_busqueda_skus -- ver buscarConteos. Con más de mil filas (un
-  // caso ancho, sin filtro), no alcanza a traer todo de una: sigue paginando con
-  // "Siguiente"/buscarMasConteos. =====
+  // ===== Buscar: carga inicial de TOPE_CARGA_TOTAL_BUSQUEDA, con el total real pedido en
+  // paralelo al RPC contar_busqueda_skus -- ver buscarConteos. Si el total cabe bajo
+  // TOPE_CARGA_COMPLETA_BUSQUEDA, el resto se trae solo, de a mil (Joel, 19/10/2026: con 1.218
+  // resultados, "me sale primeros 1.000, eso no sirve, deben ser los datos reales"). =====
   const filaBusquedaGenerica = (i) => ({sku_id:'sku-ancho-'+i, sku_code:'SKU-ANCHO-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_id:null, ciclo_nombre:null, fotos:[], batch:null, contado_por:null, critico:false, clase_abc:null});
   skusBusquedaFixture = Array.from({length:1005}, (_,i)=>filaBusquedaGenerica(i));
   ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   calls.length = 0;
   await ctx.buscarConteos();
-  const busquedaCallInicial = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
-  assert(!!busquedaCallInicial && JSON.parse(busquedaCallInicial.opts.body).p_limite===1000, 'la carga inicial debe pedir hasta TOPE_CARGA_TOTAL_BUSQUEDA, no solo TAM_PAGINA_LISTA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===true, 'con más filas que el tope, debe cargar hasta el tope y saber el total real (1005) vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
-  assert(ctx.__appstate.busqueda.paginaOffset===1000, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
+  const pedidosFilasBusqueda = calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).map(c=>JSON.parse(c.opts.body));
+  assert(pedidosFilasBusqueda.length===2 && pedidosFilasBusqueda[0].p_limite===1000 && pedidosFilasBusqueda[0].p_offset===0 && pedidosFilasBusqueda[1].p_offset===1000 && pedidosFilasBusqueda[1].p_limite===1000, 'con 1.005 resultados debe pedir la primera tanda de mil y después el resto desde donde quedó, obtuvo: '+JSON.stringify(pedidosFilasBusqueda.map(c=>[c.p_offset,c.p_limite])));
+  assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===false && ctx.__appstate.busqueda.paginaOffset===1005 && !ctx.__appstate.busqueda.cargandoResto, 'con un total bajo el tope de carga completa, debe quedar TODO cargado (1.005, no 1.000), obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas, off:ctx.__appstate.busqueda.paginaOffset}));
+  const htmlBuscar1005 = ctx.renderBuscar();
+  assert(htmlBuscar1005.includes('>1.005 resultados<') && !htmlBuscar1005.includes('Primeros 1000') && !htmlBuscar1005.includes('Mostrando los primeros') && htmlBuscar1005.includes('No contado (1.005)'), 'con todo cargado, el título, los gráficos y su leyenda cuentan los 1.005, obtuvo: '+htmlBuscar1005.slice(htmlBuscar1005.indexOf('resultado')-60, htmlBuscar1005.indexOf('resultado')+900));
+  assert(htmlBuscar1005.includes('data-estado-clave="No contado"'), 'con todo cargado, tocar una porción sigue filtrando la tabla, obtuvo: '+htmlBuscar1005.slice(0,200));
+
+  // Dos búsquedas seguidas (la persona cambia el orden o un filtro mientras carga): lo que llega
+  // de la anterior se descarta. Sin el número de búsqueda, las dos cargas en segundo plano
+  // sumaban sus tandas a la misma lista y quedaban filas repetidas (1.010 en vez de 1.005).
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  const busquedaVieja = ctx.buscarConteos();
+  const busquedaNueva = ctx.buscarConteos();
+  await Promise.all([busquedaVieja, busquedaNueva]);
+  const idsBusquedaDoble = ctx.__appstate.busqueda.resultados.map(r=>r.sku_id);
+  assert(idsBusquedaDoble.length===1005 && new Set(idsBusquedaDoble).size===1005, 'dos búsquedas seguidas no deben mezclar sus filas, obtuvo: '+idsBusquedaDoble.length+' filas, '+new Set(idsBusquedaDoble).size+' distintas');
+
+  // Más ancha que el tope de carga completa (5.003): trae solo la primera tanda, como antes, y los
+  // gráficos salen del resumen del servidor con el total real. Tocar una porción no se ofrece
+  // (filtraría solo lo cargado) y el aviso dice cómo lograrlo.
+  skusBusquedaFixture = Array.from({length:5003}, (_,i)=> i<3000 ? filaBusquedaGenerica(i) : {...filaBusquedaGenerica(i), conteo_id:'c-'+i, estado:'aprobado', diferencia: i<3100 ? -1 : 0, contado_por: i%2 ? 'Ana' : 'Luis'});
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).length===1, 'sobre el tope de carga completa no debe traer el resto en segundo plano, obtuvo: '+calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).length+' pedidos de filas');
+  const pedidoResumen = calls.find(c=>c.url.includes('/rpc/resumen_busqueda_skus'));
+  assert(!!pedidoResumen && JSON.parse(pedidoResumen.opts.body).p_solo_con_fotos===false && 'p_texto' in JSON.parse(pedidoResumen.opts.body), 'con resultados sin cargar debe pedir el resumen con los mismos filtros, obtuvo: '+(pedidoResumen && pedidoResumen.opts.body));
+  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.hayMas===true && ctx.__appstate.busqueda.resumenServidor && ctx.__appstate.busqueda.resumenServidor.total===5003, 'debe quedar con la primera tanda y el resumen del servidor, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, r:ctx.__appstate.busqueda.resumenServidor}));
+  const htmlBuscarAncho = ctx.renderBuscar();
+  assert(htmlBuscarAncho.includes('>5.003 resultados<') && htmlBuscarAncho.includes('Los 5.003 resultados') && !htmlBuscarAncho.includes('Primeros 1000'), 'los gráficos deben decir que cuentan los 5.003, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('5.003')-80, htmlBuscarAncho.indexOf('5.003')+600));
+  assert(htmlBuscarAncho.includes('No contado (3.000)') && htmlBuscarAncho.includes('Cuadrado (1.903)') && htmlBuscarAncho.includes('Diferencia negativa (100)') && htmlBuscarAncho.includes('De 2.003 contados'), 'el resumen por estado debe ser el del total, no el de los mil cargados (que eran todos "No contado"), obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Resumen por estado'), htmlBuscarAncho.indexOf('Resumen por estado')+1500));
+  assert(htmlBuscarAncho.includes('Quién contó') && htmlBuscarAncho.includes('Luis (1.002)') && htmlBuscarAncho.includes('Ana (1.001)'), 'quién contó también sale del total, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Quién contó'), htmlBuscarAncho.indexOf('Quién contó')+1500));
+  assert(!htmlBuscarAncho.includes('data-estado-clave') && !htmlBuscarAncho.includes('data-porcion-clave'), 'con la lista incompleta, las porciones no deben ofrecerse para filtrar (filtrarían solo lo cargado)');
+  assert(htmlBuscarAncho.includes('Mostrando los primeros 1.000 de 5.003') && htmlBuscarAncho.includes('acota la búsqueda a 5.000 resultados o menos'), 'el aviso debe decir cuánto de la tabla está cargado y cómo filtrar tocando los gráficos, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Mostrando'), htmlBuscarAncho.indexOf('Mostrando')+400));
   calls.length = 0;
   await ctx.buscarMasConteos();
   const busquedaCallMas = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
   assert(!!busquedaCallMas && JSON.parse(busquedaCallMas.opts.body).p_offset===1000, 'buscarMasConteos debe pedir la página siguiente desde donde quedó, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las filas restantes hasta completar el total real y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  assert(ctx.__appstate.busqueda.resultados.length===1030 && ctx.__appstate.busqueda.hayMas===true, 'debe agregar la tanda siguiente y seguir sabiendo que hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+
+  // Si el resumen del servidor falla, el error se ve (no se disfraza): los gráficos vuelven a
+  // armarse con lo cargado y lo dicen.
+  resumenBusquedaFalla = 'canceling statement due to statement timeout';
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  await ctx.buscarConteos();
+  resumenBusquedaFalla = null;
+  const htmlBuscarResumenFalla = ctx.renderBuscar();
+  assert(htmlBuscarResumenFalla.includes('No se pudo calcular el resumen con el total: canceling statement due to statement timeout') && htmlBuscarResumenFalla.includes('Primeros 1000 de 5.003'), 'con el resumen caído, el error debe verse y los gráficos decir que cuentan solo lo cargado, obtuvo: '+htmlBuscarResumenFalla.slice(htmlBuscarResumenFalla.indexOf('resultados<'), htmlBuscarResumenFalla.indexOf('resultados<')+900));
+
+  // Mientras el resumen no llega, los gráficos no muestran lo parcial como si fuera el total.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resumenServidor:null, resumenError:'', resumenPendiente:true};
+  const htmlBuscarCalculando = ctx.renderBuscar();
+  assert(htmlBuscarCalculando.includes('Calculando con todos los resultados…') && !htmlBuscarCalculando.includes('Primeros 1000'), 'mientras calcula, debe decirlo en vez de mostrar el parcial, obtuvo: '+htmlBuscarCalculando.slice(htmlBuscarCalculando.indexOf('Resumen por estado')-200, htmlBuscarCalculando.indexOf('Resumen por estado')+600));
+  // "Solo con fotografías" se filtra en la app sobre lo cargado, así que el total del conteo no
+  // vale; el resumen del servidor sí lo aplica, y con él el total vuelve a ser exacto (antes: "1000+").
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloConFotos:true, resumenPendiente:false, resumenServidor:{total:12, estados:{no_contado:0, negativa:2, positiva:0, pendiente:0, cuadrado:10}, personas:[{nombre:'Ana', n:12}]}};
+  const htmlBuscarFotosTotal = ctx.renderBuscar();
+  assert(htmlBuscarFotosTotal.includes('>12 resultados<') && htmlBuscarFotosTotal.includes('Los 12 resultados'), 'con "Solo con fotografías", el total debe ser el del resumen del servidor, obtuvo: '+htmlBuscarFotosTotal.slice(htmlBuscarFotosTotal.indexOf('resultados<')-60, htmlBuscarFotosTotal.indexOf('resultados<')+200));
+  // Mientras se trae la lista completa en segundo plano, el avance se ve (y tiene el id que
+  // cargarRestoBusqueda actualiza sin repintar la pantalla).
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloConFotos:false, total:1218, resumenServidor:{total:1218, estados:{no_contado:0, negativa:228, positiva:184, pendiente:0, cuadrado:806}, personas:[{nombre:'Ana', n:1218}]}, cargandoResto:{cargados:1000, objetivo:1218}};
+  const htmlBuscarCargandoResto = ctx.renderBuscar();
+  assert(htmlBuscarCargandoResto.includes('id="buscar-progreso-carga"') && htmlBuscarCargandoResto.includes('Cargando la lista completa: 1.000 de 1.218') && htmlBuscarCargandoResto.includes('Cuadrado (806)'), 'mientras carga el resto, debe verse el avance y los gráficos con el total, obtuvo: '+htmlBuscarCargandoResto.slice(htmlBuscarCargandoResto.indexOf('resultados<')-60, htmlBuscarCargandoResto.indexOf('resultados<')+400));
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, cargandoResto:null, resumenServidor:null};
 
   // Caso típico (un total chico, por debajo del tope): queda TODO cargado en la primera llamada,
   // sin necesidad de "Siguiente" -- así el conteo de arriba y los gráficos ya reflejan el total
