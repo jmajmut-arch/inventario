@@ -4234,6 +4234,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // cargas del panel (empresas/resumen/leads/planes) realmente funcionaban -- un corte de red al
   // entrar por primera vez al panel de súper-admin lo dejaba vacío para siempre. Ahora cada una
   // devuelve true/false, para que quien las orquesta (bind()) sepa si de verdad terminaron.
+  {
+    const htmlSaDuenos = ctx.renderSuperAdmin();
+    assert((htmlSaDuenos.match(/class="sa-empresa-duenos"/g)||[]).length===2, 'el súper admin tiene un interruptor de dueños de stock por empresa, obtuvo: '+htmlSaDuenos);
+  }
   assert(await ctx.cargarEmpresasSuperAdmin()===true, 'cargarEmpresasSuperAdmin debe devolver true cuando el pedido funciona');
   const fetchOriginalSuperAdmin = ctx.fetch;
   ctx.fetch = async (url, opts) => {
@@ -4998,7 +5002,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.confirmarCargaMasiva();
   const postCarga = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   assert(!!postCarga, 'confirmarCargaMasiva debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key'), 'la carga masiva debe hacer upsert por (empresa_id, sku_code, bodega_key, batch_key, ubicacion_key, storage_bin_key), obtuvo: '+postCarga.url);
+  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key,dueno'), 'la carga masiva debe hacer upsert por la identidad con dueño (empresa_id, sku_code, bodega_key, batch_key, ubicacion_key, storage_bin_key, dueno; ver 20261020_duenos_stock.sql), obtuvo: '+postCarga.url);
   const filasCarga = JSON.parse(postCarga.opts.body);
   assert(filasCarga.length===2, 'dos filas del mismo código en bodegas distintas deben llegar ambas al upsert, no deduplicarse a una sola, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
@@ -5120,6 +5124,77 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!motivoCostoAgrup && motivoCostoAgrup.cantidad===3, 'las 3 filas con costo negativo deben agruparse en una sola entrada con cantidad:3, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
   const motivoVacioAgrup = bodyAgrup.detalle_errores.find(e=>/código de sku vacío/i.test(e.motivo));
   assert(!!motivoVacioAgrup && motivoVacioAgrup.cantidad===1, 'la fila sin código debe contarse aparte, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
+
+  // ===== Dueños de stock (Joel, 20/10/2026) =====
+  // Un operador logístico guarda mercadería de varios clientes: cada fila de stock es de uno.
+  // La lista la activa un súper admin por empresa (usa_duenos_stock) y la edita un administrador.
+  {
+    const perfilAntesDuenos = ctx.__appstate.perfil;
+    const fetchAntesDuenos = ctx.fetch;
+    const base = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1' };
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    assert(!ctx.usaDuenosStock() && !ctx.renderConfiguraciones().includes('Dueños de stock'), 'sin el interruptor, Configuraciones no muestra dueños: nada cambia para las demás empresas');
+
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    const pedidos = [];
+    let respuestaDuenos = () => ({status:200, body:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}, {id:'d2', codigo:'COPEC', nombre:null, activo:false}]});
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(u.pathname==='/rest/v1/duenos_stock'){
+        pedidos.push({url:String(url), metodo:(opts&&opts.method)||'GET', body: opts && opts.body ? JSON.parse(opts.body) : null});
+        const r = (opts && opts.method && opts.method!=='GET') ? {status:201, body:''} : respuestaDuenos();
+        if(r.status>=400) return { status:r.status, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify(r.body) };
+        return { status:r.status, ok:true, headers:{get:()=>null}, text: async()=> typeof r.body==='string' ? r.body : JSON.stringify(r.body), json: async()=>r.body };
+      }
+      return fetchAntesDuenos(url, opts);
+    };
+    await ctx.cargarDuenosStock();
+    const htmlDuenos = ctx.renderConfiguraciones();
+    assert(ctx.usaDuenosStock() && htmlDuenos.includes('Dueños de stock') && htmlDuenos.includes('id="form-nuevo-dueno"') && htmlDuenos.includes('ENEX') && htmlDuenos.includes('Enex S.A.') && htmlDuenos.includes('Inactivo'), 'con el interruptor, Configuraciones lista los dueños, con su estado, obtuvo: '+htmlDuenos);
+    assert(pedidos[0].url.includes('select=id,codigo,nombre,activo'), 'pide la lista de la empresa, obtuvo: '+JSON.stringify(pedidos));
+
+    pedidos.length = 0;
+    const toastsAntesDueno = elements['toast-root'].hijos.length;
+    assert(await ctx.crearDuenoStock('   ', 'x')===false && !pedidos.length, 'sin código no se crea nada');
+    assert(await ctx.crearDuenoStock('  ENEX2 ', '  Enex Dos ')===true, 'crea el dueño');
+    const post = pedidos.find(x=>x.metodo==='POST');
+    assert(post && post.body[0].empresa_id==='emp-1' && post.body[0].codigo==='ENEX2' && post.body[0].nombre==='Enex Dos', 'manda código y nombre sin espacios, en la empresa actual, obtuvo: '+JSON.stringify(post));
+
+    // Un código repetido se dice con palabras, no con el error crudo del índice.
+    const fetchSinDup = ctx.fetch;
+    ctx.fetch = async (url, opts) => (new URL(url).pathname==='/rest/v1/duenos_stock' && opts && opts.method==='POST')
+      ? { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "duenos_stock_empresa_id_codigo_key"'}) }
+      : fetchSinDup(url, opts);
+    assert(await ctx.crearDuenoStock('ENEX', '')===false, 'un código repetido no se crea');
+    ctx.fetch = fetchSinDup;
+    const toastsDueno = elements['toast-root'].hijos.slice(toastsAntesDueno).map(t=>t.textContent);
+    assert(toastsDueno.some(t=>t==='El dueño ENEX ya está en la lista'), 'avisa que el dueño ya existe, obtuvo: '+JSON.stringify(toastsDueno));
+
+    pedidos.length = 0;
+    await ctx.actualizarDuenoStock('d2', {activo:true});
+    const patch = pedidos.find(x=>x.metodo==='PATCH');
+    assert(patch && patch.url.includes('id=eq.d2') && patch.body.activo===true, 'reactivar es un PATCH del activo, sin tocar el código, obtuvo: '+JSON.stringify(patch));
+
+    // Si la lista no carga, se ve el error con Reintentar, no "todavía no hay dueños".
+    respuestaDuenos = () => ({status:500, body:{message:'se cayó la base'}});
+    await ctx.cargarDuenosStock();
+    const htmlErrorDuenos = ctx.renderConfiguraciones();
+    assert(htmlErrorDuenos.includes('No se pudo cargar la lista de dueños') && htmlErrorDuenos.includes('id="btn-reintentar-duenos"') && !htmlErrorDuenos.includes('Todavía no hay dueños'), 'un error del servidor se ve como error, obtuvo: '+htmlErrorDuenos);
+
+    // Un operador no ve la sección: la lista la administra un administrador.
+    ctx.__appstate.perfil = {...base, rol:'operador', empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    assert(!ctx.renderConfiguraciones().includes('id="form-nuevo-dueno"'), 'un operador no administra dueños');
+
+    // El duplicado de un material se reconoce por cualquiera de los dos índices de identidad.
+    assert(ctx.esErrorCodigoSkuDuplicado({message:'duplicate key value violates unique constraint "skus_identidad_con_dueno_key"'}) && ctx.esErrorCodigoSkuDuplicado({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}), 'los dos índices de identidad cuentan como material repetido');
+
+    // Cerrar sesión olvida la lista: otra cuenta en el mismo equipo no ve los dueños de la anterior.
+    assert(ctx.estadoTrasCerrarSesion().duenosStock.lista.length===0, 'cerrar sesión limpia la lista de dueños');
+
+    ctx.fetch = fetchAntesDuenos;
+    ctx.__appstate.perfil = perfilAntesDuenos;
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
+  }
 
   // ===== Aviso de filas que comparten identidad =====
   // El upsert se queda con la última cuando dos filas coinciden en código + bodega + batch +

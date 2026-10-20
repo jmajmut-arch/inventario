@@ -1,6 +1,6 @@
 {
   "_comentario": "Columnas reales de cada tabla y vista de Supabase que consulta la app. Sirve para que tests/esquema.test.js detecte un select que pide una columna inexistente: PostgREST rechaza la consulta completa con un 400 y la app lo muestra como si no hubiera resultados. Actualizar tras cada migración que agregue o quite columnas.",
-  "_actualizado": "2026-10-13",
+  "_actualizado": "2026-10-20",
   "relaciones": {
     "auditoria": [
       "accion",
@@ -97,25 +97,34 @@
       "tipo",
       "usuario_id"
     ],
+    "duenos_stock": [
+      "activo",
+      "codigo",
+      "created_at",
+      "empresa_id",
+      "id",
+      "nombre"
+    ],
     "empresas": [
       "activo",
       "bodega_funciones",
       "codigo_invitacion",
       "conteo_ciego_habilitado",
-      "foto_obligatoria_conteo",
-      "mfa_obligatoria_admins",
       "created_at",
       "flow_customer_id",
       "flow_subscription_id",
       "flow_subscription_status",
       "flow_sync_en",
+      "foto_obligatoria_conteo",
       "id",
       "logo",
+      "mfa_obligatoria_admins",
       "modulo_bodega_habilitado",
       "nombre",
       "plan_id",
       "plan_incluye_stock_cero",
-      "terminos_orden_compra"
+      "terminos_orden_compra",
+      "usa_duenos_stock"
     ],
     "grupos_conteo": [
       "activo",
@@ -215,6 +224,21 @@
       "unidad_medida",
       "usuario_id",
       "usuario_nombre"
+    ],
+    "leads_demo": [
+      "id",
+      "nombre",
+      "email",
+      "telefono",
+      "empresa",
+      "creado_en",
+      "tipo",
+      "mensaje",
+      "notificado_en",
+      "seguimiento1_en",
+      "seguimiento2_en",
+      "seguimiento_detenido_en",
+      "origen"
     ],
     "movimiento_fotos": [
       "created_at",
@@ -649,6 +673,7 @@
       "created_at",
       "critico",
       "descripcion",
+      "dueno",
       "empresa_id",
       "id",
       "pct_acumulado",
@@ -868,21 +893,6 @@
       "id",
       "nombre",
       "rol"
-    ],
-    "leads_demo": [
-      "id",
-      "nombre",
-      "email",
-      "telefono",
-      "empresa",
-      "creado_en",
-      "tipo",
-      "mensaje",
-      "notificado_en",
-      "seguimiento1_en",
-      "seguimiento2_en",
-      "seguimiento_detenido_en",
-      "origen"
     ]
   }
 }

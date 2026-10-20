@@ -535,6 +535,34 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Dueños de stock en Configuraciones (Joel, 20/10/2026) =====
+  // Con el interruptor de la empresa: la lista se ve, se agrega un dueño y queda en la lista. A
+  // 420 px la tabla no desborda la página.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('duenos-stock: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    const duenos = [{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }];
+    const creados = [];
+    await loguear(page, perfilDuenos);
+    await page.route('**/rest/v1/duenos_stock**', r=> {
+      if(r.request().method()==='POST'){ const f = JSON.parse(r.request().postData())[0]; creados.push(f); duenos.push({ id:'d'+(duenos.length+1), codigo:f.codigo, nombre:f.nombre, activo:true }); return r.fulfill({ status:201, contentType:'application/json', body:'' }); }
+      return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(duenos) });
+    });
+    await page.evaluate(() => setState({ view:'config' }));
+    assert(await esperarVisible(page, '#form-nuevo-dueno'), 'con el interruptor, Configuraciones muestra Dueños de stock');
+    assert(await esperarCondicion(page, () => document.body.textContent.includes('Enex S.A.')), 'la lista muestra los dueños de la empresa');
+    await page.fill('#nuevo-dueno-codigo', 'COPEC');
+    await page.fill('#nuevo-dueno-nombre', 'Copec');
+    await page.click('#form-nuevo-dueno button[type="submit"]');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('td.mono strong')].some(e=>e.textContent==='COPEC')), 'el dueño nuevo aparece en la lista');
+    const res = await page.evaluate(() => ({ codigo: document.getElementById('nuevo-dueno-codigo').value, desborde: document.documentElement.scrollWidth - window.innerWidth }));
+    assert(creados.length===1 && creados[0].codigo==='COPEC' && creados[0].nombre==='Copec' && res.codigo==='' && res.desborde<=0, 'se crea con código y nombre, el formulario se limpia y a 420 px no desborda, obtuvo '+JSON.stringify({creados, res}));
+    await context.close();
+  }
+
   // ===== Carga de Excel: filas repetidas que se suman (Joel, 20/10/2026) =====
   // Un WMS anota cada pallet en su propia fila. Con el archivo real en el navegador a 420 px: el
   // aviso muestra qué stock queda con cada opción, se elige "Sumar" y el upsert lleva la suma.
