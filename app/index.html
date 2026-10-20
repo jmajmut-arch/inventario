@@ -1133,6 +1133,7 @@ let state = {
   // existían porque un material decía que existían, así que "Bodega Central" y "bodega central"
   // convivían como dos sitios y una bodega vacía no podía existir.
   ubicaciones: { cargado:false, cargando:false, lista:[], materialesPorBodega:{}, nuevaBodega:'', renombrando:null },
+  duenosStock: { cargado:false, cargando:false, lista:[], error:'' },
   // Pantalla "Mover": buscar un material y cambiarle la ubicación. Existe como pestaña propia
   // porque el botón dentro del maestro no se encontraba: quedaba en la última columna de una
   // tabla de once, fuera del borde de la tarjeta.
@@ -2201,7 +2202,7 @@ async function cargarPerfil(){
     }
   }catch(e){ /* si falla la consulta de estado, seguimos con el flujo normal */ }
   state.empresaBloqueada = null;
-  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,foto_obligatoria_conteo,mfa_obligatoria_admins,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,max_admins,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
+  const rows = await rest(`/usuarios?auth_user_id=eq.${uid}&select=id,nombre,rol,es_super_admin,empresa_id,empresas(nombre,codigo_invitacion,flow_subscription_status,conteo_ciego_habilitado,foto_obligatoria_conteo,mfa_obligatoria_admins,plan_incluye_stock_cero,modulo_bodega_habilitado,bodega_funciones,usa_duenos_stock,logo,terminos_orden_compra,planes(nombre,etiqueta,max_bodegas,max_usuarios,max_admins,offline_habilitado,dashboard_ejecutivo_habilitado,auditoria_habilitada))`);
   if(rows && rows[0]) state.perfil = rows[0];
   else state.perfil = null;
   configurarContextoSentry();
@@ -2569,7 +2570,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -2647,7 +2648,7 @@ const CARGAS_POR_VISTA = {
   // Mover material necesita el catálogo: sin él, el desplegable de Ubicación general solo podía
   // ofrecer la bodega donde el material ya estaba, y una bodega recién creada no aparecía.
   mover: ['ubicaciones'],
-  config: ['bodegaListas', 'ubicaciones'],
+  config: ['bodegaListas', 'ubicaciones', 'duenosStock'],
 };
 const CARGADORES = {
   dashboard: ()=> cargarDashboard(), // trae también el resumen del maestro, en la misma respuesta
@@ -2661,6 +2662,7 @@ const CARGADORES = {
   responsables: ()=> cargarResponsables(),
   bodegaListas: ()=> cargarListasBodega(),
   ubicaciones: ()=> cargarUbicaciones(),
+  duenosStock: ()=> usaDuenosStock() ? cargarDuenosStock() : Promise.resolve(),
   bodegaMovimientos: ()=> cargarMovimientosBodega(),
   bodegaPendientes: ()=> cargarPendientesBodega(),
   bodegaStock: ()=> cargarStockBodega(),
@@ -4685,7 +4687,7 @@ async function actualizarStockCeroEnPlan(activo){
 // cargarEquipo/cargarAuditoria/cargarPlanDeHoy).
 async function cargarEmpresasSuperAdmin(){
   try{
-    const filas = await rest('/empresas?select=id,nombre,activo,plan_id,modulo_bodega_habilitado,bodega_funciones,planes(nombre,etiqueta)&order=nombre.asc');
+    const filas = await rest('/empresas?select=id,nombre,activo,plan_id,modulo_bodega_habilitado,bodega_funciones,usa_duenos_stock,planes(nombre,etiqueta)&order=nombre.asc');
     state.superadmin.empresas = filas || [];
     render();
     return true;
@@ -4769,7 +4771,7 @@ async function invitarPersona({email, nombre, empresaId, rol}){
 async function actualizarEmpresaSuperAdmin(id, cambios){
   try{
     await rest(`/empresas?id=eq.${id}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
-    toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : cambios.plan_id ? 'Plan actualizado' : cambios.bodega_funciones ? 'Funciones de bodega actualizadas' : cambios.modulo_bodega_habilitado!==undefined ? 'Módulo de bodega actualizado' : 'Nombre actualizado');
+    toast(cambios.activo===false ? 'Empresa desactivada' : cambios.activo===true ? 'Empresa reactivada' : cambios.plan_id ? 'Plan actualizado' : cambios.bodega_funciones ? 'Funciones de bodega actualizadas' : cambios.modulo_bodega_habilitado!==undefined ? 'Módulo de bodega actualizado' : cambios.usa_duenos_stock!==undefined ? (cambios.usa_duenos_stock ? 'Dueños de stock activados' : 'Dueños de stock desactivados') : 'Nombre actualizado');
     cargarEmpresasSuperAdmin();
     cargarResumenSuperAdmin();
   }catch(e){ toast(e.message,'err'); }
@@ -7418,6 +7420,44 @@ async function crearUbicacion(bodega, ubicacion, {silencioso=false}={}){
   }
 }
 
+// Dueños de stock (Joel, 20/10/2026): un operador logístico guarda mercadería de varios clientes,
+// y cada fila de stock es de uno de ellos (skus.dueno, '' = sin dueño). La lista vive en
+// duenos_stock y la ve solo una empresa con el interruptor usa_duenos_stock, que activa un súper
+// admin. El código es el que trae el archivo (en el WMS de ese operador, SUPERFAMILIA) y no se
+// cambia: los materiales lo guardan tal cual. El nombre sí.
+function usaDuenosStock(){
+  return !!(state.perfil && state.perfil.empresas && state.perfil.empresas.usa_duenos_stock);
+}
+async function cargarDuenosStock(){
+  setState({duenosStock:{...state.duenosStock, cargando:true, error:''}});
+  try{
+    const lista = await rest('/duenos_stock?select=id,codigo,nombre,activo&order=codigo.asc');
+    setState({duenosStock:{...state.duenosStock, lista: lista||[], cargado:true, cargando:false, error:''}});
+  }catch(e){
+    // Un error del servidor se ve como error (CLAUDE.md), no como "todavía no hay dueños".
+    setState({duenosStock:{...state.duenosStock, cargando:false, error: mensajeErrorCarga(e)}});
+  }
+}
+async function crearDuenoStock(codigo, nombre){
+  const c = (codigo||'').trim(), n = (nombre||'').trim() || null;
+  if(!c){ toast('Indica el código del dueño, tal como viene en tu archivo','err'); return false; }
+  try{
+    await rest('/duenos_stock', {method:'POST', body:[{empresa_id: state.perfil.empresa_id, codigo:c, nombre:n}], prefer:'return=minimal'});
+    await cargarDuenosStock();
+    toast(`Dueño ${c} agregado`);
+    return true;
+  }catch(e){
+    toast(/duenos_stock_empresa_id_codigo_key/i.test(e.message) ? `El dueño ${c} ya está en la lista` : e.message, 'err');
+    return false;
+  }
+}
+async function actualizarDuenoStock(id, cambios){
+  try{
+    await rest(`/duenos_stock?id=eq.${encodeURIComponent(id)}`, {method:'PATCH', body:cambios, prefer:'return=minimal'});
+    await cargarDuenosStock();
+  }catch(e){ toast(e.message,'err'); }
+}
+
 async function alternarActivoUbicacion(id, activo){
   try{
     await rest(`/ubicaciones?id=eq.${encodeURIComponent(id)}`, {method:'PATCH', body:{activo}, prefer:'return=minimal'});
@@ -8922,8 +8962,10 @@ function detectarMapeo(headers, campos){
 // "123456" con "Filtro" quedó sobrescrito por "Sillas" al cargar de nuevo el mismo código sin
 // bodega). Para actualizar un SKU ya cargado se usa la carga masiva, que sí actualiza los que
 // ya existen a propósito.
+// Dos índices únicos dicen "este material ya existe": el de siempre y el que incluye al dueño
+// (20261020_duenos_stock.sql). Mientras convivan, cualquiera de los dos puede ser el que salte.
 function esErrorCodigoSkuDuplicado(e){
-  return /skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key/i.test((e && e.message) || '');
+  return /skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key|skus_identidad_con_dueno_key/i.test((e && e.message) || '');
 }
 function mensajeCodigoSkuDuplicado(skuCode, bodega, batch, ubicacion, storageBin){
   return `El código ${skuCode} ya existe${bodega? ` en ${bodega}` : ' sin bodega asignada'}${batch? ` con batch ${batch}` : ''}${ubicacion? ` en ${ubicacion}` : ''}${storageBin? ` (bin ${storageBin})` : ''}. Para actualizarlo, usa la carga masiva.`;
@@ -9632,7 +9674,7 @@ async function confirmarCargaMasiva(){
   try{
     for(let i=0; i<lote.length; i+=TAM_LOTE_CARGA){
       const bloque = lote.slice(i, i+TAM_LOTE_CARGA);
-      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
+      await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key,dueno', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
       insertados += bloque.length;
       setState({cargaMasivaProgreso: {actual:insertados, total:lote.length, etapa:'guardando'}});
     }
@@ -14989,6 +15031,7 @@ function renderSuperAdmin(){
             ${sa.planes.map(p=>`<option value="${esc(p.id)}" ${e.plan_id===p.id?'selected':''}>${esc(p.etiqueta)}</option>`).join('')}
           </select>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);flex:none;margin:0"><input type="checkbox" class="sa-empresa-bodega" data-empresa-id="${esc(e.id)}" ${e.modulo_bodega_habilitado?'checked':''} style="margin:0">Bodega</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);flex:none;margin:0" title="Varios dueños de stock dentro de la empresa (operador logístico)"><input type="checkbox" class="sa-empresa-duenos" data-empresa-id="${esc(e.id)}" ${e.usa_duenos_stock?'checked':''} style="margin:0">Dueños</label>
           <div style="display:flex;gap:4px;flex:none">
             <button type="button" class="icon-btn" data-guardar-empresa-sa="${esc(e.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
             <button type="button" class="icon-btn" data-toggle-empresa-sa="${esc(e.id)}" data-activo="${e.activo?'1':'0'}" aria-label="${e.activo?'Desactivar':'Reactivar'}" style="color:${e.activo?'var(--danger)':'var(--ok)'}">${e.activo?ICONS.papelera:ICONS.conteo}</button>
@@ -15893,6 +15936,7 @@ function renderConfiguraciones(){
     </div>
     ${renderSeccionInstalarApp()}
     ${esAdmin? renderUbicacionesConfig() : ''}
+    ${esAdmin && usaDuenosStock() ? renderDuenosStockConfig() : ''}
     ${esAdmin && moduloBodegaActivo() ? renderListasBodegaConfig() : ''}
     ${esAdmin? `
     <div class="section-head"><div><span class="eyebrow">Exactitud</span><h2 style="font-size:15px">Conteo ciego ${campoConInfo('Mientras está activo, los operadores no ven el stock del sistema en Contar, Buscar, Reconteo ni el maestro de SKU -- evita que ajusten su conteo al número que ya vieron. Lo puedes prender y apagar cuando quieras; no borra ni cambia ningún dato ya guardado.')}</h2></div></div>
@@ -16819,6 +16863,33 @@ function renderUbicacionesConfig(){
       </table></div>` : `<div class="empty"><div class="glyph">📍</div>${u.cargado ? 'Todavía no hay bodegas. Crea la primera acá o cárgala junto con los materiales.' : 'Cargando…'}</div>`}
       ${r ? `<div class="hint" style="margin-top:10px">Renombrando ${esc(r.desde)} → ${esc(r.hasta)}: ${(r.hechos||0).toLocaleString('es-CL')} material(es) movidos${r.quedan?`, quedan ${r.quedan.toLocaleString('es-CL')}`:''}…</div>` : ''}
       <div class="hint" style="margin-top:10px">Desactivar una bodega la saca de los selectores; los materiales que están en ella no se tocan. Renombrar la cambia en todas partes: materiales, conteos, planificación y grupos.</div>
+    </div>`;
+}
+
+function renderDuenosStockConfig(){
+  const d = state.duenosStock;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Maestro</span><h2 style="font-size:15px">Dueños de stock ${campoConInfo('Si guardas mercadería de varios clientes, cada material es de uno de ellos: el mismo código de dos clientes en el mismo bin son dos materiales, cada uno con su cantidad. El código es el que trae tu archivo (por ejemplo, la columna del cliente en tu WMS) y no se puede cambiar; el nombre sí.')}</h2></div></div>
+    <div class="card">
+      <form id="form-nuevo-dueno" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;max-width:620px;margin-bottom:12px">
+        <div style="flex:1 1 140px"><label for="nuevo-dueno-codigo">Código</label><input type="text" id="nuevo-dueno-codigo" placeholder="Ej. ENEX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="margin:0"></div>
+        <div style="flex:2 1 180px"><label for="nuevo-dueno-nombre">Nombre</label><input type="text" id="nuevo-dueno-nombre" placeholder="Ej. Enex S.A." autocomplete="off" style="margin:0"></div>
+        <button type="submit" class="btn btn-secondary" style="width:auto;flex:none;padding:8px 14px">Agregar</button>
+      </form>
+      ${d.error ? `<div class="hint" role="alert" style="color:var(--danger)">No se pudo cargar la lista de dueños: ${esc(d.error)} <button type="button" class="link-btn" id="btn-reintentar-duenos">Reintentar</button></div>`
+      : d.lista.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Código</th><th>Nombre</th><th></th></tr></thead>
+        <tbody>${d.lista.map(x=>`<tr>
+          <td class="mono" style="${x.activo?'':'opacity:.5'}"><strong>${esc(x.codigo)}</strong>${x.activo?'':'<div><span class="badge badge-danger">Inactivo</span></div>'}</td>
+          <td style="${x.activo?'':'opacity:.5'}">${esc(x.nombre||'—')}</td>
+          <td><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+            <button type="button" class="btn btn-secondary" data-renombrar-dueno="${esc(x.id)}" data-nombre="${esc(x.nombre||'')}" data-codigo="${esc(x.codigo)}" style="width:auto;padding:5px 10px;font-size:12px">Renombrar</button>
+            <button type="button" class="btn btn-secondary" data-dueno-toggle="${esc(x.id)}" data-activo="${x.activo?'1':'0'}" style="width:auto;padding:5px 10px;font-size:12px">${x.activo?'Desactivar':'Reactivar'}</button>
+          </div></td>
+        </tr>`).join('')}</tbody>
+      </table></div>`
+      : `<div class="empty" style="padding:14px 8px">${d.cargado ? 'Todavía no hay dueños. Agrega el primero acá.' : 'Cargando…'}</div>`}
+      <div class="hint" style="margin-top:10px">Desactivar un dueño no cambia sus materiales. Un material sin dueño sigue funcionando como siempre.</div>
     </div>`;
 }
 
@@ -17764,6 +17835,23 @@ function bind(){
   }
 
   if(state.view==='config'){
+    const formDueno = document.getElementById('form-nuevo-dueno');
+    if(formDueno) formDueno.addEventListener('submit', async e=>{
+      e.preventDefault();
+      const codigo = document.getElementById('nuevo-dueno-codigo'), nombre = document.getElementById('nuevo-dueno-nombre');
+      if(await crearDuenoStock(codigo.value, nombre.value)){ codigo.value = ''; nombre.value = ''; }
+    });
+    const btnReintentarDuenos = document.getElementById('btn-reintentar-duenos');
+    if(btnReintentarDuenos) btnReintentarDuenos.addEventListener('click', cargarDuenosStock);
+    document.querySelectorAll('[data-dueno-toggle]').forEach(btn=>
+      btn.addEventListener('click', ()=> actualizarDuenoStock(btn.dataset.duenoToggle, {activo: btn.dataset.activo!=='1'})));
+    document.querySelectorAll('[data-renombrar-dueno]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const nombre = prompt(`Nombre para el dueño ${btn.dataset.codigo}. El código no cambia.`, btn.dataset.nombre);
+        if(nombre===null) return;
+        actualizarDuenoStock(btn.dataset.renombrarDueno, {nombre: nombre.trim() || null});
+      });
+    });
     const formBodega = document.getElementById('form-nueva-bodega');
     if(formBodega) formBodega.addEventListener('submit', async e=>{
       e.preventDefault();
@@ -17924,6 +18012,9 @@ function bind(){
       document.querySelectorAll('.sa-empresa-bodega').forEach(chk=>{
         chk.addEventListener('change', ()=> actualizarEmpresaSuperAdmin(chk.dataset.empresaId, {modulo_bodega_habilitado: chk.checked}));
     });
+      document.querySelectorAll('.sa-empresa-duenos').forEach(chk=>{
+        chk.addEventListener('change', ()=> actualizarEmpresaSuperAdmin(chk.dataset.empresaId, {usa_duenos_stock: chk.checked}));
+      });
     // Cada función del módulo por separado. Se guarda el jsonb completo para no pisar las otras
     // llaves con un PATCH parcial.
     document.querySelectorAll('.sa-funcion-bodega').forEach(chk=>{
