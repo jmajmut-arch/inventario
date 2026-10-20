@@ -493,6 +493,77 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Preparar para sin señal, Contar y Reconteo sin señal (Joel, 20/10/2026) =====
+  // En el navegador real a 420 px: con señal se prepara (todos los lugares del día y los
+  // reconteos); sin señal se abre un lugar nunca tocado, se cuenta y el SKU sale de la lista;
+  // Reconteo muestra la lista guardada con sus acciones de administrador apagadas; y al volver la
+  // señal todo se envía y el aviso de plan guardado se va solo.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('preparar-sin-senal: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const hoy = await page.evaluate(()=>{ const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }).catch(()=>new Date().toISOString().slice(0,10));
+    const J = (route, x) => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(x) });
+    const entrada = (id, bodega, ubicacion, bin) => ({ id, fecha:hoy, bodega, ubicacion, storage_bin:bin, solo_sin_ubicacion:false, por_sku:false, responsable_id:null, responsable_nombre:null, skus_excluidos:[], skus_incluidos:[] });
+    const sku = (id, code, desc, bodega, ubic, bin) => ({ id, sku_code:code, descripcion:desc, bodega, ubicacion:ubic, storage_bin:bin, batch:null, stock_sistema:5, unidad_medida:'EA' });
+    const universo = { 'pe-1': [ sku('ps-1','10475828','REDUCER,LH','B501','0100','3029-A'), sku('ps-2','11172553','MOTOR,MTR','B501','0100','3029-A') ], 'pe-2': [ sku('ps-3','10418772','BEARING UNIT','B521','0200',null) ] };
+    const rec = (id, conteo, code, desc, fecha) => ({ id, conteo_id:conteo, sku_code:code, descripcion:desc, bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:fecha, causa_probable:'Sin patrón detectado', fotos:[] });
+    const reconteos = [ rec('ps-1','rc-1','10475828','REDUCER,LH', hoy+'T12:00:00Z'), rec('ps-9','rc-9','10999999','VALVULA', hoy+'T11:00:00Z') ];
+    const conteosEnviados = [];
+    let sinRed = false;
+    await page.route('**/rest/v1/plan_semanal_detalle**', r=> J(r, [ entrada('pe-1','B501','0100','3029-A'), entrada('pe-2','B521','0200',null) ]));
+    await page.route('**/rest/v1/rpc/universo_entradas_plan_contar**', r=> { const ids = (r.request().postDataJSON()||{}).p_plan_ids||[]; const o = {}; ids.forEach(i=>{ if(universo[i]) o[i] = universo[i]; }); return J(r, o); });
+    await page.route('**/rest/v1/reconteo_pendiente?**', r=> J(r, reconteos));
+    await page.route('**/rest/v1/conteos?on_conflict=**', r=> { conteosEnviados.push(JSON.parse(r.request().postData())[0]); return J(r, [{ id:'cnt-e2e-'+conteosEnviados.length }]); });
+    // La última ruta registrada atiende primero: sin señal, todo lo que va al servidor falla.
+    await page.route(u=> /\/(rest|auth|storage)\/v1\//.test(u.toString()), r=> sinRed ? r.abort('internetdisconnected') : r.fallback());
+    const cortarSenal = async v => { sinRed = v; await context.setOffline(v); };
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('[data-tab="conteo"]');
+    assert(await esperarVisible(page, '#btn-preparar-sin-senal'), 'con señal, Contar ofrece "Preparar para sin señal"');
+    await page.click('#btn-preparar-sin-senal');
+    assert(await esperarVisible(page, '.contar-sin-senal.listo'), 'tras preparar, Contar dice que quedó listo');
+    const listo = await page.textContent('.contar-sin-senal.listo');
+    assert(listo.includes('2 lugares, 3 SKU y 2 reconteos guardados'), 'dice cuántos lugares, SKU y reconteos quedaron en el celular, obtuvo '+listo);
+    if(process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/preparar-sin-senal-420.png', fullPage:true });
+
+    await cortarSenal(true);
+    await page.click('.contar-lugar:has-text("B521")');
+    assert(await esperarVisible(page, '.contar-lista [data-pick-plan="ps-3"]'), 'sin señal, un lugar que nunca se abrió muestra sus SKU (quedó preparado)');
+    await page.click('[data-pick-plan="ps-3"]');
+    await page.waitForSelector('#c-cant', { timeout:ESPERA });
+    await page.fill('#c-cant', '4');
+    await page.click('#form-conteo .conteo-pie button[type="submit"]');
+    if(await esperarVisible(page, '#btn-aviso-guardar-sin-foto')) await page.click('#btn-aviso-guardar-sin-foto');
+    assert(await esperarCondicion(page, ()=> state.colaOffline.length===1 && !state.skuSeleccionado), 'el conteo queda en la cola del celular');
+    assert(await esperarVisible(page, '#contar-por-enviar'), 'Contar nombra lo contado por enviar');
+    const lista = await page.evaluate(()=> ({ quedan: [...document.querySelectorAll('.contar-lista [data-pick-plan]')].map(b=>b.dataset.pickPlan), porEnviar: document.getElementById('contar-por-enviar').textContent }));
+    assert(!lista.quedan.includes('ps-3') && lista.porEnviar.includes('1 contado, por enviar: 10418772'), 'el SKU contado sin señal sale de la lista, obtuvo '+JSON.stringify(lista));
+
+    await page.click('[data-tab="reconteo"]');
+    assert(await esperarVisible(page, '#reconteo-sin-senal'), 'sin señal, Reconteo muestra la lista guardada y lo dice');
+    // El aviso sale apenas se corta la señal; la lista guardada se pinta un momento después (pasó
+    // en el CI: se leyó la tabla antes de que llegara).
+    assert(await esperarCondicion(page, ()=> document.querySelectorAll('[data-recontar]').length===2), 'la lista guardada llega a la tabla');
+    const recSin = await page.evaluate(()=> { const b = s => document.querySelector(s); return { filas: document.querySelectorAll('[data-recontar]').length, recontarActivo: !!b('[data-recontar="ps-1"]') && !b('[data-recontar="ps-1"]').disabled, descartarApagado: !!b('[data-descartar-reconteo="rc-1"]') && b('[data-descartar-reconteo="rc-1"]').disabled }; });
+    assert(recSin.filas===2 && recSin.recontarActivo && recSin.descartarApagado, 'Recontar funciona y Descartar se apaga sin señal, obtuvo '+JSON.stringify(recSin));
+    const desbordeRec = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeRec <= 0, 'a 420 px Reconteo sin señal no desborda, obtuvo '+desbordeRec);
+    if(process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/reconteo-sin-senal-420.png', fullPage:true });
+
+    await page.click('[data-tab="conteo"]');
+    await cortarSenal(false);
+    assert(await esperarCondicion(page, ()=> state.colaOffline.length===0), 'al volver la señal el conteo se envía solo');
+    assert(conteosEnviados.length===1 && conteosEnviados[0].cantidad_contada===4 && conteosEnviados[0].sku_id==='ps-3', 'llega el conteo con su SKU, obtuvo '+JSON.stringify(conteosEnviados));
+    assert(await esperarCondicion(page, ()=> !state.contarPlan.desdeCache && ![...document.querySelectorAll('main .badge')].some(b=> b.textContent.includes('mostrando el plan guardado'))), 'el aviso de plan guardado se va solo al volver la señal');
+    await context.close();
+  }
+
   // ===== Crear y contar un SKU sin señal (Joel, 14/10/2026) =====
   // En el navegador real: sin señal se crea el SKU desde el formulario, "Contar ahora" lleva a
   // Contar con el material elegido, el conteo queda guardado detrás del SKU y, al volver la señal,

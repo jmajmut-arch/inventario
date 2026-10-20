@@ -489,6 +489,7 @@
     <tr><td>Playwright</td><td>Desarrollo</td><td>No corre en producción: tests automatizados con navegador real antes de publicar cada cambio.</td></tr>
   </table>
   <div class="box"><div class="tag">Tareas programadas (pg_cron, UTC)</div>05:00 cierre de ciclos de grupo vencidos · 06:00 activación de períodos programados y purga de auditoría (conserva 45 días) · 07:00 refresco de clasificación ABC y vencimiento de suscripciones canceladas · 08:00 reset de la cuenta demo · cada hora, seguimiento de leads. Todas son funciones que solo <code>service_role</code> puede ejecutar.</div>
+  <div class="box new"><div class="tag">Nuevo · Sin señal</div>El celular guarda la cola, el plan del día con todos sus lugares y los reconteos sin fotos (<code>localStorage</code>; fotos de la cola en IndexedDB).</div>
   <div class="box warn"><div class="tag">Límite de Supabase · URL de ~24.000 caracteres</div>Medido el 13/10/2026 contra el proyecto real: hasta ~24.000 caracteres la consulta llega a la base; desde ~25.000 la puerta responde 400 sin cabeceras CORS y el navegador lo ve como "sin conexión", sin rastro en los logs de la API. Por eso toda lista que vaya en un <code>in.(...)</code> y pueda crecer va por tandas (<code>restEnTandas</code>: 100 id o 500 códigos; <code>escribirPlanEnTandas</code>), y las listas grandes que no son filtros viajan en el cuerpo de un RPC.</div>
 </section>
 

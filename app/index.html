@@ -784,6 +784,9 @@ details.plegable>summary .plegable-cta{font-size:13px;font-weight:700;color:var(
 .contar-lugar{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;width:100%;min-height:76px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--amber);border-radius:var(--radius);text-align:left;color:inherit;font:inherit;cursor:pointer;}
 .contar-lugar:active{background:var(--amber-bg);}
 .contar-lugar:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+.aviso-sin-senal{display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;padding:9px 11px;border:1px solid var(--warn);border-radius:var(--radius);background:color-mix(in srgb, var(--warn) 9%, transparent);font-size:13px;line-height:1.4;color:var(--text);}
+.contar-sin-senal{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--text-dim);line-height:1.35;}
+.contar-sin-senal.listo{padding:8px 10px;border:1px solid var(--ok);border-radius:var(--radius);color:var(--text);background:color-mix(in srgb, var(--ok) 8%, transparent);}
 .contar-lugar-titulo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;line-height:1.1;letter-spacing:0.01em;text-transform:uppercase;overflow-wrap:anywhere;}
 .contar-lugar-sub{font-size:13px;color:var(--text-dim);margin-top:4px;line-height:1.35;}
 .contar-lugar .chev,.contar-activo .chev{width:24px;height:24px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--text-faint);}
@@ -1061,7 +1064,7 @@ let state = {
   reconteos: [],
   // Reconteo distingue "cargando" y "no se pudo cargar" de "no hay pendientes" (14/10/2026): antes
   // la lista vacía inicial y un error del servidor se veían como "No hay materiales con diferencias".
-  reconteosCargados: false, reconteosError: '',
+  reconteosCargados: false, reconteosError: '', reconteosDesdeCache: null,
   reconteosHayMas: false,
   reconteosCargandoMas: false,
   reconteosPorSemana: [],   // [{semana:'YYYY-MM-DD' (lunes), pendientes}] -- gráfico de Reconteo por semana
@@ -2566,7 +2569,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -4928,26 +4931,29 @@ function claveSeleccionPlanDia(bodega, ubicacion){ return `${bodega||''}||${ubic
 function leerPlanDiaCache(usuarioId){
   try{ return (JSON.parse(localStorage.getItem(PLAN_DIA_CACHE_KEY)||'{}'))[usuarioId] || null; }catch(e){ return null; }
 }
+// Devuelve si se pudo guardar: "Preparar para sin señal" necesita saberlo para no decir "listo"
+// cuando el celular se quedó sin espacio (localStorage ronda los 5 MB por sitio).
 function guardarPlanDiaCache(usuarioId, datos){
   try{
     const todo = JSON.parse(localStorage.getItem(PLAN_DIA_CACHE_KEY)||'{}');
     todo[usuarioId] = datos;
     localStorage.setItem(PLAN_DIA_CACHE_KEY, JSON.stringify(todo));
-  }catch(e){ /* localStorage no disponible (modo privado, etc.) */ }
+    return true;
+  }catch(e){ return false; /* localStorage no disponible (modo privado, sin espacio, etc.) */ }
 }
 // Al refrescar las entradas del día se conservan las selecciones (checklists por bodega/ubicación)
 // ya cacheadas para ESE mismo día — son válidas igual y perderlas de encima haría inútil el
 // respaldo si justo se corta la señal entre cargar las entradas y elegir la cascada.
 function guardarPlanDiaCacheBase(usuarioId, fecha, entradas){
   const anterior = leerPlanDiaCache(usuarioId);
-  const selecciones = (anterior && anterior.fecha===fecha) ? anterior.selecciones : {};
-  guardarPlanDiaCache(usuarioId, {fecha, entradas, selecciones});
+  const mismoDia = !!(anterior && anterior.fecha===fecha);
+  return guardarPlanDiaCache(usuarioId, {fecha, entradas, selecciones: mismoDia ? anterior.selecciones : {}, preparado: mismoDia ? (anterior.preparado||null) : null});
 }
 function guardarSeleccionPlanDiaCache(usuarioId, fecha, bodega, ubicacion, skus){
   const actual = leerPlanDiaCache(usuarioId);
-  if(!actual || actual.fecha!==fecha) return; // sin base de ese día cacheada: nada que asociarle
+  if(!actual || actual.fecha!==fecha) return false; // sin base de ese día cacheada: nada que asociarle
   const selecciones = {...(actual.selecciones||{}), [claveSeleccionPlanDia(bodega, ubicacion)]: skus};
-  guardarPlanDiaCache(usuarioId, {...actual, selecciones});
+  return guardarPlanDiaCache(usuarioId, {...actual, selecciones});
 }
 function leerSeleccionPlanDiaCache(usuarioId, fecha, bodega, ubicacion){
   const actual = leerPlanDiaCache(usuarioId);
@@ -4961,11 +4967,14 @@ function leerSeleccionPlanDiaCache(usuarioId, fecha, bodega, ubicacion){
 // asignar y, medido en Escondida, 334 de 384 entradas del período no le aparecían a nadie en
 // Contar). Las sin asignar las puede contar cualquiera del equipo; lo que alguien ya contó deja de
 // estar pendiente para los demás (el universo del plan excluye lo contado en el período).
+function pedirPlanDelDia(fecha){
+  return rest(`/plan_semanal_detalle?fecha=eq.${fecha}&or=(responsable_id.eq.${state.perfil.id},responsable_id.is.null)&order=bodega.asc,ubicacion.asc,storage_bin.asc`);
+}
 async function cargarPlanDeHoy(fecha){
   if(!state.perfil) return;
   setState({contarPlan:{...state.contarPlan, fecha, cargando:true, entradas:[], bodega:'', ubicacion:'', skusPendientes:null, errorSkus:'', desdeCache:false}});
   try{
-    const entradas = await rest(`/plan_semanal_detalle?fecha=eq.${fecha}&or=(responsable_id.eq.${state.perfil.id},responsable_id.is.null)&order=bodega.asc,ubicacion.asc,storage_bin.asc`) || [];
+    const entradas = await pedirPlanDelDia(fecha) || [];
     setState({contarPlan:{...state.contarPlan, cargado:true, cargando:false, fecha, entradas, desdeCache:false}});
     guardarPlanDiaCacheBase(state.perfil.id, fecha, entradas);
   }catch(e){
@@ -5081,6 +5090,165 @@ async function skusMovidosDeEntradas(entradas, binesActivos){
   ].filter(Boolean);
 }
 
+// Lugares del plan del día: cada pareja bodega + ubicación (más "SKU sin ubicación"), la misma que
+// resuelve entradasActivasContar al tocar su tarjeta. La usan las tarjetas de Contar y
+// prepararSinSenal.
+function lugaresPlanDia(entradas){
+  const lugares = [];
+  if(entradas.some(e=>e.solo_sin_ubicacion)) lugares.push({bodega:BODEGA_SIN_UBICACION, ubic:'', entradas: entradas.filter(e=>e.solo_sin_ubicacion)});
+  entradas.filter(e=>!e.solo_sin_ubicacion).forEach(e=>{
+    const valorBodega = e.bodega==='' ? BODEGA_VACIA : e.bodega;
+    const ubic = e.ubicacion || '';
+    let l = lugares.find(x=>x.bodega===valorBodega && x.ubic===ubic);
+    if(!l){ l = {bodega:valorBodega, ubic, entradas:[]}; lugares.push(l); }
+    l.entradas.push(e);
+  });
+  return lugares;
+}
+
+// ===== Preparar para sin señal (Joel, 20/10/2026: "si me planifican 100 SKU, entro, selecciono el
+// día de hoy, ¿estoy listo para contar offline?") =====
+// Hasta acá solo quedaba en el celular el lugar que se abría con señal. "Preparar para sin señal"
+// guarda de una vez los SKU pendientes de todos los lugares del día y los reconteos pendientes de
+// la empresa. Va de a un lugar (no en paralelo), para no mandar una ráfaga de consultas a la base,
+// y el avance se escribe en su línea sin repintar la pantalla: render() reemplazaría el buscador
+// de más abajo si la persona está escribiendo (ver CLAUDE.md).
+const MENSAJE_SIN_ESPACIO_CELULAR = 'no queda espacio en este celular para guardarlo (el navegador guarda hasta unos 5 MB por sitio). Libera espacio o pide que el plan de este día se reparta en lugares más chicos.';
+function preparadoPlanDia(){
+  if(!state.perfil) return null;
+  const c = leerPlanDiaCache(state.perfil.id);
+  return (c && c.fecha===state.contarPlan.fecha && c.preparado) || null;
+}
+async function prepararSinSenal(){
+  if(!state.perfil || state.contarPlan.preparando) return;
+  const uid = state.perfil.id, fecha = state.contarPlan.fecha;
+  setState({contarPlan:{...state.contarPlan, preparando:true, preparacionError:''}});
+  const avance = t => { const el = document.getElementById('preparar-sin-senal-avance'); if(el) el.textContent = t; };
+  try{
+    const entradas = await pedirPlanDelDia(fecha) || [];
+    if(!guardarPlanDiaCacheBase(uid, fecha, entradas)) throw new Error(MENSAJE_SIN_ESPACIO_CELULAR);
+    const lugares = lugaresPlanDia(entradas);
+    let skus = 0;
+    for(let i=0; i<lugares.length; i++){
+      avance(`Guardando lugar ${i+1} de ${lugares.length}…`);
+      const l = lugares[i];
+      const lista = await skusPendientesDeEntradas(entradasActivasContar({entradas, bodega:l.bodega, ubicacion:l.ubic}));
+      if(!guardarSeleccionPlanDiaCache(uid, fecha, l.bodega, l.ubic, lista)) throw new Error(MENSAJE_SIN_ESPACIO_CELULAR);
+      skus += lista.length;
+    }
+    avance('Guardando los reconteos pendientes…');
+    const reconteos = await guardarReconteosParaSinSenal();
+    const preparado = {en: new Date().toISOString(), lugares: lugares.length, skus, reconteos};
+    const base = leerPlanDiaCache(uid);
+    if(!base || base.fecha!==fecha || !guardarPlanDiaCache(uid, {...base, preparado})) throw new Error(MENSAJE_SIN_ESPACIO_CELULAR);
+    const cp = state.contarPlan;
+    setState({contarPlan:{...cp, preparando:false, ...(cp.fecha===fecha && !cp.cargando ? {entradas, desdeCache:false} : {})}});
+    toast(`Listo para contar sin señal: ${textoPreparado(preparado)}.`);
+  }catch(e){
+    setState({contarPlan:{...state.contarPlan, preparando:false, preparacionError: mensajeErrorCarga(e)}});
+  }
+}
+function textoPreparado(p){
+  const n = (x, uno, varios) => `${x.toLocaleString('es-CL')} ${x===1?uno:varios}`;
+  return `${n(p.lugares,'lugar','lugares')}, ${n(p.skus,'SKU','SKU')} y ${n(p.reconteos,'reconteo','reconteos')} guardados a las ${new Date(p.en).toLocaleTimeString('es-CL',{hour:'2-digit', minute:'2-digit', hourCycle:'h23'})}`;
+}
+function renderPrepararSinSenal(){
+  const cp = state.contarPlan;
+  if(cp.cargando || !cp.entradas.length) return '';
+  const p = preparadoPlanDia();
+  const conSenal = typeof navigator==='undefined' || navigator.onLine!==false;
+  const error = cp.preparacionError ? `<div class="hint" role="alert" style="color:var(--danger);margin-top:6px">No se pudo preparar para sin señal: ${esc(cp.preparacionError)}</div>` : '';
+  if(cp.preparando) return `<div class="contar-sin-senal" id="contar-sin-senal"><span class="spinner"></span> <span id="preparar-sin-senal-avance">Preparando…</span></div>`;
+  if(p) return `<div class="contar-sin-senal listo" id="contar-sin-senal"><span>✓ <b>Listo para contar sin señal:</b> ${esc(textoPreparado(p))}.</span>${conSenal? `<button type="button" class="link-btn" id="btn-preparar-sin-senal">Actualizar</button>` : ''}</div>${error}`;
+  if(!conSenal) return error;
+  const lugares = lugaresPlanDia(cp.entradas).length;
+  return `<div class="contar-sin-senal" id="contar-sin-senal"><button type="button" class="btn btn-secondary btn-sm" id="btn-preparar-sin-senal" style="width:auto">Preparar para sin señal</button><span class="hint" style="margin:0">Guarda en este celular ${lugares===1?'el lugar':`los ${lugares} lugares`} de este día y los reconteos pendientes.</span></div>${error}`;
+}
+
+// Lo que ya se contó y espera en la cola de este celular (sin señal, o con la señal tan lenta que
+// el guardado se pasó a la cola) sale de las listas de pendientes de Contar y de Reconteo: si no,
+// el material seguía apareciendo como pendiente y se podía contar dos veces. Al enviarse, la lista
+// se vuelve a pedir al servidor (refrescarContarTrasSenal), que ya no lo trae.
+function idsSkuContadosEnCola(){
+  return new Set((state.colaOffline||[]).filter(i=> (i.tipo||'conteo')==='conteo' && i.sku_id).map(i=> i.sku_id));
+}
+
+// Al volver la señal: si Contar mostraba el plan guardado, se vuelve a pedir (antes el aviso "Sin
+// conexión: mostrando el plan guardado" seguía hasta cambiar de día); y si había un lugar abierto,
+// su lista, que ya no trae lo recién enviado. Conserva el lugar elegido. Si falla, queda lo que
+// había: el aviso de plan guardado sigue a la vista, y dice la verdad.
+async function refrescarContarTrasSenal(){
+  const cp = state.contarPlan;
+  if(!state.perfil || !cp.cargado || cp.cargando || cp.preparando) return;
+  const {fecha, bodega, ubicacion} = cp;
+  try{
+    let entradas = cp.entradas;
+    if(cp.desdeCache){
+      entradas = await pedirPlanDelDia(fecha) || [];
+      guardarPlanDiaCacheBase(state.perfil.id, fecha, entradas);
+    }
+    const activas = entradasActivasContar({...cp, entradas});
+    const skus = (cp.skusPendientes!==null && activas.length) ? await skusPendientesDeEntradas(activas) : null;
+    if(skus) guardarSeleccionPlanDiaCache(state.perfil.id, fecha, bodega, ubicacion, skus);
+    const ahora = state.contarPlan;
+    if(ahora.fecha!==fecha || ahora.bodega!==bodega || ahora.ubicacion!==ubicacion) return;
+    conservandoCamposConteo(()=> setState({contarPlan:{...ahora, entradas, desdeCache:false, ...(skus? {skusPendientes: skus} : {})}}));
+  }catch(e){ /* sin señal todavía, o falló: queda el plan guardado, con su aviso */ }
+}
+
+// ===== Reconteos guardados en el celular =====
+// La lista de Reconteo se guarda entera (no solo la página a la vista): al "Preparar para sin
+// señal" y, de paso, cada vez que se abre Reconteo con señal (como mucho cada 15 minutos). Sin
+// señal, Reconteo la muestra con su hora, filtra por semana y por texto en el celular, y Recontar
+// funciona igual. Sin `fotos`: verlas necesita señal, y son lo más pesado (en Escondida, 541
+// pendientes eran ~0,9 MB con ellas).
+const RECONTEOS_CACHE_KEY = 'reconteos_cache';
+const CAMPOS_RECONTEO_SIN_SENAL = 'id,sku_code,descripcion,categoria,unidad_medida,ubicacion,bodega,stock_sistema,ultima_cantidad_contada,ultima_diferencia,ultimo_conteo_fecha,diferencia_abs,ubicacion_contada,bodega_contada,ubicacion_distinta,diferencia_recurrente,veces_con_diferencia,causa_probable,costo_unitario,valor_diferencia_linea,storage_bin,batch,critico,clase_abc,stock_sistema_anterior,stock_sistema_actualizado_en,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,conteo_id,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,ciclos_con_diferencia,reincidente,contado_por_id,capturado_en,observacion,cantidad_original,corregido_en,motivo_correccion,stock_consignado,total_consignado,stock_en_proveedor,total_en_proveedor';
+const MINUTOS_REFRESCO_RECONTEOS_CACHE = 15;
+function leerReconteosCache(usuarioId){
+  try{ return (JSON.parse(localStorage.getItem(RECONTEOS_CACHE_KEY)||'{}'))[usuarioId] || null; }catch(e){ return null; }
+}
+// Solo la cuenta actual: es una lista grande y no tiene sentido guardar la de otra.
+function guardarReconteosCache(usuarioId, filas){
+  try{
+    localStorage.setItem(RECONTEOS_CACHE_KEY, JSON.stringify({[usuarioId]: {en: new Date().toISOString(), filas}}));
+    return true;
+  }catch(e){ return false; }
+}
+async function guardarReconteosParaSinSenal(){
+  const filas = await restTodo(`/reconteo_pendiente?select=${CAMPOS_RECONTEO_SIN_SENAL}&order=ultimo_conteo_fecha.desc`);
+  if(!guardarReconteosCache(state.perfil.id, filas)) throw new Error(MENSAJE_SIN_ESPACIO_CELULAR);
+  return filas.length;
+}
+// La misma regla que filtroSemanaReconteo y filtroTextoReconteo, sobre lo guardado.
+function reconteosDeCacheFiltrados(filas){
+  let r = filas;
+  if(state.reconteoSemana){
+    const desde = new Date(state.reconteoSemana+'T00:00:00').getTime(), hasta = sumarDias(new Date(state.reconteoSemana+'T00:00:00'), 7).getTime();
+    r = r.filter(f=>{ const t = new Date(f.ultimo_conteo_fecha).getTime(); return t>=desde && t<hasta; });
+  }
+  const t = (state.reconteoTexto||'').trim().toLowerCase();
+  if(t) r = r.filter(f=> (f.sku_code||'').toLowerCase().includes(t) || (f.descripcion||'').toLowerCase().includes(t));
+  return r;
+}
+// Como reconteo_pendiente_por_semana: lunes de la semana local del último conteo, de menor a mayor.
+function reconteosPorSemanaDeCache(filas){
+  const m = new Map();
+  filas.forEach(f=>{ const k = fechaISO(inicioSemana(new Date(f.ultimo_conteo_fecha))); m.set(k, (m.get(k)||0)+1); });
+  return [...m.entries()].sort((a,b)=> a[0].localeCompare(b[0])).map(([semana, pendientes])=>({semana, pendientes}));
+}
+function mostrarReconteosDeCache(cache){
+  const filtradas = reconteosDeCacheFiltrados(cache.filas||[]);
+  setState({reconteos: filtradas.slice(0, TAM_PAGINA_LISTA), reconteosCargados:true, reconteosError:'', reconteosHayMas: filtradas.length > TAM_PAGINA_LISTA,
+    reconteosPorSemana: reconteosPorSemanaDeCache(cache.filas||[]), reconteosDesdeCache: cache.en, reconteosSeleccionados: []});
+}
+// Sin señal (o con la lista guardada a la vista), Descartar, Ajustado en ERP, Editar y Ajustar
+// stock se apagan: cambian datos que otra persona pudo tocar mientras tanto y tienen que
+// confirmarse contra el servidor. Recontar sí funciona: el conteo queda en la cola.
+function reconteoSinSenal(){
+  return !!state.reconteosDesdeCache || (typeof navigator!=='undefined' && navigator.onLine===false);
+}
+
 // Texto de la advertencia para un SKU recuperado por skusMovidosDeEntradas: si cambió de bodega
 // o ubicación, eso es lo relevante para el conteo (importa más que el bin); si solo cambió de
 // bin dentro de la misma bodega+ubicación, se avisa puntualmente de eso.
@@ -5093,35 +5261,43 @@ function describirCambioPlan(s){
   return `Cambió de bin: se planificó en ${esc(s.binOriginal)}, ahora está en ${esc(s.storage_bin||'sin bin')}`;
 }
 
+// Los SKU pendientes de un lugar del plan (las entradas que resuelve entradasActivasContar), tal
+// como se listan en Contar. Lo usan elegirCascadaContar (al tocar un lugar) y prepararSinSenal
+// (que guarda los de todos los lugares del día de una vez).
+async function skusPendientesDeEntradas(activas){
+  // Cada entrada puede tener su propio storage_bin y su propia lista de exclusiones (una fila
+  // por bin) — el servidor resuelve cada una por separado y las devuelve juntas en UNA sola
+  // respuesta (ver universoEntradasPlanContar); acá se juntan sin duplicar SKU (puede repetirse
+  // si dos entradas de distinto bin comparten alguno). Se deduplica por id, no por sku_code: un
+  // mismo código puede tener más de una fila pendiente (una por batch), y deduplicar por código
+  // dejaría solo la primera, ocultando el resto de los batches.
+  const porEntrada = await universoEntradasPlanContar(activas.map(e=>e.id));
+  const vistos = new Set();
+  const skus = [];
+  activas.forEach(e=> (porEntrada[e.id]||[]).forEach(s=>{ if(!vistos.has(s.id)){ vistos.add(s.id); skus.push(s); } }));
+
+  // Solo entradas CON bin específico: el universo de SKU a snapshotear queda acotado a lo que
+  // hay en ese bin (chico), a diferencia de una entrada sin bin (bodega+ubicación completa),
+  // que puede cubrir miles de SKU y volvería impracticable guardar la foto de todos.
+  const entradasConBin = activas.filter(e=>!e.solo_sin_ubicacion && e.storage_bin);
+  if(entradasConBin.length){
+    const binesActivos = new Set(activas.map(e=>e.storage_bin).filter(Boolean));
+    const excluidos = new Set(activas.flatMap(e=>e.skus_excluidos||[]));
+    const movidos = await skusMovidosDeEntradas(entradasConBin, binesActivos);
+    movidos.forEach(s=>{ if(!vistos.has(s.id) && !excluidos.has(s.sku_code)){ vistos.add(s.id); skus.push(s); } });
+  }
+
+  skus.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'') || a.sku_code.localeCompare(b.sku_code));
+  return skus;
+}
+
 async function elegirCascadaContar(cambios){
   const cp = {...state.contarPlan, ...cambios, skusPendientes:null, errorSkus:'', desdeCache:false};
   setState({contarPlan: cp});
   const activas = entradasActivasContar(cp);
   if(!activas.length) return;
   try{
-    // Cada entrada puede tener su propio storage_bin y su propia lista de exclusiones (una fila
-    // por bin) — el servidor resuelve cada una por separado y las devuelve juntas en UNA sola
-    // respuesta (ver universoEntradasPlanContar); acá se juntan sin duplicar SKU (puede repetirse
-    // si dos entradas de distinto bin comparten alguno). Se deduplica por id, no por sku_code: un
-    // mismo código puede tener más de una fila pendiente (una por batch), y deduplicar por código
-    // dejaría solo la primera, ocultando el resto de los batches.
-    const porEntrada = await universoEntradasPlanContar(activas.map(e=>e.id));
-    const vistos = new Set();
-    const skus = [];
-    activas.forEach(e=> (porEntrada[e.id]||[]).forEach(s=>{ if(!vistos.has(s.id)){ vistos.add(s.id); skus.push(s); } }));
-
-    // Solo entradas CON bin específico: el universo de SKU a snapshotear queda acotado a lo que
-    // hay en ese bin (chico), a diferencia de una entrada sin bin (bodega+ubicación completa),
-    // que puede cubrir miles de SKU y volvería impracticable guardar la foto de todos.
-    const entradasConBin = activas.filter(e=>!e.solo_sin_ubicacion && e.storage_bin);
-    if(entradasConBin.length){
-      const binesActivos = new Set(activas.map(e=>e.storage_bin).filter(Boolean));
-      const excluidos = new Set(activas.flatMap(e=>e.skus_excluidos||[]));
-      const movidos = await skusMovidosDeEntradas(entradasConBin, binesActivos);
-      movidos.forEach(s=>{ if(!vistos.has(s.id) && !excluidos.has(s.sku_code)){ vistos.add(s.id); skus.push(s); } });
-    }
-
-    skus.sort((a,b)=> (a.storage_bin||'').localeCompare(b.storage_bin||'') || a.sku_code.localeCompare(b.sku_code));
+    const skus = await skusPendientesDeEntradas(activas);
     setState({contarPlan:{...state.contarPlan, skusPendientes: skus, desdeCache:false}});
     if(state.perfil) guardarSeleccionPlanDiaCache(state.perfil.id, cp.fecha, cp.bodega, cp.ubicacion, skus);
   }catch(e){
@@ -6967,8 +7143,20 @@ async function cargarReconteos(){
     // Descartar no había hecho nada (o que aparecían pendientes nuevos de golpe).
     // La selección solo conserva lo que sigue en pantalla: lo cerrado o recontado sale de ella.
     const enPantalla = new Set((rows||[]).map(r=>r.conteo_id));
-    setState({reconteos: rows||[], reconteosCargados: true, reconteosError: '', reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteosSeleccionados: (state.reconteosSeleccionados||[]).filter(id=>enPantalla.has(id))});
+    setState({reconteos: rows||[], reconteosCargados: true, reconteosError: '', reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteosDesdeCache: null, reconteosSeleccionados: (state.reconteosSeleccionados||[]).filter(id=>enPantalla.has(id))});
+    // De paso, la lista completa queda en el celular para usarla sin señal (ver
+    // guardarReconteosParaSinSenal). En segundo plano y como mucho cada 15 minutos; si falla, no
+    // cambia nada de lo que se ve: sin señal, Reconteo muestra la hora de lo que sí alcanzó a guardar.
+    const cache = state.perfil ? leerReconteosCache(state.perfil.id) : null;
+    if(state.perfil && (!cache || Date.now() - new Date(cache.en).getTime() > MINUTOS_REFRESCO_RECONTEOS_CACHE*60000)){
+      guardarReconteosParaSinSenal().catch(()=>{ /* se reintenta en la próxima visita */ });
+    }
   }catch(e){
+    // Sin señal: la lista guardada en el celular, con su hora (ver mostrarReconteosDeCache).
+    if(pareceFalloDeRed(e) && state.perfil){
+      const cache = leerReconteosCache(state.perfil.id);
+      if(cache){ mostrarReconteosDeCache(cache); return; }
+    }
     // A la vista, no en silencio: si había una lista en pantalla se conserva y el aviso dice que
     // puede no estar al día; si nunca cargó, se ve el error en vez de "no hay pendientes".
     setState({reconteosError: mensajeErrorCarga(e)});
@@ -6985,6 +7173,16 @@ function elegirSemanaReconteo(semana){
 
 async function cargarMasReconteos(){
   if(state.reconteosCargandoMas) return;
+  // Con la lista guardada a la vista, "Cargar más" sigue sobre lo guardado.
+  if(state.reconteosDesdeCache && state.perfil){
+    const cache = leerReconteosCache(state.perfil.id);
+    if(cache){
+      const filtradas = reconteosDeCacheFiltrados(cache.filas||[]);
+      const hasta = state.reconteos.length + TAM_PAGINA_LISTA;
+      setState({reconteos: filtradas.slice(0, hasta), reconteosHayMas: filtradas.length > hasta});
+      return;
+    }
+  }
   state.reconteosCargandoMas = true;
   render();
   try{
@@ -9911,6 +10109,7 @@ async function sincronizarColaOffline(){
   if(enviados>0){
     toast(`${enviados} cambio${enviados===1?'':'s'} sincronizado${enviados===1?'':'s'}`);
     cargarSkus(); invalidarCacheAgregados(['generales','sinUbicacion']); refrescarSiCargada(['dashboard','reconteos','skusPagina']);
+    refrescarContarTrasSenal();
   }
   render();
   // Lo que se guardó mientras esta pasada corría (ej. el conteo de un SKU nuevo, tocado justo
@@ -13070,6 +13269,10 @@ function renderPlanDelDia(){
   const ubicaciones = Array.from(new Set(porBodega.map(e=> e.ubicacion || ''))).filter(Boolean).sort();
   const activas = entradasActivasContar(cp);
   const bodegaElegida = !!cp.bodega;
+  // Lo contado que espera en la cola sale de la lista y se nombra aparte (ver idsSkuContadosEnCola).
+  const enCola = idsSkuContadosEnCola();
+  const pendientesVisibles = cp.skusPendientes ? cp.skusPendientes.filter(s=> !enCola.has(s.id)) : null;
+  const contadosPorEnviar = cp.skusPendientes ? cp.skusPendientes.filter(s=> enCola.has(s.id)) : [];
   const chev = `<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>`;
   const etiquetaBodega = b => b===BODEGA_SIN_UBICACION ? 'SKU sin ubicación' : (b===BODEGA_VACIA || b==='') ? 'Sin bodega asignada' : b;
   const tituloLugar = (bodega, ubic) => bodega===BODEGA_SIN_UBICACION ? 'SKU sin ubicación' : `${etiquetaBodega(bodega)} · ${ubic || 'Toda la bodega'}`;
@@ -13078,15 +13281,7 @@ function renderPlanDelDia(){
   // entradasActivasContar), con sus bins y su responsable. Tocarla equivale a elegir los dos
   // <select> de una vez (mismo elegirCascadaContar). Con una bodega ya elegida por el <select> y
   // sin ubicación, se ofrecen solo los lugares de esa bodega.
-  const lugares = [];
-  if(haySueltos) lugares.push({bodega:BODEGA_SIN_UBICACION, ubic:'', entradas: cp.entradas.filter(e=>e.solo_sin_ubicacion)});
-  normales.forEach(e=>{
-    const valorBodega = e.bodega==='' ? BODEGA_VACIA : e.bodega;
-    const ubic = e.ubicacion || '';
-    let l = lugares.find(x=>x.bodega===valorBodega && x.ubic===ubic);
-    if(!l){ l = {bodega:valorBodega, ubic, entradas:[]}; lugares.push(l); }
-    l.entradas.push(e);
-  });
+  const lugares = lugaresPlanDia(cp.entradas);
   const lugaresVisibles = bodegaElegida ? lugares.filter(l=>l.bodega===cp.bodega) : lugares;
   const tarjetaLugar = l => {
     const bins = Array.from(new Set(l.entradas.map(e=>e.storage_bin).filter(Boolean)));
@@ -13108,7 +13303,7 @@ function renderPlanDelDia(){
   // elegirCascadaContar). Con un solo grupo sin bin no hace falta cabecera.
   const listaPendientes = () => {
     const grupos = [];
-    cp.skusPendientes.forEach(s=>{
+    pendientesVisibles.forEach(s=>{
       const bin = s.storage_bin || '';
       let g = grupos[grupos.length-1];
       if(!g || g.bin!==bin){ g = {bin, skus:[]}; grupos.push(g); }
@@ -13178,6 +13373,7 @@ function renderPlanDelDia(){
       </details>
       ${!cp.cargando && cp.entradas.some(e=>!e.responsable_id)? `<div class="hint" style="margin-top:8px">${(()=>{ const n = cp.entradas.filter(e=>!e.responsable_id).length; return n===cp.entradas.length ? `${n===1?'La entrada de este día no tiene':`Las ${n} entradas de este día no tienen`} responsable: las puede contar cualquiera del equipo.` : `Incluye ${n} entrada${n===1?'':'s'} sin responsable, que puede contar cualquiera del equipo.`; })()}</div>` : ''}
       ${cp.desdeCache? `<div class="badge badge-warn" style="display:inline-flex;align-items:center;gap:5px;margin-top:8px">${ICONS.alerta.replace('<svg','<svg style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none"')} Sin conexión: mostrando el plan guardado la última vez que hubo señal</div>` : ''}
+      ${renderPrepararSinSenal()}
       ${cp.cargando? `<div class="empty" style="padding:14px 8px;margin-top:10px"><span class="spinner"></span> Cargando…</div>` :
         !cp.entradas.length? `<div class="empty" style="padding:14px 8px;margin-top:10px">Sin nada planificado para ti este día.</div>` :
         !activas.length? `
@@ -13194,13 +13390,14 @@ function renderPlanDelDia(){
               <button type="button" class="btn btn-secondary btn-sm" id="btn-contar-reintentar-skus" style="margin-top:10px">Reintentar</button>
             </div>` :
             cp.skusPendientes===null? `<div class="hint" style="margin-top:10px">Cargando SKU pendientes…</div>` :
-            cp.skusPendientes.length? `
+            pendientesVisibles.length? `
             <div class="contar-lista-cab">
-              <div><span class="contar-n">${cp.skusPendientes.length}</span><span class="contar-n-txt">SKU pendiente${cp.skusPendientes.length===1?'':'s'}</span></div>
+              <div><span class="contar-n">${pendientesVisibles.length}</span><span class="contar-n-txt">SKU pendiente${pendientesVisibles.length===1?'':'s'}</span></div>
               <button type="button" id="btn-escanear-plan" class="btn btn-secondary" aria-label="Escanear código de un SKU planificado">${ICONS.escanear} Escanear</button>
             </div>
             ${listaPendientes()}
             ` : `<div class="empty" style="padding:14px 8px;margin-top:10px"><div class="glyph">✓</div>Ya contaste todo lo pendiente aquí.</div>`}
+            ${cp.skusPendientes!==null && contadosPorEnviar.length? `<div class="hint" id="contar-por-enviar" style="margin-top:10px">✓ ${contadosPorEnviar.length===1 ? '1 contado' : `${contadosPorEnviar.length} contados`}, por enviar: ${esc(contadosPorEnviar.slice(0,6).map(s=>s.sku_code).join(', '))}${contadosPorEnviar.length>6?'…':''}</div>` : ''}
         `}
     </div>
   `;
@@ -13422,7 +13619,12 @@ function infoStockPorTipo(r){
    RENDER — Reconteo (materiales que no cuadran con el sistema)
    ======================================================================= */
 function renderReconteo(){
-  const rows = state.reconteos;
+  // Lo recontado que espera en la cola de este celular sale de la lista (ver idsSkuContadosEnCola).
+  const enCola = idsSkuContadosEnCola();
+  const rows = state.reconteos.filter(r=> !enCola.has(r.id));
+  const recontadosPorEnviar = state.reconteos.filter(r=> enCola.has(r.id));
+  const sinSenal = reconteoSinSenal();
+  const apagado = sinSenal ? ' disabled title="Necesita señal"' : '';
   // Conteo ciego (ver ocultarStockOperador): sin la columna "Sistema" no alcanza con solo
   // quitarla -- "Contado" + "Diferencia" numérica igual la delatan (sistema = contado - diferencia),
   // así que la diferencia también se neutraliza a una etiqueta sin monto.
@@ -13466,10 +13668,12 @@ function renderReconteo(){
         </div>
         ${textoBusqueda ? `<div class="hint" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>Mostrando pendientes que coinciden con <strong>${esc(textoBusqueda)}</strong>${semanaActiva ? ` en la semana ${etiquetaSemana(semanaActiva)}` : ''}.</span><button type="button" class="link-btn" id="btn-limpiar-reconteo">Limpiar búsqueda</button></div>` : ''}
       </form>
+      ${state.reconteosDesdeCache || sinSenal ? `<div class="aviso-sin-senal" id="reconteo-sin-senal">${ICONS.alerta.replace('<svg','<svg style="width:15px;height:15px;stroke:var(--warn);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;margin-top:2px"')}<span>${state.reconteosDesdeCache ? `<b>Sin señal:</b> lista guardada en este celular el ${esc(new Date(state.reconteosDesdeCache).toLocaleString('es-CL',{day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}))}.` : '<b>Sin señal.</b>'} Puedes recontar: queda en el celular y se envía al volver la señal.${esAdmin || bodegaActiva ? ' Descartar, Ajustado en ERP, Editar y Ajustar stock necesitan señal.' : ''}</span></div>` : ''}
+      ${recontadosPorEnviar.length ? `<div class="hint" id="reconteo-por-enviar" style="margin-bottom:10px">✓ ${recontadosPorEnviar.length===1 ? '1 recontado' : `${recontadosPorEnviar.length} recontados`}, por enviar: ${esc(recontadosPorEnviar.slice(0,6).map(r=>r.sku_code).join(', '))}${recontadosPorEnviar.length>6?'…':''}</div>` : ''}
       ${esAdmin && seleccionados.length ? `<div id="acciones-reconteo-lote" class="card" style="border-color:var(--amber);display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px">
         <span style="font-size:13px;flex:1;min-width:120px"><b>${seleccionados.length}</b> seleccionado${seleccionados.length===1?'':'s'}</span>
-        <button type="button" class="btn btn-primary" id="btn-cerrar-lote-erp" style="width:auto;padding:7px 12px;font-size:12.5px">Cerrar ${seleccionados.length} con ajuste en el ERP</button>
-        <button type="button" class="btn btn-secondary" id="btn-descartar-lote" style="width:auto;padding:7px 12px;font-size:12.5px">Quitar ${seleccionados.length} del reconteo</button>
+        <button type="button" class="btn btn-primary" id="btn-cerrar-lote-erp" style="width:auto;padding:7px 12px;font-size:12.5px"${apagado}>Cerrar ${seleccionados.length} con ajuste en el ERP</button>
+        <button type="button" class="btn btn-secondary" id="btn-descartar-lote" style="width:auto;padding:7px 12px;font-size:12.5px"${apagado}>Quitar ${seleccionados.length} del reconteo</button>
         <button type="button" class="link-btn" id="btn-limpiar-seleccion-reconteo">Deseleccionar</button>
       </div>` : ''}
       ${state.reconteosError? `
@@ -13492,10 +13696,10 @@ function renderReconteo(){
           <td class="mono" style="font-size:12px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
           <td class="num">${(r.fotos||[]).length
             ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(r.fotos))}" aria-label="Ver fotos">${ICONS.camera}${r.fotos.length>1?` ${r.fotos.length}`:''}</button>`
-            : `<span class="icon-btn disabled" aria-hidden="true">${ICONS.camera}</span>`}</td>
-          <td class="num" style="white-space:nowrap"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button>${esAdmin?` <button class="btn btn-secondary" data-descartar-reconteo="${r.conteo_id}" data-descartar-reconteo-sku="${esc(r.sku_code)}" style="width:auto;padding:6px 12px;font-size:12px">Descartar</button> <button class="btn btn-secondary" data-cerrar-ajuste-erp="${esc(r.conteo_id)}" style="width:auto;padding:6px 12px;font-size:12px" title="La diferencia se resolvió ajustando el ERP">Ajustado en ERP</button>`:''}${puedeCorregirConteo(r)?` ${botonCorregirConteo(r, r.ultima_cantidad_contada, 'width:auto;padding:6px 12px;font-size:12px')}`:''}${bodegaActiva?` <button class="btn btn-secondary" data-ajustar-sku="${esc(r.id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${ocultarSistema||r.stock_sistema==null?'':r.stock_sistema}" data-ajustar-cantidad="${r.ultima_cantidad_contada}" data-ajustar-conteo="${esc(r.conteo_id||'')}" data-ajustar-motivo="${esc(`Reconteo del ${fmtFecha(r.ultimo_conteo_fecha)}: se contaron ${r.ultima_cantidad_contada}`)}" style="width:auto;padding:6px 12px;font-size:12px">${esAdmin?'Ajustar stock':'Proponer ajuste'}</button>`:''}</td>
+            : `<span class="icon-btn disabled" aria-hidden="true" ${state.reconteosDesdeCache? 'title="Las fotos necesitan señal"' : ''}>${ICONS.camera}</span>`}</td>
+          <td class="num" style="white-space:nowrap"><button class="btn btn-primary" data-recontar="${r.id}" style="width:auto;padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px">${ICONS.reconteo.replace('<svg','<svg style="width:14px;height:14px" ')}Recontar</button>${esAdmin?` <button class="btn btn-secondary" data-descartar-reconteo="${r.conteo_id}" data-descartar-reconteo-sku="${esc(r.sku_code)}" style="width:auto;padding:6px 12px;font-size:12px"${apagado}>Descartar</button> <button class="btn btn-secondary" data-cerrar-ajuste-erp="${esc(r.conteo_id)}" style="width:auto;padding:6px 12px;font-size:12px" ${sinSenal? 'disabled title="Necesita señal"' : 'title="La diferencia se resolvió ajustando el ERP"'}>Ajustado en ERP</button>`:''}${puedeCorregirConteo(r)?` ${botonCorregirConteo(r, r.ultima_cantidad_contada, 'width:auto;padding:6px 12px;font-size:12px').replace('<button ', sinSenal? '<button disabled title="Necesita señal" ' : '<button ')}`:''}${bodegaActiva?` <button class="btn btn-secondary"${apagado} data-ajustar-sku="${esc(r.id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${ocultarSistema||r.stock_sistema==null?'':r.stock_sistema}" data-ajustar-cantidad="${r.ultima_cantidad_contada}" data-ajustar-conteo="${esc(r.conteo_id||'')}" data-ajustar-motivo="${esc(`Reconteo del ${fmtFecha(r.ultimo_conteo_fecha)}: se contaron ${r.ultima_cantidad_contada}`)}" style="width:auto;padding:6px 12px;font-size:12px">${esAdmin?'Ajustar stock':'Proponer ajuste'}</button>`:''}</td>
         </tr>`).join('')}</tbody>
-      </table></div>` : `<div class="empty"><div class="glyph">${textoBusqueda?'?':'✓'}</div>${textoBusqueda ? `Ningún pendiente coincide con «${esc(textoBusqueda)}»${semanaActiva?' en esta semana':''}.` : (semanaActiva ? 'No quedan pendientes en esta semana.' : 'No hay materiales con diferencias pendientes.')}</div>`}
+      </table></div>` : `<div class="empty"><div class="glyph">${textoBusqueda?'?':'✓'}</div>${textoBusqueda ? `Ningún pendiente coincide con «${esc(textoBusqueda)}»${semanaActiva?' en esta semana':''}.` : recontadosPorEnviar.length ? 'Recontaste todo lo que estaba a la vista.' : (semanaActiva ? 'No quedan pendientes en esta semana.' : 'No hay materiales con diferencias pendientes.')}</div>`}
       ${state.reconteosHayMas? `<div style="text-align:center;margin-top:12px">
         <button type="button" class="btn btn-secondary" id="btn-cargar-mas-reconteo" style="width:auto;padding:8px 16px" ${state.reconteosCargandoMas?'disabled':''}>${state.reconteosCargandoMas?'Cargando…':'Cargar más'}</button>
       </div>` : ''}
@@ -18016,6 +18220,8 @@ function bind(){
       });
       const btnCambiarLugar = document.getElementById('btn-contar-cambiar-lugar');
       if(btnCambiarLugar) btnCambiarLugar.addEventListener('click', ()=> elegirCascadaContar({bodega:'', ubicacion:''}));
+      const btnPrepararSinSenal = document.getElementById('btn-preparar-sin-senal');
+      if(btnPrepararSinSenal) btnPrepararSinSenal.addEventListener('click', prepararSinSenal);
       const btnReintentarSkus = document.getElementById('btn-contar-reintentar-skus');
       if(btnReintentarSkus) btnReintentarSkus.addEventListener('click', ()=> elegirCascadaContar({}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
@@ -19077,6 +19283,15 @@ async function iniciarApp(){
   // El chip de conexión de la cabecera se repinta al cambiar la señal. conservandoCamposConteo:
   // si justo se está tecleando un conteo, el repintado no borra lo escrito.
   window.addEventListener('online', ()=>{ if(state.session) conservandoCamposConteo(render); });
+  // Volvió la señal: Contar y Reconteo dejan de mostrar lo guardado (ver refrescarContarTrasSenal).
+  // Solo si se estaba mostrando lo guardado: con señal que va y viene (faena), no se vuelve a pedir
+  // la lista en cada reconexión. Lo que se envía de la cola refresca por su cuenta (ver
+  // sincronizarColaOffline).
+  window.addEventListener('online', ()=>{
+    if(!state.session) return;
+    if(state.contarPlan.desdeCache) refrescarContarTrasSenal();
+    if(state.reconteosDesdeCache) cargarReconteos();
+  });
   window.addEventListener('offline', ()=>{ if(state.session) conservandoCamposConteo(render); });
   // Red de seguridad global (Sentry #227) -- ver mensajeParaRechazoNoCapturado más arriba.
   window.addEventListener('unhandledrejection', e=> toast(mensajeParaRechazoNoCapturado(e.reason), 'err'));
