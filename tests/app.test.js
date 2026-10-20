@@ -5160,6 +5160,52 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlPreviewRep.includes('3 fila(s) del archivo comparten identidad'), 'el preview avisa antes de confirmar, obtuvo: '+htmlPreviewRep);
   assert(htmlPreviewRep.includes('10001445') && htmlPreviewRep.includes('20002'), 'muestra ejemplos concretos para poder revisar el export');
 
+  // ===== Filas repetidas: sumarlas o quedarse con la última (Joel, 20/10/2026) =====
+  // Un WMS anota cada pallet en su propia fila: dos pallets del mismo lote en el mismo bin son el
+  // mismo material y su stock es la suma. Quien carga lo elige viendo los números; por defecto,
+  // como siempre, queda la última.
+  {
+    const previewRep = ctx.__appstate.cargaPreview;
+    assert(htmlPreviewRep.includes('name="repetidas-carga" value="sumar"') && htmlPreviewRep.includes('Sumar sus cantidades') && htmlPreviewRep.includes('Quedarse con la última'), 'el aviso ofrece sumar o quedarse con la última, obtuvo: '+htmlPreviewRep);
+    assert(/value="ultima" checked/.test(htmlPreviewRep), 'por defecto queda la última, como hasta ahora');
+    const ej20002 = repetidas.ejemplos.find(e=>e.sku_code==='20002');
+    assert(ej20002 && ej20002.stockSumado===18 && ej20002.stockUltima===7, 'el ejemplo muestra qué stock queda con cada opción (5+6+7=18, o 7), obtuvo: '+JSON.stringify(ej20002));
+
+    const cargarCon = async (modoRep) => {
+      ctx.__appstate.cargaPreview = {...previewRep, repetidas: modoRep};
+      calls.length = 0;
+      await ctx.confirmarCargaMasiva();
+      const post = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+      const reg = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
+      return { filas: JSON.parse(post.opts.body), detalle: JSON.parse(reg.opts.body)[0].detalle_errores };
+    };
+    const stockDe = (filas, code, bin) => (filas.find(f=>f.sku_code===code && f.storage_bin===bin)||{}).stock_sistema;
+
+    const conUltima = await cargarCon('ultima');
+    assert(conUltima.filas.length===4 && stockDe(conUltima.filas,'20002','A-1')===7 && stockDe(conUltima.filas,'10001445','N1E-120-F2')===2, 'quedándose con la última: 4 materiales, con el stock de la última fila, obtuvo: '+JSON.stringify(conUltima.filas));
+    assert(conUltima.detalle.some(e=>/descartadas: quedó la última/.test(e.motivo) && e.cantidad===3), 'el historial dice cuántas filas repetidas se descartaron, obtuvo: '+JSON.stringify(conUltima.detalle));
+
+    const conSuma = await cargarCon('sumar');
+    assert(conSuma.filas.length===4, 'sumando, siguen siendo 4 materiales, obtuvo: '+conSuma.filas.length);
+    assert(stockDe(conSuma.filas,'20002','A-1')===18 && stockDe(conSuma.filas,'10001445','N1E-120-F2')===4, 'sumando, el stock es la suma de las filas repetidas (5+6+7, 2+2), obtuvo: '+JSON.stringify(conSuma.filas));
+    assert(stockDe(conSuma.filas,'10001445','N1E-120-F3')===14 && stockDe(conSuma.filas,'10001445','N1E-120-F4')===3, 'las filas de otro bin no se tocan, obtuvo: '+JSON.stringify(conSuma.filas));
+    assert(conSuma.detalle.some(e=>/sumadas en su material/.test(e.motivo) && e.cantidad===3), 'el historial dice cuántas filas repetidas se sumaron, obtuvo: '+JSON.stringify(conSuma.detalle));
+    assert(ctx.__appstate.cargaResultado && ctx.__appstate.cargaResultado.repetidasModo==='sumar' && ctx.renderResultadoDeCarga().includes('3 repetidas sumadas'), 'el resultado de la carga dice que se sumaron, obtuvo: '+ctx.renderResultadoDeCarga());
+
+    // Sumar junta también el stock informativo (bloqueado, tránsito); lo demás queda de la última
+    // fila que lo trae, y una fila sin stock no anula la suma.
+    const fusion = ctx.fusionarFilaRepetida(
+      { sku_code:'X', stock_sistema:2, stock_bloqueado:1, costo_unitario:100, descripcion:'Perno' },
+      { sku_code:'X', stock_sistema:null, stock_bloqueado:3, costo_unitario:null, descripcion:'Perno M16' });
+    assert(fusion.stock_sistema===2 && fusion.stock_bloqueado===4 && fusion.costo_unitario===100 && fusion.descripcion==='Perno M16', 'la fusión suma cantidades y conserva el último dato no vacío, obtuvo: '+JSON.stringify(fusion));
+
+    ctx.__appstate.cargaPreview = {...previewRep, repetidas:'sumar'};
+    const htmlSuma = ctx.renderCargaPreview();
+    assert(htmlSuma.includes('3 fila(s) repetidas se suman a su material') && /value="sumar" checked/.test(htmlSuma), 'con sumar elegido, el resumen lo dice, obtuvo: '+htmlSuma);
+    ctx.__appstate.cargaPreview = previewRep;
+    ctx.__appstate.cargaResultado = null;
+  }
+
   // Un archivo sin filas repetidas no muestra el aviso.
   ctx.__appstate.cargaPreview = {
     file: { name: 'limpio.csv' }, modo: 'complementar',
