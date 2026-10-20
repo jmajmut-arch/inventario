@@ -218,6 +218,27 @@ async function rutas(page, perfil){
     await ir(page, 'config'); await page.waitForTimeout(1500); await guardar(page, 'config', { full:true });
     await tarjeta(page, 'Tu empresa', 't-empresa'); await tarjeta(page, 'Mi equipo', 't-equipo'); await tarjeta(page, 'Plan y facturación', 't-plan-facturacion');
     await ctx.close(); }
+  // Sin señal (20/10/2026): Contar preparado, Contar sin señal con lo contado aparte y Reconteo con
+  // la lista guardada. La red se corta con una ruta que aborta todo lo que va a Supabase (las rutas
+  // simuladas responderían igual con el contexto offline).
+  { const { ctx, page } = await abrir(PERFIL);
+    await ir(page, 'conteo'); await page.waitForTimeout(800);
+    await page.click('#btn-preparar-sin-senal'); await page.waitForSelector('.contar-sin-senal.listo', { timeout:15000 }); await page.waitForTimeout(500);
+    await limpiar(page);
+    { const card = await page.evaluateHandle(()=>document.getElementById('contar-sin-senal').closest('.card')); await card.asElement().screenshot({ path: path.join(OUT, 'sin-senal-preparado.png') }); }
+    await page.route(u=>/\/(rest|auth|storage)\/v1\//.test(u.toString()), r=>r.abort('internetdisconnected')); await ctx.setOffline(true);
+    await page.evaluate(()=>render()); await page.waitForTimeout(400);
+    await page.click('.contar-lugar'); await page.waitForSelector('[data-pick-plan]', { timeout:15000 }); await page.waitForTimeout(400);
+    await page.click('[data-pick-plan]'); await page.waitForSelector('#c-cant', { timeout:15000 }); await page.fill('#c-cant', '3');
+    await page.click('#form-conteo .conteo-pie button[type="submit"]'); await page.waitForTimeout(700);
+    if(await page.$('#btn-aviso-guardar-sin-foto')) await page.click('#btn-aviso-guardar-sin-foto');
+    await page.waitForSelector('#contar-por-enviar', { timeout:15000 }); await page.waitForTimeout(800); await limpiar(page);
+    await page.evaluate(()=>{ const a = document.querySelector('.contar-activo'); window.scrollTo(0, window.scrollY + a.getBoundingClientRect().top - (document.querySelector('.topbar').getBoundingClientRect().bottom + 10)); }); await page.waitForTimeout(400);
+    { const fin = await (await page.$('#contar-por-enviar')).boundingBox(); await guardar(page, 'sin-senal-lista', { clip:{ x:0, y:0, width:412, height: Math.min(900, Math.ceil(fin.y + fin.height + 14)) } }); }
+    await ir(page, 'reconteo'); await page.waitForSelector('#reconteo-sin-senal', { timeout:15000 }); await page.waitForSelector('[data-recontar]', { timeout:15000 }); await page.waitForTimeout(600);
+    { const aviso = await (await page.$('#reconteo-sin-senal')).boundingBox(); await page.evaluate(y=>window.scrollTo(0, y), Math.max(0, aviso.y - 90)); await page.waitForTimeout(400);
+      const a2 = await (await page.$('#reconteo-sin-senal')).boundingBox(); await guardar(page, 'reconteo-sin-senal', { clip:{ x:0, y:Math.max(0, a2.y - 12), width:412, height:330 } }); }
+    await ctx.close(); }
   // Módulo de bodega: Inicio
   { const perfilBodega = JSON.parse(JSON.stringify(PERFIL)); perfilBodega.empresas.modulo_bodega_habilitado = true; perfilBodega.empresas.bodega_funciones = {};
     const { ctx, page } = await abrir(perfilBodega); await page.waitForTimeout(800); await guardar(page, 'bodega-inicio', { full:true }); await ctx.close(); }

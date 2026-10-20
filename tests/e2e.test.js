@@ -457,7 +457,18 @@ async function loguear(page, perfil){
       ubicaciones:[{id:'u1', bodega:'Nave Mina', ubicacion:null, activo:true}, {id:'u2', bodega:'Nave Planta', ubicacion:null, activo:true}, {id:'u3', bodega:'Nave Mina', ubicacion:'Pasillo 3', activo:true}],
     }) }));
     await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:2}]) }));
-    await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:1}]) }));
+    // Los bins de la ubicación quedan retenidos hasta que se empieza a escribir el bin: así la
+    // prueba reproduce que lleguen mientras la persona teclea (antes repintaban y reemplazaban el
+    // campo; en CI pasó por azar del orden de llegada).
+    let soltarBinsUbicacion;
+    const binsUbicacionRetenidos = new Promise(r => { soltarBinsUbicacion = r; });
+    await page.route('**/rest/v1/ubicaciones_bins**', async route => {
+      const porUbicacion = route.request().url().includes('ubicacion=eq.');
+      if(porUbicacion) await binsUbicacionRetenidos;
+      await route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(porUbicacion
+        ? [{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:1}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-03', cantidad_skus:1}]
+        : [{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:1}]) });
+    });
     await page.route('**/rest/v1/skus?activo=eq.true&sku_code=eq.**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
       {id:'e1', sku_code:'10371892', descripcion:'FILTRO ACEITE', unidad_medida:'EA', categoria:'Repuestos', costo_unitario:1500, critico:false, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', batch:null},
     ]) }));
@@ -482,7 +493,10 @@ async function loguear(page, perfil){
     assert(await page.evaluate(() => document.getElementById('s-bin').tagName === 'INPUT' && document.getElementById('s-bin').getAttribute('list') === 'dl-bins-sku'), 'el storage bin es un campo de texto con sugerencias');
     await page.evaluate(() => { document.getElementById('s-bin').dataset.marca = 'original'; });
     await page.click('#s-bin');
-    await page.keyboard.type('A-02');
+    await page.keyboard.type('A-');
+    soltarBinsUbicacion();
+    await page.waitForFunction(() => [...document.querySelectorAll('#dl-bins-sku option')].some(o=>o.value==='A-03'), null, { timeout:ESPERA });
+    await page.keyboard.type('02');
     const binNuevo = await page.evaluate(() => { const el = document.getElementById('s-bin'); return { valor: el.value, mismo: el.dataset.marca === 'original', estado: state.skuForm.storage_bin }; });
     assert(binNuevo.valor === 'A-02' && binNuevo.mismo && binNuevo.estado === 'A-02', 'escribir el bin no reemplaza el campo y queda en el estado, obtuvo '+JSON.stringify(binNuevo));
     // Un repintado (otro campo cambia) conserva lo escrito.
@@ -490,6 +504,34 @@ async function loguear(page, perfil){
     assert(await page.inputValue('#s-bin') === 'A-02', 'el bin escrito sobrevive a un repintado');
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde <= 0, 'a 420 px el formulario no desborda, obtuvo '+desborde);
+    await context.close();
+  }
+
+  // ===== Contar: "ya contado este período" no borra la cantidad que se está escribiendo =====
+  // La respuesta de contado_periodo llega después de elegir el SKU; con señal lenta (o al fallar
+  // sin señal) llegaba cuando la persona ya había escrito la cantidad, y su render() la borraba:
+  // en CI (20/10/2026) el conteo sin señal quedó sin cantidad y no se guardó. Se retiene la
+  // respuesta hasta después de escribir, para reproducirlo siempre.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('veces-periodo: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    let soltarVeces;
+    const vecesRetenido = new Promise(r => { soltarVeces = r; });
+    await page.route('**/rest/v1/rpc/contado_periodo**', async route => {
+      await vecesRetenido;
+      await route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ veces:2, ultima_fecha:'2026-10-19T14:05:00Z', ultima_cantidad:7, ultimo_por:'Pedro Soto' }) });
+    });
+    await page.evaluate(() => setState({ view:'conteo', skuSeleccionado:{ id:'sv-1', sku_code:'10418772', descripcion:'BEARING UNIT', bodega:'B521', ubicacion:'0200', storage_bin:null, batch:null, stock_sistema:5, unidad_medida:'EA' }, conteoOrigenPlan:true }));
+    await page.waitForSelector('#c-cant', { timeout:ESPERA });
+    await page.evaluate(() => { document.getElementById('c-cant').dataset.marca = 'original'; });
+    await page.click('#c-cant');
+    await page.keyboard.type('12');
+    soltarVeces();
+    assert(await esperarCondicion(page, () => (document.getElementById('conteo-veces-periodo')||{}).textContent.includes('Ya contado 2 veces')), 'el aviso "ya contado" aparece al llegar la respuesta');
+    const cant = await page.evaluate(() => { const el = document.getElementById('c-cant'); return { valor: el.value, mismo: el.dataset.marca === 'original', foco: document.activeElement === el }; });
+    assert(cant.valor === '12' && cant.mismo && cant.foco, 'la respuesta no reemplaza el campo cantidad ni borra lo escrito, obtuvo '+JSON.stringify(cant));
     await context.close();
   }
 

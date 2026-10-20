@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>InventIA · Contar sin señal</title>
+<!-- Guía de una página, en papel carta. Capturas con la empresa ficticia de capturas.js.
+     PDF: ver el comentario al final. -->
+<link rel="stylesheet" href="estilo.css">
+<style>
+@page{size:letter;margin:0;}
+.page.una{width:215.9mm;height:279.4mm;min-height:0;padding:12mm 13mm 10mm;overflow:hidden;display:flex;flex-direction:column;}
+.cabeza{display:flex;justify-content:space-between;align-items:center;margin-bottom:5mm;}
+.cabeza .contact{font-size:8.5pt;color:var(--faint);}
+h2.title{font-size:22pt;margin-bottom:4px;}
+.intro{max-width:none;margin-bottom:5mm;}
+.pasos{display:grid;grid-template-columns:1fr 1fr;gap:5mm 9mm;align-items:start;}
+.paso{display:flex;flex-direction:column;gap:6px;}
+.paso .n{display:flex;align-items:center;gap:8px;font-size:7.8pt;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--amber);}
+.paso .n span{width:22px;height:22px;border-radius:50%;background:var(--text);color:#fff;display:flex;align-items:center;justify-content:center;font-size:9.5pt;letter-spacing:0;}
+.paso h3{font-size:12pt;line-height:1.2;margin:0;text-wrap:balance;}
+.paso p{font-size:9.6pt;margin:0;color:var(--dim);line-height:1.4;}
+.paso p b{color:var(--text);}
+.paso img{width:auto;max-width:100%;max-height:42mm;align-self:flex-start;border-radius:8px;border:1px solid var(--line);box-shadow:0 10px 24px -16px rgba(36,26,16,.5);background:#fff;margin-top:2px;}
+.abajo{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5mm;margin-top:auto;padding-top:3mm;}
+.abajo .box{margin:0;font-size:8.6pt;padding:8px 11px;}
+.abajo .checks{font-size:8.6pt;}
+.abajo .checks li{margin-bottom:3px;}
+.box.ok{border-color:#bfdcc9;background:var(--ok-soft);} .box.ok .tag{color:var(--ok);}
+.pie{display:flex;justify-content:space-between;font-size:7.5pt;color:var(--faint);border-top:1px solid var(--line);padding-top:6px;margin-top:4mm;}
+</style></head>
+<body>
+<section class="page una">
+  <div class="cabeza">
+    <div class="brand"><span class="badge">IA</span>Invent<span class="ia">IA</span></div>
+    <div class="contact">Guía rápida · Toma de inventario</div>
+  </div>
+  <div class="kicker">Modo sin señal</div>
+  <h2 class="title">Cómo dejar tu día listo para contar sin señal</h2>
+  <p class="intro">En bodega o en faena la señal se corta. Antes de salir, <b>con señal</b>, prepara tu día en Contar: toma menos de un minuto. Después cuentas como siempre y todo se envía solo cuando vuelve la conexión.</p>
+
+  <div class="pasos">
+    <div class="paso">
+      <div class="n"><span>1</span>Con señal</div>
+      <h3>Abre Contar y toca Preparar para sin señal</h3>
+      <p>Elige el día que vas a contar (por defecto, <b>Hoy</b>) y toca <b>Preparar para sin señal</b>.</p>
+      <img src="img/guia-sin-senal-1.png" alt="Contar: botón Preparar para sin señal">
+    </div>
+    <div class="paso">
+      <div class="n"><span>2</span>Con señal</div>
+      <h3>Espera el aviso verde</h3>
+      <p><b>Listo para contar sin señal</b> dice cuántos lugares, SKU y reconteos quedaron en el celular y a qué hora. Si cambian tu plan, toca <b>Actualizar</b>.</p>
+      <img src="img/guia-sin-senal-2.png" alt="Contar: aviso Listo para contar sin señal">
+    </div>
+    <div class="paso">
+      <div class="n"><span>3</span>Sin señal</div>
+      <h3>Cuenta como siempre</h3>
+      <p>La cabecera dice <b>Sin señal</b>. Abre un lugar y cuenta, con daños y fotos. Lo contado sale de la lista y queda <b>por enviar</b>.</p>
+      <img src="img/guia-sin-senal-3.png" alt="Contar sin señal: lo contado queda por enviar">
+    </div>
+    <div class="paso">
+      <div class="n"><span>4</span>Vuelve la señal</div>
+      <h3>Se envía solo</h3>
+      <p>No tienes que hacer nada: sale en orden, sin duplicarse, con la hora real del conteo. El punto vuelve a verde. Si algo falla, toca <b>Ver detalle</b> en el aviso naranjo.</p>
+      <img src="img/guia-sin-senal-4.png" alt="Al volver la señal: cambios sincronizados">
+    </div>
+  </div>
+
+  <div class="abajo">
+    <div class="box ok"><div class="tag">Funciona sin señal</div>
+      <ul class="checks">
+        <li>Contar los lugares del día preparado, con daños y fotos.</li>
+                <li>Crear un SKU que falta y contarlo (<b>Contar ahora</b>).</li>
+        <li>Reconteo: ver la lista guardada y <b>Recontar</b>.</li>
+      </ul>
+    </div>
+    <div class="box"><div class="tag">Necesita señal</div>
+      <ul class="checks no">
+        <li>Buscar en todo el maestro, Panel y Planificación.</li>
+        <li>Cargas de Excel.</li>
+        <li>En Reconteo: Descartar, Ajustado en ERP, Editar y Ajustar stock.</li>
+        <li>Agregar materiales a una recepción o despacho de bodega.</li>
+      </ul>
+    </div>
+    <div class="box warn"><div class="tag">Cuidados</div>
+      Hasta que todo se envíe: <b>no cierres sesión</b>, no borres los datos del navegador ni uses modo incógnito. Lo pendiente vive en el celular.<div style="height:5px"></div>Se guarda <b>un solo día</b>: si después abres otro día con señal, reemplaza al preparado.
+    </div>
+  </div>
+  <div class="pie"><span>inventiapp.cl · contacto@inventiapp.cl</span><span>Más detalle: Manual de usuario, etapa 09 · Trabajar sin señal</span></div>
+</section>
+</body></html>
+<!-- PDF (desde la raíz del repo):
+python3 -c "from playwright.sync_api import sync_playwright as s;import os
+with s() as p:
+  b=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH'));g=b.new_page();g.goto('file://'+os.path.abspath('docs/src-manuales/guia-sin-senal.html'));g.wait_for_load_state('networkidle');g.emulate_media(media='print');g.pdf(path='docs/InventIA-Guia-Sin-Senal.pdf',format='Letter',print_background=True,margin={'top':'0','bottom':'0','left':'0','right':'0'})"
+-->

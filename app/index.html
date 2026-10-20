@@ -2843,16 +2843,25 @@ async function cargarVecesContadoPeriodo(sku){
   try{
     const r = await rest('/rpc/contado_periodo', {method:'POST', body:{p_sku_id: sku.id}}) || {};
     if(miPeticion !== conteoVecesPeriodoPeticionId) return; // se eligió otro SKU mientras tanto
-    setState({conteoVecesPeriodo: {
+    state.conteoVecesPeriodo = {
       skuId: sku.id, veces: Number(r.veces)||0, cargando:false,
       ultimaFecha: r.ultima_fecha || null,
       ultimaCantidad: r.ultima_cantidad == null ? null : Number(r.ultima_cantidad),
       ultimoPor: r.ultimo_por || null,
-    }});
+    };
   }catch(e){
     if(miPeticion !== conteoVecesPeriodoPeticionId) return;
-    setState({conteoVecesPeriodo: {skuId: sku.id, veces:null, cargando:false}});
+    state.conteoVecesPeriodo = {skuId: sku.id, veces:null, cargando:false};
   }
+  repintarAvisoVecesContadoPeriodo();
+}
+// La respuesta llega cuando la persona puede estar escribiendo la cantidad (con señal lenta, o al
+// fallar sin señal): se repinta solo el aviso, no el formulario. Un render() borraba lo tecleado
+// en la cantidad y en iPhone reiniciaba el teclado (CI lo vio el 20/10/2026: sin señal, el
+// conteo quedaba sin cantidad y no se guardaba).
+function repintarAvisoVecesContadoPeriodo(){
+  const el = document.getElementById('conteo-veces-periodo');
+  if(el) el.innerHTML = avisoVecesContadoPeriodo();
 }
 
 // Página del listado de SKUs (tabla "SKU activos"), con conteo exacto vía Prefer: count=exact
@@ -10308,10 +10317,16 @@ function campoSitioSku(id, etiqueta, valor, opciones, escribiendo, marcaNueva, a
 // servía: una bodega tiene miles de bins, y escribir uno nuevo exigía encontrar "+ Otra…" al
 // final de la lista.
 function campoBinSku(){
-  const bins = state.skuFormOpciones.bins.map(b=>b.storage_bin).filter(Boolean);
   return `<label for="s-bin">Storage bin</label>
     <input type="text" id="s-bin" list="dl-bins-sku" value="${esc(state.skuForm.storage_bin||'')}" placeholder="Escribe o elige, ej. A-12-03" autocomplete="off" autocapitalize="characters" spellcheck="false">
-    <datalist id="dl-bins-sku">${bins.map(b=>`<option value="${esc(b)}"></option>`).join('')}</datalist>`;
+    <datalist id="dl-bins-sku">${opcionesBinSku()}</datalist>`;
+}
+function opcionesBinSku(){
+  return state.skuFormOpciones.bins.map(b=>b.storage_bin).filter(Boolean).map(b=>`<option value="${esc(b)}"></option>`).join('');
+}
+function actualizarSugerenciasBinSku(){
+  const dl = document.getElementById('dl-bins-sku');
+  if(dl) dl.innerHTML = opcionesBinSku();
 }
 // Un bin escrito que ya existe con otras mayúsculas o espacios ("n1e-347-a2") es ese mismo bin.
 function binSkuConocido(texto){
@@ -13505,7 +13520,7 @@ function renderConteo(){
           <span>Batch: ${esc(state.skuSeleccionado.batch||'—')}</span>
           ${ocultarStockOperador()? '' : `<span>Stock sistema (este batch): ${state.skuSeleccionado.stock_sistema!=null?state.skuSeleccionado.stock_sistema:'—'} ${esc(state.skuSeleccionado.unidad_medida||'')}${esc(desgloseConsignado(state.skuSeleccionado))}</span>${infoStockPorTipo(state.skuSeleccionado)}`}
         </div>
-        ${avisoVecesContadoPeriodo()}
+        <div id="conteo-veces-periodo">${avisoVecesContadoPeriodo()}</div>
       </div>
 
       <div class="card">
@@ -18017,7 +18032,11 @@ function bind(){
       if(nueva || !bodega) return;
       const bins = await opcionesBins(bodega, v);
       if(state.skuForm.bodega!==bodega || state.skuForm.ubicacion!==v) return;
-      conservandoCamposSku(()=> setState({skuFormOpciones:{...state.skuFormOpciones, bins}}));
+      // Solo cambian las sugerencias del bin: se rehace su datalist, sin repintar, porque la
+      // persona puede estar escribiendo ya en el bin (repintar reemplaza el input y en iPad
+      // reinicia el teclado).
+      state.skuFormOpciones = {...state.skuFormOpciones, bins};
+      actualizarSugerenciasBinSku();
     });
     // El bin se escribe (ver campoBinSku): va al estado en cada tecla, sin repintar.
     document.getElementById('s-bin').addEventListener('input', e=>{ state.skuForm = {...state.skuForm, storage_bin: e.target.value}; });
