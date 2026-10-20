@@ -4630,6 +4630,13 @@ function faltaFotoObligatoria(cantidad, fotos){
 function avisarConteoSinFoto(cantidad, fotos){
   return !fotoObligatoriaConteo() && Number(cantidad) > 1 && !(fotos && fotos.length);
 }
+// Sin señal y sin espacio en el celular (ver encolarAccionOffline): el aviso queda sobre el
+// botón, no solo en un toast que se va, porque el conteo NO se guardó y lo escrito sigue ahí.
+function avisarConteoNoGuardado(mensaje){
+  toast(mensaje, 'err');
+  const aviso = document.getElementById('conteo-aviso-foto');
+  if(aviso) aviso.innerHTML = `<div class="alert danger conteo-aviso-foto conteo-no-guardado" role="alert"><div class="alert-t"><b>El conteo no se guardó</b><span>${esc(String(mensaje).replace(/^No quedó guardado: (.)/, (_, c)=> c.toUpperCase()))}</span></div></div>`;
+}
 async function actualizarFotoObligatoria(activo){
   if(!state.perfil || !state.perfil.empresa_id) return;
   try{
@@ -5168,10 +5175,17 @@ function renderPrepararSinSenal(){
   const conSenal = typeof navigator==='undefined' || navigator.onLine!==false;
   const error = cp.preparacionError ? `<div class="hint" role="alert" style="color:var(--danger);margin-top:6px">No se pudo preparar para sin señal: ${esc(cp.preparacionError)}</div>` : '';
   if(cp.preparando) return `<div class="contar-sin-senal" id="contar-sin-senal"><span class="spinner"></span> <span id="preparar-sin-senal-avance">Preparando…</span></div>`;
-  if(p) return `<div class="contar-sin-senal listo" id="contar-sin-senal"><span>✓ <b>Listo para contar sin señal:</b> ${esc(textoPreparado(p))}.</span>${conSenal? `<button type="button" class="link-btn" id="btn-preparar-sin-senal">Actualizar</button>` : ''}</div>${error}`;
+  if(p) return `<div class="contar-sin-senal listo" id="contar-sin-senal"><span>✓ <b>Listo para contar sin señal:</b> ${esc(textoPreparado(p))}.</span>${conSenal? `<button type="button" class="link-btn" id="btn-preparar-sin-senal">Actualizar</button>` : ''}</div>${error}${recomendacionInstalarSinSenal()}`;
   if(!conSenal) return error;
   const lugares = lugaresPlanDia(cp.entradas).length;
-  return `<div class="contar-sin-senal" id="contar-sin-senal"><button type="button" class="btn btn-secondary btn-sm" id="btn-preparar-sin-senal" style="width:auto">Preparar para sin señal</button><span class="hint" style="margin:0">Guarda en este celular ${lugares===1?'el lugar':`los ${lugares} lugares`} de este día y los reconteos pendientes.</span></div>${error}`;
+  return `<div class="contar-sin-senal" id="contar-sin-senal"><button type="button" class="btn btn-secondary btn-sm" id="btn-preparar-sin-senal" style="width:auto">Preparar para sin señal</button><span class="hint" style="margin:0">Guarda en este celular ${lugares===1?'el lugar':`los ${lugares} lugares`} de este día y los reconteos pendientes.</span></div>${error}${recomendacionInstalarSinSenal()}`;
+}
+// Abierta en el navegador (no instalada), el celular puede borrar lo guardado: Safari borra los
+// datos de un sitio que no se abre en 7 días, y con ellos lo que no se alcanzó a enviar (Joel,
+// 20/10/2026: "deja esa recomendación de instalarla"). Solo donde hay cómo instalarla.
+function recomendacionInstalarSinSenal(){
+  if(!formaInstalarApp()) return '';
+  return `<div class="hint" id="sin-senal-instalar" style="margin-top:6px"><b>Recomendado:</b> instala InventIA en la pantalla de inicio. Abierta desde el navegador, el celular puede borrar lo guardado sin señal (el iPhone lo hace si no la abres en 7 días). <button type="button" class="link-btn" id="btn-sin-senal-instalar">Cómo instalarla</button></div>`;
 }
 
 // Lo que ya se contó y espera en la cola de este celular (sin señal, o con la señal tan lenta que
@@ -7757,8 +7771,15 @@ async function registrarDocumentoBodega(tipo){
       // Sin conexión: se guarda con el saldo que se ve ahora (saldo_local) para que el servidor
       // decida al sincronizar (caso C del diseño). Las fotos van a IndexedDB.
       payload.p_lineas = lineasQueEntran.map(l=>({sku_id:l.sku_id, cantidad:l.cantidad, costo_unitario:l.costo_unitario!=null?l.costo_unitario:null, saldo_local: l.stock_sistema!=null ? Number(l.stock_sistema) : null}));
-      const item = encolarAccionOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Recepción':'Despacho'} de ${lineasQueEntran.length} material${lineasQueEntran.length===1?'':'es'}`, idempotency_key: idempotencyKey});
-      try{ await guardarFotosOffline(item.id, fotos.map(f=> new File([f.file], `${f.tipo}-${f.file.name||'foto.jpg'}`, {type: f.file.type||'image/jpeg'}))); }catch(err){ /* sin IndexedDB: se guarda sin fotos */ }
+      try{
+        await encolarConFotosOffline('documento_bodega', {payload, empresa_id: state.perfil.empresa_id, resumen: `${tipo==='ingreso'?'Recepción':'Despacho'} de ${lineasQueEntran.length} material${lineasQueEntran.length===1?'':'es'}`, idempotency_key: idempotencyKey},
+          fotos.map(f=> new File([f.file], `${f.tipo}-${f.file.name||'foto.jpg'}`, {type: f.file.type||'image/jpeg'})));
+      }catch(errGuardar){
+        // No cupo en el celular: el documento armado se queda en pantalla y se dice.
+        setState({bodega: {...state.bodega, guardando:false}});
+        toast(errGuardar.message, 'err');
+        return;
+      }
       state.bodega.doc = documentoBodegaVacio();
       setState({bodega: {...state.bodega, guardando:false}});
       toast('Sin conexión: el documento quedó guardado y se sincroniza solo cuando vuelva la señal', 'warn');
@@ -9108,7 +9129,9 @@ async function crearSkuManual(payload){
     // SKU se guarda en este dispositivo y se sube solo al volver la señal. Se puede contar
     // igual: el conteo espera en la cola y sale después del SKU (ver skuDesdeAccionOffline).
     if(pareceFalloDeRed(e)){
-      const item = encolarAccionOffline('sku', {...payload, empresa_id: state.perfil.empresa_id});
+      let item;
+      try{ item = encolarAccionOffline('sku', {...payload, empresa_id: state.perfil.empresa_id}); }
+      catch(errGuardar){ toast(errGuardar.message, 'err'); return false; } // no cupo: el formulario queda como estaba
       state.skuRecienCreado = skuDesdeAccionOffline(item);
       toast('Sin conexión: SKU guardado en este dispositivo. Se enviará cuando vuelva la señal.', 'warn');
       return true;
@@ -9766,19 +9789,60 @@ function leerColaOffline(){
   try{ return JSON.parse(localStorage.getItem(COLA_OFFLINE_KEY)||'[]'); }catch(e){ return []; }
 }
 
+// Devuelve si quedó guardada. Antes un fallo se tragaba en silencio y la pantalla mostraba
+// "por enviar" algo que solo vivía en memoria: al cerrar la app sin señal se perdía (Joel,
+// 20/10/2026: "¿el celular no se llena con 1.000 SKU al día?"). Ahora state.colaOffline refleja
+// siempre lo que de verdad quedó en el celular. Si falta espacio, antes de rendirse se borran
+// las cachés de agregados (se vuelven a pedir con señal) y se reintenta una vez.
 function guardarColaOffline(cola){
-  try{ localStorage.setItem(COLA_OFFLINE_KEY, JSON.stringify(cola)); }catch(e){ /* localStorage no disponible */ }
-  state.colaOffline = cola;
+  const texto = JSON.stringify(cola);
+  let ok = escribirLocalStorage(COLA_OFFLINE_KEY, texto);
+  if(!ok && liberarCachesPrescindibles()) ok = escribirLocalStorage(COLA_OFFLINE_KEY, texto);
+  state.colaOffline = ok ? cola : leerColaOffline();
+  return ok;
 }
+function escribirLocalStorage(clave, texto){
+  try{ localStorage.setItem(clave, texto); return true; }catch(e){ return false; }
+}
+// Borra lo que el celular puede volver a pedir con señal sin perder nada (ver
+// CACHE_AGREGADOS_PREFIJO). No toca el plan preparado, los reconteos guardados ni la cola.
+function liberarCachesPrescindibles(){
+  let borradas = 0;
+  try{
+    const claves = [];
+    for(let i=0; i<localStorage.length; i++){ const k = localStorage.key(i); if(k && k.startsWith(CACHE_AGREGADOS_PREFIJO)) claves.push(k); }
+    claves.forEach(k=>{ localStorage.removeItem(k); borradas++; });
+  }catch(e){ /* sin acceso al almacenamiento: no hay nada que liberar */ }
+  return borradas > 0;
+}
+const MENSAJE_COLA_SIN_ESPACIO = 'No quedó guardado: este celular no tiene espacio para guardarlo sin señal. Envía lo pendiente cuando tengas señal o libera espacio, y vuelve a intentarlo.';
+const MENSAJE_FOTO_SIN_ESPACIO = 'No quedó guardado: este celular no pudo guardar la foto sin señal (puede faltarle espacio). Libera espacio o guárdalo sin foto.';
 
 // Crea la entrada en la cola y la deja visible de inmediato ("pendiente"); devuelve
 // el item creado (con su id local) para poder asociarle fotos en IndexedDB (solo aplica
 // a conteos). `tipo` decide cómo se procesa al sincronizar (ver procesarUnItemOffline).
+// Si el celular no pudo guardarlo, lanza MENSAJE_COLA_SIN_ESPACIO: quien llama lo muestra y
+// conserva lo que la persona escribió.
 function encolarAccionOffline(tipo, payload){
   const cola = leerColaOffline();
   const item = { id: 'local-'+Date.now()+'-'+Math.random().toString(36).slice(2,7), tipo, creado_en: Date.now(), estado:'pendiente', error:null, ...payload };
   cola.push(item);
-  guardarColaOffline(cola);
+  if(!guardarColaOffline(cola)) throw new Error(MENSAJE_COLA_SIN_ESPACIO);
+  return item;
+}
+// Encola con sus fotos. Si las fotos no caben, el item sale de la cola y se lanza
+// MENSAJE_FOTO_SIN_ESPACIO: un conteo que dice tener foto y llega sin ella no es lo que la
+// persona guardó.
+async function encolarConFotosOffline(tipo, payload, fotos){
+  const item = encolarAccionOffline(tipo, payload);
+  if(fotos && fotos.length){
+    try{ await guardarFotosOffline(item.id, fotos); }
+    catch(e){
+      quitarDeColaOffline(item.id);
+      await borrarFotosOffline(item.id).catch(()=>{}); // las que alcanzaron a entrar
+      throw new Error(MENSAJE_FOTO_SIN_ESPACIO);
+    }
+  }
   return item;
 }
 
@@ -9908,12 +9972,23 @@ function solicitudAPromesa(req){
 async function guardarFotosOffline(itemId, archivos){
   if(!archivos || !archivos.length) return;
   const db = await abrirDbOffline();
-  const store = db.transaction(FOTOS_OFFLINE_STORE, 'readwrite').objectStore(FOTOS_OFFLINE_STORE);
-  await Promise.all(archivos.map((file,i) => solicitudAPromesa(store.put({
-    id: `${itemId}-${i}-${Math.random().toString(36).slice(2,7)}`,
-    itemId, nombre: file.name, tipo: file.type, blob: file,
-  }))));
-  db.close();
+  const tx = db.transaction(FOTOS_OFFLINE_STORE, 'readwrite');
+  // Sin espacio, cada put puede responder bien y la transacción abortar después (la cuota se
+  // revisa al confirmar): solo cuenta como guardada cuando la transacción termina.
+  const confirmada = new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error || new Error('No se pudo guardar la foto en este celular'));
+    tx.onerror = () => reject(tx.error || new Error('No se pudo guardar la foto en este celular'));
+  });
+  confirmada.catch(()=>{}); // si falla antes un put, el error que se ve es el de ese put
+  const store = tx.objectStore(FOTOS_OFFLINE_STORE);
+  try{
+    await Promise.all(archivos.map((file,i) => solicitudAPromesa(store.put({
+      id: `${itemId}-${i}-${Math.random().toString(36).slice(2,7)}`,
+      itemId, nombre: file.name, tipo: file.type, blob: file,
+    }))));
+    await confirmada;
+  }finally{ db.close(); }
 }
 
 async function leerFotosOffline(itemId){
@@ -10465,11 +10540,14 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
   // del primer intento se perdió por señal mala, pero el insert sí se alcanzó a hacer), el
   // servidor lo reconoce como el mismo intento y no lo duplica (conteos.idempotency_key, único).
   const idempotencyKey = crypto.randomUUID();
-  setState({loading:true, conteoGuardandoLento:false});
+  // Los repintados mientras se guarda conservan lo escrito (conservandoCamposConteo): si el
+  // guardado falla (error del servidor, o sin espacio en el celular), la persona corrige o
+  // reintenta sin volver a escribir la cantidad.
+  conservandoCamposConteo(()=> setState({loading:true, conteoGuardandoLento:false}));
   // Ver UMBRAL_GUARDADO_LENTO_MS: si el guardado no terminó (éxito, error, o modo offline) antes
   // de este plazo, avisa que sigue intentando en vez de dejar solo el spinner chico del botón.
   // El finally de más abajo lo limpia siempre, gane quien gane la carrera.
-  const timerLento = setTimeout(()=> setState({conteoGuardandoLento:true}), UMBRAL_GUARDADO_LENTO_MS);
+  const timerLento = setTimeout(()=> conservandoCamposConteo(()=> setState({conteoGuardandoLento:true})), UMBRAL_GUARDADO_LENTO_MS);
   try{
     // Mismo camino que "sin conexión" (el catch de abajo), con o sin señal: ver skuSinEnviar.
     if(skuSinEnviar){ const e = new TypeError('SKU nuevo sin enviar'); e.skuSinEnviar = true; throw e; }
@@ -10528,7 +10606,9 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     // item encolado, para que la sincronización posterior sea segura de reintentar.
     if(pareceFalloDeRed(e)){
       const fotosAEncolar = state.conteoFotos.map(f=>f.file);
-      const item = encolarAccionOffline('conteo', {
+      let item;
+      try{
+        item = await encolarConFotosOffline('conteo', {
         idempotency_key: idempotencyKey,
         sku_id: state.skuSeleccionado.id,
         // SKU nuevo sin enviar: el id llega al sincronizar (ver amarrarConteosAlSkuCreado).
@@ -10547,8 +10627,13 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
         material_danado: !!materialDanado,
         cantidad_danada: danada.valor,
         es_reconteo: esReconteoDelSkuActual(),
-      });
-      if(fotosAEncolar.length) await guardarFotosOffline(item.id, fotosAEncolar).catch(()=>{});
+        }, fotosAEncolar);
+      }catch(errGuardar){
+        // No cupo en el celular: lo escrito y las fotos se quedan en el formulario, y se dice.
+        conservandoCamposConteo(()=> setState({loading:false, conteoGuardandoLento:false}));
+        avisarConteoNoGuardado(errGuardar.message);
+        return;
+      }
       setState({loading:false, conteoGuardandoLento:false, skuSeleccionado:null, conteoOrigenPlan:false, conteoOtraUbicacion:false, conteoPackingDanado:false, conteoMaterialDanado:false, conteoFotos:[], skuSearch:'', buscadorLibre: resetBuscadorLibre(), conteoVecesPeriodo:null, conteoReconteo:null});
       toast(e.skuSinEnviar
         ? `Conteo guardado en este dispositivo. Se enviará después del SKU nuevo ${item.sku_code}, cuando haya señal.`
@@ -10559,7 +10644,7 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
       if(e.skuSinEnviar && typeof navigator!=='undefined' && navigator.onLine!==false) sincronizarColaOffline().catch(err=> toast(err.message,'err'));
       return;
     }
-    setState({loading:false, conteoGuardandoLento:false});
+    conservandoCamposConteo(()=> setState({loading:false, conteoGuardandoLento:false}));
     toast(e.message,'err');
   }finally{
     clearTimeout(timerLento);
@@ -18241,6 +18326,8 @@ function bind(){
       if(btnCambiarLugar) btnCambiarLugar.addEventListener('click', ()=> elegirCascadaContar({bodega:'', ubicacion:''}));
       const btnPrepararSinSenal = document.getElementById('btn-preparar-sin-senal');
       if(btnPrepararSinSenal) btnPrepararSinSenal.addEventListener('click', prepararSinSenal);
+      const btnSinSenalInstalar = document.getElementById('btn-sin-senal-instalar');
+      if(btnSinSenalInstalar) btnSinSenalInstalar.addEventListener('click', instalarApp);
       const btnReintentarSkus = document.getElementById('btn-contar-reintentar-skus');
       if(btnReintentarSkus) btnReintentarSkus.addEventListener('click', ()=> elegirCascadaContar({}));
       document.querySelectorAll('[data-pick-plan]').forEach(btn=>{
