@@ -865,12 +865,12 @@ const fakeFetchImpl = async (url, opts) => {
   // Impacto de "Reemplazar completo" (ver calcularImpactoReemplazo): pendientes de reconteo con
   // su clave completa. A viene en el archivo de prueba; B no; C tiene el mismo código que A pero
   // otro bin, así que tampoco viene.
-  if(path.startsWith('/rest/v1/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin')){
+  if(path.startsWith('/rest/v1/reconteo_pendiente?select=id,sku_code,bodega,batch,ubicacion,storage_bin')){
     if(impactoReemplazoFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
-      {sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'},
-      {sku_code:'SKU-B', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'B-1'},
-      {sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-2'},
+      {id:'rp-a1', sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'},
+      {id:'rp-b1', sku_code:'SKU-B', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'B-1'},
+      {id:'rp-a2', sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-2'},
     ]) };
   }
   if(path.startsWith('/rest/v1/reconteo_pendiente')){
@@ -5196,6 +5196,79 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
   }
 
+  // ===== Carga de Excel con dueño del stock (Joel, 20/10/2026, paso 4) =====
+  // El mismo código de dos clientes en el mismo bin son dos materiales. Los dueños nuevos se
+  // agregan a la lista antes de subir los materiales, y "Reemplazar completo" solo toca los
+  // dueños que trae el archivo.
+  {
+    const perfilAntesCargaDueno = ctx.__appstate.perfil;
+    const previewAntesCargaDueno = ctx.__appstate.cargaPreview;
+    const duenosAntes = ctx.__appstate.duenosStock;
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    assert(!ctx.camposCargaSkus().some(c=>c.campo==='dueno'), 'sin el interruptor, la carga no ofrece la columna de dueño');
+    ctx.__appstate.perfil = { ...ctx.__appstate.perfil, empresas:{nombre:'Operador SIL', usa_duenos_stock:true} };
+    assert(ctx.camposCargaSkus().some(c=>c.campo==='dueno'), 'con el interruptor, la carga ofrece la columna Dueño del stock');
+    assert(ctx.detectarMapeo(['Material','Dueño','CÓDIGO CLIENTE'], ctx.camposCargaSkus()).dueno==='Dueño', 'reconoce una columna llamada Dueño, y no se confunde con CÓDIGO CLIENTE');
+
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista:[{id:'d1', codigo:'ENEX', nombre:'Enex', activo:true}], error:'' };
+    const pd = {
+      file:{name:'wms.csv'}, modo:'reemplazar', repetidas:'sumar', confirmaReemplazo:true,
+      campos: ctx.camposCargaSkus(), headers:['Codigo','Bodega','Bin','Stock','Costo','Cliente'],
+      mapeo:{ sku_code:'Codigo', bodega:'Bodega', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo', dueno:'Cliente' },
+      data:[
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'2', Costo:'10', Cliente:'ENEX' },
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'5', Costo:'10', Cliente:' COPEC ' },
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'1', Costo:'10', Cliente:'ENEX' },
+        { Codigo:'P-2', Bodega:'CD1', Bin:'A-2', Stock:'7', Costo:'10', Cliente:'' },
+      ],
+    };
+    ctx.__appstate.cargaPreview = pd;
+    const resDueno = ctx.resumenArchivoCarga(pd.data, pd.mapeo);
+    assert(resDueno.materiales===3 && resDueno.repetidas===1, 'el mismo código y bin con dos dueños son dos materiales; la fila repetida es solo la del mismo dueño, obtuvo: '+JSON.stringify(resDueno));
+    const rep = ctx.identidadesRepetidas(pd.data, pd.mapeo);
+    assert(rep.total===1 && rep.ejemplos[0].dueno==='ENEX' && rep.ejemplos[0].stockSumado===3, 'la repetida es la de ENEX, con su suma, obtuvo: '+JSON.stringify(rep));
+    const htmlCargaDueno = ctx.renderCargaPreview();
+    assert(htmlCargaDueno.includes('2 dueño(s) en el archivo: COPEC, ENEX') && htmlCargaDueno.includes('Hay filas sin dueño') && htmlCargaDueno.includes('1 dueño(s) nuevo(s) se agregan a la lista: COPEC') && htmlCargaDueno.includes('dueño ENEX'), 'el preview dice qué dueños trae, cuáles son nuevos y en qué dueño está la repetida, obtuvo: '+htmlCargaDueno);
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'se cayó la base' };
+    assert(ctx.renderCargaPreview().includes('No se pudo revisar la lista de dueños (se cayó la base)'), 'si la lista de dueños no cargó, se dice');
+
+    const fetchAntesCargaDueno = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      const u = String(url);
+      if(u.includes('/rest/v1/duenos_stock') && opts && opts.method==='POST'){ calls.push({url:u, opts}); return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' }; }
+      return fetchAntesCargaDueno(url, opts);
+    };
+    calls.length = 0;
+    await ctx.confirmarCargaMasiva();
+    ctx.fetch = fetchAntesCargaDueno;
+    const iDuenos = calls.findIndex(c=>c.url.includes('/rest/v1/duenos_stock') && c.opts && c.opts.method==='POST');
+    const iSkus = calls.findIndex(c=>c.url.includes('/rest/v1/skus?on_conflict') && c.opts && c.opts.method==='POST');
+    assert(iDuenos>=0 && iSkus>iDuenos, 'los dueños nuevos se agregan antes de subir los materiales (el trigger exige que existan), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const postDuenos = calls[iDuenos];
+    assert(postDuenos.url.includes('on_conflict=empresa_id,codigo') && /ignore-duplicates/.test(JSON.stringify(postDuenos.opts.headers||{})) && JSON.parse(postDuenos.opts.body).map(x=>x.codigo).join(',')==='COPEC,ENEX', 'agrega los dueños del archivo sin duplicar ni tocar los existentes, y sin el vacío, obtuvo: '+JSON.stringify(postDuenos));
+    const filasDueno = JSON.parse(calls[iSkus].opts.body);
+    const stockDe = (code, dueno) => (filasDueno.find(f=>f.sku_code===code && f.dueno===dueno)||{}).stock_sistema;
+    assert(filasDueno.length===3 && stockDe('P-1','ENEX')===3 && stockDe('P-1','COPEC')===5 && stockDe('P-2','')===7, 'cada dueño con su cantidad (ENEX sumado 2+1), y la fila sin dueño con dueño vacío, obtuvo: '+JSON.stringify(filasDueno));
+    const patchReemplazo = calls.find(c=>c.url.includes('/rest/v1/skus?activo=eq.true') && c.opts && c.opts.method==='PATCH');
+    assert(patchReemplazo && decodeURIComponent(patchReemplazo.url).includes('dueno=in.("","COPEC","ENEX")'), 'Reemplazar completo solo desactiva dentro de los dueños del archivo, obtuvo: '+(patchReemplazo && decodeURIComponent(patchReemplazo.url)));
+    const regDueno = calls.find(c=>c.url.includes('/rest/v1/cargas_masivas') && c.opts && c.opts.method==='POST');
+    assert(regDueno && JSON.stringify(JSON.parse(regDueno.opts.body)[0].duenos)==='["","COPEC","ENEX"]', 'la carga anota qué dueños trajo, para acotar los sobrantes, obtuvo: '+(regDueno && regDueno.opts.body));
+
+    // Sin columna de dueño (aunque la empresa use dueños): nada cambia.
+    ctx.__appstate.cargaPreview = { ...pd, modo:'reemplazar', mapeo:{ sku_code:'Codigo', bodega:'Bodega', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo' } };
+    calls.length = 0;
+    await ctx.confirmarCargaMasiva();
+    const filasSin = JSON.parse(calls.find(c=>c.url.includes('/rest/v1/skus?on_conflict')).opts.body);
+    const patchSin = calls.find(c=>c.url.includes('/rest/v1/skus?activo=eq.true') && c.opts && c.opts.method==='PATCH');
+    const regSin = JSON.parse(calls.find(c=>c.url.includes('/rest/v1/cargas_masivas')).opts.body)[0];
+    assert(!filasSin.some(f=>'dueno' in f) && !patchSin.url.includes('dueno=') && !('duenos' in regSin) && !calls.some(c=>c.url.includes('/rest/v1/duenos_stock')), 'sin columna de dueño, la carga es la de siempre, obtuvo: '+JSON.stringify({filasSin, url: patchSin.url, regSin}));
+
+    ctx.__appstate.perfil = perfilAntesCargaDueno;
+    ctx.__appstate.cargaPreview = previewAntesCargaDueno;
+    ctx.__appstate.duenosStock = duenosAntes;
+    ctx.__appstate.cargaResultado = null;
+  }
+
   // ===== Aviso de filas que comparten identidad =====
   // El upsert se queda con la última cuando dos filas coinciden en código + bodega + batch +
   // ubicación + bin. La carga de Escondida del 10 de septiembre trajo 61.722 filas y escribió
@@ -6259,7 +6332,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.calcularImpactoReemplazo();
     const imp = ctx.__appstate.cargaPreview.impactoReemplazo;
-    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin')), 'debe traer los pendientes con su clave completa, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code,bodega,batch,ubicacion,storage_bin')), 'debe traer los pendientes con su clave completa, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/conteos?select=sku_id,skus(') && c.url.includes('ciclo_id=eq.ciclo-1')), 'debe traer los contados del ciclo actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(!calls.some(c=>c.url.includes('/rest/v1/skus?')), 'nunca debe traer el maestro entero para esto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(imp && !imp.cargando && imp.pendientes.total===3 && imp.pendientes.noVienen===2, 'de 3 pendientes, 2 no vienen (B, y A en otro bin): la clave es código+bodega+batch+ubicación+bin, obtuvo: '+JSON.stringify(imp));
@@ -6303,12 +6376,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     ctx.bind();
     await new Promise(r=>setTimeout(r,0));
-    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code')), 'al pintar la vista en modo Reemplazar sin cálculo, se calcula solo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code')), 'al pintar la vista en modo Reemplazar sin cálculo, se calcula solo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.cargaPreview = { ...previewReemplazo(), modo:'complementar' };
     calls.length = 0;
     ctx.bind();
     await new Promise(r=>setTimeout(r,0));
-    assert(!calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code')), 'en Agregar/complementar no se calcula nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code')), 'en Agregar/complementar no se calcula nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.cargaPreview = null;
     ctx.__appstate.ciclos = ciclosAntes;
   }

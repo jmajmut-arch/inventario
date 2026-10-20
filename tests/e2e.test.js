@@ -563,6 +563,43 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Carga de Excel con dueño del stock (Joel, 20/10/2026, paso 4) =====
+  // Dos clientes con el mismo material en el mismo bin: dos materiales. El dueño nuevo se agrega a
+  // la lista antes que los materiales.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('carga-dueno: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    await loguear(page, perfilDuenos);
+    const orden = [], upserts = [], duenosCreados = [];
+    await page.route('**/rest/v1/duenos_stock**', r=> {
+      if(r.request().method()==='POST'){ orden.push('duenos'); duenosCreados.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); }
+      return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex', activo:true }]) });
+    });
+    await page.route('**/rest/v1/skus?on_conflict=**', r=> { orden.push('skus'); upserts.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); });
+    await page.evaluate(() => setState({ view:'carga' }));
+    await page.waitForSelector('#file-skus', { state:'attached', timeout:ESPERA });
+    const csv = 'Codigo,Descripcion,Bodega,Ubicacion,Storage Bin,Stock,Costo,Cliente\n'
+      + 'P-100,Filtro de aire,CD1,RK,R-01-02,2,1500,ENEX\n'
+      + 'P-100,Filtro de aire,CD1,RK,R-01-02,5,1500,COPEC\n';
+    await page.setInputFiles('#file-skus', { name:'stock-wms.csv', mimeType:'text/csv', buffer: Buffer.from(csv) });
+    await page.waitForSelector('#map-dueno', { timeout:ESPERA });
+    for(const [campo, col] of [['sku_code','Codigo'],['descripcion','Descripcion'],['bodega','Bodega'],['ubicacion','Ubicacion'],['storage_bin','Storage Bin'],['stock_sistema','Stock'],['costo_unitario','Costo'],['dueno','Cliente']]){
+      if(await page.$eval(`#map-${campo}`, el=>el.value) !== col){ await page.selectOption(`#map-${campo}`, col); await page.waitForTimeout(150); }
+    }
+    assert(await esperarCondicion(page, () => document.body.textContent.includes('1 dueño(s) nuevo(s) se agregan a la lista: COPEC') && document.body.textContent.includes('2 filas → 2 materiales')), 'el preview dice que son 2 materiales y que COPEC es un dueño nuevo');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde<=0, 'a 420 px la revisión de la carga no desborda, obtuvo '+desborde);
+    if(await page.$('#chk-confirma-aviso-bodega')) await page.check('#chk-confirma-aviso-bodega');
+    await page.click('#btn-confirmar-carga');
+    assert(await esperarCondicion(page, () => !!state.cargaResultado), 'la carga termina');
+    const stock = d => (upserts.find(f=>f.dueno===d)||{}).stock_sistema;
+    assert(orden[0]==='duenos' && duenosCreados.map(x=>x.codigo).join(',')==='COPEC,ENEX' && upserts.length===2 && stock('ENEX')===2 && stock('COPEC')===5, 'primero los dueños, después los dos materiales, cada uno con su cantidad, obtuvo '+JSON.stringify({orden, duenosCreados, upserts:upserts.map(f=>[f.dueno,f.stock_sistema])}));
+    await context.close();
+  }
+
   // ===== Carga de Excel: filas repetidas que se suman (Joel, 20/10/2026) =====
   // Un WMS anota cada pallet en su propia fila. Con el archivo real en el navegador a 420 px: el
   // aviso muestra qué stock queda con cada opción, se elige "Sumar" y el upsert lleva la suma.

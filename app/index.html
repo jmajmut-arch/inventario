@@ -2649,6 +2649,7 @@ const CARGAS_POR_VISTA = {
   // ofrecer la bodega donde el material ya estaba, y una bodega recién creada no aparecía.
   mover: ['ubicaciones'],
   config: ['bodegaListas', 'ubicaciones', 'duenosStock'],
+  carga: ['duenosStock'],
 };
 const CARGADORES = {
   dashboard: ()=> cargarDashboard(), // trae también el resumen del maestro, en la misma respuesta
@@ -8932,6 +8933,29 @@ function puntajeColumna(headerNorm, aliases){
 
 // Asignacion voraz columna->campo: cada columna del archivo se usa como
 // maximo para un campo, priorizando siempre la coincidencia de mayor puntaje.
+// Dueño del stock (ver usaDuenosStock): columna más de la carga, solo para una empresa con dueños.
+// Sin nombres de un cliente en los alias (CLAUDE.md): quien carga elige la columna, por ejemplo la
+// del cliente en su WMS.
+const CAMPO_DUENO_SKU = { campo:'dueno', obligatorio:false, etiqueta:'Dueño del stock',
+  alias:['dueno','dueno del stock','duenos','propietario','owner','stock owner'] };
+function camposCargaSkus(){ return usaDuenosStock() ? [...CAMPOS_SKU, CAMPO_DUENO_SKU] : CAMPOS_SKU; }
+// Dueños que trae el archivo, sin espacios; '' es una fila sin dueño. Solo filas con código.
+function duenosDelArchivo(data, mapeo){
+  if(!mapeo.dueno) return [];
+  const set = new Set();
+  data.forEach(row=>{ if(String(row[mapeo.sku_code]==null?'':row[mapeo.sku_code]).trim()) set.add(String(row[mapeo.dueno]==null?'':row[mapeo.dueno]).trim()); });
+  return [...set].sort();
+}
+// Los que todavía no están en la lista de la empresa: se agregan al confirmar la carga (el trigger
+// de skus exige que el dueño exista). null = no se sabe, porque la lista no cargó.
+function duenosNuevosDelArchivo(data, mapeo){
+  const d = state.duenosStock;
+  if(!d.cargado) return null;
+  const conocidos = new Set(d.lista.map(x=>x.codigo));
+  return duenosDelArchivo(data, mapeo).filter(c=> c && !conocidos.has(c));
+}
+function valorFiltroIn(v){ return encodeURIComponent('"'+String(v).replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"'); }
+
 function detectarMapeo(headers, campos){
   const headersNorm = headers.map(normalizarTexto);
   const candidatos = [];
@@ -9209,9 +9233,10 @@ async function prepararCargaMasiva(file){
   try{
     const {headers, data} = await leerArchivoMasivo(file);
     if(!headers.length || !data.length){ toast('El archivo no tiene filas de datos','err'); return; }
-    const mapeo = detectarMapeo(headers, CAMPOS_SKU);
+    const campos = camposCargaSkus();
+    const mapeo = detectarMapeo(headers, campos);
     const avisoBodega = await calcularAvisoBodega(data, mapeo.bodega);
-    setState({cargaPreview: { file, headers, data, campos:CAMPOS_SKU, mapeo, modo:'complementar', repetidas:REPETIDAS_QUEDA_ULTIMA, confirmaReemplazo:false, avisoBodega }});
+    setState({cargaPreview: { file, headers, data, campos, mapeo, modo:'complementar', repetidas:REPETIDAS_QUEDA_ULTIMA, confirmaReemplazo:false, avisoBodega }});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -9263,7 +9288,10 @@ const MOTIVO_FILA_SIN_UBICACION_NI_STOCK = 'Sin ubicación, sin storage bin y co
 // tocó y cuyo material sí vino con bin; no toca las que tienen conteos ni movimientos de bodega.
 const MOTIVO_FILA_SIN_SITIO_DESACTIVADA = 'Filas sin ubicación ni storage bin de cargas anteriores, desactivadas: su material ya viene con bin (su tránsito era viejo y se sumaba al del material)';
 const CAMPOS_STOCK_TRASPASABLES = ['stock_bloqueado','stock_transito_1','stock_transito_2','stock_transferencia'];
-function claveMaterialCarga(valor, row){ return valor(row,'sku_code') + '|' + valor(row,'bodega'); }
+// Material = código + bodega (+ dueño, si la empresa lo usa: el mismo código de dos clientes son
+// dos materiales). Sin columna de dueño, valor() devuelve '' y la clave es la de siempre.
+function claveMaterialCarga(valor, row){ return valor(row,'sku_code') + '|' + valor(row,'bodega') + '|' + valor(row,'dueno'); }
+function claveMaterialFila(f){ return f.sku_code + '|' + (f.bodega||'') + '|' + (f.dueno||''); }
 // Materiales (código + bodega) que en el archivo traen al menos una fila con ubicación o bin.
 function materialesConSitioEnArchivo(data, valor){
   const set = new Set();
@@ -9340,7 +9368,7 @@ function resumenArchivoCarga(data, mapeo){
     const sku_code = valor(row,'sku_code');
     if(!sku_code){ sinCodigo++; return; }
     if(esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio)){ omitidas++; return; }
-    const identidad = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null, valor(row,'ubicacion')||null, valor(row,'storage_bin')||null]);
+    const identidad = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null, valor(row,'ubicacion')||null, valor(row,'storage_bin')||null, valor(row,'dueno')]);
     if(esFilaEnProveedor(valor, row, mapeo)){ filasO++; enProveedor.add(claveMaterialCarga(valor, row)); return; }
     if(esFilaConsignacion(valor, row, mapeo)){ filasK++; consignacion.add(identidad); return; }
     if(propias.has(identidad)) repetidas++;
@@ -9349,11 +9377,23 @@ function resumenArchivoCarga(data, mapeo){
   let materiales = propias.size;
   consignacion.forEach(id=>{ if(!propias.has(id)) materiales++; });
   const materialesConFila = new Set();
-  [...propias, ...consignacion].forEach(id=>{ const [c, b] = JSON.parse(id); materialesConFila.add(c + '|' + (b||'')); });
+  [...propias, ...consignacion].forEach(id=>{ const [c, b, , , , d] = JSON.parse(id); materialesConFila.add(c + '|' + (b||'') + '|' + (d||'')); });
   enProveedor.forEach(k=>{ if(!materialesConFila.has(k)) materiales++; });
   const resultado = {filas: data.length, sinCodigo, omitidas, consignacion: filasK, enProveedor: filasO, repetidas, materiales};
   cacheResumenArchivoCarga = {firma, resultado};
   return resultado;
+}
+function lineasDuenosCarga(data, mapeo){
+  if(!mapeo.dueno) return [];
+  const todos = duenosDelArchivo(data, mapeo);
+  const conDueno = todos.filter(Boolean);
+  const nuevos = duenosNuevosDelArchivo(data, mapeo);
+  const lista = xs => xs.slice(0,5).join(', ') + (xs.length>5 ? ` y ${xs.length-5} más` : '');
+  return [
+    conDueno.length ? `${conDueno.length} dueño(s) en el archivo: ${lista(conDueno)}` : '',
+    todos.includes('') ? 'Hay filas sin dueño: quedan sin dueño' : '',
+    nuevos===null ? (state.duenosStock.error ? `No se pudo revisar la lista de dueños (${state.duenosStock.error}): los que falten se agregan al cargar` : '') : nuevos.length ? `${nuevos.length} dueño(s) nuevo(s) se agregan a la lista: ${lista(nuevos)}` : '',
+  ];
 }
 function renderResumenArchivoCarga(data, mapeo, repetidasModo){
   if(!mapeo.sku_code) return '';
@@ -9365,6 +9405,7 @@ function renderResumenArchivoCarga(data, mapeo, repetidasModo){
     r.enProveedor ? `${n(r.enProveedor)} línea(s) en poder del proveedor (O) se muestran como "En prov."` : '',
     r.repetidas ? (repetidasModo===REPETIDAS_SUMAR ? `${n(r.repetidas)} fila(s) repetidas se suman a su material` : `${n(r.repetidas)} fila(s) idénticas a otra se pisan: queda la última`) : '',
     r.sinCodigo ? `${n(r.sinCodigo)} fila(s) sin código no se cargan` : '',
+    ...lineasDuenosCarga(data, mapeo),
   ].filter(Boolean);
   return `<div class="card" style="margin-top:14px;border-color:var(--amber)">
     <h3 style="margin:0 0 6px;font-size:15px">Qué va a pasar con este archivo</h3>
@@ -9411,7 +9452,7 @@ function identidadesRepetidas(data, mapeo){
     if(esFilaSinUbicacionNiStock(valor, row, mapeo, conSitio)) return; // no se carga ninguna: no hay nada que se pise
     if(esFilaConsignacion(valor, row, mapeo) || esFilaEnProveedor(valor, row, mapeo)) return; // se suman a otra fila: nada se pisa
     const clave = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null,
-                                  valor(row,'ubicacion')||null, valor(row,'storage_bin')||null]);
+                                  valor(row,'ubicacion')||null, valor(row,'storage_bin')||null, valor(row,'dueno')]);
     const acc = veces.get(clave) || {n:0, stocks:[]};
     acc.n++;
     acc.stocks.push(valor(row,'stock_sistema'));
@@ -9424,11 +9465,11 @@ function identidadesRepetidas(data, mapeo){
     if(n < 2) return;
     total += n - 1; // las que se pisan (o se suman a otra): todas menos una
     if(ejemplos.length < 5){
-      const [sku_code, bodega, batch, ubicacion, storage_bin] = JSON.parse(clave);
+      const [sku_code, bodega, batch, ubicacion, storage_bin, dueno] = JSON.parse(clave);
       // Qué stock quedaría con cada opción (ver REPETIDAS_SUMAR), para decidir con números.
       const numeros = acc.stocks.filter(x=>x!=='' && !isNaN(Number(x)) && Number(x)>=0).map(Number);
       const ultima = acc.stocks[acc.stocks.length-1];
-      ejemplos.push({sku_code, bodega, batch, ubicacion, storage_bin, veces:n,
+      ejemplos.push({sku_code, bodega, batch, ubicacion, storage_bin, dueno, veces:n,
         stockSumado: numeros.length ? numeros.reduce((a,b)=>a+b, 0) : null,
         stockUltima: ultima!=='' && !isNaN(Number(ultima)) ? Number(ultima) : null});
     }
@@ -9454,22 +9495,33 @@ async function calcularImpactoReemplazo(){
     const valor = (row, campo) => p.mapeo[campo] ? (row[p.mapeo[campo]]!==undefined ? String(row[p.mapeo[campo]]).trim() : '') : '';
     // Las filas que la carga omite (ver esFilaSinUbicacionNiStock) no cuentan como "vienen".
     const conSitio = materialesConSitioEnArchivo(p.data, valor);
-    const claves = new Set(p.data.filter(row => !esFilaSinUbicacionNiStock(valor, row, p.mapeo, conSitio) && !esFilaEnProveedor(valor, row, p.mapeo)).map(row => [valor(row,'sku_code'), valor(row,'bodega'), valor(row,'batch'), valor(row,'ubicacion'), valor(row,'storage_bin')].join('|')));
-    const clave = s => [s.sku_code||'', s.bodega||'', s.batch||'', s.ubicacion||'', s.storage_bin||''].join('|');
+    const claves = new Set(p.data.filter(row => !esFilaSinUbicacionNiStock(valor, row, p.mapeo, conSitio) && !esFilaEnProveedor(valor, row, p.mapeo)).map(row => [valor(row,'sku_code'), valor(row,'bodega'), valor(row,'batch'), valor(row,'ubicacion'), valor(row,'storage_bin'), valor(row,'dueno')].join('|')));
+    const clave = s => [s.sku_code||'', s.bodega||'', s.batch||'', s.ubicacion||'', s.storage_bin||'', s.dueno||''].join('|');
+    // Con dueños, "Reemplazar completo" solo toca los dueños del archivo (ver confirmarCargaMasiva):
+    // el impacto se mide sobre esos mismos.
+    const duenosArchivo = p.mapeo.dueno ? new Set(duenosDelArchivo(p.data, p.mapeo)) : null;
+    const deEsteArchivo = s => !duenosArchivo || duenosArchivo.has(s.dueno||'');
     let ciclo = (state.ciclos||[]).find(c=>c.es_actual);
     if(!ciclo && !(state.ciclos||[]).length){
       const cs = await rest('/ciclos_conteo?select=id,nombre&es_actual=eq.true&limit=1');
       ciclo = (cs||[])[0];
     }
     const [pendientes, contados] = await Promise.all([
-      rest('/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin'),
-      ciclo ? rest(`/conteos?select=sku_id,skus(sku_code,bodega,batch,ubicacion,storage_bin)&ciclo_id=eq.${ciclo.id}`) : Promise.resolve(null),
+      rest('/reconteo_pendiente?select=id,sku_code,bodega,batch,ubicacion,storage_bin'),
+      ciclo ? rest(`/conteos?select=sku_id,skus(sku_code,bodega,batch,ubicacion,storage_bin,dueno)&ciclo_id=eq.${ciclo.id}`) : Promise.resolve(null),
     ]);
     if(state.cargaPreview !== p) return; // se canceló o se cargó otro archivo mientras tanto
-    const pend = pendientes || [];
+    let pend = pendientes || [];
+    // reconteo_pendiente no trae el dueño: con dueños se pide aparte, de a 100 id por consulta.
+    if(duenosArchivo && pend.length){
+      const duenoPorId = new Map((await restEnTandas('/skus?select=id,dueno&id=in.', pend.map(x=>x.id))).map(x=>[x.id, x.dueno||'']));
+      if(state.cargaPreview !== p) return;
+      pend = pend.map(x=> ({...x, dueno: duenoPorId.get(x.id)||''}));
+    }
+    pend = pend.filter(deEsteArchivo);
     const porSku = new Map();
     (contados||[]).forEach(c => { if(c.skus) porSku.set(c.sku_id, c.skus); }); // un material contado varias veces cuenta una
-    const cont = [...porSku.values()];
+    const cont = [...porSku.values()].filter(deEsteArchivo);
     p.impactoReemplazo = {
       cargando:false,
       pendientes: { total: pend.length, noVienen: pend.filter(s => !claves.has(clave(s))).length },
@@ -9546,10 +9598,14 @@ async function confirmarCargaMasiva(){
       anotarError('Costo en negativo');
       costo_unitario = null;
     }
-    const claveIdentidad = JSON.stringify([sku_code, bodega, batch, ubicacion, storage_bin]);
+    const dueno = valor(row,'dueno');
+    const claveIdentidad = JSON.stringify([sku_code, bodega, batch, ubicacion, storage_bin, dueno]);
     const fila = {
       sku_code,
       empresa_id: state.perfil.empresa_id,
+      // Con la columna de dueño se manda siempre ('' = sin dueño); sin ella se omite y el upsert
+      // usa el default '' (lo de siempre).
+      ...(mapeo.dueno ? {dueno} : {}),
       descripcion: valor(row,'descripcion') || null,
       categoria: valor(row,'categoria') || null,
       batch,
@@ -9624,7 +9680,7 @@ async function confirmarCargaMasiva(){
   // cuál de sus bines lo lleve: se ve igual que cuando la fila sin sitio era un SKU más.
   if(traspaso.size){
     const destino = new Map();
-    lote.forEach(f=>{ if(f.ubicacion || f.storage_bin){ const k = f.sku_code + '|' + (f.bodega||''); if(!destino.has(k)) destino.set(k, f); } });
+    lote.forEach(f=>{ if(f.ubicacion || f.storage_bin){ const k = claveMaterialFila(f); if(!destino.has(k)) destino.set(k, f); } });
     traspaso.forEach((acc, k)=>{ const f = destino.get(k); if(!f) return; Object.keys(acc).forEach(c=>{ if(acc[c]) f[c] = (Number(f[c])||0) + acc[c]; }); });
   }
   // En poder del proveedor (tipo especial O): el material está fuera de la bodega, así que la
@@ -9636,7 +9692,7 @@ async function confirmarCargaMasiva(){
   if(enProveedorPorMaterial.size){
     const porMaterial = new Map();
     lote.forEach(f=>{
-      const k = f.sku_code + '|' + (f.bodega||'');
+      const k = claveMaterialFila(f);
       const actual = porMaterial.get(k);
       if(!actual || (!(actual.ubicacion||actual.storage_bin) && (f.ubicacion||f.storage_bin))) porMaterial.set(k, f);
     });
@@ -9670,8 +9726,18 @@ async function confirmarCargaMasiva(){
   // sin tocar los triggers ni la configuración de la base: cada POST individual es chico y rápido.
   const TAM_LOTE_CARGA = 2000;
   let insertados = 0;
+  // Dueños de esta carga (ver duenosDelArchivo): acotan "Reemplazar completo" y los sobrantes, que
+  // así no tocan el stock de los clientes que el archivo no trae.
+  const duenosCarga = mapeo.dueno ? [...new Set(lote.map(f=> f.dueno||''))].sort() : null;
   setState({cargaMasivaProgreso: {actual:0, total:lote.length, etapa:'guardando'}});
   try{
+    // El trigger de skus exige que el dueño esté en la lista: los nuevos se agregan antes. Si esto
+    // falla, la carga no sigue y se ve el error.
+    const duenosConCodigo = (duenosCarga||[]).filter(Boolean);
+    for(let i=0; i<duenosConCodigo.length; i+=500){
+      await rest('/duenos_stock?on_conflict=empresa_id,codigo', {method:'POST', body: duenosConCodigo.slice(i, i+500).map(codigo=>({empresa_id: state.perfil.empresa_id, codigo})), prefer:'return=minimal,resolution=ignore-duplicates'});
+    }
+    if(duenosConCodigo.length) cargasHechas.delete('duenosStock');
     for(let i=0; i<lote.length; i+=TAM_LOTE_CARGA){
       const bloque = lote.slice(i, i+TAM_LOTE_CARGA);
       await rest('/skus?on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key,dueno', {method:'POST', body:bloque, prefer:'return=minimal,resolution=merge-duplicates'});
@@ -9682,7 +9748,10 @@ async function confirmarCargaMasiva(){
     if(bodegaActiva && !aperturaYaHecha) await registrarAperturaBodega({silencioso:true});
     // "Reemplazar completo": todo lo que quedó activo y NO se tocó en este lote (updated_at previo a esta carga) pasa a inactivo.
     if(modo==='reemplazar' && lote.length){
-      await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
+      // Con dueños, solo dentro de los dueños que trae el archivo: un archivo por cliente no
+      // desactiva el stock de los demás.
+      const soloDuenos = duenosCarga ? `&dueno=in.(${duenosCarga.map(valorFiltroIn).join(',')})` : '';
+      await rest(`/skus?activo=eq.true&updated_at=lt.${encodeURIComponent(marcaTiempo)}${soloDuenos}`, {method:'PATCH', body:{activo:false}, prefer:'return=minimal'});
     }
     // Ver MOTIVO_FILA_SIN_SITIO_DESACTIVADA. Solo si el archivo trae ubicación o bin (la misma
     // condición de la regla de omitir). Si falla, la carga ya quedó guardada: se avisa con el
@@ -9700,7 +9769,7 @@ async function confirmarCargaMasiva(){
     if(lote.some(f=>f.costo_unitario!==undefined && f.costo_unitario!==null) || lote.some(f=>f.stock_sistema!==undefined && f.stock_sistema!==null)){
       try{ await rest('/rpc/refrescar_clasificacion_abc', {method:'POST'}); }catch(e){ /* el cron nocturno lo cubre */ }
     }
-    const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, detalleCarga(), marcaTiempo);
+    const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, detalleCarga(), marcaTiempo, duenosCarga);
     const nuevos = await contarSkusNuevosDeCarga(marcaTiempo);
     toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}${omitidas?`, ${omitidas} omitidas (sin ubicación ni bin y stock 0; su tránsito pasó a la fila del bin)`:''}${repetidasEnCarga?`, ${repetidasEnCarga} filas repetidas ${repetidasModo===REPETIDAS_SUMAR?'sumadas a su material':'descartadas (quedó la última)'}`:''}${desactivadasSinSitio?`, ${desactivadasSinSitio} filas viejas sin ubicación ni bin desactivadas (su material ya viene con bin)`:''}`);
     if(errorSinSitio) toast(`La carga quedó guardada, pero no se pudieron desactivar las filas viejas sin ubicación ni bin: ${errorSinSitio}`, 'err');
@@ -9744,7 +9813,7 @@ async function contarSkusNuevosDeCarga(marcaTiempo){
   }catch(e){ return null; }
 }
 
-async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores, marcaTiempo){
+async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, filas_error, detalle_errores, marcaTiempo, duenos){
   let id = null;
   try{
     // marca_tiempo es el sello con el que ESTA carga escribió updated_at/capturado_en en skus, y
@@ -9755,7 +9824,10 @@ async function registrarCarga(nombre_archivo, tipo, filas_totales, filas_ok, fil
     const filas = await rest('/cargas_masivas', {method:'POST', body:[{
       nombre_archivo, tipo, usuario_id: state.perfil?state.perfil.id:null,
       empresa_id: state.perfil.empresa_id, marca_tiempo: marcaTiempo || null,
-      filas_totales, filas_ok, filas_error, detalle_errores: detalle_errores.slice(0,50)
+      filas_totales, filas_ok, filas_error, detalle_errores: detalle_errores.slice(0,50),
+      // Los dueños que trajo (null = sin columna de dueño): acotan los sobrantes de esta carga
+      // (resumen_skus_no_traidos, 20261020_duenos_stock_carga.sql).
+      ...(duenos ? {duenos} : {}),
     }], prefer:'return=representation'});
     id = filas && filas[0] ? filas[0].id : null;
   }catch(e){ /* no bloquea el flujo */ }
@@ -13432,7 +13504,7 @@ function renderCargaPreview(){
           <thead><tr><th>Código</th><th>Dónde</th><th class="num">Filas</th><th class="num">Sumando</th><th class="num">La última</th></tr></thead>
           <tbody>${rep.ejemplos.map(e=>`<tr>
             <td class="mono">${esc(e.sku_code)}</td>
-            <td style="font-size:12px">${esc([e.bodega, e.ubicacion, e.storage_bin, e.batch?`batch ${e.batch}`:''].filter(Boolean).join(' · ') || 'sin ubicación')}</td>
+            <td style="font-size:12px">${esc([e.bodega, e.ubicacion, e.storage_bin, e.batch?`batch ${e.batch}`:'', e.dueno?`dueño ${e.dueno}`:''].filter(Boolean).join(' · ') || 'sin ubicación')}</td>
             <td class="num">${e.veces}</td>
             <td class="num" style="${sumar?'font-weight:700':''}">${num(e.stockSumado)}</td>
             <td class="num" style="${sumar?'':'font-weight:700'}">${num(e.stockUltima)}</td>

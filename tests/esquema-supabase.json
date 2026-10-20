@@ -17,15 +17,16 @@
     "cargas_masivas": [
       "created_at",
       "detalle_errores",
+      "duenos",
       "empresa_id",
       "filas_error",
       "filas_ok",
       "filas_totales",
       "id",
+      "marca_tiempo",
       "nombre_archivo",
       "tipo",
-      "usuario_id",
-      "marca_tiempo"
+      "usuario_id"
     ],
     "ciclos_conteo": [
       "created_at",
