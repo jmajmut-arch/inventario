@@ -535,6 +535,51 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Sin señal y sin espacio en el celular: el conteo no se da por guardado =====
+  // Con el localStorage real de Chromium lleno: antes la pantalla decía "conteo guardado en este
+  // dispositivo" y el conteo vivía solo en memoria. Ahora avisa sobre el botón y deja lo escrito.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('sin-espacio: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.evaluate(() => setState({ view:'conteo', skuSeleccionado:{ id:'sl-1', sku_code:'10418772', descripcion:'BEARING UNIT', bodega:'B521', ubicacion:'0200', storage_bin:null, batch:null, stock_sistema:5, unidad_medida:'EA' }, conteoOrigenPlan:true }));
+    await page.waitForSelector('#c-cant', { timeout:ESPERA });
+    // Con señal y un error del servidor, la cantidad escrita tampoco se borra (antes el repintado
+    // de "guardando…" la dejaba vacía).
+    await page.route('**/rest/v1/conteos?**', r=> r.request().method()==='POST' ? r.fulfill({ status:400, contentType:'application/json', body: JSON.stringify({ message:'la cantidad contada es inválida' }) }) : r.fallback());
+    await page.fill('#c-cant', '3');
+    await page.click('#form-conteo .conteo-pie button[type="submit"]');
+    if(await esperarVisible(page, '#btn-aviso-guardar-sin-foto')) await page.click('#btn-aviso-guardar-sin-foto');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('la cantidad contada es inválida'))), 'el error del servidor se muestra con su mensaje');
+    const trasError = await page.evaluate(() => ({ cant: document.getElementById('c-cant').value, sku: !!state.skuSeleccionado }));
+    assert(trasError.cant==='3' && trasError.sku, 'tras un error del servidor, la cantidad escrita sigue en el campo, obtuvo '+JSON.stringify(trasError));
+    await page.unroute('**/rest/v1/conteos?**');
+    await page.route(u=> /\/(rest|auth|storage)\/v1\//.test(u.toString()), r=> r.abort('internetdisconnected'));
+    await context.setOffline(true);
+    const relleno = await page.evaluate(() => {
+      let n = 0;
+      for(const tam of [1<<20, 1<<16, 1<<12, 1<<8]){
+        const bloque = 'x'.repeat(tam);
+        for(;;){ try{ localStorage.setItem('relleno-'+(n++), bloque); }catch(e){ break; } }
+      }
+      return n;
+    });
+    await page.fill('#c-cant', '3');
+    await page.click('#form-conteo .conteo-pie button[type="submit"]');
+    if(await esperarVisible(page, '#btn-aviso-guardar-sin-foto')) await page.click('#btn-aviso-guardar-sin-foto');
+    assert(await esperarVisible(page, '.conteo-no-guardado'), 'sin espacio, el conteo avisa sobre el botón que no se guardó (relleno: '+relleno+' bloques)');
+    const sinEspacio = await page.evaluate(() => ({ cant: document.getElementById('c-cant').value, cola: state.colaOffline.length, guardada: JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]').length, aviso: document.querySelector('.conteo-no-guardado').textContent, desborde: document.documentElement.scrollWidth - window.innerWidth }));
+    assert(sinEspacio.cant==='3' && sinEspacio.cola===0 && sinEspacio.guardada===0, 'sin espacio, lo escrito sigue y nada aparece como por enviar, obtuvo '+JSON.stringify(sinEspacio));
+    assert(sinEspacio.aviso.includes('no tiene espacio') && sinEspacio.desborde<=0, 'el aviso dice el motivo y no desborda a 420 px, obtuvo '+JSON.stringify(sinEspacio));
+    // Liberado el espacio, el mismo conteo se guarda sin volver a escribirlo.
+    await page.evaluate(() => { Object.keys(localStorage).filter(k=>k.startsWith('relleno-')).forEach(k=>localStorage.removeItem(k)); });
+    await page.click('#form-conteo .conteo-pie button[type="submit"]');
+    if(await esperarVisible(page, '#btn-aviso-guardar-sin-foto')) await page.click('#btn-aviso-guardar-sin-foto');
+    assert(await esperarCondicion(page, () => state.colaOffline.length===1 && JSON.parse(localStorage.getItem('cola_offline_conteos')||'[]').length===1), 'con espacio liberado, el conteo queda guardado en el celular');
+    await context.close();
+  }
+
   // ===== Preparar para sin señal, Contar y Reconteo sin señal (Joel, 20/10/2026) =====
   // En el navegador real a 420 px: con señal se prepara (todos los lugares del día y los
   // reconteos); sin señal se abre un lugar nunca tocado, se cuenta y el SKU sale de la lista;

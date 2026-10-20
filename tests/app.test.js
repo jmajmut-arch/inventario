@@ -1508,6 +1508,7 @@ const documentMock = {
 // aplica su efecto de inmediato y dispara onsuccess/onerror en un tick aparte, como el real.
 function crearIndexedDBFalso(){
   const bases = new Map();
+  const falso = { sinEspacio: false };
   function solicitud(ejecutar){
     const req = { result: undefined, error: null, onsuccess: null, onerror: null };
     setTimeout(() => {
@@ -1521,7 +1522,7 @@ function crearIndexedDBFalso(){
     }, 0);
     return req;
   }
-  return {
+  return Object.assign(falso, {
     open(nombre){
       const req = { result: undefined, onupgradeneeded: null, onsuccess: null, onerror: null };
       setTimeout(() => {
@@ -1548,7 +1549,18 @@ function crearIndexedDBFalso(){
                 };
               },
             };
-            return { objectStore: () => objectStore };
+            // Como IndexedDB real: la transacción se confirma después de sus solicitudes, y sin
+            // espacio (falso.sinEspacio) las solicitudes responden bien pero la transacción aborta.
+            const tx = { oncomplete: null, onabort: null, onerror: null, error: null, objectStore: () => objectStore };
+            const registrosAntes = new Map(store.registros);
+            setTimeout(() => setTimeout(() => {
+              if(falso.sinEspacio){
+                store.registros = registrosAntes;
+                tx.error = Object.assign(new Error('The quota has been exceeded.'), { name:'QuotaExceededError' });
+                if(tx.onabort) tx.onabort();
+              }else if(tx.oncomplete) tx.oncomplete();
+            }, 0), 0);
+            return tx;
           },
           close(){},
         };
@@ -1558,7 +1570,7 @@ function crearIndexedDBFalso(){
       }, 0);
       return req;
     },
-  };
+  });
 }
 
 let printCalled = 0;
@@ -1581,11 +1593,20 @@ const sandbox = {
   XLSX: XLSXMock,
   window: { print: () => { printCalled++; }, addEventListener: () => {}, removeEventListener: () => {} },
   confirm: (msg) => { confirmLlamadas.push(msg); return confirmRespuesta; },
-  localStorage: (()=>{ const m = new Map(); return {
+  // __cuota: caracteres en total, como el límite de ~5 MB por sitio del navegador. Al pasarse,
+  // setItem lanza QuotaExceededError y no guarda nada, igual que el real.
+  localStorage: (()=>{ const m = new Map(); const ls = {
+    __cuota: Infinity,
     getItem: (k) => m.has(k) ? m.get(k) : null,
-    setItem: (k,v) => { m.set(k, String(v)); },
+    setItem: (k,v) => {
+      const total = [...m.entries()].reduce((n,[kk,vv])=> n + (kk===k ? 0 : kk.length + vv.length), 0) + k.length + String(v).length;
+      if(total > ls.__cuota) throw Object.assign(new Error('The quota has been exceeded.'), { name:'QuotaExceededError' });
+      m.set(k, String(v));
+    },
     removeItem: (k) => { m.delete(k); },
-  }; })(),
+    key: (i) => [...m.keys()][i] ?? null,
+    get length(){ return m.size; },
+  }; return ls; })(),
   fetch: fakeFetchImpl,
   indexedDB: crearIndexedDBFalso(),
   setTimeout: (fn, ms) => setTimeout(fn, 0),
@@ -8030,6 +8051,67 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!!postConteoSincronizado, 'reintentarAccionOffline debe volver a intentar el envío aunque el conteo estuviera en error, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.colaOffline.length===0, 'si el reintento manual tiene éxito, el conteo debe salir de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
 
+  // ===== Sin espacio en el celular (Joel, 20/10/2026: "¿no se llena con 1.000 SKU al día?") =====
+  // Antes guardarColaOffline se tragaba el error de cuota: la pantalla mostraba "por enviar" algo
+  // que solo estaba en memoria y se perdía al cerrar la app. Ahora no se guarda, se dice, y el
+  // formulario conserva lo escrito.
+  {
+    const ls = ctx.localStorage;
+    ctx.guardarColaOffline([]);
+    const largoBase = [...Array(ls.length)].reduce((n,_,i)=> n + ls.key(i).length + ls.getItem(ls.key(i)).length, 0);
+    ls.__cuota = largoBase + 40; // no cabe ni un item más
+
+    let errCuota = null;
+    try{ ctx.encolarAccionOffline('conteo', {sku_id:'sku-lleno', sku_code:'SKU-LLENO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:5}); }catch(e){ errCuota = e; }
+    assert(errCuota && errCuota.message===vm.runInContext('MENSAJE_COLA_SIN_ESPACIO', ctx), 'sin espacio, encolar debe fallar con un mensaje claro, obtuvo: '+(errCuota && errCuota.message));
+    assert(ctx.__appstate.colaOffline.length===0 && ctx.leerColaOffline().length===0, 'sin espacio, la pantalla no muestra como guardado lo que no quedó en el celular, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+    // Antes de rendirse se borran las cachés de agregados (se vuelven a pedir con señal); el plan
+    // preparado no se toca.
+    ls.__cuota = Infinity;
+    ls.setItem('agg_v1_emp-1_generales', JSON.stringify({t:Date.now(), v:'x'.repeat(3000)}));
+    ls.setItem('plan_dia_cache', JSON.stringify({u1:{fecha:'2026-10-20', entradas:[], selecciones:{}}}));
+    const largoConCaches = [...Array(ls.length)].reduce((n,_,i)=> n + ls.key(i).length + ls.getItem(ls.key(i)).length, 0);
+    ls.__cuota = largoConCaches + 200;
+    const itemTrasLiberar = ctx.encolarAccionOffline('conteo', {sku_id:'sku-cabe', sku_code:'SKU-CABE', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:5});
+    assert(!!itemTrasLiberar && ctx.leerColaOffline().length===1, 'liberando las cachés de agregados el conteo cabe y queda guardado');
+    assert(ls.getItem('agg_v1_emp-1_generales')===null && ls.getItem('plan_dia_cache')!==null, 'se borra la caché de agregados pero no el plan preparado');
+    ls.removeItem('plan_dia_cache');
+    ls.__cuota = Infinity;
+    ctx.guardarColaOffline([]);
+
+    // guardarConteo sin señal y sin espacio: no queda en la cola, el SKU y lo escrito siguen, y
+    // se avisa en rojo con el motivo.
+    const fetchAntesLleno = ctx.fetch;
+    ctx.fetch = async (url, opts) => { if(String(url).includes('/rest/v1/conteos') && opts && opts.method==='POST') throw new ctx.__TypeError('Failed to fetch'); return fetchAntesLleno(url, opts); };
+    ctx.__appstate.skuSeleccionado = { id:'sku-lleno', sku_code:'SKU-LLENO', bodega:'Nave' };
+    ctx.__appstate.conteoFotos = [];
+    ls.__cuota = [...Array(ls.length)].reduce((n,_,i)=> n + ls.key(i).length + ls.getItem(ls.key(i)).length, 0) + 40;
+    const toastRootLleno = elements['toast-root'];
+    const toastsAntesLleno = toastRootLleno.hijos.length;
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:'Nave', observacion:''});
+    ls.__cuota = Infinity;
+    const toastsLleno = toastRootLleno.hijos.slice(toastsAntesLleno);
+    assert(ctx.__appstate.colaOffline.length===0, 'sin espacio el conteo no aparece como guardado, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-lleno', 'sin espacio el material sigue elegido para volver a intentarlo');
+    assert(toastsLleno.some(t=> t.className==='toast err' && t.textContent===vm.runInContext('MENSAJE_COLA_SIN_ESPACIO', ctx)), 'sin espacio se avisa en rojo con el motivo, obtuvo: '+JSON.stringify(toastsLleno.map(t=>[t.className,t.textContent])));
+
+    // Con foto y sin espacio para ella (IndexedDB aborta al confirmar): el conteo tampoco queda
+    // a medias en la cola, y la foto sigue en el formulario.
+    ctx.indexedDB.sinEspacio = true;
+    ctx.__appstate.conteoFotos = [{ file: { name:'foto.jpg', type:'image/jpeg' } }];
+    const toastsAntesFotoLlena = toastRootLleno.hijos.length;
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:'Nave', observacion:''});
+    ctx.indexedDB.sinEspacio = false;
+    const toastsFotoLlena = toastRootLleno.hijos.slice(toastsAntesFotoLlena);
+    assert(ctx.__appstate.colaOffline.length===0 && ctx.leerColaOffline().length===0, 'si la foto no cabe, el conteo no queda en la cola sin ella, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    assert(ctx.__appstate.conteoFotos.length===1 && ctx.__appstate.skuSeleccionado, 'si la foto no cabe, el material y la foto siguen en el formulario');
+    assert(toastsFotoLlena.some(t=> t.className==='toast err' && t.textContent===vm.runInContext('MENSAJE_FOTO_SIN_ESPACIO', ctx)), 'si la foto no cabe se avisa en rojo con el motivo, obtuvo: '+JSON.stringify(toastsFotoLlena.map(t=>[t.className,t.textContent])));
+    ctx.fetch = fetchAntesLleno;
+    ctx.__appstate.skuSeleccionado = null;
+    ctx.__appstate.conteoFotos = [];
+  }
+
   // Compatibilidad: un item que ya estaba encolado ANTES de agregar idempotencia no trae
   // idempotency_key (undefined) -- procesarUnItemOffline debe asignarle una la primera vez que
   // lo procesa, guardarla en la cola (para que quede estable si hay que reintentar este mismo
@@ -14425,6 +14507,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.formaInstalarApp(pc)==='directa', 'con beforeinstallprompt (Chrome/Edge) debe instalarse con el diálogo del navegador, incluso en computador');
     ctx.__appstate.instalarApp = { ...ctx.__appstate.instalarApp, instalada:true };
     assert(ctx.formaInstalarApp(iPhone)===null, 'si ya corre instalada no se ofrece instalar');
+    // Junto a "Preparar para sin señal" se recomienda instalarla (Joel, 20/10/2026): abierta en
+    // el navegador, Safari borra lo guardado si el sitio no se abre en 7 días.
+    assert(ctx.recomendacionInstalarSinSenal()==='', 'ya instalada, no se recomienda instalarla');
+    ctx.__appstate.instalarApp = { hayEvento:true, instalada:false, bannerOculto:true, guiaAbierta:false };
+    const recInstalar = ctx.recomendacionInstalarSinSenal();
+    assert(recInstalar.includes('id="btn-sin-senal-instalar"') && recInstalar.includes('pantalla de inicio') && recInstalar.includes('7 días'), 'sin instalar, junto a Preparar se recomienda instalarla y por qué (aunque se haya cerrado el aviso general), obtuvo: '+recInstalar);
 
     // El evento del navegador: se guarda, el botón lo usa una vez y, aceptado, la app queda instalada.
     ctx.__appstate.instalarApp = { hayEvento:false, instalada:false, bannerOculto:false, guiaAbierta:false };
