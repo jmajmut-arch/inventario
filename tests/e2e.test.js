@@ -507,6 +507,34 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Contar: "ya contado este período" no borra la cantidad que se está escribiendo =====
+  // La respuesta de contado_periodo llega después de elegir el SKU; con señal lenta (o al fallar
+  // sin señal) llegaba cuando la persona ya había escrito la cantidad, y su render() la borraba:
+  // en CI (20/10/2026) el conteo sin señal quedó sin cantidad y no se guardó. Se retiene la
+  // respuesta hasta después de escribir, para reproducirlo siempre.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('veces-periodo: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    let soltarVeces;
+    const vecesRetenido = new Promise(r => { soltarVeces = r; });
+    await page.route('**/rest/v1/rpc/contado_periodo**', async route => {
+      await vecesRetenido;
+      await route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ veces:2, ultima_fecha:'2026-10-19T14:05:00Z', ultima_cantidad:7, ultimo_por:'Pedro Soto' }) });
+    });
+    await page.evaluate(() => setState({ view:'conteo', skuSeleccionado:{ id:'sv-1', sku_code:'10418772', descripcion:'BEARING UNIT', bodega:'B521', ubicacion:'0200', storage_bin:null, batch:null, stock_sistema:5, unidad_medida:'EA' }, conteoOrigenPlan:true }));
+    await page.waitForSelector('#c-cant', { timeout:ESPERA });
+    await page.evaluate(() => { document.getElementById('c-cant').dataset.marca = 'original'; });
+    await page.click('#c-cant');
+    await page.keyboard.type('12');
+    soltarVeces();
+    assert(await esperarCondicion(page, () => (document.getElementById('conteo-veces-periodo')||{}).textContent.includes('Ya contado 2 veces')), 'el aviso "ya contado" aparece al llegar la respuesta');
+    const cant = await page.evaluate(() => { const el = document.getElementById('c-cant'); return { valor: el.value, mismo: el.dataset.marca === 'original', foco: document.activeElement === el }; });
+    assert(cant.valor === '12' && cant.mismo && cant.foco, 'la respuesta no reemplaza el campo cantidad ni borra lo escrito, obtuvo '+JSON.stringify(cant));
+    await context.close();
+  }
+
   // ===== Preparar para sin señal, Contar y Reconteo sin señal (Joel, 20/10/2026) =====
   // En el navegador real a 420 px: con señal se prepara (todos los lugares del día y los
   // reconteos); sin señal se abre un lugar nunca tocado, se cuenta y el SKU sale de la lista;
