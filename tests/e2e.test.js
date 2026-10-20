@@ -457,7 +457,18 @@ async function loguear(page, perfil){
       ubicaciones:[{id:'u1', bodega:'Nave Mina', ubicacion:null, activo:true}, {id:'u2', bodega:'Nave Planta', ubicacion:null, activo:true}, {id:'u3', bodega:'Nave Mina', ubicacion:'Pasillo 3', activo:true}],
     }) }));
     await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:2}]) }));
-    await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:1}]) }));
+    // Los bins de la ubicación quedan retenidos hasta que se empieza a escribir el bin: así la
+    // prueba reproduce que lleguen mientras la persona teclea (antes repintaban y reemplazaban el
+    // campo; en CI pasó por azar del orden de llegada).
+    let soltarBinsUbicacion;
+    const binsUbicacionRetenidos = new Promise(r => { soltarBinsUbicacion = r; });
+    await page.route('**/rest/v1/ubicaciones_bins**', async route => {
+      const porUbicacion = route.request().url().includes('ubicacion=eq.');
+      if(porUbicacion) await binsUbicacionRetenidos;
+      await route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(porUbicacion
+        ? [{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:1}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-03', cantidad_skus:1}]
+        : [{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:1}]) });
+    });
     await page.route('**/rest/v1/skus?activo=eq.true&sku_code=eq.**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
       {id:'e1', sku_code:'10371892', descripcion:'FILTRO ACEITE', unidad_medida:'EA', categoria:'Repuestos', costo_unitario:1500, critico:false, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', batch:null},
     ]) }));
@@ -482,7 +493,10 @@ async function loguear(page, perfil){
     assert(await page.evaluate(() => document.getElementById('s-bin').tagName === 'INPUT' && document.getElementById('s-bin').getAttribute('list') === 'dl-bins-sku'), 'el storage bin es un campo de texto con sugerencias');
     await page.evaluate(() => { document.getElementById('s-bin').dataset.marca = 'original'; });
     await page.click('#s-bin');
-    await page.keyboard.type('A-02');
+    await page.keyboard.type('A-');
+    soltarBinsUbicacion();
+    await page.waitForFunction(() => [...document.querySelectorAll('#dl-bins-sku option')].some(o=>o.value==='A-03'), null, { timeout:ESPERA });
+    await page.keyboard.type('02');
     const binNuevo = await page.evaluate(() => { const el = document.getElementById('s-bin'); return { valor: el.value, mismo: el.dataset.marca === 'original', estado: state.skuForm.storage_bin }; });
     assert(binNuevo.valor === 'A-02' && binNuevo.mismo && binNuevo.estado === 'A-02', 'escribir el bin no reemplaza el campo y queda en el estado, obtuvo '+JSON.stringify(binNuevo));
     // Un repintado (otro campo cambia) conserva lo escrito.

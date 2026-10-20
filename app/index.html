@@ -10308,10 +10308,16 @@ function campoSitioSku(id, etiqueta, valor, opciones, escribiendo, marcaNueva, a
 // servía: una bodega tiene miles de bins, y escribir uno nuevo exigía encontrar "+ Otra…" al
 // final de la lista.
 function campoBinSku(){
-  const bins = state.skuFormOpciones.bins.map(b=>b.storage_bin).filter(Boolean);
   return `<label for="s-bin">Storage bin</label>
     <input type="text" id="s-bin" list="dl-bins-sku" value="${esc(state.skuForm.storage_bin||'')}" placeholder="Escribe o elige, ej. A-12-03" autocomplete="off" autocapitalize="characters" spellcheck="false">
-    <datalist id="dl-bins-sku">${bins.map(b=>`<option value="${esc(b)}"></option>`).join('')}</datalist>`;
+    <datalist id="dl-bins-sku">${opcionesBinSku()}</datalist>`;
+}
+function opcionesBinSku(){
+  return state.skuFormOpciones.bins.map(b=>b.storage_bin).filter(Boolean).map(b=>`<option value="${esc(b)}"></option>`).join('');
+}
+function actualizarSugerenciasBinSku(){
+  const dl = document.getElementById('dl-bins-sku');
+  if(dl) dl.innerHTML = opcionesBinSku();
 }
 // Un bin escrito que ya existe con otras mayúsculas o espacios ("n1e-347-a2") es ese mismo bin.
 function binSkuConocido(texto){
@@ -18017,7 +18023,11 @@ function bind(){
       if(nueva || !bodega) return;
       const bins = await opcionesBins(bodega, v);
       if(state.skuForm.bodega!==bodega || state.skuForm.ubicacion!==v) return;
-      conservandoCamposSku(()=> setState({skuFormOpciones:{...state.skuFormOpciones, bins}}));
+      // Solo cambian las sugerencias del bin: se rehace su datalist, sin repintar, porque la
+      // persona puede estar escribiendo ya en el bin (repintar reemplaza el input y en iPad
+      // reinicia el teclado).
+      state.skuFormOpciones = {...state.skuFormOpciones, bins};
+      actualizarSugerenciasBinSku();
     });
     // El bin se escribe (ver campoBinSku): va al estado en cada tecla, sin repintar.
     document.getElementById('s-bin').addEventListener('input', e=>{ state.skuForm = {...state.skuForm, storage_bin: e.target.value}; });
