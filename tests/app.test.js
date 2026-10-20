@@ -5160,6 +5160,50 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(htmlPreviewRep.includes('3 fila(s) del archivo comparten identidad'), 'el preview avisa antes de confirmar, obtuvo: '+htmlPreviewRep);
   assert(htmlPreviewRep.includes('10001445') && htmlPreviewRep.includes('20002'), 'muestra ejemplos concretos para poder revisar el export');
 
+  // ===== Bodega sacada de los primeros caracteres de otra columna (Joel, 20/10/2026) =====
+  // Un WMS sin columna de bodega cuyo código de ubicación empieza con el del centro (siempre 10
+  // caracteres), con varios centros en el mismo archivo: el mismo bin en dos centros son dos
+  // materiales distintos.
+  {
+    const previewAntes = ctx.__appstate.cargaPreview;
+    const pb = {
+      file: { name: 'wms.csv' }, modo: 'complementar', repetidas: 'ultima',
+      mapeo: { sku_code:'PRODUCTO', storage_bin:'UBICACION', stock_sistema:'CANTIDAD' },
+      campos: [{campo:'sku_code', etiqueta:'Código', obligatorio:true}, {campo:'bodega', etiqueta:'Bodega'}],
+      headers: ['PRODUCTO','UBICACION','CANTIDAD'],
+      data: [
+        { PRODUCTO:'P1', UBICACION:'CLSCLCDAD1MZ12120301', CANTIDAD:'1' },
+        { PRODUCTO:'P1', UBICACION:'CLSCLCDAD2MZ12120301', CANTIDAD:'4' },
+        { PRODUCTO:'P2', UBICACION:' CLSCLCDAD1MZ13120401 ', CANTIDAD:'2' },
+      ],
+    };
+    ctx.__appstate.cargaPreview = pb;
+    assert(ctx.resumenArchivoCarga(pb.data, pb.mapeo).materiales===3, 'sin bodega, cada bin es un material');
+    const htmlSinDerivar = ctx.renderCargaPreview();
+    assert(htmlSinDerivar.includes('¿La bodega viene dentro de otra columna?') && htmlSinDerivar.includes('id="btn-aplicar-bodega-derivada"') && /<option value="UBICACION" selected>/.test(htmlSinDerivar), 'el preview ofrece sacar la bodega de otra columna, sugiriendo la del bin, obtuvo: '+htmlSinDerivar);
+    ctx.aplicarBodegaDesdePrefijo(pb, 'UBICACION', 10);
+    const nombre = 'Bodega · primeros 10 de UBICACION';
+    assert(pb.mapeo.bodega===nombre && pb.headers.includes(nombre) && pb.data.map(r=>r[nombre]).join(',')==='CLSCLCDAD1,CLSCLCDAD2,CLSCLCDAD1', 'la bodega son los 10 primeros caracteres (sin espacios), obtuvo: '+JSON.stringify(pb.data));
+    assert(pb.data[0].UBICACION==='CLSCLCDAD1MZ12120301', 'la columna original no cambia: el bin sigue siendo el código completo');
+    const htmlDerivada = ctx.renderCargaPreview();
+    assert(htmlDerivada.includes('Bodega: primeros <b>10</b> caracteres de <b>UBICACION</b>') && htmlDerivada.includes('CLSCLCDAD1MZ12120301</span> → <span class="mono">CLSCLCDAD1') && htmlDerivada.includes('id="btn-quitar-bodega-derivada"'), 'el preview dice de dónde sale la bodega, con un ejemplo, obtuvo: '+htmlDerivada);
+    // Aplicar otra vez no deja columnas viejas colgando.
+    ctx.aplicarBodegaDesdePrefijo(pb, 'UBICACION', 9);
+    assert(pb.headers.filter(h=>h.startsWith('Bodega · primeros')).length===1 && !(nombre in pb.data[0]), 'cambiar el largo reemplaza la columna derivada, obtuvo: '+JSON.stringify(pb.headers));
+    ctx.aplicarBodegaDesdePrefijo(pb, 'UBICACION', 10);
+    calls.length = 0;
+    await ctx.confirmarCargaMasiva();
+    const postBd = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+    const filasBd = JSON.parse(postBd.opts.body);
+    assert(filasBd.length===3 && filasBd.filter(f=>f.sku_code==='P1').map(f=>f.bodega+'|'+f.storage_bin+'|'+f.stock_sistema).sort().join(',')==='CLSCLCDAD1|CLSCLCDAD1MZ12120301|1,CLSCLCDAD2|CLSCLCDAD2MZ12120301|4', 'el mismo bin en dos centros son dos materiales, cada uno con su bodega, obtuvo: '+JSON.stringify(filasBd));
+    // Quitar vuelve al archivo tal como venía.
+    const pq = {...pb, data: pb.data.map(r=>({...r})), headers:[...pb.headers], mapeo:{...pb.mapeo}};
+    ctx.quitarBodegaDerivada(pq);
+    assert(!pq.mapeo.bodega && pq.headers.join(',')==='PRODUCTO,UBICACION,CANTIDAD' && !(nombre in pq.data[0]) && pq.bodegaDerivada===null, 'quitar deja el archivo como venía, obtuvo: '+JSON.stringify(pq));
+    ctx.__appstate.cargaPreview = previewAntes;
+    ctx.__appstate.cargaResultado = null;
+  }
+
   // ===== Filas repetidas: sumarlas o quedarse con la última (Joel, 20/10/2026) =====
   // Un WMS anota cada pallet en su propia fila: dos pallets del mismo lote en el mismo bin son el
   // mismo material y su stock es la suma. Quien carga lo elige viendo los números; por defecto,

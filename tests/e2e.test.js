@@ -572,6 +572,42 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Carga de Excel: la bodega sale de los primeros caracteres de la ubicación =====
+  // WMS sin columna de bodega y con varios centros en el mismo archivo: el centro son los 10
+  // primeros caracteres del código de ubicación (Joel, 20/10/2026).
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('carga-bodega-prefijo: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    const upserts = [];
+    await page.route('**/rest/v1/skus?on_conflict=**', r=> { upserts.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); });
+    await page.evaluate(() => setState({ view:'carga' }));
+    await page.waitForSelector('#file-skus', { state:'attached', timeout:ESPERA });
+    const csv = 'PRODUCTO,NOMBRE,TIPO UBICACION,UBICACION,LOTE,CANTIDAD,COSTO\n'
+      + 'P-100,Filtro de aire,RK,CLSCLCDAD1MZ12120301,L1,1,1500\n'
+      + 'P-100,Filtro de aire,RK,CLSCLCDAD2MZ12120301,L1,4,1500\n'
+      + 'P-200,Correa B-52,MZ,CLSCLCDAD1MZ18080405,L9,2,800\n';
+    await page.setInputFiles('#file-skus', { name:'stock-wms.csv', mimeType:'text/csv', buffer: Buffer.from(csv) });
+    await page.waitForSelector('#carga-bodega-derivada', { timeout:ESPERA });
+    for(const [campo, col] of [['sku_code','PRODUCTO'],['descripcion','NOMBRE'],['ubicacion','TIPO UBICACION'],['storage_bin','UBICACION'],['batch','LOTE'],['stock_sistema','CANTIDAD'],['costo_unitario','COSTO']]){
+      if(await page.$eval(`#map-${campo}`, el=>el.value) !== col){ await page.selectOption(`#map-${campo}`, col); await page.waitForTimeout(150); }
+    }
+    await page.click('#carga-bodega-derivada > summary');
+    await page.fill('#bd-n', '10');
+    await page.selectOption('#bd-col', 'UBICACION');
+    await page.click('#btn-aplicar-bodega-derivada');
+    assert(await esperarCondicion(page, () => state.cargaPreview.mapeo.bodega==='Bodega · primeros 10 de UBICACION' && !!document.getElementById('btn-quitar-bodega-derivada')), 'la bodega queda asignada a la columna sacada de la ubicación');
+    const vista = await page.evaluate(() => ({ bodega: document.getElementById('map-bodega').value, texto: document.getElementById('carga-bodega-derivada').textContent, desborde: document.documentElement.scrollWidth - window.innerWidth }));
+    assert(vista.bodega==='Bodega · primeros 10 de UBICACION' && vista.texto.includes('CLSCLCDAD1MZ12120301 → CLSCLCDAD1') && vista.desborde<=0, 'el selector de Bodega y el ejemplo lo muestran, sin desbordar a 420 px, obtuvo '+JSON.stringify(vista));
+    if(await page.$('#chk-confirma-aviso-bodega')) await page.check('#chk-confirma-aviso-bodega');
+    await page.click('#btn-confirmar-carga');
+    assert(await esperarCondicion(page, () => !!state.cargaResultado), 'la carga termina');
+    const fila = (code, bodega) => upserts.find(f=>f.sku_code===code && f.bodega===bodega) || {};
+    assert(upserts.length===3 && fila('P-100','CLSCLCDAD1').stock_sistema===1 && fila('P-100','CLSCLCDAD2').stock_sistema===4 && fila('P-200','CLSCLCDAD1').storage_bin==='CLSCLCDAD1MZ18080405', 'cada fila lleva la bodega de su centro y el bin completo; el mismo código en dos centros son dos materiales, obtuvo '+JSON.stringify(upserts.map(f=>[f.sku_code,f.bodega,f.storage_bin,f.stock_sistema])));
+    await context.close();
+  }
+
   // ===== Sin señal y sin espacio en el celular: el conteo no se da por guardado =====
   // Con el localStorage real de Chromium lleno: antes la pantalla decía "conteo guardado en este
   // dispositivo" y el conteo vivía solo en memoria. Ahora avisa sobre el botón y deja lo escrito.

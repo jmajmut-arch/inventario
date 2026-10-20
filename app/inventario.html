@@ -13249,6 +13249,50 @@ function renderImpactoReemplazo(imp){
   </div>`;
 }
 
+// Bodega dentro de otra columna (Joel, 20/10/2026, con el stock de un operador logístico): su
+// WMS no trae columna de bodega, pero el código de ubicación empieza con el del centro de
+// distribución, siempre de 10 caracteres (CLSCLCDAD1MZ12120301 → CLSCLCDAD1), y un mismo archivo
+// trae varios centros. Se arma una columna más, "Bodega · primeros N de <columna>", y se asigna a
+// Bodega: todas las reglas de la carga (identidad, repetidas, aviso de bodegas) la leen como a
+// cualquier otra columna, sin un camino aparte.
+function nombreColumnaBodegaDerivada(n, columna){ return `Bodega · primeros ${n} de ${columna}`; }
+function quitarBodegaDerivada(preview){
+  const d = preview.bodegaDerivada;
+  if(!d) return;
+  preview.data.forEach(row=>{ delete row[d.nombre]; });
+  preview.headers = preview.headers.filter(h=> h!==d.nombre);
+  if(preview.mapeo.bodega===d.nombre) preview.mapeo.bodega = undefined;
+  preview.bodegaDerivada = null;
+}
+function aplicarBodegaDesdePrefijo(preview, columna, n){
+  quitarBodegaDerivada(preview);
+  const nombre = nombreColumnaBodegaDerivada(n, columna);
+  preview.data.forEach(row=>{ const v = row[columna]; row[nombre] = v==null ? '' : String(v).trim().slice(0, n); });
+  preview.headers = [...preview.headers, nombre];
+  preview.mapeo.bodega = nombre;
+  preview.bodegaDerivada = {columna, n, nombre};
+}
+function renderBodegaDerivada(){
+  const p = state.cargaPreview;
+  const d = p.bodegaDerivada;
+  const columnas = p.headers.filter(h=> !d || h!==d.nombre);
+  const sugerida = p.mapeo.storage_bin || p.mapeo.ubicacion || columnas[0] || '';
+  const ejemplo = d ? (p.data.find(r=> String(r[d.columna]||'').trim()) || null) : null;
+  return `<details class="card" id="carga-bodega-derivada" style="margin-top:10px" ${d?'open':''}>
+    <summary style="cursor:pointer;font-weight:600;font-size:14px">¿La bodega viene dentro de otra columna?</summary>
+    <div class="hint" style="margin-top:6px">Si tu archivo no trae una columna de bodega pero el código de ubicación empieza con ella (por ejemplo <span class="mono">CLSCLCDAD1MZ12120301</span> → <span class="mono">CLSCLCDAD1</span>), la bodega se saca de sus primeros caracteres. Sirve solo si ese código siempre tiene el mismo largo.</div>
+    ${d ? `<div style="margin-top:8px;font-size:14px">✓ Bodega: primeros <b>${d.n}</b> caracteres de <b>${esc(d.columna)}</b></div>
+        ${ejemplo ? `<div class="hint" style="margin-top:2px">Ej.: <span class="mono">${esc(String(ejemplo[d.columna]).trim())}</span> → <span class="mono">${esc(ejemplo[d.nombre])}</span></div>` : ''}
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-quitar-bodega-derivada" style="width:auto;margin-top:8px">Quitar</button>`
+      : `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+        <div style="flex:0 0 90px"><label for="bd-n">Primeros</label><input type="number" id="bd-n" min="1" max="50" step="1" inputmode="numeric" value="10"></div>
+        <div style="flex:1 1 180px"><label for="bd-col">caracteres de la columna</label><select id="bd-col">${columnas.map(h=>`<option value="${esc(h)}" ${h===sugerida?'selected':''}>${esc(h)}</option>`).join('')}</select></div>
+        <button type="button" class="btn btn-secondary" id="btn-aplicar-bodega-derivada" style="width:auto">Usar como bodega</button>
+      </div>
+      <div class="hint" id="bd-error" role="alert" style="color:var(--danger)"></div>`}
+  </details>`;
+}
+
 function renderCargaPreview(){
   const { headers, data, campos, mapeo, modo, confirmaReemplazo, avisoBodega } = state.cargaPreview;
   const filasPreview = data.slice(0,5);
@@ -13307,6 +13351,7 @@ function renderCargaPreview(){
         </select>
       `).join('')}
     </div>
+    ${renderBodegaDerivada()}
 
     <div class="section-head"><h2 style="font-size:15px">Vista previa (primeras ${filasPreview.length} filas)</h2></div>
     <div class="card">
@@ -18291,6 +18336,9 @@ function bind(){
       document.querySelectorAll('[data-campo]').forEach(sel=>{
         sel.addEventListener('change', async e=>{
           const campo = sel.dataset.campo;
+          // Elegir a mano otra columna de bodega deja de usar la que se sacó de otra columna.
+          const derivada = state.cargaPreview.bodegaDerivada;
+          if(campo==='bodega' && derivada && e.target.value!==derivada.nombre) quitarBodegaDerivada(state.cargaPreview);
           state.cargaPreview.mapeo[campo] = e.target.value || undefined;
           // Cambiar qué columna es "bodega" cambia contra qué se compara el aviso de mismatch —
           // hay que recalcularlo (y esperar antes de renderizar, o se ve el aviso viejo un instante).
@@ -18309,6 +18357,28 @@ function bind(){
           if(e.target.value==='reemplazar'){ state.cargaPreview.impactoReemplazo = null; calcularImpactoReemplazo(); return; }
           render();
         });
+      });
+      // Bodega sacada de los primeros caracteres de otra columna (ver aplicarBodegaDesdePrefijo).
+      // El número se lee al tocar el botón, no en cada tecla: repintar mientras se escribe
+      // reiniciaría el teclado en iPad.
+      const recalcularAvisoBodega = async ()=>{
+        const avisoBodega = await calcularAvisoBodega(state.cargaPreview.data, state.cargaPreview.mapeo.bodega);
+        if(state.cargaPreview) state.cargaPreview.avisoBodega = avisoBodega;
+        render();
+      };
+      const btnAplicarBodegaDerivada = document.getElementById('btn-aplicar-bodega-derivada');
+      if(btnAplicarBodegaDerivada) btnAplicarBodegaDerivada.addEventListener('click', ()=>{
+        const n = Number(document.getElementById('bd-n').value);
+        const columna = document.getElementById('bd-col').value;
+        if(!Number.isInteger(n) || n<1 || n>50){ document.getElementById('bd-error').textContent = 'Escribe cuántos caracteres: un número entero entre 1 y 50.'; return; }
+        if(!columna){ document.getElementById('bd-error').textContent = 'Elige la columna de donde sacar la bodega.'; return; }
+        aplicarBodegaDesdePrefijo(state.cargaPreview, columna, n);
+        recalcularAvisoBodega();
+      });
+      const btnQuitarBodegaDerivada = document.getElementById('btn-quitar-bodega-derivada');
+      if(btnQuitarBodegaDerivada) btnQuitarBodegaDerivada.addEventListener('click', ()=>{
+        quitarBodegaDerivada(state.cargaPreview);
+        recalcularAvisoBodega();
       });
       document.querySelectorAll('input[name="repetidas-carga"]').forEach(r=>{
         r.addEventListener('change', e=>{ state.cargaPreview.repetidas = e.target.value; render(); });

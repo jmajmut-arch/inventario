@@ -144,6 +144,7 @@
     <ul class="checks no">
       <li>Actualizar sin sobrescribir: toda columna mapeada reemplaza el valor anterior, incluso a blanco</li>
       <li>El mismo código + bodega + batch + ubicación + bin repetido en el archivo: según lo elegido en el preview, se suman (stock y stock informativo; el resto queda de la última fila que lo trae, ver <code>fusionarFilaRepetida</code>) o queda la última, que es lo marcado por defecto. El historial de la carga registra cuántas se sumaron o descartaron</li>
+      <li>Bodega sacada de otra columna: <code>aplicarBodegaDesdePrefijo</code> agrega al archivo leído la columna "Bodega · primeros N de &lt;columna&gt;" y la asigna a Bodega; el resto de la carga la lee como a cualquier columna. La original no cambia (el bin sigue siendo el código completo)</li>
     </ul>
   </div>
   <h3 class="sub">Escáner</h3>
