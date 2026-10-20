@@ -477,14 +477,17 @@ async function loguear(page, perfil){
     const codigoSigue = await page.inputValue('#s-code');
     assert(codigoSigue === '10371892', 'elegir la bodega no borra lo escrito en otros campos, obtuvo "'+codigoSigue+'"');
     await page.selectOption('#s-ubic', 'Pasillo 3');
-    await page.waitForFunction(() => [...document.querySelectorAll('#s-bin option')].some(o=>o.value==='A-01'), null, { timeout:ESPERA });
-    await page.selectOption('#s-bin', '__nuevo');
-    await page.waitForSelector('#s-bin-nueva');
-    await page.evaluate(() => { document.getElementById('s-bin-nueva').dataset.marca = 'original'; });
-    await page.click('#s-bin-nueva');
+    // El bin se escribe, con los de esa ubicación como sugerencias (Joel, 19/10/2026).
+    await page.waitForFunction(() => [...document.querySelectorAll('#dl-bins-sku option')].some(o=>o.value==='A-01'), null, { timeout:ESPERA });
+    assert(await page.evaluate(() => document.getElementById('s-bin').tagName === 'INPUT' && document.getElementById('s-bin').getAttribute('list') === 'dl-bins-sku'), 'el storage bin es un campo de texto con sugerencias');
+    await page.evaluate(() => { document.getElementById('s-bin').dataset.marca = 'original'; });
+    await page.click('#s-bin');
     await page.keyboard.type('A-02');
-    const binNuevo = await page.evaluate(() => { const el = document.getElementById('s-bin-nueva'); return { valor: el.value, mismo: el.dataset.marca === 'original' }; });
-    assert(binNuevo.valor === 'A-02' && binNuevo.mismo, 'escribir el bin nuevo no reemplaza el campo, obtuvo '+JSON.stringify(binNuevo));
+    const binNuevo = await page.evaluate(() => { const el = document.getElementById('s-bin'); return { valor: el.value, mismo: el.dataset.marca === 'original', estado: state.skuForm.storage_bin }; });
+    assert(binNuevo.valor === 'A-02' && binNuevo.mismo && binNuevo.estado === 'A-02', 'escribir el bin no reemplaza el campo y queda en el estado, obtuvo '+JSON.stringify(binNuevo));
+    // Un repintado (otro campo cambia) conserva lo escrito.
+    await page.evaluate(() => conservandoCamposSku(() => setState({skuForm:{...state.skuForm}})));
+    assert(await page.inputValue('#s-bin') === 'A-02', 'el bin escrito sobrevive a un repintado');
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde <= 0, 'a 420 px el formulario no desborda, obtuvo '+desborde);
     await context.close();
@@ -531,10 +534,15 @@ async function loguear(page, perfil){
     await page.waitForFunction(() => [...document.querySelectorAll('#s-bodega option')].some(o=>o.value==='Nave Mina'), null, { timeout:ESPERA });
     await page.fill('#s-code', 'NUEVO-77');
     await page.press('#s-code', 'Tab');
-    // Sin señal la revisión del código falla y lo dice (no lo da por nuevo); el alta sigue igual.
-    assert(await esperarCondicion(page, () => (document.getElementById('form-sku')||{}).textContent.includes('No se pudo revisar si el código ya existe')), 'sin señal, la revisión del código avisa que no se pudo hacer');
+    // Sin señal la revisión del código no se puede hacer y lo dice sin alarmar (no lo da por nuevo
+    // y deja claro que se puede guardar igual; Joel, 19/10/2026: el texto en rojo confundía).
+    assert(await esperarCondicion(page, () => !!document.getElementById('sku-codigo-sin-senal')), 'sin señal, la revisión del código avisa que no se pudo hacer');
+    const avisoSinSenal = await page.textContent('#sku-codigo-sin-senal');
+    assert(avisoSinSenal.includes('Puedes guardarlo igual') && !avisoSinSenal.includes('No se pudo revisar'), 'el aviso dice que se puede guardar igual, obtuvo '+avisoSinSenal);
     await page.fill('#s-desc', 'Valvula de bola');
     await page.selectOption('#s-bodega', 'Nave Mina');
+    await page.fill('#s-bin', 'N1E-001-A1');
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/sku-form-sin-senal-420.png', fullPage: true });
     await page.fill('#s-stock', '3');
     await page.click('#form-sku button[type=submit]');
     assert(await esperarVisible(page, '#btn-contar-sku-creado'), 'sin señal, el SKU guardado ofrece "Contar ahora"');
@@ -569,6 +577,7 @@ async function loguear(page, perfil){
     await page.evaluate(() => sincronizarColaOffline());
     const enviado = await esperarCondicion(page, () => state.colaOffline.length === 0);
     assert(enviado, 'con señal, la cola se vacía');
+    assert(enviados[0] && enviados[0].fila.storage_bin === 'N1E-001-A1', 'el bin escrito sin señal llega con el SKU, obtuvo '+JSON.stringify(enviados[0] && enviados[0].fila));
     assert(enviados.length === 2 && enviados[0].tipo === 'sku' && enviados[1].tipo === 'conteo' && enviados[1].fila.sku_id === 'srv-sku-77' && enviados[1].fila.cantidad_contada === 1,
       'sale el SKU y después su conteo, con el id del SKU, obtuvo '+JSON.stringify(enviados.map(e => ({ tipo:e.tipo, sku_id:e.fila.sku_id }))));
     await context.close();

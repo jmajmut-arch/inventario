@@ -67,6 +67,8 @@ let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (v
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
 let resumenBusquedaFalla = null;
+let desactivarSinSitioRespuesta = 0;
+let desactivarSinSitioFalla = null;
 let resumenGeneralSkusFixture = null;
 let ubicacionesFixture = [
   {id:'ub-1', bodega:'Nave Mina', ubicacion:null, activo:true},
@@ -592,6 +594,12 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/contar_busqueda_skus')){
     const total = skusBusquedaFixture ? skusBusquedaFixture.length : 34;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(total) };
+  }
+  // Carga masiva: filas viejas sin ubicación ni bin cuyo material ya viene con bin (ver
+  // desactivar_filas_sin_sitio_de_carga). Devuelve cuántas desactivó.
+  if(path.startsWith('/rest/v1/rpc/desactivar_filas_sin_sitio_de_carga')){
+    if(desactivarSinSitioFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: desactivarSinSitioFalla}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(desactivarSinSitioRespuesta) };
   }
   // Resumen de Buscar con el total real (ver cargarResumenBusqueda): agrega el mismo fixture con
   // las reglas de resumen_busqueda_skus (grupos de grupoEstadoBusqueda, personas sobre lo contado).
@@ -1633,7 +1641,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // "+ Otra…" (antes texto libre: "Bodega central" creaba otra bodega sin aviso).
   assert(/<select id="s-bodega">[\s\S]*<option value="Nave Mina"[\s\S]*<option value="Nave Planta"[\s\S]*<option value="__nueva"[^>]*>\+ Otra…/.test(htmlSkus), 'Ubicación general debe ser un desplegable con las bodegas existentes y la opción de agregar una nueva, obtuvo: '+htmlSkus);
   assert(/<select id="s-ubic">[\s\S]*<option value="Interior Nave"/.test(htmlSkus), 'Ubicación específica debe ser un desplegable con las ubicaciones de la bodega elegida, obtuvo: '+htmlSkus);
-  assert(/<select id="s-bin">[\s\S]*<option value="A-01"/.test(htmlSkus), 'Storage bin debe ser un desplegable con los bins de esa ubicación, obtuvo: '+htmlSkus);
+  // El bin se escribe (Joel, 19/10/2026: "que uno pueda escribir la ubicación"), con los bins de
+  // esa ubicación como sugerencias; uno escrito con otras mayúsculas es el mismo bin.
+  assert(htmlSkus.includes('<input type="text" id="s-bin" list="dl-bins-sku"') && /<datalist id="dl-bins-sku"><option value="A-01">/.test(htmlSkus) && !htmlSkus.includes('<select id="s-bin"'), 'Storage bin debe ser texto con los bins de esa ubicación como sugerencias, obtuvo: '+htmlSkus);
+  assert(ctx.binSkuConocido(' a-01 ')==='A-01' && ctx.binSkuConocido('B-77')==='B-77' && ctx.binSkuConocido('  ')===null, 'un bin escrito con otras mayúsculas o espacios es el bin existente; uno nuevo queda tal cual');
   assert(!htmlSkus.includes('dl-sku-bodegas') && !htmlSkus.includes('id="s-bodega-nueva"'), 'sin elegir "nueva" no hay campo de texto para la bodega, obtuvo: '+htmlSkus);
   ctx.__appstate.skuForm = {...ctx.skuFormInicial(), nuevaBodega:true, bodega:'Bodega Norte'};
   const htmlSkusNueva = ctx.renderSkus();
@@ -1676,6 +1687,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const htmlFalla = ctx.renderSkus();
     assert(htmlFalla.includes('No se pudo revisar si el código ya existe: servidor caído') && !htmlFalla.includes('Código nuevo'), 'un fallo del servidor se muestra como error, obtuvo: '+htmlFalla);
     skusPorCodigoFalla = null;
+    // Sin señal no es una falla del servidor: se dice sin rojo y deja claro que se puede guardar
+    // igual (Joel, 19/10/2026: "el mensaje hay que mejorarlo, lleva a confusión").
+    ctx.__appstate.skuForm = {...ctx.__appstate.skuForm, existente:{codigo:'SIN-1', cargando:false, filas:[], error:'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', sinSenal:true}};
+    const htmlSinSenalCodigo = ctx.renderSkus();
+    assert(htmlSinSenalCodigo.includes('id="sku-codigo-sin-senal"') && htmlSinSenalCodigo.includes('Puedes guardarlo igual: queda en este dispositivo y se envía al volver la señal') && !htmlSinSenalCodigo.includes('No se pudo revisar si el código ya existe'), 'sin señal, el aviso dice que se puede guardar igual, obtuvo: '+htmlSinSenalCodigo.slice(htmlSinSenalCodigo.indexOf('s-code'), htmlSinSenalCodigo.indexOf('s-code')+900));
+    assert(ctx.pareceFalloDeRed(new ctx.__TypeError('x')) && !ctx.pareceFalloDeRed(new Error('servidor caído')), 'la marca sin señal sale de pareceFalloDeRed');
+
+    // La lista de SKU que no carga no se disfraza de "Aún no hay SKU cargados" ni de "(0)".
+    const spAntes = ctx.__appstate.skusPagina;
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0, error:'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', sinSenal:true};
+    const htmlListaSinSenal = ctx.renderSkus();
+    assert(htmlListaSinSenal.includes('SKU activos (—)') && htmlListaSinSenal.includes('Sin señal: la lista de SKU no se puede cargar ahora') && !htmlListaSinSenal.includes('Aún no hay SKU cargados'), 'sin señal la lista lo dice, obtuvo: '+htmlListaSinSenal.slice(htmlListaSinSenal.indexOf('SKU activos'), htmlListaSinSenal.indexOf('SKU activos')+500));
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0, error:'permission denied', sinSenal:false};
+    assert(ctx.renderSkus().includes('No se pudo cargar la lista de SKU: permission denied'), 'un error del servidor se muestra con su mensaje');
+    ctx.__appstate.skusPagina = spAntes;
     await ctx.revisarCodigoSkuExistente('');
     assert(ctx.__appstate.skuForm.existente===null, 'con el código vacío se limpia la revisión');
 
@@ -1712,6 +1738,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await enviarSku();
     const postNuevo = calls.find(c=>c.url.endsWith('/rest/v1/skus') && c.opts && c.opts.method==='POST');
     assert(!!postNuevo && JSON.parse(postNuevo.opts.body)[0].bodega==='Nave Mina' && JSON.parse(postNuevo.opts.body)[0].batch==='L-NUEVO', 'al aceptar se guarda en la bodega existente, obtuvo: '+(postNuevo && postNuevo.opts.body));
+    assert(JSON.parse(postNuevo.opts.body)[0].stock_sistema===0, 'con el stock en blanco, el SKU se guarda con stock 0 (no null), obtuvo: '+(postNuevo && postNuevo.opts.body));
     assert(ctx.__appstate.skuForm.bodega==='' && ctx.__appstate.skuForm.existente===null, 'tras guardar, el formulario vuelve a empezar, obtuvo: '+JSON.stringify(ctx.__appstate.skuForm));
     // Sin señal la revisión falla por red: igual se guarda (a la cola), no se bloquea.
     ctx.guardarColaOffline([]);
@@ -5162,7 +5189,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const toastRootOmit = elements['toast-root'];
   const toastsAntesOmit = toastRootOmit.hijos.length;
   calls.length = 0;
+  desactivarSinSitioRespuesta = 2;
   await ctx.confirmarCargaMasiva();
+  desactivarSinSitioRespuesta = 0;
   const postOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   const filasOmit = JSON.parse(postOmit.opts.body);
   assert(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo).materiales===filasOmit.length, 'el resumen previo debe prometer exactamente los materiales que llegan al upsert (tránsito), obtuvo: '+JSON.stringify(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo))+' vs '+filasOmit.length);
@@ -5182,6 +5211,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert((cuerpoOmit.detalle_errores||[]).some(e=>/sin ubicación, sin storage bin y con stock 0/i.test(e.motivo) && e.cantidad===3), 'el historial deja constancia de cuántas se omitieron y por qué, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
   const toastsOmit = toastRootOmit.hijos.slice(toastsAntesOmit).map(t=>t.textContent);
   assert(toastsOmit.some(t=>t.includes('8 SKUs cargados') && t.includes('3 omitidas')), 'el aviso final dice cuántas se omitieron, obtuvo: '+JSON.stringify(toastsOmit));
+  await new Promise(r=>setTimeout(r, 0));
+
+  // La otra mitad de la regla (Joel, 19/10/2026: el 10418772 mostraba 2 en tránsito y en SAP no
+  // había): la fila sin sitio que quedó de una carga ANTERIOR, cuando el material todavía no
+  // venía con bin, se desactiva al terminar la carga, con el sello de esta carga.
+  const pedidoSinSitio = calls.find(c=>c.url.includes('/rpc/desactivar_filas_sin_sitio_de_carga'));
+  assert(!!pedidoSinSitio && JSON.parse(pedidoSinSitio.opts.body).p_marca===binOmit.updated_at, 'tras el upsert debe pedir desactivar las filas viejas sin sitio con el sello de esta carga, obtuvo: '+(pedidoSinSitio && pedidoSinSitio.opts.body)+' vs '+binOmit.updated_at);
+  assert(calls.indexOf(pedidoSinSitio) > calls.indexOf(postOmit), 'se pide después de guardar las filas (si no, las hermanas ubicadas todavía no tienen el sello)');
+  assert((cuerpoOmit.detalle_errores||[]).some(e=>/desactivadas: su material ya viene con bin/.test(e.motivo) && e.cantidad===2), 'el historial deja constancia de cuántas filas viejas se desactivaron, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
+  assert(toastsOmit.some(t=>t.includes('2 filas viejas sin ubicación ni bin desactivadas')), 'el aviso final lo dice, obtuvo: '+JSON.stringify(toastsOmit));
+
+  // Si eso falla, la carga ya quedó guardada: se avisa el error, no se esconde.
+  desactivarSinSitioFalla = 'permission denied for table skus';
+  ctx.__appstate.cargaPreview = previewOmit;
+  const toastsAntesFalla = toastRootOmit.hijos.length;
+  await ctx.confirmarCargaMasiva();
+  desactivarSinSitioFalla = null;
+  const toastsFalla = toastRootOmit.hijos.slice(toastsAntesFalla).map(t=>t.textContent);
+  assert(toastsFalla.some(t=>t.includes('La carga quedó guardada, pero no se pudieron desactivar las filas viejas sin ubicación ni bin: permission denied for table skus')), 'el error se muestra con su mensaje, obtuvo: '+JSON.stringify(toastsFalla));
+  await new Promise(r=>setTimeout(r, 0));
+
+  // Un archivo sin columna de ubicación ni de bin no usa la regla: no se pide nada.
+  ctx.__appstate.cargaPreview = {...previewOmit, mapeo: {...previewOmit.mapeo, ubicacion:'', storage_bin:''}};
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  assert(!calls.some(c=>c.url.includes('/rpc/desactivar_filas_sin_sitio_de_carga')), 'sin ubicación ni bin en el archivo no debe desactivar nada');
   await new Promise(r=>setTimeout(r, 0));
 
   // El historial muestra las omitidas y su motivo aunque no haya errores.
