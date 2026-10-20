@@ -11476,6 +11476,113 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.contarPlan.desdeCache===false, 'sin caché para una selección nunca vista, no debe marcar desdeCache:true, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
   const nuevosToastsCascadaOffline = toastRootCascadaOffline.hijos.slice(toastsAntesCascadaOffline);
   assert(nuevosToastsCascadaOffline.length>0, 'sin caché para esa selección, debe avisar el error como antes, obtuvo: '+JSON.stringify(nuevosToastsCascadaOffline));
+  // ===== Preparar para sin señal (Joel, 20/10/2026: "si me planifican 100 SKU, entro, selecciono
+  // el día de hoy, ¿estoy listo para contar offline?") =====
+  // Antes solo quedaba en el celular el lugar que se abría con señal. "Preparar para sin señal"
+  // guarda todos los lugares del día y los reconteos pendientes; sin señal, lo contado sale de la
+  // lista; y al volver la señal, el aviso de "plan guardado" se va solo.
+  {
+    const cpAntes = ctx.__appstate.contarPlan, fetchAntes = ctx.fetch, colaAntes = ctx.__appstate.colaOffline, onLineAntes = ctx.navigator.onLine;
+    ctx.localStorage.removeItem('plan_dia_cache'); ctx.localStorage.removeItem('reconteos_cache');
+    ctx.__appstate.colaOffline = [];
+    ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
+    await ctx.cargarPlanDeHoy('2026-08-24');
+    const lugaresPrep = ctx.lugaresPlanDia(ctx.__appstate.contarPlan.entradas).map(l=>l.bodega+'||'+l.ubic);
+    assert(JSON.stringify(lugaresPrep)===JSON.stringify(['__sin_ubicacion__||','Nave Mina||Interior Nave','__bodega_vacia__||Piso']), 'los lugares del día son los mismos de las tarjetas (las dos entradas de Interior Nave son un solo lugar), obtuvo: '+JSON.stringify(lugaresPrep));
+    const htmlAntesPrep = ctx.renderPlanDelDia();
+    assert(htmlAntesPrep.includes('id="btn-preparar-sin-senal"') && htmlAntesPrep.includes('los 3 lugares de este día y los reconteos pendientes'), 'con señal y sin preparar, Contar ofrece "Preparar para sin señal", obtuvo: '+htmlAntesPrep.slice(0, 1500));
+    calls.length = 0;
+    await ctx.prepararSinSenal();
+    const cachePrep = JSON.parse(ctx.localStorage.getItem('plan_dia_cache'))['resp-yo'];
+    const clavesPrep = Object.keys(cachePrep.selecciones||{}).sort();
+    assert(JSON.stringify(clavesPrep)===JSON.stringify(['Nave Mina||Interior Nave','__bodega_vacia__||Piso','__sin_ubicacion__||']), 'debe guardar los SKU pendientes de los 3 lugares, no solo del que se abrió, obtuvo: '+JSON.stringify(clavesPrep));
+    const skusPrep = clavesPrep.reduce((n,k)=> n + cachePrep.selecciones[k].length, 0);
+    assert(cachePrep.preparado && cachePrep.preparado.lugares===3 && cachePrep.preparado.skus===skusPrep && cachePrep.preparado.reconteos===30, 'debe anotar qué quedó guardado (3 lugares, sus SKU y los reconteos), obtuvo: '+JSON.stringify(cachePrep.preparado));
+    const pedidoReconteosPrep = calls.find(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code'));
+    assert(!!pedidoReconteosPrep && !pedidoReconteosPrep.url.includes('fotos'), 'los reconteos se guardan sin fotos (pesan y verlas necesita señal), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(JSON.parse(ctx.localStorage.getItem('reconteos_cache'))['resp-yo'].filas.length===30, 'los reconteos pendientes quedan en el celular');
+    const htmlPrep = ctx.renderPlanDelDia();
+    assert(htmlPrep.includes('Listo para contar sin señal') && htmlPrep.includes('3 lugares, '+skusPrep+' SKU y 30 reconteos guardados'), 'después de preparar, Contar dice qué quedó guardado, obtuvo: '+htmlPrep.slice(0, 1500));
+
+    // Sin señal, cualquiera de los lugares se abre desde lo guardado, aunque nunca se haya tocado.
+    ctx.fetch = async () => { throw new ctx.__TypeError('Failed to fetch'); };
+    ctx.navigator.onLine = false;
+    await ctx.elegirCascadaContar({bodega:'__bodega_vacia__', ubicacion:'Piso'});
+    const cpPiso = ctx.__appstate.contarPlan;
+    assert(cpPiso.desdeCache===true && Array.isArray(cpPiso.skusPendientes) && cpPiso.skusPendientes.length===cachePrep.selecciones['__bodega_vacia__||Piso'].length && cpPiso.skusPendientes.length>1, 'sin señal, un lugar preparado y nunca abierto debe mostrar sus SKU, obtuvo: '+JSON.stringify(cpPiso));
+    assert(!ctx.renderPlanDelDia().includes('id="btn-preparar-sin-senal"') || ctx.renderPlanDelDia().includes('Listo para contar sin señal'), 'sin señal no se ofrece preparar (no se podría)');
+
+    // Lo contado que espera en la cola sale de la lista y queda nombrado aparte.
+    const contadoPrep = cpPiso.skusPendientes[0];
+    ctx.__appstate.colaOffline = [{id:'cola-prep-1', tipo:'conteo', sku_id: contadoPrep.id, sku_code: contadoPrep.sku_code, cantidad_contada:3, estado:'pendiente', creado_en:'2026-08-24T12:00:00Z'}];
+    const htmlContadoPrep = ctx.renderPlanDelDia();
+    assert(!htmlContadoPrep.includes(`data-pick-plan="${contadoPrep.id}"`) && htmlContadoPrep.includes(`<span class="contar-n">${cpPiso.skusPendientes.length-1}</span>`), 'el SKU contado sin señal sale de la lista y el contador baja, obtuvo: '+htmlContadoPrep.slice(htmlContadoPrep.indexOf('contar-lista-cab'), htmlContadoPrep.indexOf('contar-lista-cab')+400));
+    assert(htmlContadoPrep.includes('id="contar-por-enviar"') && htmlContadoPrep.includes('1 contado, por enviar: '+contadoPrep.sku_code), 'y queda nombrado como contado por enviar, obtuvo: '+htmlContadoPrep.slice(-900));
+    ctx.__appstate.colaOffline = [];
+
+    // Si el celular no tiene espacio, no dice "listo": lo dice como error.
+    ctx.fetch = fetchAntes; ctx.navigator.onLine = true;
+    const setItemAntes = ctx.localStorage.setItem;
+    ctx.localStorage.setItem = (k, v) => { if(k==='plan_dia_cache') throw new Error('QuotaExceededError'); return setItemAntes.call(ctx.localStorage, k, v); };
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, preparacionError:''};
+    await ctx.prepararSinSenal();
+    ctx.localStorage.setItem = setItemAntes;
+    assert(/no queda espacio en este celular/.test(ctx.__appstate.contarPlan.preparacionError||'') && ctx.renderPlanDelDia().includes('No se pudo preparar para sin señal: no queda espacio'), 'sin espacio debe verse el error, no "listo", obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.preparacionError));
+
+    // Vuelve la señal: el plan guardado se cambia por el del servidor y el aviso se va solo (antes
+    // seguía hasta cambiar de día). Conserva el lugar elegido.
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, preparacionError:'', desdeCache:true, entradas: cachePrep.entradas};
+    assert(ctx.renderPlanDelDia().includes('mostrando el plan guardado'), 'con el plan guardado, el aviso está');
+    await ctx.refrescarContarTrasSenal();
+    assert(ctx.__appstate.contarPlan.desdeCache===false && ctx.__appstate.contarPlan.bodega==='__bodega_vacia__' && !ctx.renderPlanDelDia().includes('mostrando el plan guardado'), 'al volver la señal el aviso de plan guardado se quita solo y el lugar sigue elegido, obtuvo: '+JSON.stringify({desdeCache: ctx.__appstate.contarPlan.desdeCache, bodega: ctx.__appstate.contarPlan.bodega}));
+
+    // ===== Reconteo sin señal =====
+    const perfilAntesRec = ctx.__appstate.perfil;
+    ctx.__appstate.perfil = {...perfilAntesRec, rol:'admin'};
+    const recBase = {stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, causa_probable:'Sin patrón detectado'};
+    ctx.localStorage.setItem('reconteos_cache', JSON.stringify({'resp-yo': {en:'2026-10-20T11:15:00.000Z', filas:[
+      {...recBase, id:'rc-a', conteo_id:'cc-a', sku_code:'ABC-1', descripcion:'Filtro', ultimo_conteo_fecha:'2026-10-13T15:00:00Z'},
+      {...recBase, id:'rc-b', conteo_id:'cc-b', sku_code:'XYZ-2', descripcion:'Perno', ultimo_conteo_fecha:'2026-10-06T15:00:00Z'},
+      {...recBase, id:'rc-c', conteo_id:'cc-c', sku_code:'ABC-3', descripcion:'Sello', ultimo_conteo_fecha:'2026-10-14T15:00:00Z'},
+    ]}}));
+    ctx.fetch = async () => { throw new ctx.__TypeError('Failed to fetch'); };
+    ctx.navigator.onLine = false;
+    Object.assign(ctx.__appstate, {reconteos:[], reconteosCargados:false, reconteosError:'', reconteoSemana:null, reconteoTexto:'', reconteosSeleccionados:[], reconteosDesdeCache:null});
+    await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteos.length===3 && ctx.__appstate.reconteosDesdeCache==='2026-10-20T11:15:00.000Z' && !ctx.__appstate.reconteosError, 'sin señal, Reconteo muestra la lista guardada, obtuvo: '+JSON.stringify({n:ctx.__appstate.reconteos.length, en:ctx.__appstate.reconteosDesdeCache, err:ctx.__appstate.reconteosError}));
+    assert(JSON.stringify(ctx.__appstate.reconteosPorSemana)===JSON.stringify([{semana:'2026-10-05', pendientes:1},{semana:'2026-10-12', pendientes:2}]), 'el gráfico por semana sale de lo guardado, lunes a lunes, obtuvo: '+JSON.stringify(ctx.__appstate.reconteosPorSemana));
+    const htmlRecSin = ctx.renderReconteo();
+    assert(htmlRecSin.includes('id="reconteo-sin-senal"') && htmlRecSin.includes('<b>Sin señal:</b> lista guardada en este celular el ') && htmlRecSin.includes('Descartar, Ajustado en ERP, Editar y Ajustar stock necesitan señal'), 'debe decir que es la lista guardada y qué necesita señal, obtuvo: '+htmlRecSin.slice(0, 2500));
+    assert(/data-recontar="rc-a"(?![^>]*disabled)/.test(htmlRecSin) && /data-descartar-reconteo="cc-a"[^>]*disabled/.test(htmlRecSin) && /data-cerrar-ajuste-erp="cc-a"[^>]*disabled/.test(htmlRecSin), 'Recontar sigue activo; Descartar y Ajustado en ERP se apagan sin señal');
+    ctx.__appstate.reconteoTexto = 'abc'; await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteos.map(r=>r.sku_code).join(',')==='ABC-1,ABC-3', 'buscar por texto funciona sobre lo guardado, obtuvo: '+ctx.__appstate.reconteos.map(r=>r.sku_code));
+    ctx.__appstate.reconteoTexto = ''; ctx.__appstate.reconteoSemana = '2026-10-05'; await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteos.map(r=>r.sku_code).join(',')==='XYZ-2', 'filtrar por semana funciona sobre lo guardado, obtuvo: '+ctx.__appstate.reconteos.map(r=>r.sku_code));
+    ctx.__appstate.reconteoSemana = null; await ctx.cargarReconteos();
+    ctx.__appstate.colaOffline = [{id:'cola-rec-1', tipo:'conteo', sku_id:'rc-a', sku_code:'ABC-1', cantidad_contada:9, es_reconteo:true, estado:'pendiente', creado_en:'2026-10-20T12:00:00Z'}];
+    const htmlRecontado = ctx.renderReconteo();
+    assert(!htmlRecontado.includes('data-recontar="rc-a"') && htmlRecontado.includes('1 recontado, por enviar: ABC-1'), 'lo recontado sin señal sale de la lista y queda nombrado, obtuvo: '+htmlRecontado.slice(0, 2500));
+    ctx.__appstate.colaOffline = [];
+    ctx.localStorage.removeItem('reconteos_cache');
+    Object.assign(ctx.__appstate, {reconteos:[], reconteosCargados:false, reconteosError:'', reconteosDesdeCache:null});
+    await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteosError && !ctx.__appstate.reconteosCargados, 'sin señal y sin lista guardada, el error se ve (no "no hay pendientes"), obtuvo: '+JSON.stringify(ctx.__appstate.reconteosError));
+
+    // Con señal, abrir Reconteo deja de paso la lista completa guardada en el celular.
+    ctx.fetch = fetchAntes; ctx.navigator.onLine = true;
+    await ctx.cargarReconteos();
+    await new Promise(r=>setTimeout(r, 10));
+    const cacheRecOnline = JSON.parse(ctx.localStorage.getItem('reconteos_cache')||'{}')['resp-yo'];
+    assert(ctx.__appstate.reconteosDesdeCache===null && cacheRecOnline && cacheRecOnline.filas.length===30, 'con señal, Reconteo guarda la lista para usarla sin señal, obtuvo: '+JSON.stringify(cacheRecOnline && cacheRecOnline.filas.length));
+    calls.length = 0;
+    await ctx.cargarReconteos(); await new Promise(r=>setTimeout(r, 10));
+    assert(!calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code')), 'no vuelve a bajar la lista completa en cada visita (como mucho cada 15 minutos)');
+
+    ctx.__appstate.perfil = perfilAntesRec;
+    ctx.__appstate.colaOffline = colaAntes; ctx.navigator.onLine = onLineAntes; ctx.fetch = fetchAntes;
+    ctx.__appstate.contarPlan = cpAntes;
+  }
+
   // Bug real (Joel, 13/10/2026): tras el error la lista quedaba en "Cargando SKU pendientes…" para
   // siempre; el error tiene que quedar a la vista, con su mensaje y un botón para reintentar.
   assert(ctx.__appstate.contarPlan.skusPendientes===null && ctx.__appstate.contarPlan.errorSkus==='No hay conexión con el servidor.', 'el fallo deja errorSkus con el motivo, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.errorSkus));
