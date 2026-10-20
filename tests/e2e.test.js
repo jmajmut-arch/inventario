@@ -535,6 +535,43 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Carga de Excel: filas repetidas que se suman (Joel, 20/10/2026) =====
+  // Un WMS anota cada pallet en su propia fila. Con el archivo real en el navegador a 420 px: el
+  // aviso muestra qué stock queda con cada opción, se elige "Sumar" y el upsert lleva la suma.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('carga-sumar: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    const upserts = [];
+    await page.route('**/rest/v1/skus?on_conflict=**', r=> { upserts.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); });
+    await page.evaluate(() => setState({ view:'carga' }));
+    await page.waitForSelector('#file-skus', { state:'attached', timeout:ESPERA });
+    const csv = 'Codigo,Descripcion,Bodega,Ubicacion,Storage Bin,Batch,Stock,Costo\n'
+      + 'P-100,Filtro de aire,CD1,RK,R-01-02,L1,1,1500\n'
+      + 'P-100,Filtro de aire,CD1,RK,R-01-02,L1,1,1500\n'
+      + 'P-100,Filtro de aire,CD1,RK,R-01-02,L2,3,1500\n'
+      + 'P-200,Correa B-52,CD1,RK,R-02-01,L9,4,800\n'
+      + 'P-200,Correa B-52,CD1,RK,R-02-01,L9,5,800\n';
+    await page.setInputFiles('#file-skus', { name:'stock-wms.csv', mimeType:'text/csv', buffer: Buffer.from(csv) });
+    await page.waitForSelector('input[name="repetidas-carga"]', { timeout:ESPERA });
+    for(const [campo, col] of [['sku_code','Codigo'],['descripcion','Descripcion'],['bodega','Bodega'],['storage_bin','Storage Bin'],['batch','Batch'],['stock_sistema','Stock'],['ubicacion','Ubicacion'],['costo_unitario','Costo']]){
+      if(await page.$eval(`#map-${campo}`, el=>el.value) !== col){ await page.selectOption(`#map-${campo}`, col); await page.waitForTimeout(150); }
+    }
+    const aviso = await page.evaluate(() => ({ texto: [...document.querySelectorAll('.card')].map(c=>c.textContent).find(t=>t.includes('comparten identidad'))||'', marcado: (document.querySelector('input[name="repetidas-carga"]:checked')||{}).value, desborde: document.documentElement.scrollWidth - window.innerWidth }));
+    assert(aviso.texto.includes('2 fila(s) del archivo comparten identidad') && aviso.marcado==='ultima', 'el aviso cuenta las repetidas y por defecto queda la última, obtuvo '+JSON.stringify(aviso));
+    assert(aviso.desborde<=0, 'a 420 px el aviso de repetidas no desborda la página, obtuvo '+aviso.desborde);
+    await page.check('input[name="repetidas-carga"][value="sumar"]');
+    assert(await esperarCondicion(page, () => state.cargaPreview.repetidas==='sumar' && document.body.textContent.includes('2 fila(s) repetidas se suman a su material')), 'al elegir Sumar, el resumen lo dice');
+    // La bodega de prueba no existe en la empresa simulada: se confirma el aviso, como lo haría una persona.
+    if(await page.$('#chk-confirma-aviso-bodega')) await page.check('#chk-confirma-aviso-bodega');
+    await page.click('#btn-confirmar-carga');
+    assert(await esperarCondicion(page, () => !!state.cargaResultado), 'la carga termina');
+    const stock = (code, batch) => (upserts.find(f=>f.sku_code===code && f.batch===batch)||{}).stock_sistema;
+    assert(upserts.length===3 && stock('P-100','L1')===2 && stock('P-100','L2')===3 && stock('P-200','L9')===9, 'el upsert lleva 3 materiales con la suma de sus pallets (1+1, 3, 4+5), obtuvo '+JSON.stringify(upserts.map(f=>[f.sku_code,f.batch,f.stock_sistema])));
+    await context.close();
+  }
+
   // ===== Sin señal y sin espacio en el celular: el conteo no se da por guardado =====
   // Con el localStorage real de Chromium lleno: antes la pantalla decía "conteo guardado en este
   // dispositivo" y el conteo vivía solo en memoria. Ahora avisa sobre el botón y deja lo escrito.

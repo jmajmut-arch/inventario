@@ -9169,7 +9169,7 @@ async function prepararCargaMasiva(file){
     if(!headers.length || !data.length){ toast('El archivo no tiene filas de datos','err'); return; }
     const mapeo = detectarMapeo(headers, CAMPOS_SKU);
     const avisoBodega = await calcularAvisoBodega(data, mapeo.bodega);
-    setState({cargaPreview: { file, headers, data, campos:CAMPOS_SKU, mapeo, modo:'complementar', confirmaReemplazo:false, avisoBodega }});
+    setState({cargaPreview: { file, headers, data, campos:CAMPOS_SKU, mapeo, modo:'complementar', repetidas:REPETIDAS_QUEDA_ULTIMA, confirmaReemplazo:false, avisoBodega }});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -9313,7 +9313,7 @@ function resumenArchivoCarga(data, mapeo){
   cacheResumenArchivoCarga = {firma, resultado};
   return resultado;
 }
-function renderResumenArchivoCarga(data, mapeo){
+function renderResumenArchivoCarga(data, mapeo, repetidasModo){
   if(!mapeo.sku_code) return '';
   const r = resumenArchivoCarga(data, mapeo);
   const n = x => x.toLocaleString('es-CL');
@@ -9321,7 +9321,7 @@ function renderResumenArchivoCarga(data, mapeo){
     r.omitidas ? `${n(r.omitidas)} fila(s) de tránsito (sin ubicación, sin bin, stock 0) pasan a la fila del bin de su material` : '',
     r.consignacion ? `${n(r.consignacion)} línea(s) de consignación (K) se suman al stock de su bin` : '',
     r.enProveedor ? `${n(r.enProveedor)} línea(s) en poder del proveedor (O) se muestran como "En prov."` : '',
-    r.repetidas ? `${n(r.repetidas)} fila(s) idénticas a otra se pisan: queda la última` : '',
+    r.repetidas ? (repetidasModo===REPETIDAS_SUMAR ? `${n(r.repetidas)} fila(s) repetidas se suman a su material` : `${n(r.repetidas)} fila(s) idénticas a otra se pisan: queda la última`) : '',
     r.sinCodigo ? `${n(r.sinCodigo)} fila(s) sin código no se cargan` : '',
   ].filter(Boolean);
   return `<div class="card" style="margin-top:14px;border-color:var(--amber)">
@@ -9331,6 +9331,31 @@ function renderResumenArchivoCarga(data, mapeo){
   </div>`;
 }
 
+// Qué hacer con las filas que son el mismo material en el mismo lugar (código + bodega + batch +
+// ubicación + bin). Un ERP que repite una línea por error quiere quedarse con una; un WMS que
+// anota cada pallet o partida en su propia fila quiere sumarlas (Joel, 20/10/2026, con el stock de
+// un operador logístico: 4 de 19 filas eran otro pallet del mismo lote en el mismo bin, y quedarse
+// con la última perdía 4 de 24 unidades). Lo decide quien carga, viendo los números; por defecto
+// queda la última, que es lo de siempre.
+const REPETIDAS_QUEDA_ULTIMA = 'ultima';
+const REPETIDAS_SUMAR = 'sumar';
+const MOTIVO_FILAS_REPETIDAS_SUMADAS = 'Filas repetidas (mismo código, bodega, batch, ubicación y storage bin) sumadas en su material';
+const MOTIVO_FILAS_REPETIDAS_PISADAS = 'Filas repetidas (mismo código, bodega, batch, ubicación y storage bin) descartadas: quedó la última';
+// Al sumar, se suman las cantidades; el resto (descripción, costo, unidad…) queda de la última
+// fila que lo trae.
+const CAMPOS_SUMABLES_REPETIDAS = ['stock_sistema', ...CAMPOS_STOCK_TRASPASABLES];
+function fusionarFilaRepetida(anterior, nueva){
+  const fila = {...anterior};
+  Object.keys(nueva).forEach(c=>{
+    if(CAMPOS_SUMABLES_REPETIDAS.includes(c)){
+      const a = anterior[c], b = nueva[c];
+      fila[c] = (a===null || a===undefined) && (b===null || b===undefined) ? b : (Number(a)||0) + (Number(b)||0);
+    }else if(nueva[c]!==null && nueva[c]!==undefined){
+      fila[c] = nueva[c];
+    }
+  });
+  return fila;
+}
 let cacheIdentidadesRepetidas = null;
 function identidadesRepetidas(data, mapeo){
   const firma = JSON.stringify(mapeo) + '|' + data.length;
@@ -9345,16 +9370,25 @@ function identidadesRepetidas(data, mapeo){
     if(esFilaConsignacion(valor, row, mapeo) || esFilaEnProveedor(valor, row, mapeo)) return; // se suman a otra fila: nada se pisa
     const clave = JSON.stringify([sku_code, valor(row,'bodega')||null, valor(row,'batch')||null,
                                   valor(row,'ubicacion')||null, valor(row,'storage_bin')||null]);
-    veces.set(clave, (veces.get(clave)||0) + 1);
+    const acc = veces.get(clave) || {n:0, stocks:[]};
+    acc.n++;
+    acc.stocks.push(valor(row,'stock_sistema'));
+    veces.set(clave, acc);
   });
   let total = 0;
   const ejemplos = [];
-  veces.forEach((n, clave)=>{
+  veces.forEach((acc, clave)=>{
+    const n = acc.n;
     if(n < 2) return;
-    total += n - 1; // las que se pisan: todas menos la que queda
+    total += n - 1; // las que se pisan (o se suman a otra): todas menos una
     if(ejemplos.length < 5){
       const [sku_code, bodega, batch, ubicacion, storage_bin] = JSON.parse(clave);
-      ejemplos.push({sku_code, bodega, batch, ubicacion, storage_bin, veces:n});
+      // Qué stock quedaría con cada opción (ver REPETIDAS_SUMAR), para decidir con números.
+      const numeros = acc.stocks.filter(x=>x!=='' && !isNaN(Number(x)) && Number(x)>=0).map(Number);
+      const ultima = acc.stocks[acc.stocks.length-1];
+      ejemplos.push({sku_code, bodega, batch, ubicacion, storage_bin, veces:n,
+        stockSumado: numeros.length ? numeros.reduce((a,b)=>a+b, 0) : null,
+        stockUltima: ultima!=='' && !isNaN(Number(ultima)) ? Number(ultima) : null});
     }
   });
   const resultado = {total, ejemplos};
@@ -9410,6 +9444,7 @@ async function calcularImpactoReemplazo(){
 async function confirmarCargaMasiva(){
   if(!perfilCargado()) return;
   const { file, data, mapeo, modo } = state.cargaPreview;
+  const repetidasModo = state.cargaPreview.repetidas===REPETIDAS_SUMAR ? REPETIDAS_SUMAR : REPETIDAS_QUEDA_ULTIMA;
   const valor = (row, campo) => mapeo[campo] ? (row[mapeo[campo]]!==undefined ? String(row[mapeo[campo]]).trim() : '') : '';
 
   setState({loading:true});
@@ -9431,8 +9466,9 @@ async function confirmarCargaMasiva(){
   // La clave de deduplicado es código+bodega+batch+ubicación+bin, no solo el código: si el
   // archivo trae dos filas del mismo código en bodegas, batches o ubicaciones/bines distintos,
   // todas deben llegar al upsert como filas separadas. Si trae dos filas idénticas en TODOS esos
-  // campos, ahí sí nos quedamos con la última (no hay forma de saber cuál es la correcta).
+  // campos, se suman o queda la última, según lo elegido en el preview (ver REPETIDAS_SUMAR).
   const porIdentidadSku = new Map();
+  let repetidasEnCarga = 0;
   const conSitio = materialesConSitioEnArchivo(data, valor);
   const traspaso = new Map(); // código|bodega -> stock informativo de las filas omitidas
   const consignacionPorIdentidad = new Map(); // identidad -> líneas K acumuladas
@@ -9515,7 +9551,9 @@ async function confirmarCargaMasiva(){
       consignacionPorIdentidad.set(claveIdentidad, acc);
       return;
     }
-    porIdentidadSku.set(claveIdentidad, fila);
+    const anterior = porIdentidadSku.get(claveIdentidad);
+    if(anterior) repetidasEnCarga++;
+    porIdentidadSku.set(claveIdentidad, anterior && repetidasModo===REPETIDAS_SUMAR ? fusionarFilaRepetida(anterior, fila) : fila);
   });
   // Consignación (tipo especial K): SAP la exporta como otra línea del mismo bin, que coincidía
   // en los cinco campos de identidad con la línea propia y la pisaba (en Escondida, 21 bines
@@ -9574,6 +9612,7 @@ async function confirmarCargaMasiva(){
   const detalleCarga = () => [
     ...resumenErroresAArray(resumenErrores),
     ...(omitidas ? [{motivo: MOTIVO_FILA_SIN_UBICACION_NI_STOCK, cantidad: omitidas}] : []),
+    ...(repetidasEnCarga ? [{motivo: repetidasModo===REPETIDAS_SUMAR ? MOTIVO_FILAS_REPETIDAS_SUMADAS : MOTIVO_FILAS_REPETIDAS_PISADAS, cantidad: repetidasEnCarga}] : []),
     ...(desactivadasSinSitio ? [{motivo: MOTIVO_FILA_SIN_SITIO_DESACTIVADA, cantidad: desactivadasSinSitio}] : []),
   ];
   // Módulo de bodega: después de la apertura el stock lo llevan los movimientos, no el Excel.
@@ -9621,13 +9660,13 @@ async function confirmarCargaMasiva(){
     }
     const cargaId = await registrarCarga(file.name, 'skus', data.length, ok, error, detalleCarga(), marcaTiempo);
     const nuevos = await contarSkusNuevosDeCarga(marcaTiempo);
-    toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}${omitidas?`, ${omitidas} omitidas (sin ubicación ni bin y stock 0; su tránsito pasó a la fila del bin)`:''}${desactivadasSinSitio?`, ${desactivadasSinSitio} filas viejas sin ubicación ni bin desactivadas (su material ya viene con bin)`:''}`);
+    toast(`Carga completa: ${insertados} SKUs cargados${modo==='reemplazar'?' (reemplazo completo)':''}${error?`, ${error} con error`:''}${omitidas?`, ${omitidas} omitidas (sin ubicación ni bin y stock 0; su tránsito pasó a la fila del bin)`:''}${repetidasEnCarga?`, ${repetidasEnCarga} filas repetidas ${repetidasModo===REPETIDAS_SUMAR?'sumadas a su material':'descartadas (quedó la última)'}`:''}${desactivadasSinSitio?`, ${desactivadasSinSitio} filas viejas sin ubicación ni bin desactivadas (su material ya viene con bin)`:''}`);
     if(errorSinSitio) toast(`La carga quedó guardada, pero no se pudieron desactivar las filas viejas sin ubicación ni bin: ${errorSinSitio}`, 'err');
     refrescarListaSkus();
     setState({loading:false, cargaPreview:null, cargaMasivaProgreso:null, cargaResultado: {
       cargaId, archivo: file.name, fecha: new Date().toISOString(), segundos: Math.round((Date.now()-inicioCarga)/1000), modo,
       materiales: insertados, nuevos, actualizados: nuevos==null ? null : Math.max(0, insertados - nuevos), error,
-      resumen: resumenArchivoCarga(data, mapeo), fallo: null,
+      resumen: resumenArchivoCarga(data, mapeo), repetidasModo, fallo: null,
     }});
     // "Reemplazar completo" ya desactivó lo que no vino; solo el modo de todos los días acumula.
     if(modo!=='reemplazar') revisarSobrantesDeCarga(cargaId);
@@ -13075,6 +13114,7 @@ function renderResultadoDeCarga(){
     res.omitidas ? `${n(res.omitidas)} de tránsito` : '',
     res.consignacion ? `${n(res.consignacion)} de consignación` : '',
     res.enProveedor ? `${n(res.enProveedor)} en poder del proveedor` : '',
+    res.repetidas && r.repetidasModo===REPETIDAS_SUMAR ? `${n(res.repetidas)} repetidas sumadas` : '',
   ].filter(Boolean);
   const sob = state.cargaSobrantes;
   const sobrantes = sob && sob.total ? Number(sob.total) - (Number(sob.contados)||0) : 0;
@@ -13281,7 +13321,7 @@ function renderCargaPreview(){
 
     ${camposFaltantes.length? `<div class="hint" style="color:var(--danger)">Falta asignar: ${camposFaltantes.map(c=>esc(c.etiqueta)).join(', ')}.</div>` : ''}
 
-    ${renderResumenArchivoCarga(data, mapeo)}
+    ${renderResumenArchivoCarga(data, mapeo, state.cargaPreview.repetidas)}
 
     ${progresoCarga? `
     <div class="card" style="margin-top:14px">
@@ -13327,15 +13367,33 @@ function renderCargaPreview(){
     ${(()=>{
       const rep = identidadesRepetidas(data, mapeo);
       if(!rep.total) return '';
+      const sumar = state.cargaPreview.repetidas===REPETIDAS_SUMAR;
+      const num = x => x==null ? '—' : x.toLocaleString('es-CL');
       return `<div class="card" style="border-color:var(--warn);margin-top:14px">
         <h3 style="margin:0 0 4px;font-size:15px">${rep.total.toLocaleString('es-CL')} fila(s) del archivo comparten identidad con otra</h3>
-        <div class="hint">Un material es único por código + bodega + batch + ubicación + storage bin. Cuando dos filas coinciden en los cinco, se guarda <b>la última</b> y la otra se descarta: no hay forma de saber cuál es la correcta. Si esas filas debían sumarse, revisa el export de tu ERP antes de confirmar.</div>
+        <div class="hint">Un material es único por código + bodega + batch + ubicación + storage bin. Estas filas coinciden en los cinco: son el mismo material en el mismo lugar. ¿Qué hacer con ellas?</div>
+        <label class="opcion-carga ${sumar?'activo':''}" style="margin-top:8px">
+          <input type="radio" name="repetidas-carga" value="${REPETIDAS_SUMAR}" ${sumar?'checked':''}>
+          <div>
+            <div class="nombre">Sumar sus cantidades</div>
+            <div class="desc">Si tu sistema anota cada pallet, caja o partida en su propia fila (lo típico de un WMS): el stock del material es la suma.</div>
+          </div>
+        </label>
+        <label class="opcion-carga ${sumar?'':'activo'}">
+          <input type="radio" name="repetidas-carga" value="${REPETIDAS_QUEDA_ULTIMA}" ${sumar?'':'checked'}>
+          <div>
+            <div class="nombre">Quedarse con la última</div>
+            <div class="desc">Si el archivo repite la misma línea por error: se guarda la última y las demás se descartan.</div>
+          </div>
+        </label>
         <div class="table-wrap" style="margin-top:8px"><table>
-          <thead><tr><th>Código</th><th>Dónde</th><th class="num">Filas</th></tr></thead>
+          <thead><tr><th>Código</th><th>Dónde</th><th class="num">Filas</th><th class="num">Sumando</th><th class="num">La última</th></tr></thead>
           <tbody>${rep.ejemplos.map(e=>`<tr>
             <td class="mono">${esc(e.sku_code)}</td>
             <td style="font-size:12px">${esc([e.bodega, e.ubicacion, e.storage_bin, e.batch?`batch ${e.batch}`:''].filter(Boolean).join(' · ') || 'sin ubicación')}</td>
             <td class="num">${e.veces}</td>
+            <td class="num" style="${sumar?'font-weight:700':''}">${num(e.stockSumado)}</td>
+            <td class="num" style="${sumar?'':'font-weight:700'}">${num(e.stockUltima)}</td>
           </tr>`).join('')}</tbody></table></div>
         ${rep.ejemplos.length<5?'':'<div class="hint" style="margin-top:6px">Se muestran los primeros 5.</div>'}
       </div>`;
@@ -18251,6 +18309,9 @@ function bind(){
           if(e.target.value==='reemplazar'){ state.cargaPreview.impactoReemplazo = null; calcularImpactoReemplazo(); return; }
           render();
         });
+      });
+      document.querySelectorAll('input[name="repetidas-carga"]').forEach(r=>{
+        r.addEventListener('change', e=>{ state.cargaPreview.repetidas = e.target.value; render(); });
       });
       if(state.cargaPreview.modo==='reemplazar' && !state.cargaPreview.impactoReemplazo) calcularImpactoReemplazo();
       const chkReemplazo = document.getElementById('chk-confirma-reemplazo');
