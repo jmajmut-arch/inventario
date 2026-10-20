@@ -547,7 +547,10 @@ async function loguear(page, perfil){
 
     await page.click('[data-tab="reconteo"]');
     assert(await esperarVisible(page, '#reconteo-sin-senal'), 'sin señal, Reconteo muestra la lista guardada y lo dice');
-    const recSin = await page.evaluate(()=> ({ filas: document.querySelectorAll('[data-recontar]').length, recontarActivo: !document.querySelector('[data-recontar="ps-1"]').disabled, descartarApagado: document.querySelector('[data-descartar-reconteo="rc-1"]').disabled }));
+    // El aviso sale apenas se corta la señal; la lista guardada se pinta un momento después (pasó
+    // en el CI: se leyó la tabla antes de que llegara).
+    assert(await esperarCondicion(page, ()=> document.querySelectorAll('[data-recontar]').length===2), 'la lista guardada llega a la tabla');
+    const recSin = await page.evaluate(()=> { const b = s => document.querySelector(s); return { filas: document.querySelectorAll('[data-recontar]').length, recontarActivo: !!b('[data-recontar="ps-1"]') && !b('[data-recontar="ps-1"]').disabled, descartarApagado: !!b('[data-descartar-reconteo="rc-1"]') && b('[data-descartar-reconteo="rc-1"]').disabled }; });
     assert(recSin.filas===2 && recSin.recontarActivo && recSin.descartarApagado, 'Recontar funciona y Descartar se apaga sin señal, obtuvo '+JSON.stringify(recSin));
     const desbordeRec = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeRec <= 0, 'a 420 px Reconteo sin señal no desborda, obtuvo '+desbordeRec);
