@@ -380,6 +380,13 @@ async function loguear(page, perfil){
     await page.waitForTimeout(100);
     assert((await page.inputValue('#c-cant-danada')) === '2' && (await page.inputValue('#c-cant')) === '3', 'marcar packing dañado conserva la cantidad y las unidades dañadas');
     assert(await page.isChecked('#c-material-danado') && await page.isChecked('#c-packing-danado'), 'las dos marcas quedan marcadas tras el repintado');
+    // Una carga de fondo que termina con el formulario abierto (sin señal fallan todas justo al
+    // entrar a Contar) repinta la pantalla entera: lo tecleado sigue ahí (CI, 21/10/2026).
+    await page.fill('#c-obs', 'nota antes del repintado');
+    await page.evaluate(() => render());
+    const trasRepintado = { cant: await page.inputValue('#c-cant'), danada: await page.inputValue('#c-cant-danada'), obs: await page.inputValue('#c-obs') };
+    assert(trasRepintado.cant === '3' && trasRepintado.danada === '2' && trasRepintado.obs === 'nota antes del repintado', 'un repintado de fondo no borra lo tecleado en Contar, obtuvo '+JSON.stringify(trasRepintado));
+    await page.fill('#c-obs', '');
     const desbordeDanos = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeDanos <= 0, 'a 420 px el formulario con daños no desborda, obtuvo '+desbordeDanos);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-danos-420.png', fullPage: true });
