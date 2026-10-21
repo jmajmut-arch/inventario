@@ -131,6 +131,7 @@
       "activo",
       "automatico_critico",
       "created_at",
+      "dueno",
       "empresa_id",
       "fecha_inicio",
       "frecuencia_dias",

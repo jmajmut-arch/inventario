@@ -2641,6 +2641,7 @@ const CARGAS_POR_VISTA = {
   reconteo: ['reconteos', 'duenosStock'],
   buscar: ['ubicacionesLista', 'personasBuscar', 'duenosStock'], // desplegables de ubicación (una llamada) y de "Contado por"
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables', 'duenosStock'],
+  grupos: ['duenosStock'], // los grupos los carga su propia pantalla (cargarGrupos); acá, el nombre de cada dueño
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
   salida: ['bodegaListas', 'responsables', 'reservas'],
@@ -3769,7 +3770,8 @@ async function cargarGrupos(){
     const todos = await rest('/grupos_conteo?select=*,miembros:skus_grupos_conteo(count)&order=nombre.asc') || [];
     const rows = todos.filter(g=>g.activo!==false);
     const pausados = todos.filter(g=>g.activo===false);
-    const grupoAutomatico = rows.find(g=>g.automatico_critico);
+    // El de todos los dueños (el de siempre). Uno con dueño toma sus materiales de posiciones_por_grupo.
+    const grupoAutomatico = rows.find(g=>g.automatico_critico && g.dueno==null);
     if(grupoAutomatico){
       const total = await rest('/rpc/contar_criticos_distintos', {method:'POST', body:{}});
       grupoAutomatico.totalCriticos = Number(total) || 0;
@@ -3783,7 +3785,11 @@ async function cargarGrupos(){
       try{
         const filas = await rest('/rpc/posiciones_por_grupo', {method:'POST', body:{p_grupo_ids: todos.map(g=>g.id)}}) || [];
         const porGrupo = new Map(filas.map(f=>[f.grupo_id, f]));
-        todos.forEach(g=>{ const f = porGrupo.get(g.id); g.posiciones = f ? Number(f.posiciones) : null; });
+        todos.forEach(g=>{
+          const f = porGrupo.get(g.id);
+          g.posiciones = f ? Number(f.posiciones) : null;
+          if(f && g.automatico_critico && g.dueno!=null) g.totalCriticos = Number(f.materiales) || 0;
+        });
       }catch(e){ todos.forEach(g=>{ g.posiciones = null; }); }
     }
     // Cuántas entradas de plan_semanal generó el plan automático de cada grupo (a pedido de Joel:
@@ -3816,7 +3822,9 @@ async function cargarGrupos(){
   }
 }
 
-async function crearGrupo(nombre, frecuenciaDias, automaticoCritico, fechaInicio){
+// dueno (opcional, ver duenoDesdeFiltro): el grupo cuenta solo las filas de ese dueño (grupos_conteo.
+// dueno, 20261022_duenos_stock_grupos.sql). Sin él, la fila va igual que siempre y cubre a todos.
+async function crearGrupo(nombre, frecuenciaDias, automaticoCritico, fechaInicio, dueno){
   if(!nombre || !fechaInicio || !perfilCargado()) return;
   try{
     await rest('/grupos_conteo', {method:'POST', body:[{
@@ -3824,15 +3832,25 @@ async function crearGrupo(nombre, frecuenciaDias, automaticoCritico, fechaInicio
       frecuencia_dias: frecuenciaDias!=='' && frecuenciaDias!=null ? Number(frecuenciaDias) : null,
       automatico_critico: !!automaticoCritico,
       fecha_inicio: fechaInicio,
+      ...(dueno==null ? {} : {dueno}),
     }], prefer:'return=minimal'});
     toast('Grupo creado');
-    setState({grupos: {...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false, fechaInicioNueva:''}});
+    setState({grupos: {...state.grupos, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', automaticoCriticoNuevo:false, fechaInicioNueva:'', duenoNuevo:''}});
     cargarGrupos();
   }catch(e){
-    // Ya existe un grupo automático de críticos activo (índice único idx_grupos_conteo_automatico_
-    // critico_unico) -- a lo más uno por empresa, para no tener dos compitiendo por el mismo criterio.
-    toast(/idx_grupos_conteo_automatico_critico_unico/i.test(e.message||'') ? 'Ya existe un grupo automático de Crítico activo' : e.message, 'err');
+    // Ya existe un grupo automático de críticos activo (índice único): a lo más uno por empresa y
+    // dueño, para no tener dos compitiendo por el mismo criterio.
+    toast(esIndiceGrupoAutomatico(e.message) ? (usaDuenosStock() ? 'Ya existe un grupo automático de Crítico activo para ese dueño' : 'Ya existe un grupo automático de Crítico activo') : e.message, 'err');
   }
+}
+// El índice que deja un solo grupo automático de críticos activo: por empresa hasta el 21/10/2026
+// (..._unico), por empresa y dueño desde 20261022_duenos_stock_grupos_pegar.sql (..._dueno).
+function esIndiceGrupoAutomatico(mensaje){
+  return /idx_grupos_conteo_automatico_critico_(unico|dueno)/i.test(mensaje||'');
+}
+// Filtro de dueño de un grupo para las consultas a skus: '' sin dueño en el grupo (todos).
+function filtroDuenoGrupo(grupo){
+  return filtroDuenoPlan(grupo ? grupo.dueno : null);
 }
 
 function abrirGrupo(id){
@@ -3886,7 +3904,7 @@ async function cargarSeguimientoGrupo(grupoId){
       // Automático: la membresía ES el propio universo de skus.critico=true -- alcanza una sola
       // consulta (ya trae la fecha), a diferencia de un grupo curado a mano que necesita cruzar
       // skus_grupos_conteo con skus por separado (ver la rama de abajo).
-      filas = await rest(`/skus?activo=eq.true&critico=eq.true&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
+      filas = await rest(`/skus?activo=eq.true&critico=eq.true${filtroDuenoGrupo(grupo)}&select=sku_code,bodega,ultimo_conteo_fecha`) || [];
       const vistos = new Set();
       miembros = [];
       filas.forEach(f=>{
@@ -3898,7 +3916,7 @@ async function cargarSeguimientoGrupo(grupoId){
       filas = [];
       if(miembros.length){
         const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
-        filas = await restEnTandas('/skus?activo=eq.true&sku_code=in.', codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,ultimo_conteo_fecha');
+        filas = await restEnTandas(`/skus?activo=eq.true${filtroDuenoGrupo(grupo)}&sku_code=in.`, codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,ultimo_conteo_fecha');
       }
     }
     const ciclosActuales = await pedidoCiclo || [];
@@ -4087,7 +4105,7 @@ async function reactivarGrupo(id){
     toast(`Grupo "${grupo.nombre}" reactivado`);
     await cargarGrupos();
   }catch(e){
-    toast(/idx_grupos_conteo_automatico_critico_unico/i.test(e.message||'') ? 'Ya existe otro grupo automático de Crítico activo' : e.message, 'err');
+    toast(esIndiceGrupoAutomatico(e.message) ? (usaDuenosStock() ? 'Ya existe otro grupo automático de Crítico activo para ese dueño' : 'Ya existe otro grupo automático de Crítico activo') : e.message, 'err');
   }
 }
 
@@ -4200,7 +4218,7 @@ async function cargarMiembrosGrupo(grupoId){
     let datosSkus = [];
     if(rows.length){
       const codigos = Array.from(new Set(rows.map(m=>m.sku_code)));
-      datosSkus = await restEnTandas('/skus?activo=eq.true&sku_code=in.', codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,descripcion,critico,ultimo_conteo_fecha');
+      datosSkus = await restEnTandas(`/skus?activo=eq.true${filtroDuenoGrupo(grupo)}&sku_code=in.`, codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,descripcion,critico,ultimo_conteo_fecha');
     }
     const cicloGrupo = calcularCicloGrupo(grupo);
     const inicioGrupoMs = cicloGrupo ? new Date(grupo.fecha_inicio+'T00:00:00').getTime() : null;
@@ -4281,10 +4299,13 @@ async function buscarCandidatosGrupo(){
     // 200 como máximo), por buscar_skus_lectura para que use los índices de trigramas.
     const texto = sanearTextoFiltro(candidatoTexto);
     const bodega = sanearTextoFiltro(candidatoBodega);
-    const rows = await rest('/rpc/buscar_skus_lectura?select=sku_code,descripcion,bodega', {method:'POST', body:{p_texto: texto || '', p_bodega: bodega || null, p_limite: 200}}) || [];
+    // Con un grupo de un dueño se ofrecen solo materiales de ese dueño (el resto no contaría en él).
+    const grupo = (state.grupos.lista||[]).find(g=>g.id===state.grupos.grupoAbierto);
+    const duenoGrupo = grupo ? grupo.dueno : null;
+    const rows = await rest(`/rpc/buscar_skus_lectura?select=sku_code,descripcion,bodega${duenoGrupo==null ? '' : ',dueno'}`, {method:'POST', body:{p_texto: texto || '', p_bodega: bodega || null, p_limite: 200}}) || [];
     if(miPeticion !== candidatosGrupoPeticionId) return; // respuesta obsoleta: se siguió escribiendo
     const porIdentidad = new Map();
-    rows.forEach(r=> porIdentidad.set(`${r.sku_code}::${r.bodega||''}`, r));
+    rows.filter(r=> duenoGrupo==null || r.dueno===duenoGrupo).forEach(r=> porIdentidad.set(`${r.sku_code}::${r.bodega||''}`, r));
     // No mostrar materiales que ya están en el grupo (reportado por Joel: al volver a buscar,
     // seguían apareciendo como candidatos ofreciendo agregarlos de nuevo) -- se compara por
     // código+bodega contra los miembros ya cargados del grupo abierto.
@@ -4350,7 +4371,7 @@ async function calcularVistaPreviaPlanGrupo(){
     let filas;
     if(grupo.automatico_critico){
       // Automático: el universo ES skus.critico=true -- no hay membresía que cruzar aparte.
-      filas = await rest(`/skus?activo=eq.true&critico=eq.true&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
+      filas = await rest(`/skus?activo=eq.true&critico=eq.true${filtroDuenoGrupo(grupo)}&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha`) || [];
     }else{
       const miembros = await rest(`/skus_grupos_conteo?grupo_id=eq.${grupoId}&select=sku_code,bodega`) || [];
       filas = [];
@@ -4359,7 +4380,7 @@ async function calcularVistaPreviaPlanGrupo(){
         // de esos códigos y se filtra acá a las que de verdad son miembros (código+bodega exactos),
         // porque PostgREST no permite filtrar por pares (código,bodega) en un solo pedido.
         const codigos = Array.from(new Set(miembros.map(m=>m.sku_code)));
-        const filasCrudas = await restEnTandas('/skus?activo=eq.true&sku_code=in.', codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha');
+        const filasCrudas = await restEnTandas(`/skus?activo=eq.true${filtroDuenoGrupo(grupo)}&sku_code=in.`, codigos.map(c=>encodeURIComponent(c)), CODIGOS_POR_CONSULTA, '&select=sku_code,bodega,ubicacion,storage_bin,ultimo_conteo_fecha');
         const clavesMiembros = new Set(miembros.map(m=>`${m.sku_code}::${m.bodega||''}`));
         filas = filasCrudas.filter(f=> clavesMiembros.has(`${f.sku_code}::${f.bodega||''}`));
       }
@@ -4500,7 +4521,9 @@ function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
 // supere se omite y se avisa. bodega null (skus.bodega IS NULL) viaja como '' -- convención de
 // esta app para "el grupo sin bodega asignada" (ver filtroBodega/BODEGA_VACIA). Sin responsable
 // -- a pedido de Joel, el reparto entre personas queda manual.
-function entradasParaCrearPlanGrupo(dias){
+// dueno (el del grupo): cada entrada lo lleva y crear_plan_grupo la acota a ese dueño; sin él, las
+// entradas van igual que siempre.
+function entradasParaCrearPlanGrupo(dias, dueno){
   const entradas = [];
   const codigos = m => [...new Set(m.map(x=>x.sku_code))];
   (dias||[]).forEach(dia => dia.zonas.forEach(z=>{
@@ -4510,14 +4533,14 @@ function entradasParaCrearPlanGrupo(dias){
     const ubicacionEsNula = bodegaConocida && !z.ubicacion;
     if(sinBodegaNiUbicacion || ubicacionEsNula){
       entradas.push({fecha: dia.fecha, bodega: sinBodegaNiUbicacion ? null : bodegaParaZona, ubicacion: null, storage_bin: null,
-        solo_sin_ubicacion: sinBodegaNiUbicacion, ubicacion_nula: ubicacionEsNula, sku_codes: codigos(z.materiales)});
+        solo_sin_ubicacion: sinBodegaNiUbicacion, ubicacion_nula: ubicacionEsNula, sku_codes: codigos(z.materiales), ...(dueno==null ? {} : {dueno})});
       return;
     }
     const porBin = new Map();
     z.materiales.forEach(m=>{ const bin = m.storage_bin || ''; if(!porBin.has(bin)) porBin.set(bin, []); porBin.get(bin).push(m); });
     for(const [bin, materialesBin] of porBin){
       entradas.push({fecha: dia.fecha, bodega: bodegaParaZona, ubicacion: z.ubicacion, storage_bin: bin || null,
-        solo_sin_ubicacion: false, ubicacion_nula: false, sku_codes: codigos(materialesBin)});
+        solo_sin_ubicacion: false, ubicacion_nula: false, sku_codes: codigos(materialesBin), ...(dueno==null ? {} : {dueno})});
     }
   }));
   return entradas;
@@ -4528,7 +4551,7 @@ async function confirmarVistaPreviaComoPlan(){
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
   if(!grupo || !g.vistaPreviaDias || !g.vistaPreviaDias.length || !perfilCargado()) return;
 
-  const entradas = entradasParaCrearPlanGrupo(g.vistaPreviaDias);
+  const entradas = entradasParaCrearPlanGrupo(g.vistaPreviaDias, grupo.dueno);
   const totalMateriales = g.vistaPreviaDias.reduce((n,s)=>n+s.materiales, 0);
   const nota = `Generado automáticamente por el grupo "${grupo.nombre}"`;
   // Si ya existen entradas de una generación anterior de este mismo grupo, avisar y ofrecer
@@ -5656,7 +5679,12 @@ function etiquetaDuenoEntradaPlan(e){
 // filtro de dueño: '' = todos, '__sin' = sin dueño, o un código), tal como va a plan_semanal.dueno y
 // a los filtros de skus_planificables: undefined = todos (la entrada y las consultas de siempre).
 function duenoAgregarPlan(){
-  const v = usaDuenosStock() ? (state.plan.duenoAgregar||'') : '';
+  return duenoDesdeFiltro(usaDuenosStock() ? state.plan.duenoAgregar : '');
+}
+// De un valor del selector de dueño ('' = todos, '__sin' = sin dueño, o un código) al dueño que se
+// guarda en una entrada del plan o un grupo: undefined = todos (lo de siempre).
+function duenoDesdeFiltro(v){
+  v = v||'';
   return v==='' ? undefined : v==='__sin' ? '' : v;
 }
 function filtroDuenoPlan(dueno){
@@ -6326,8 +6354,18 @@ function construirParametrosBusquedaRpc(){
     p_fecha_hasta: hasta,
     p_usuario_id: state.busqueda.usuarioId || null,
     p_grupo_id: (grupo && !grupo.automatico_critico) ? grupo.id : null,
-    ...parametroDuenoRpc(state.busqueda.dueno),
+    ...parametroDuenoBusqueda(grupo),
   };
+}
+// El grupo de un dueño lo filtra la base (p_grupo_id, 20261022_duenos_stock_grupos.sql), salvo el
+// automático de críticos, que viaja como p_solo_criticos: su dueño va como p_dueno. Si además se
+// eligió otro dueño en el filtro, no hay material que sea de los dos (igual que con un grupo a mano).
+const DUENO_SIN_COINCIDENCIA = '\u0001sin-coincidencia';
+function parametroDuenoBusqueda(grupo){
+  const filtro = parametroDuenoRpc(state.busqueda.dueno);
+  if(!(grupo && grupo.automatico_critico && grupo.dueno!=null)) return filtro;
+  if(!('p_dueno' in filtro)) return {p_dueno: grupo.dueno};
+  return filtro.p_dueno===grupo.dueno ? filtro : {p_dueno: DUENO_SIN_COINCIDENCIA};
 }
 
 // "Solo con fotografías" no es una columna propia (fotos es un array agregado), así que
@@ -15669,7 +15707,13 @@ function renderGrupos(){
           <input type="number" id="grupo-frecuencia" min="1" placeholder="Ej. 90" value="${esc(g.frecuenciaNuevaDias)}">
           <label for="grupo-fecha-inicio-nuevo" style="margin-top:8px">Fecha de inicio del ciclo</label>
           <input type="date" id="grupo-fecha-inicio-nuevo" value="${esc(g.fechaInicioNueva || fechaISO(new Date()))}" required>
-          ${g.lista.some(x=>x.automatico_critico)? '' : `
+          ${usaDuenosStock()? `
+          <label for="grupo-dueno" style="margin-top:8px">Dueño</label>
+          <select id="grupo-dueno">${opcionesFiltroDueno(g.duenoNuevo||'')}</select>
+          ${avisoErrorListaDuenos('margin:4px 0 0;')}
+          <div class="hint" style="margin:4px 0 0">Con un dueño, el grupo cuenta solo sus materiales. No se cambia después.</div>
+          ` : ''}
+          ${g.lista.some(x=>x.automatico_critico) && !usaDuenosStock()? '' : `
           <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-top:10px">
             <input type="checkbox" id="grupo-automatico-critico" ${g.automaticoCriticoNuevo?'checked':''}>
             Automático: incluye todos los materiales marcados como Crítico (no se agregan a mano)
@@ -15698,7 +15742,7 @@ function renderGrupos(){
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500">${esc(grupo.nombre)}</div>
-            <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}${grupo.planResumen? '' : descripcionEntradas}</div>
+            <div class="hint" style="margin-top:2px">${descripcionCantidad}${descripcionCiclo}${grupo.planResumen? '' : descripcionEntradas}${etiquetaDuenoEntradaPlan(grupo)? ` · Dueño: ${esc(etiquetaDuenoEntradaPlan(grupo))}` : ''}</div>
             ${descripcionPlanGrupo(grupo)? `<div class="hint" style="margin-top:2px">${esc(descripcionPlanGrupo(grupo))}</div>` : ''}
             ${htmlAvanceGrupo(grupo)}
           </div>
@@ -15716,7 +15760,7 @@ function renderGrupos(){
         <div class="plan-item" style="padding:10px 0;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="flex:1">
             <div class="plan-item-ubic" style="font-weight:500;color:var(--text-dim)">${esc(grupo.nombre)}</div>
-            <div class="hint" style="margin-top:2px">${grupo.automatico_critico? 'Automático (Crítico)' : `${cantidad} material${cantidad===1?'':'es'}`}${grupo.posiciones!=null? ` · ${grupo.posiciones} posici${grupo.posiciones===1?'ón':'ones'}` : ''}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''} · pausado</div>
+            <div class="hint" style="margin-top:2px">${grupo.automatico_critico? 'Automático (Crítico)' : `${cantidad} material${cantidad===1?'':'es'}`}${grupo.posiciones!=null? ` · ${grupo.posiciones} posici${grupo.posiciones===1?'ón':'ones'}` : ''}${grupo.frecuencia_dias? ` · cada ${grupo.frecuencia_dias} días` : ''}${etiquetaDuenoEntradaPlan(grupo)? ` · Dueño: ${esc(etiquetaDuenoEntradaPlan(grupo))}` : ''} · pausado</div>
           </div>
           <button type="button" class="btn btn-secondary" data-reactivar-grupo="${esc(grupo.id)}" style="width:auto;padding:6px 12px;font-size:12px">Reactivar</button>
         </div>`;
@@ -15749,7 +15793,7 @@ function renderDetalleGrupo(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
   return `
-    <div class="section-head"><div><span class="eyebrow">Grupo${grupo && grupo.automatico_critico? ' · Automático' : ''}</span><h2>${esc(grupo? grupo.nombre : '')}</h2></div></div>
+    <div class="section-head"><div><span class="eyebrow">Grupo${grupo && grupo.automatico_critico? ' · Automático' : ''}${etiquetaDuenoEntradaPlan(grupo)? ` · Dueño: ${esc(etiquetaDuenoEntradaPlan(grupo))}` : ''}</span><h2>${esc(grupo? grupo.nombre : '')}</h2></div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <button type="button" id="btn-volver-grupos" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px">← Volver a grupos</button>
       <button type="button" id="btn-pausar-grupo" class="btn btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;color:var(--warn)" title="Deja de cerrar ciclos y sale de la lista; conserva materiales e historial. Se puede reactivar.">Pausar grupo</button>
@@ -18425,8 +18469,12 @@ function bind(){
       if(formCrearGrupo) formCrearGrupo.addEventListener('submit', e=>{
         e.preventDefault();
         const chkAutomatico = document.getElementById('grupo-automatico-critico');
-        crearGrupo(document.getElementById('grupo-nombre').value.trim(), document.getElementById('grupo-frecuencia').value.trim(), chkAutomatico && chkAutomatico.checked, document.getElementById('grupo-fecha-inicio-nuevo').value);
+        const selDuenoGrupo = document.getElementById('grupo-dueno');
+        crearGrupo(document.getElementById('grupo-nombre').value.trim(), document.getElementById('grupo-frecuencia').value.trim(), chkAutomatico && chkAutomatico.checked, document.getElementById('grupo-fecha-inicio-nuevo').value, selDuenoGrupo ? duenoDesdeFiltro(selDuenoGrupo.value) : undefined);
       });
+      // Elegir el dueño no repinta (el nombre y la frecuencia se están escribiendo): se guarda al estado.
+      const selDuenoNuevoGrupo = document.getElementById('grupo-dueno');
+      if(selDuenoNuevoGrupo) selDuenoNuevoGrupo.addEventListener('change', e=>{ state.grupos.duenoNuevo = e.target.value; });
       document.querySelectorAll('[data-ver-grupo]').forEach(btn=>{
         btn.addEventListener('click', ()=> abrirGrupo(btn.dataset.verGrupo));
       });
