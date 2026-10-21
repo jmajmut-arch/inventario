@@ -1271,6 +1271,8 @@ async function loguear(page, perfil, prepararRutas){
     await page.evaluate(() => toast('No se pudo guardar el conteo: la cantidad contada es inválida', 'err'));
     await page.click('.toast .toast-reportar');
     await page.waitForSelector('#form-reporte', { timeout:ESPERA });
+    // "Tus reportes" se carga después de abrir: se espera la lista antes de leerla.
+    await esperarCondicion(page, () => document.querySelectorAll('#reporte-mis-tickets .ticket-item').length === 1);
     const ventana = await page.textContent('#reporte-backdrop');
     assert(ventana.includes('la cantidad contada es inválida') && ventana.includes('Corregido: vuelve a intentarlo.'), 'la ventana trae el error y "Tus reportes" con la respuesta, obtuvo '+ventana);
     await page.fill('#reporte-descripcion', 'Puse 12 y no guarda');
