@@ -1136,6 +1136,7 @@ let state = {
   ubicaciones: { cargado:false, cargando:false, lista:[], materialesPorBodega:{}, nuevaBodega:'', renombrando:null },
   duenosStock: { cargado:false, cargando:false, lista:[], error:'' },
   resumenDuenos: { cargado:false, cargando:false, filas:[], error:'' }, // tarjeta "Por dueño" del Panel
+  dashDueno: '', // Panel filtrado por dueño: '' = toda la empresa, '__sin' = sin dueño, o el código
   // Pantalla "Mover": buscar un material y cambiarle la ubicación. Existe como pestaña propia
   // porque el botón dentro del maestro no se encontraba: quedaba en la última columna de una
   // tabla de once, fuera del borde de la tarjeta.
@@ -2573,7 +2574,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -6149,9 +6150,13 @@ async function cargarDashboard(){
   // Con dueños de stock, la tarjeta "Por dueño" se pide en paralelo y se refresca junto al Panel.
   if(usaDuenosStock()) cargarResumenDuenos();
   try{
+    // Con un dueño elegido va p_dueno y la base usa la versión filtrada del Panel (ver
+    // 20261021_duenos_stock_panel.sql); sin él, la llamada es exactamente la de siempre.
+    const filtroDueno = parametroDuenoRpc(state.dashDueno);
     const d = await rest(`/rpc/dashboard_ejecutivo`, {method:'POST', body:{
       p_dias: VENTANA_PROYECCION_DIAS,
       p_criticidad: state.resumenGeneral.criticidad || null,
+      ...filtroDueno,
     }}) || {};
     setState({dash:{
       total: d.total||[], diario: d.diario||[], semanal: d.semanal||[], mensual: d.mensual||[],
@@ -6168,7 +6173,10 @@ async function cargarDashboard(){
     // módulo está activo (y los pendientes, solo para administradores): las mismas condiciones
     // que la app comprobaba antes de pedirlas por separado. Los cargadores sueltos siguen
     // existiendo porque Inicio, Movimientos y Stock también los usan.
-    if(d.bodega){
+    // Filtrado por dueño, las tarjetas de bodega vendrían acotadas a ese dueño, y su estado lo
+    // comparten Inicio y Movimientos: no se pisa con cifras parciales (el Panel avisa que esas
+    // tarjetas muestran toda la empresa).
+    if(d.bodega && !filtroDueno.hasOwnProperty('p_dueno')){
       setState({bodega:{...state.bodega,
         pendientes: d.bodega.pendientes||[], pendientesCargados:true,
         ultimosMovimientos: d.bodega.ultimosMovimientos||[], ultimosCargados:true,
@@ -6198,6 +6206,9 @@ function parametrosResumenGeneralSkus(){
 // (que trae varias tablas y gráficos del ciclo/período actual) para poder recargar solo esto
 // cuando cambia el filtro de criticidad, sin repetir el resto de las consultas del panel.
 async function cargarResumenGeneralSkus(){
+  // Con el Panel filtrado por dueño, el estado del maestro tiene que ser el de ese dueño: viene en
+  // la respuesta del Panel filtrado.
+  if(usaDuenosStock() && state.dashDueno) return cargarDashboard();
   setState({resumenGeneral: {...state.resumenGeneral, cargando:true}});
   try{
     const filas = await rest('/rpc/resumen_general_skus_signos', {method:'POST', body: parametrosResumenGeneralSkus()});
@@ -8794,6 +8805,18 @@ function renderResumenPorDueno(){
       ${filas.length && !r.error? `<button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-resumen-duenos" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px">${ICONS.download} Excel</button>` : ''}
     </div>
     <div class="card">${cuerpo}</div>`;
+}
+// Selector de dueño del Panel (Ejecutivo y Operativo): con uno elegido, todo el Panel se calcula
+// solo con sus materiales. Las tarjetas de bodega siguen siendo de toda la empresa.
+function renderFiltroDuenoPanel(){
+  if(!usaDuenosStock()) return '';
+  const d = state.dashDueno||'';
+  return `<div class="card" style="padding:10px 12px;margin-bottom:12px">
+    <label for="dash-dueno" style="margin-top:0">Dueño del stock</label>
+    <select id="dash-dueno" style="margin:0">${opcionesFiltroDueno(d)}</select>
+    ${avisoErrorListaDuenos('margin-top:4px;')}
+    ${d? `<div class="hint" style="margin:6px 0 0">Panel de <strong>${esc(d==='__sin' ? 'lo que no tiene dueño' : (etiquetaDueno({dueno:d})||d))}</strong>: avance, diferencias y valores son solo de sus materiales.${moduloBodegaActivo()? ' Las tarjetas de bodega muestran toda la empresa.' : ''}</div>` : ''}
+  </div>`;
 }
 function exportarResumenDuenosExcel(){
   if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
@@ -12990,6 +13013,7 @@ function renderDashboard(){
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
+    ${renderFiltroDuenoPanel()}
     ${modo==='operativo'? vistaOperativa : renderInformeEjecutivo({detalleExtra: renderResumenGeneralSkus() + renderResumenPorDueno()})}
   </div>`;
 }
@@ -14666,7 +14690,8 @@ function imprimirInformeCiclo(){
   if(!planIncluye('dashboard_ejecutivo_habilitado')) return;
   const cicloActual = (state.ciclos||[]).find(c=>c.es_actual);
   const empresaNombre = (state.perfil && state.perfil.empresas && state.perfil.empresas.nombre) || '';
-  const metaPartes = [empresaNombre, cicloActual? cicloActual.nombre : 'Sin ciclo asignado', new Date().toLocaleString('es-CL')].filter(Boolean);
+  const duenoInforme = usaDuenosStock() && state.dashDueno ? (state.dashDueno==='__sin' ? 'Sin dueño' : 'Dueño: ' + (etiquetaDueno({dueno: state.dashDueno}) || state.dashDueno)) : '';
+  const metaPartes = [empresaNombre, duenoInforme, cicloActual? cicloActual.nombre : 'Sin ciclo asignado', new Date().toLocaleString('es-CL')].filter(Boolean);
   document.getElementById('print-plan').innerHTML = '';
   document.getElementById('print-buscar').innerHTML = '';
   document.getElementById('print-informe').innerHTML = `
@@ -18505,6 +18530,11 @@ function bind(){
     // RPC resumen_general_skus_signos.
     document.querySelectorAll('[data-resumen-grafico]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({resumenGeneral: {...state.resumenGeneral, tipoGrafico: btn.dataset.resumenGrafico}}));
+    });
+    const selDuenoPanel = document.getElementById('dash-dueno');
+    if(selDuenoPanel) selDuenoPanel.addEventListener('change', ()=>{
+      setState({dashDueno: selDuenoPanel.value, dashDesactualizado: true});
+      cargarDashboard();
     });
     const btnExportarResumenDuenos = document.getElementById('btn-exportar-resumen-duenos');
     if(btnExportarResumenDuenos) btnExportarResumenDuenos.addEventListener('click', exportarResumenDuenosExcel);

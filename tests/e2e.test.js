@@ -2266,6 +2266,8 @@ async function loguear(page, perfil, prepararRutas){
       { dueno:'COPEC', total_activo:120, contados:30, cuadrado:28, con_diferencia:2, merma:1, excedente:1, pendiente:0, valor_perdidas:-4000, valor_excedentes:2500 },
       { dueno:'ENEX', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
     ]) }); });
+    const cuerposPanel = [];
+    await page.route('**/rest/v1/rpc/dashboard_ejecutivo**', r=> { cuerposPanel.push(r.request().postDataJSON() || {}); return r.fallback(); });
     const urlsExport = [];
     await page.route('**/rest/v1/conteos_exportables**', r=> { urlsExport.push(r.request().url()); return r.fulfill({ status:200, contentType:'application/json', headers:{ 'Content-Range':'0-0/1', 'Access-Control-Expose-Headers':'Content-Range' }, body: JSON.stringify([{ conteo_id:'c1', sku_code:'P-100', descripcion:'Filtro de aire', cantidad_contada:2, diferencia:0, estado:'aprobado', fecha_conteo:'2026-10-20T12:00:00Z', capturado_en:'2026-10-20T12:00:00Z', dueno:'ENEX' }]) }); });
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
@@ -2281,6 +2283,17 @@ async function loguear(page, perfil, prepararRutas){
     const desbordeResumen = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeResumen <= 0, 'a 420 px la tarjeta Por dueño no desborda la página, obtuvo '+desbordeResumen);
     if (process.env.E2E_CAPTURAS){ await page.$eval('#btn-exportar-resumen-duenos', el => el.scrollIntoView({block:'start'})); await page.screenshot({ path: process.env.E2E_CAPTURAS + '/panel-por-dueno-420.png' }); }
+    // El Panel completo filtrado por dueño: sin elegir, la llamada es la de siempre; al elegir, va
+    // p_dueno y el Panel dice de quién es.
+    assert(cuerposPanel.length && !('p_dueno' in cuerposPanel[cuerposPanel.length-1]), 'sin dueño elegido, el Panel pide lo de siempre, obtuvo '+JSON.stringify(cuerposPanel[cuerposPanel.length-1]));
+    await page.selectOption('#dash-dueno', 'ENEX');
+    assert(await esperarCondicion(page, () => document.body.textContent.includes('Panel de Enex S.A.')), 'al elegir un dueño, el Panel dice de quién es');
+    assert(await esperarCondicion(page, () => !state.dashDesactualizado) && cuerposPanel[cuerposPanel.length-1].p_dueno === 'ENEX', 'el Panel pide la versión filtrada por dueño, obtuvo '+JSON.stringify(cuerposPanel[cuerposPanel.length-1]));
+    const desbordePanelFiltro = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordePanelFiltro <= 0, 'a 420 px el Panel con filtro de dueño no desborda, obtuvo '+desbordePanelFiltro);
+    if (process.env.E2E_CAPTURAS){ await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: process.env.E2E_CAPTURAS + '/panel-filtro-dueno-420.png' }); }
+    await page.selectOption('#dash-dueno', '');
+    assert(await esperarCondicion(page, () => !document.body.textContent.includes('Panel de Enex S.A.')), 'volver a "Todos los dueños" quita el filtro');
     const descargaResumen = page.waitForEvent('download', { timeout:ESPERA }).catch(()=>null);
     await page.click('#btn-exportar-resumen-duenos');
     const archivoResumen = await descargaResumen;
