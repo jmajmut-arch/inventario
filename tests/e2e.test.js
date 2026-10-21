@@ -607,6 +607,72 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Dueños de stock, paso 6: SKU a mano con dueño y el dueño a la vista en Contar =====
+  // A 420 px: el formulario ofrece los dueños, el SKU viaja con el elegido, la ficha de Contar lo
+  // muestra y el buscador distingue dos clientes con el mismo código.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('sku-dueno: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    await loguear(page, perfilDuenos);
+    const creados = [];
+    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    await page.route('**/rest/v1/rpc/catalogos_pantalla_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
+      categorias:['Repuestos'], unidades:['EA'], batches:[],
+      generales:[{bodega:'Nave Mina', cantidad_skus:3}],
+      ubicaciones:[{id:'u1', bodega:'Nave Mina', ubicacion:null, activo:true}],
+    }) }));
+    await page.route('**/rest/v1/skus?activo=eq.true&sku_code=eq.**', route => route.fulfill({ status:200, contentType:'application/json', body:'[]' }));
+    await page.route('**/rest/v1/skus', route => {
+      if(route.request().method() !== 'POST') return route.fallback();
+      const fila = JSON.parse(route.request().postData())[0];
+      creados.push(fila);
+      return route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'srv-sku-88', activo:true, ...fila }]) });
+    });
+    await page.route('**/rest/v1/rpc/buscar_skus_lectura**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'s-enex', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:2, dueno:'ENEX' },
+      { id:'s-copec', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:5, dueno:'COPEC' },
+    ]) }));
+
+    await page.evaluate(() => setState({view:'skus'}));
+    await page.waitForSelector('#form-sku');
+    if(!(await page.isVisible('#s-code'))) await page.click('#skus-agregar > summary');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#s-dueno option')].some(o=>o.value==='ENEX')), 'el formulario ofrece los dueños de la empresa');
+    await page.waitForFunction(() => [...document.querySelectorAll('#s-bodega option')].some(o=>o.value==='Nave Mina'), null, { timeout:ESPERA });
+    await page.fill('#s-code', 'NUEVO-88');
+    await page.press('#s-code', 'Tab');
+    await page.fill('#s-desc', 'Valvula de bola');
+    await page.selectOption('#s-dueno', 'ENEX');
+    await page.selectOption('#s-bodega', 'Nave Mina');
+    await page.fill('#s-bin', 'N1E-001-A1');
+    const desbordeForm = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeForm <= 0, 'a 420 px el formulario con dueño no desborda, obtuvo '+desbordeForm);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/sku-form-dueno-420.png', fullPage: true });
+    assert((await page.inputValue('#s-dueno')) === 'ENEX', 'elegir la bodega no borra el dueño elegido, obtuvo '+(await page.inputValue('#s-dueno')));
+    await page.click('#form-sku button[type=submit]');
+    assert(await esperarCondicion(page, () => !!document.getElementById('btn-contar-sku-creado')), 'el SKU se guarda');
+    assert(creados.length===1 && creados[0].dueno==='ENEX' && creados[0].sku_code==='NUEVO-88', 'el SKU viaja con el dueño elegido, obtuvo '+JSON.stringify(creados));
+
+    await page.click('#btn-contar-sku-creado');
+    await page.waitForSelector('#form-conteo', { timeout:ESPERA });
+    const chipFicha = await page.textContent('.conteo-ficha .chip-dueno');
+    assert(chipFicha === 'Enex S.A.', 'la ficha de Contar muestra de quién es el material, obtuvo '+chipFicha);
+    const desbordeFicha = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeFicha <= 0, 'a 420 px la ficha con dueño no desborda, obtuvo '+desbordeFicha);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-ficha-dueno-420.png' });
+
+    await page.click('#btn-quitar-sku');
+    await page.click('#sku-search');
+    await page.keyboard.type('P-100');
+    assert(await esperarCondicion(page, () => document.querySelectorAll('#buscador-libre-resultados [data-pick] .chip-dueno').length === 2), 'el buscador muestra el dueño de cada resultado');
+    const chips = await page.$$eval('#buscador-libre-resultados [data-pick] .chip-dueno', els => els.map(e => e.textContent));
+    assert(chips.join('|') === 'Enex S.A.|Copec', 'dos clientes con el mismo código se distinguen por su dueño, obtuvo '+JSON.stringify(chips));
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-buscador-dueno-420.png' });
+    await context.close();
+  }
+
   // ===== Carga de Excel: filas repetidas que se suman (Joel, 20/10/2026) =====
   // Un WMS anota cada pallet en su propia fila. Con el archivo real en el navegador a 420 px: el
   // aviso muestra qué stock queda con cada opción, se elige "Sumar" y el upsert lleva la suma.
@@ -1681,6 +1747,45 @@ async function loguear(page, perfil){
       assert(medidas.malas.length === 0,
         `${archivo}: ninguna captura debe renderizarse con otra proporción que la suya, obtuvo: ${medidas.malas.join(' | ')}`);
     }
+    await context.close();
+  }
+
+  // ===== Dueños de stock, paso 6: Stock de bodega filtrado por dueño, a 420 px =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('stock-dueno: '+err.message));
+    const perfilBodega = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilBodega.empresas.modulo_bodega_habilitado = true;
+    perfilBodega.empresas.bodega_funciones = {};
+    perfilBodega.empresas.usa_duenos_stock = true;
+    await mockearSupabaseApp(page, perfilBodega);
+    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    const urlsStock = [];
+    const filasStock = [
+      { sku_id:'s1', sku_code:'P-100', descripcion:'Filtro de aire', storage_bin:'R-01-02', stock:2, unidad_medida:'UN', valor:3000, costo_unitario:1500, dueno:'ENEX' },
+      { sku_id:'s2', sku_code:'P-100', descripcion:'Filtro de aire', storage_bin:'R-01-02', stock:5, unidad_medida:'UN', valor:7500, costo_unitario:1500, dueno:'COPEC' },
+    ];
+    await page.route('**/rest/v1/stock_actual**', route => {
+      const u = route.request().url();
+      urlsStock.push(u);
+      const filas = u.includes('dueno=eq.ENEX') ? filasStock.filter(f=>f.dueno==='ENEX') : filasStock;
+      return route.fulfill({ status:200, contentType:'application/json', headers:{ 'Content-Range': `0-${filas.length-1}/${filas.length}`, 'Access-Control-Expose-Headers':'Content-Range' }, body: JSON.stringify(filas) });
+    });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.evaluate(() => setState({ view:'stock' }));
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#stock-dueno option')].some(o=>o.value==='ENEX')), 'Stock ofrece filtrar por dueño');
+    assert(await esperarCondicion(page, () => document.querySelectorAll('.chip-dueno').length === 2), 'cada fila del stock muestra su dueño');
+    await page.selectOption('#stock-dueno', 'ENEX');
+    assert(await esperarCondicion(page, () => document.querySelectorAll('.chip-dueno').length === 1), 'al elegir un dueño se ve solo su stock');
+    assert(urlsStock[urlsStock.length-1].includes('dueno=eq.ENEX'), 'el filtro va a la consulta, obtuvo '+urlsStock[urlsStock.length-1]);
+    const desbordeStock = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeStock <= 0, 'a 420 px el Stock con filtro de dueño no desborda, obtuvo '+desbordeStock);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/stock-dueno-420.png', fullPage: true });
     await context.close();
   }
 

@@ -5196,6 +5196,66 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
   }
 
+  // ===== Dueños de stock, paso 6: el dueño se ve en pantalla y se elige al crear un SKU =====
+  {
+    const perfilAntes = ctx.__appstate.perfil;
+    const base = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1' };
+    const lista = [{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}, {id:'d2', codigo:'COPEC', nombre:null, activo:true}, {id:'d3', codigo:'VIEJO', nombre:'Cliente que se fue', activo:false}];
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
+
+    // Sin el interruptor, nada nuevo aparece aunque la fila traiga dueño.
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    assert(ctx.chipDueno({dueno:'ENEX'})==='' && ctx.chipDuenoBajoCodigo({dueno:'ENEX'})==='' && ctx.campoDuenoSku()==='', 'sin dueños activados no se muestra ni se pide el dueño');
+
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    assert(ctx.chipDueno({dueno:'ENEX'}).includes('Enex S.A.'), 'el chip muestra el nombre del dueño, obtuvo '+ctx.chipDueno({dueno:'ENEX'}));
+    assert(ctx.chipDueno({dueno:'COPEC'}).includes('COPEC'), 'sin nombre, el chip muestra el código');
+    assert(ctx.chipDueno({dueno:'OTRO'}).includes('OTRO'), 'un dueño que no está en la lista igual se ve, por su código');
+    assert(ctx.chipDueno({dueno:''})==='' && ctx.chipDueno(null)==='', 'una fila sin dueño no muestra chip');
+    assert(ctx.chipDueno({dueno:'<b>X</b>'}).includes('&lt;b&gt;'), 'el código se escapa');
+
+    const campo = ctx.campoDuenoSku();
+    assert(campo.includes('id="s-dueno"') && campo.includes('<option value="">Sin dueño</option>') && campo.includes('value="ENEX"') && campo.includes('Enex S.A. (ENEX)') && campo.includes('value="COPEC"') && !campo.includes('VIEJO'), 'al crear un SKU se elige entre los dueños activos, con "Sin dueño", obtuvo '+campo);
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'se cayó la base' };
+    assert(ctx.campoDuenoSku().includes('No se pudo cargar la lista de dueños: se cayó la base'), 'si la lista no carga se ve el error, no una lista vacía');
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
+
+    // El mismo material en el mismo sitio, de otro dueño, no es la misma posición.
+    const filas = [{bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'ENEX'}];
+    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'COPEC'})===null, 'otro dueño en el mismo sitio es otra posición');
+    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'ENEX'})===filas[0], 'el mismo dueño en el mismo sitio sí se repite');
+    assert(ctx.posicionSkuRepetida([{bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:''}], {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null})!==null, 'sin dueños, la posición repetida se detecta como siempre');
+
+    // Stock de bodega por dueño: el filtro va a la consulta (y al Excel), no se filtra en pantalla.
+    const stockDuenoAntes = ctx.__appstate.bodega.stockDueno;
+    ctx.__appstate.bodega.stockDueno = 'ENEX';
+    assert(ctx.filtroDuenoStock()==='&dueno=eq.ENEX', 'con un dueño elegido, la consulta filtra por él, obtuvo '+ctx.filtroDuenoStock());
+    ctx.__appstate.bodega.stockDueno = '__sin';
+    assert(ctx.filtroDuenoStock()==='&dueno=eq.', '"Sin dueño" filtra las filas sin dueño, obtuvo '+ctx.filtroDuenoStock());
+    ctx.__appstate.bodega.stockDueno = '';
+    assert(ctx.filtroDuenoStock()==='', '"Todos los dueños" no filtra');
+    const selStock = ctx.selectorDuenoStock();
+    assert(selStock.includes('id="stock-dueno"') && selStock.includes('Todos los dueños') && selStock.includes('Enex S.A. (ENEX)') && selStock.includes('Cliente que se fue (VIEJO) · inactivo') && selStock.includes('value="__sin"'), 'el filtro ofrece todos, cada dueño (también los inactivos, que pueden tener stock) y sin dueño, obtuvo '+selStock);
+    const fetchAntesStock = ctx.fetch;
+    let urlStock = null;
+    ctx.fetch = async (url, opts) => {
+      if(String(url).includes('/rest/v1/stock_actual')){ urlStock = String(url); return { status:200, ok:true, headers:{get:()=>'0-0/0'}, text: async()=>'[]' }; }
+      return fetchAntesStock(url, opts);
+    };
+    ctx.__appstate.bodega.stockDueno = 'ENEX';
+    await ctx.cargarStockBodega(0);
+    assert(urlStock && urlStock.includes('&dueno=eq.ENEX'), 'cargar el stock lleva el filtro de dueño, obtuvo '+urlStock);
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    urlStock = null;
+    await ctx.cargarStockBodega(0);
+    assert(urlStock && !urlStock.includes('dueno'), 'sin dueños activados la consulta del stock es la de siempre, obtuvo '+urlStock);
+    ctx.fetch = fetchAntesStock;
+    ctx.__appstate.bodega.stockDueno = stockDuenoAntes;
+
+    ctx.__appstate.perfil = perfilAntes;
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
+  }
+
   // ===== Carga de Excel con dueño del stock (Joel, 20/10/2026, paso 4) =====
   // El mismo código de dos clientes en el mismo bin son dos materiales. Los dueños nuevos se
   // agregan a la lista antes de subir los materiales, y "Reemplazar completo" solo toca los
