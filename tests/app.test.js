@@ -5347,10 +5347,60 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
     }
 
+    // Panel filtrado por dueño: con dueño elegido va p_dueno (versión filtrada en la base); sin él,
+    // la llamada es exactamente la de siempre. Filtrado, no pisa el estado de bodega que comparten
+    // Inicio y Movimientos, y el Estado general se recarga con el Panel filtrado.
+    {
+      const fetchAntesPanel = ctx.fetch;
+      const cuerpos = [];
+      let pedidosResumenGeneral = 0;
+      ctx.fetch = async (url, opts) => {
+        const u = String(url);
+        if(u.includes('/rest/v1/rpc/dashboard_ejecutivo')){
+          cuerpos.push(JSON.parse(opts.body));
+          const body = { total:[], diario:[], semanal:[], mensual:[], resumenGeneral:[{total_activo:7}], bodega:{ pendientes:[{id:'parcial'}], ultimosMovimientos:[], valorizacion:null } };
+          return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(body), json: async()=>body };
+        }
+        if(u.includes('/rest/v1/rpc/resumen_general_skus_signos')){ pedidosResumenGeneral++; return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]', json: async()=>[] }; }
+        if(u.includes('/rest/v1/rpc/resumen_por_dueno')) return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]', json: async()=>[] };
+        return fetchAntesPanel(url, opts);
+      };
+      const perfilBodegaDuenos = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true, modulo_bodega_habilitado:true}};
+      ctx.__appstate.perfil = perfilBodegaDuenos;
+      const bodegaAntes = ctx.__appstate.bodega;
+      const dashAntes = ctx.__appstate.dash, resumenGeneralAntes = ctx.__appstate.resumenGeneral, desactualizadoAntes = ctx.__appstate.dashDesactualizado;
+      ctx.__appstate.bodega = {...bodegaAntes, pendientes:[{id:'toda-la-empresa'}]};
+      ctx.__appstate.dashDueno = '';
+      await ctx.cargarDashboard();
+      const sinFiltroPanel = cuerpos[cuerpos.length-1];
+      assert(!('p_dueno' in sinFiltroPanel) && Object.keys(sinFiltroPanel).sort().join(',')==='p_criticidad,p_dias', 'sin dueño elegido, el Panel pide exactamente lo de siempre, obtuvo '+JSON.stringify(sinFiltroPanel));
+      ctx.__appstate.bodega = {...ctx.__appstate.bodega, pendientes:[{id:'toda-la-empresa'}]};
+      ctx.__appstate.dashDueno = 'ENEX';
+      await ctx.cargarDashboard();
+      assert(cuerpos[cuerpos.length-1].p_dueno==='ENEX', 'con dueño elegido, el Panel pide la versión filtrada');
+      assert(ctx.__appstate.bodega.pendientes[0].id==='toda-la-empresa', 'filtrado por dueño, el Panel no pisa los pendientes de bodega que usan Inicio y Movimientos');
+      assert(ctx.__appstate.resumenGeneral.datos && ctx.__appstate.resumenGeneral.datos.total_activo===7, 'el Estado general viene del Panel filtrado');
+      const n = cuerpos.length;
+      await ctx.cargarResumenGeneralSkus();
+      assert(pedidosResumenGeneral===0 && cuerpos.length===n+1 && cuerpos[n].p_dueno==='ENEX', 'cambiar la criticidad con un dueño elegido recarga el Panel filtrado, no el resumen de toda la empresa');
+      const htmlFiltro = ctx.renderFiltroDuenoPanel();
+      assert(htmlFiltro.includes('id="dash-dueno"') && htmlFiltro.includes('Panel de <strong>Enex S.A.</strong>') && htmlFiltro.includes('Las tarjetas de bodega muestran toda la empresa'), 'el Panel dice de qué dueño es y que bodega es de toda la empresa, obtuvo '+htmlFiltro);
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+      assert(ctx.renderFiltroDuenoPanel()==='', 'sin dueños activados el Panel no muestra el filtro');
+      ctx.__appstate.dashDueno = 'ENEX';
+      ctx.__appstate.dashDueno = '';
+      ctx.__appstate.bodega = bodegaAntes;
+      ctx.__appstate.dash = dashAntes; ctx.__appstate.resumenGeneral = resumenGeneralAntes; ctx.__appstate.dashDesactualizado = desactualizadoAntes;
+      ctx.fetch = fetchAntesPanel;
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    }
+
     // Cerrar sesión olvida los filtros de dueño: otra cuenta no hereda un filtro que no ve.
     ctx.__appstate.skusFiltroDueno = 'ENEX';
     const tras = ctx.estadoTrasCerrarSesion();
-    assert(tras.skusFiltroDueno==='' && tras.busqueda.dueno==='' && tras.bodega.stockDueno==='', 'cerrar sesión limpia los filtros de dueño');
+    ctx.__appstate.dashDueno = 'ENEX';
+    assert(tras.skusFiltroDueno==='' && tras.busqueda.dueno==='' && tras.bodega.stockDueno==='' && ctx.estadoTrasCerrarSesion().dashDueno==='', 'cerrar sesión limpia los filtros de dueño');
+    ctx.__appstate.dashDueno = '';
     ctx.__appstate.skusFiltroDueno = '';
 
     ctx.__appstate.perfil = perfilAntes;
