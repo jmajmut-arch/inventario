@@ -136,10 +136,12 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
 - **RLS siempre**: cada empresa ve solo lo suyo. Las vistas nuevas llevan `security_invoker=true`;
   las funciones nuevas evitan `SECURITY DEFINER` salvo que haya una razón explícita, y en ese caso
   se les revoca `EXECUTE` a `public` y `anon` y se les fija `search_path`.
-- **Qué ve un súper admin, exactamente.** Ve filas de **otras** empresas en dos relaciones, y solo
-  dos: `usuarios` y `flow_eventos`, que necesita para administrar cuentas y cobros. En todas las
-  demás (materiales, conteos, movimientos, órdenes, reservas, planes, stock y auditoría) ve
-  únicamente lo de su propia empresa, igual que cualquiera. Hasta el 23/09/2026 también leía la
+- **Qué ve un súper admin, exactamente.** Ve filas de **otras** empresas en tres relaciones, y solo
+  tres: `usuarios` y `flow_eventos`, que necesita para administrar cuentas y cobros, y `tickets`
+  (los problemas reportados desde la app, para responderlos; Joel lo decidió el 21/10/2026), más las
+  fotos de esos reportes en `<empresa>/tickets/`. En todas las demás (materiales, conteos,
+  movimientos, órdenes, reservas, planes, stock y auditoría) ve únicamente lo de su propia empresa,
+  igual que cualquiera. Hasta el 23/09/2026 también leía la
   `auditoria` de todos los clientes (4.090 filas ajenas medidas ese día); Joel decidió cerrarlo y
   la política `auditoria_select` quedó solo por `empresa_actual()`. Si alguna vez hace falta ver la
   auditoría de un cliente para soporte, se hace con su permiso y desde su propia cuenta, no

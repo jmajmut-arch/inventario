@@ -1,6 +1,6 @@
 {
   "_comentario": "Columnas reales de cada tabla y vista de Supabase que consulta la app. Sirve para que tests/esquema.test.js detecte un select que pide una columna inexistente: PostgREST rechaza la consulta completa con un 400 y la app lo muestra como si no hubiera resultados. Actualizar tras cada migración que agregue o quite columnas.",
-  "_actualizado": "2026-10-13",
+  "_actualizado": "2026-10-21",
   "relaciones": {
     "auditoria": [
       "accion",
@@ -17,15 +17,16 @@
     "cargas_masivas": [
       "created_at",
       "detalle_errores",
+      "duenos",
       "empresa_id",
       "filas_error",
       "filas_ok",
       "filas_totales",
       "id",
+      "marca_tiempo",
       "nombre_archivo",
       "tipo",
-      "usuario_id",
-      "marca_tiempo"
+      "usuario_id"
     ],
     "ciclos_conteo": [
       "created_at",
@@ -97,30 +98,40 @@
       "tipo",
       "usuario_id"
     ],
+    "duenos_stock": [
+      "activo",
+      "codigo",
+      "created_at",
+      "empresa_id",
+      "id",
+      "nombre"
+    ],
     "empresas": [
       "activo",
       "bodega_funciones",
       "codigo_invitacion",
       "conteo_ciego_habilitado",
-      "foto_obligatoria_conteo",
-      "mfa_obligatoria_admins",
       "created_at",
       "flow_customer_id",
       "flow_subscription_id",
       "flow_subscription_status",
       "flow_sync_en",
+      "foto_obligatoria_conteo",
       "id",
       "logo",
+      "mfa_obligatoria_admins",
       "modulo_bodega_habilitado",
       "nombre",
       "plan_id",
       "plan_incluye_stock_cero",
-      "terminos_orden_compra"
+      "terminos_orden_compra",
+      "usa_duenos_stock"
     ],
     "grupos_conteo": [
       "activo",
       "automatico_critico",
       "created_at",
+      "dueno",
       "empresa_id",
       "fecha_inicio",
       "frecuencia_dias",
@@ -216,6 +227,21 @@
       "usuario_id",
       "usuario_nombre"
     ],
+    "leads_demo": [
+      "id",
+      "nombre",
+      "email",
+      "telefono",
+      "empresa",
+      "creado_en",
+      "tipo",
+      "mensaje",
+      "notificado_en",
+      "seguimiento1_en",
+      "seguimiento2_en",
+      "seguimiento_detenido_en",
+      "origen"
+    ],
     "movimiento_fotos": [
       "created_at",
       "documento_id",
@@ -275,6 +301,7 @@
       "documento_anulado_en",
       "documento_id",
       "documento_observacion",
+      "dueno",
       "empresa_id",
       "estado",
       "fecha",
@@ -385,6 +412,7 @@
       "costo_unitario",
       "created_at",
       "descripcion",
+      "dueno",
       "empresa_id",
       "exceso",
       "id",
@@ -446,6 +474,7 @@
       "bodega",
       "ciclo_id",
       "created_at",
+      "dueno",
       "empresa_id",
       "fecha",
       "id",
@@ -516,6 +545,7 @@
       "descripcion",
       "diferencia_abs",
       "diferencia_recurrente",
+      "dueno",
       "fotos",
       "id",
       "motivo_correccion",
@@ -584,6 +614,7 @@
       "cantidad",
       "created_at",
       "descripcion",
+      "dueno",
       "empresa_id",
       "entregado",
       "faltante",
@@ -649,6 +680,7 @@
       "created_at",
       "critico",
       "descripcion",
+      "dueno",
       "empresa_id",
       "id",
       "pct_acumulado",
@@ -694,6 +726,7 @@
       "created_at",
       "critico",
       "descripcion",
+      "dueno",
       "empresa_id",
       "id",
       "sku_code",
@@ -729,6 +762,7 @@
       "created_at",
       "critico",
       "descripcion",
+      "dueno",
       "empresa_id",
       "id",
       "pct_acumulado",
@@ -780,6 +814,7 @@
       "created_at",
       "critico",
       "descripcion",
+      "dueno",
       "empresa_id",
       "id",
       "sku_code",
@@ -808,6 +843,7 @@
       "critico",
       "descripcion",
       "disponible",
+      "dueno",
       "empresa_id",
       "falta_para_minimo",
       "reservado",
@@ -821,6 +857,27 @@
       "unidad_medida",
       "valor"
     ],
+    "tickets": [
+      "actualizado_en",
+      "contexto",
+      "creado_en",
+      "creado_por",
+      "creado_por_nombre",
+      "creado_por_rol",
+      "descripcion",
+      "empresa_id",
+      "error_mensaje",
+      "estado",
+      "foto_ruta",
+      "id",
+      "notificado_en",
+      "numero",
+      "pantalla",
+      "respondido_en",
+      "respondido_por_nombre",
+      "respuesta",
+      "usuario_id"
+    ],
     "ubicaciones": [
       "id",
       "empresa_id",
@@ -829,10 +886,30 @@
       "activo",
       "created_at"
     ],
+    "ubicaciones_bins_dueno": [
+      "bodega",
+      "cantidad_skus",
+      "dueno",
+      "storage_bin",
+      "ubicacion"
+    ],
+    "ubicaciones_especificas_dueno": [
+      "bodega",
+      "cantidad_pendiente",
+      "cantidad_skus",
+      "dueno",
+      "ubicacion"
+    ],
     "ubicaciones_generales": [
       "bodega",
       "cantidad_pendiente",
       "cantidad_skus"
+    ],
+    "ubicaciones_generales_dueno": [
+      "bodega",
+      "cantidad_pendiente",
+      "cantidad_skus",
+      "dueno"
     ],
     "ubicaciones_historial": [
       "id",
@@ -868,21 +945,6 @@
       "id",
       "nombre",
       "rol"
-    ],
-    "leads_demo": [
-      "id",
-      "nombre",
-      "email",
-      "telefono",
-      "empresa",
-      "creado_en",
-      "tipo",
-      "mensaje",
-      "notificado_en",
-      "seguimiento1_en",
-      "seguimiento2_en",
-      "seguimiento_detenido_en",
-      "origen"
     ]
   }
 }

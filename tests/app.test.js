@@ -66,6 +66,9 @@ let avanceGruposFalla = null; // mensaje de error de avance_por_grupo; null = re
 let historialCiclosFixture = null; // filas de historial_ciclos_grupo_resumen (ver cargarHistorialCiclosGrupo)
 let historialDetalleFixture = null; // filas de historial_ciclos_grupo (ver alternarDetalleHistorialCiclo)
 let skusBusquedaFixture = null;
+let resumenBusquedaFalla = null;
+let desactivarSinSitioRespuesta = 0;
+let desactivarSinSitioFalla = null;
 let resumenGeneralSkusFixture = null;
 let ubicacionesFixture = [
   {id:'ub-1', bodega:'Nave Mina', ubicacion:null, activo:true},
@@ -592,6 +595,29 @@ const fakeFetchImpl = async (url, opts) => {
     const total = skusBusquedaFixture ? skusBusquedaFixture.length : 34;
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(total) };
   }
+  // Carga masiva: filas viejas sin ubicación ni bin cuyo material ya viene con bin (ver
+  // desactivar_filas_sin_sitio_de_carga). Devuelve cuántas desactivó.
+  if(path.startsWith('/rest/v1/rpc/desactivar_filas_sin_sitio_de_carga')){
+    if(desactivarSinSitioFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: desactivarSinSitioFalla}) };
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(desactivarSinSitioRespuesta) };
+  }
+  // Resumen de Buscar con el total real (ver cargarResumenBusqueda): agrega el mismo fixture con
+  // las reglas de resumen_busqueda_skus (grupos de grupoEstadoBusqueda, personas sobre lo contado).
+  if(path.startsWith('/rest/v1/rpc/resumen_busqueda_skus')){
+    if(resumenBusquedaFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message: resumenBusquedaFalla}) };
+    const filas = skusBusquedaFixture || Array.from({length:34}, (_,i)=>({conteo_id:'busq-'+i, estado:'aprobado', diferencia:0, contado_por:'Persona '+(i%3)}));
+    const estados = {no_contado:0, negativa:0, positiva:0, pendiente:0, cuadrado:0};
+    const personas = {};
+    filas.forEach(f=>{
+      if(!f.conteo_id){ estados.no_contado++; return; }
+      const d = Number(f.diferencia)||0;
+      if(d<0) estados.negativa++; else if(d>0) estados.positiva++; else if(f.estado==='pendiente_revision') estados.pendiente++; else estados.cuadrado++;
+      const nombre = f.contado_por || 'Sin asignar';
+      personas[nombre] = (personas[nombre]||0)+1;
+    });
+    const lista = Object.entries(personas).map(([nombre,n])=>({nombre,n})).sort((a,b)=>b.n-a.n);
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total: filas.length, estados, personas: lista}) };
+  }
   if(path.startsWith('/rest/v1/conteos?select=')){
     const offsetMatch = path.match(/offset=(\d+)/);
     const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
@@ -839,12 +865,12 @@ const fakeFetchImpl = async (url, opts) => {
   // Impacto de "Reemplazar completo" (ver calcularImpactoReemplazo): pendientes de reconteo con
   // su clave completa. A viene en el archivo de prueba; B no; C tiene el mismo código que A pero
   // otro bin, así que tampoco viene.
-  if(path.startsWith('/rest/v1/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin')){
+  if(path.startsWith('/rest/v1/reconteo_pendiente?select=id,sku_code,bodega,batch,ubicacion,storage_bin')){
     if(impactoReemplazoFalla) return { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'canceling statement due to statement timeout'}) };
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
-      {sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'},
-      {sku_code:'SKU-B', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'B-1'},
-      {sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-2'},
+      {id:'rp-a1', sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'},
+      {id:'rp-b1', sku_code:'SKU-B', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'B-1'},
+      {id:'rp-a2', sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-2'},
     ]) };
   }
   if(path.startsWith('/rest/v1/reconteo_pendiente')){
@@ -1482,6 +1508,7 @@ const documentMock = {
 // aplica su efecto de inmediato y dispara onsuccess/onerror en un tick aparte, como el real.
 function crearIndexedDBFalso(){
   const bases = new Map();
+  const falso = { sinEspacio: false };
   function solicitud(ejecutar){
     const req = { result: undefined, error: null, onsuccess: null, onerror: null };
     setTimeout(() => {
@@ -1495,7 +1522,7 @@ function crearIndexedDBFalso(){
     }, 0);
     return req;
   }
-  return {
+  return Object.assign(falso, {
     open(nombre){
       const req = { result: undefined, onupgradeneeded: null, onsuccess: null, onerror: null };
       setTimeout(() => {
@@ -1522,7 +1549,18 @@ function crearIndexedDBFalso(){
                 };
               },
             };
-            return { objectStore: () => objectStore };
+            // Como IndexedDB real: la transacción se confirma después de sus solicitudes, y sin
+            // espacio (falso.sinEspacio) las solicitudes responden bien pero la transacción aborta.
+            const tx = { oncomplete: null, onabort: null, onerror: null, error: null, objectStore: () => objectStore };
+            const registrosAntes = new Map(store.registros);
+            setTimeout(() => setTimeout(() => {
+              if(falso.sinEspacio){
+                store.registros = registrosAntes;
+                tx.error = Object.assign(new Error('The quota has been exceeded.'), { name:'QuotaExceededError' });
+                if(tx.onabort) tx.onabort();
+              }else if(tx.oncomplete) tx.oncomplete();
+            }, 0), 0);
+            return tx;
           },
           close(){},
         };
@@ -1532,7 +1570,7 @@ function crearIndexedDBFalso(){
       }, 0);
       return req;
     },
-  };
+  });
 }
 
 let printCalled = 0;
@@ -1544,6 +1582,7 @@ const xlsxEscrituras = [];
 const XLSXMock = {
   utils: {
     json_to_sheet: (filas) => filas,
+    aoa_to_sheet: (filas) => ({ aoa: filas }),
     book_new: () => ({ hojas: {} }),
     book_append_sheet: (libro, hoja, nombre) => { libro.hojas[nombre] = hoja; },
   },
@@ -1555,11 +1594,20 @@ const sandbox = {
   XLSX: XLSXMock,
   window: { print: () => { printCalled++; }, addEventListener: () => {}, removeEventListener: () => {} },
   confirm: (msg) => { confirmLlamadas.push(msg); return confirmRespuesta; },
-  localStorage: (()=>{ const m = new Map(); return {
+  // __cuota: caracteres en total, como el límite de ~5 MB por sitio del navegador. Al pasarse,
+  // setItem lanza QuotaExceededError y no guarda nada, igual que el real.
+  localStorage: (()=>{ const m = new Map(); const ls = {
+    __cuota: Infinity,
     getItem: (k) => m.has(k) ? m.get(k) : null,
-    setItem: (k,v) => { m.set(k, String(v)); },
+    setItem: (k,v) => {
+      const total = [...m.entries()].reduce((n,[kk,vv])=> n + (kk===k ? 0 : kk.length + vv.length), 0) + k.length + String(v).length;
+      if(total > ls.__cuota) throw Object.assign(new Error('The quota has been exceeded.'), { name:'QuotaExceededError' });
+      m.set(k, String(v));
+    },
     removeItem: (k) => { m.delete(k); },
-  }; })(),
+    key: (i) => [...m.keys()][i] ?? null,
+    get length(){ return m.size; },
+  }; return ls; })(),
   fetch: fakeFetchImpl,
   indexedDB: crearIndexedDBFalso(),
   setTimeout: (fn, ms) => setTimeout(fn, 0),
@@ -1615,7 +1663,10 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // "+ Otra…" (antes texto libre: "Bodega central" creaba otra bodega sin aviso).
   assert(/<select id="s-bodega">[\s\S]*<option value="Nave Mina"[\s\S]*<option value="Nave Planta"[\s\S]*<option value="__nueva"[^>]*>\+ Otra…/.test(htmlSkus), 'Ubicación general debe ser un desplegable con las bodegas existentes y la opción de agregar una nueva, obtuvo: '+htmlSkus);
   assert(/<select id="s-ubic">[\s\S]*<option value="Interior Nave"/.test(htmlSkus), 'Ubicación específica debe ser un desplegable con las ubicaciones de la bodega elegida, obtuvo: '+htmlSkus);
-  assert(/<select id="s-bin">[\s\S]*<option value="A-01"/.test(htmlSkus), 'Storage bin debe ser un desplegable con los bins de esa ubicación, obtuvo: '+htmlSkus);
+  // El bin se escribe (Joel, 19/10/2026: "que uno pueda escribir la ubicación"), con los bins de
+  // esa ubicación como sugerencias; uno escrito con otras mayúsculas es el mismo bin.
+  assert(htmlSkus.includes('<input type="text" id="s-bin" list="dl-bins-sku"') && /<datalist id="dl-bins-sku"><option value="A-01">/.test(htmlSkus) && !htmlSkus.includes('<select id="s-bin"'), 'Storage bin debe ser texto con los bins de esa ubicación como sugerencias, obtuvo: '+htmlSkus);
+  assert(ctx.binSkuConocido(' a-01 ')==='A-01' && ctx.binSkuConocido('B-77')==='B-77' && ctx.binSkuConocido('  ')===null, 'un bin escrito con otras mayúsculas o espacios es el bin existente; uno nuevo queda tal cual');
   assert(!htmlSkus.includes('dl-sku-bodegas') && !htmlSkus.includes('id="s-bodega-nueva"'), 'sin elegir "nueva" no hay campo de texto para la bodega, obtuvo: '+htmlSkus);
   ctx.__appstate.skuForm = {...ctx.skuFormInicial(), nuevaBodega:true, bodega:'Bodega Norte'};
   const htmlSkusNueva = ctx.renderSkus();
@@ -1658,6 +1709,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const htmlFalla = ctx.renderSkus();
     assert(htmlFalla.includes('No se pudo revisar si el código ya existe: servidor caído') && !htmlFalla.includes('Código nuevo'), 'un fallo del servidor se muestra como error, obtuvo: '+htmlFalla);
     skusPorCodigoFalla = null;
+    // Sin señal no es una falla del servidor: se dice sin rojo y deja claro que se puede guardar
+    // igual (Joel, 19/10/2026: "el mensaje hay que mejorarlo, lleva a confusión").
+    ctx.__appstate.skuForm = {...ctx.__appstate.skuForm, existente:{codigo:'SIN-1', cargando:false, filas:[], error:'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', sinSenal:true}};
+    const htmlSinSenalCodigo = ctx.renderSkus();
+    assert(htmlSinSenalCodigo.includes('id="sku-codigo-sin-senal"') && htmlSinSenalCodigo.includes('Puedes guardarlo igual: queda en este dispositivo y se envía al volver la señal') && !htmlSinSenalCodigo.includes('No se pudo revisar si el código ya existe'), 'sin señal, el aviso dice que se puede guardar igual, obtuvo: '+htmlSinSenalCodigo.slice(htmlSinSenalCodigo.indexOf('s-code'), htmlSinSenalCodigo.indexOf('s-code')+900));
+    assert(ctx.pareceFalloDeRed(new ctx.__TypeError('x')) && !ctx.pareceFalloDeRed(new Error('servidor caído')), 'la marca sin señal sale de pareceFalloDeRed');
+
+    // La lista de SKU que no carga no se disfraza de "Aún no hay SKU cargados" ni de "(0)".
+    const spAntes = ctx.__appstate.skusPagina;
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0, error:'No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', sinSenal:true};
+    const htmlListaSinSenal = ctx.renderSkus();
+    assert(htmlListaSinSenal.includes('SKU activos (—)') && htmlListaSinSenal.includes('Sin señal: la lista de SKU no se puede cargar ahora') && !htmlListaSinSenal.includes('Aún no hay SKU cargados'), 'sin señal la lista lo dice, obtuvo: '+htmlListaSinSenal.slice(htmlListaSinSenal.indexOf('SKU activos'), htmlListaSinSenal.indexOf('SKU activos')+500));
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0, error:'permission denied', sinSenal:false};
+    assert(ctx.renderSkus().includes('No se pudo cargar la lista de SKU: permission denied'), 'un error del servidor se muestra con su mensaje');
+    ctx.__appstate.skusPagina = spAntes;
     await ctx.revisarCodigoSkuExistente('');
     assert(ctx.__appstate.skuForm.existente===null, 'con el código vacío se limpia la revisión');
 
@@ -1694,6 +1760,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await enviarSku();
     const postNuevo = calls.find(c=>c.url.endsWith('/rest/v1/skus') && c.opts && c.opts.method==='POST');
     assert(!!postNuevo && JSON.parse(postNuevo.opts.body)[0].bodega==='Nave Mina' && JSON.parse(postNuevo.opts.body)[0].batch==='L-NUEVO', 'al aceptar se guarda en la bodega existente, obtuvo: '+(postNuevo && postNuevo.opts.body));
+    assert(JSON.parse(postNuevo.opts.body)[0].stock_sistema===0, 'con el stock en blanco, el SKU se guarda con stock 0 (no null), obtuvo: '+(postNuevo && postNuevo.opts.body));
     assert(ctx.__appstate.skuForm.bodega==='' && ctx.__appstate.skuForm.existente===null, 'tras guardar, el formulario vuelve a empezar, obtuvo: '+JSON.stringify(ctx.__appstate.skuForm));
     // Sin señal la revisión falla por red: igual se guarda (a la cola), no se bloquea.
     ctx.guardarColaOffline([]);
@@ -2100,6 +2167,81 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!calls.some(c=>c.url.includes('/skus_planificables?')), 'con universoConocido no debe volver a pedir el universo para la foto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const fotoConocida = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_skus'));
   assert(!!fotoConocida && JSON.parse(fotoConocida.opts.body).some(f=>f.sku_code==='SKU-001' && f.sku_id==='id-001' && f.storage_bin_original==='A-01'), 'la foto debe salir del universo conocido, obtuvo: '+JSON.stringify(fotoConocida && fotoConocida.opts.body));
+
+  // Planificar por dueño (Joel, 21/10/2026; 20261021_duenos_stock_plan.sql). Sin dueños activados
+  // no cambia nada: ni el formulario ni la fila que se manda ni las consultas del universo.
+  assert(!('dueno' in filasMulti[0]) && !('dueno' in filasMulti[1]), 'sin dueño elegido, la fila de plan_semanal va igual que siempre (sin la columna), obtuvo: '+JSON.stringify(filasMulti));
+  assert(!fotosUniverso[0].url.includes('dueno='), 'sin dueño elegido, la foto no filtra por dueño, obtuvo: '+fotosUniverso[0].url);
+  {
+    const perfilAntesPlanDueno = ctx.__appstate.perfil;
+    const listaAntesPlanDueno = ctx.__appstate.duenosStock;
+    ctx.__appstate.plan.duenoAgregar = 'ENEX'; // quedó de una sesión con dueños: sin el interruptor no vale
+    assert(ctx.duenoAgregarPlan()===undefined && !ctx.renderPlanificacion().includes('id="p-dueno"'), 'sin el interruptor no hay selector de dueño ni dueño que mandar');
+    ctx.__appstate.perfil = {...perfilAntesPlanDueno, empresas:{...perfilAntesPlanDueno.empresas, usa_duenos_stock:true}};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    ctx.__appstate.plan.duenoAgregar = '';
+    const htmlTodos = ctx.renderPlanificacion();
+    assert(htmlTodos.includes('<select id="p-dueno">') && htmlTodos.includes('<option value="" selected>Todos los dueños</option>') && htmlTodos.includes('Enex S.A. (ENEX)') && htmlTodos.includes('incluye lo de todos, como siempre'), 'con dueños, el formulario ofrece elegir uno y parte en "Todos los dueños", obtuvo: '+(htmlTodos.match(/<select id="p-dueno">[\s\S]*?<\/select>/)||[''])[0]);
+    assert(ctx.duenoAgregarPlan()===undefined, '"Todos los dueños" es la entrada de siempre');
+    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    assert(ctx.duenoAgregarPlan()==='ENEX' && ctx.renderPlanificacion().includes('incluirá solo los materiales de este dueño'), 'con un dueño elegido, se avisa que la entrada es solo suya');
+    ctx.__appstate.plan.duenoAgregar = '__sin';
+    assert(ctx.duenoAgregarPlan()==='', '"Sin dueño" va como texto vacío (lo que no tiene dueño), no como "todos"');
+
+    calls.length = 0;
+    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01','A-02'], responsableId:'', nota:'', dueno:'ENEX'});
+    const postDueno = calls.find(c=>c.opts && c.opts.method==='POST' && /\/plan_semanal(\?|$)/.test(c.url));
+    const filasDueno = postDueno ? JSON.parse(postDueno.opts.body) : [];
+    assert(filasDueno.length===2 && filasDueno.every(f=>f.dueno==='ENEX'), 'cada fila de la entrada lleva el dueño elegido, obtuvo: '+JSON.stringify(filasDueno));
+    const fotoDueno = calls.filter(c=>c.url.includes('/skus_planificables?'));
+    assert(fotoDueno.length===1 && fotoDueno[0].url.includes('&dueno=eq.ENEX'), 'la foto de la entrada guarda solo los materiales de ese dueño, obtuvo: '+JSON.stringify(fotoDueno.map(c=>c.url)));
+    calls.length = 0;
+    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:'', dueno:''});
+    const postSinDueno = calls.find(c=>c.opts && c.opts.method==='POST' && /\/plan_semanal(\?|$)/.test(c.url));
+    assert(postSinDueno && JSON.parse(postSinDueno.opts.body)[0].dueno==='' && calls.some(c=>c.url.includes('/skus_planificables?') && /&dueno=eq\.(&|$)/.test(c.url)), '"Sin dueño" se guarda y se filtra como texto vacío, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // El aviso de solape y los pendientes sin storage bin cuentan solo a ese dueño.
+    calls.length = 0;
+    await ctx.contarUniversoUbicacion({bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true, dueno:'ENEX'});
+    await ctx.contarPendientesSinBin('Nave Mina', 'Interior Nave', 'ENEX').catch(()=>{});
+    assert(calls.length===2 && calls.every(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.ENEX')), 'los conteos del formulario filtran por el dueño elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+    // Los números de las listas de lugares son los del dueño elegido (vistas *_dueno); sin dueño, las
+    // vistas y pedidos de siempre (las usan también otras pantallas).
+    calls.length = 0;
+    await ctx.opcionesEspecificas('Nave Mina', 'ENEX');
+    await ctx.opcionesBins('Nave Mina', 'Interior Nave', 'ENEX');
+    await ctx.opcionesBins('Nave Mina', '', 'ENEX');
+    await ctx.opcionesEspecificas('Nave Mina');
+    await ctx.opcionesBins('Nave Mina', 'Interior Nave');
+    const urlsListas = calls.map(c=>decodeURIComponent(c.url));
+    assert(urlsListas.slice(0,3).every(u=>/\/ubicaciones_(especificas|bins)_dueno\?/.test(u) && u.includes('&dueno=eq.ENEX')) && urlsListas.slice(3).every(u=>/\/ubicaciones_(especificas|bins)\?/.test(u) && !u.includes('dueno')), 'con dueño las listas salen de las vistas por dueño; sin él, las de siempre, obtuvo: '+JSON.stringify(urlsListas));
+    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    ctx.__appstate.plan.listasDueno = null;
+    const pPlan = ctx.__appstate.plan;
+    assert(ctx.listasPlanFormulario(pPlan).generales===pPlan.generales && !ctx.listasPlanFormulario(pPlan).delDueno, 'mientras no llegan los números del dueño se ven los de siempre, y el formulario lo dice');
+    assert(ctx.renderPlanificacion().includes('Calculando sus números'), 'avisa que está calculando los números del dueño');
+    ctx.__appstate.plan.listasDueno = {dueno:'ENEX', generales:[{bodega:'Nave Mina', dueno:'ENEX', cantidad_pendiente:3, cantidad_skus:5}], sinUbicacionCount:2};
+    const htmlListasDueno = ctx.renderPlanificacion();
+    assert(htmlListasDueno.includes('<option value="Nave Mina">Nave Mina (3/5)</option>') && htmlListasDueno.includes('SKU sin ubicación (2)') && htmlListasDueno.includes('los números de las listas son los suyos'), 'con los números del dueño, Ubicación general y "SKU sin ubicación" muestran los suyos, obtuvo: '+(htmlListasDueno.match(/<select id="p-bodega">[\s\S]*?<\/select>/)||[''])[0]);
+    ctx.__appstate.plan.duenoAgregar = 'COPEC';
+    assert(!ctx.listasPlanFormulario(ctx.__appstate.plan).delDueno, 'los números de otro dueño no se muestran para el dueño recién elegido');
+    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    calls.length = 0;
+    await ctx.cargarListasPlanDueno();
+    assert(calls.some(c=>decodeURIComponent(c.url).includes('/ubicaciones_generales_dueno?dueno=eq.ENEX')) && calls.some(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.ENEX')), 'cargarListasPlanDueno pide la ubicación general y los sin ubicación de ese dueño, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.plan.duenoAgregar = '';
+    await ctx.cargarListasPlanDueno();
+    assert(ctx.__appstate.plan.listasDueno===null, 'con "Todos los dueños" se vuelve a las listas de siempre');
+    ctx.__appstate.plan.duenoAgregar = '__sin';
+
+    // La entrada dice de qué dueño es: en Planificación, en la hoja impresa y en Contar.
+    assert(ctx.etiquetaDuenoEntradaPlan({dueno:null})==='' && ctx.etiquetaDuenoEntradaPlan({dueno:'ENEX'})==='Enex S.A.' && ctx.etiquetaDuenoEntradaPlan({dueno:''})==='Sin dueño' && ctx.etiquetaDuenoEntradaPlan({dueno:'OTRO'})==='OTRO', 'el dueño de una entrada se muestra con su nombre, o su código si no está en la lista; una entrada de todos no muestra nada');
+    assert(ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:'ENEX', responsable_nombre:'Ana'}).includes('Dueño: Enex S.A.') && !ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:null}).includes('Dueño'), 'la hoja impresa dice el dueño de la entrada, si tiene');
+    ctx.__appstate.perfil = perfilAntesPlanDueno;
+    assert(ctx.etiquetaDuenoEntradaPlan({dueno:'ENEX'})==='', 'sin el interruptor, una entrada no muestra dueño');
+    ctx.__appstate.duenosStock = listaAntesPlanDueno;
+    ctx.__appstate.plan.duenoAgregar = '';
+  }
   // filtroBin: un bin -> eq., varios -> in.(...) con comillas (bins con coma o espacio no rompen
   // la sintaxis de PostgREST), lista vacía -> sin filtro.
   assert(ctx.filtroBin('A-01')==='&storage_bin=eq.A-01' && ctx.filtroBin(['A-01'])==='&storage_bin=eq.A-01', 'un solo bin debe ir como eq., obtuvo: '+ctx.filtroBin(['A-01']));
@@ -3784,6 +3926,39 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printInformeEl.innerHTML.includes('Ninguno'), 'sin reconteos pendientes al cerrar, debe decirlo explícitamente, obtuvo: '+printInformeEl.innerHTML);
   ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
 
+  // Informe de cierre por dueño (Joel, 21/10/2026; 20261022_duenos_stock_informe_cierre.sql): con
+  // dueños activados se puede ver solo lo de un dueño. Sin dueños, nada nuevo.
+  {
+    const perfilAntesInforme = ctx.__appstate.perfil;
+    const duenosAntesInforme = ctx.__appstate.duenosStock;
+    const base = informesCicloFixture[0];
+    const seccion = (universo, contados, sku) => ({avance_total:[{bodega:'B1', skus_universo:universo, skus_contados:contados, porcentaje_avance:0}], exactitud_por_bodega:[], diferencias_recientes:{sin_diferencia:0, con_diferencia:0}, ranking_responsable:[], valorizacion_diferencias:[], reconteos_sin_resolver: sku? [{sku_code:sku, descripcion:'', ultima_diferencia:-1, causa_probable:null, ultimo_conteo_fecha:'2027-03-01'}] : []});
+    const conDuenos = {...base, id:'inf-d', datos:{...base.datos, por_dueno:{'ENEX': seccion(40, 10, 'ENEX-PEND'), '': seccion(60, 30, null)}}};
+    const viejo = {...base, id:'inf-v'};
+    ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[conDuenos, viejo]};
+    assert(!ctx.renderCiclos().includes('data-informe-dueno'), 'sin dueños activados no hay selector de dueño en los informes');
+    ctx.__appstate.perfil = {...perfilAntesInforme, empresas:{...perfilAntesInforme.empresas, usa_duenos_stock:true}};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    const htmlInformesDueno = ctx.renderCiclos();
+    assert(htmlInformesDueno.includes('data-informe-dueno="inf-d"') && htmlInformesDueno.includes('<option value="ENEX">Enex S.A.</option>') && htmlInformesDueno.includes('<option value="__sin">Sin dueño</option>'), 'un informe con dueños ofrece elegir el dueño, obtuvo: '+htmlInformesDueno);
+    assert(!htmlInformesDueno.includes('data-informe-dueno="inf-v"') && htmlInformesDueno.includes('Cerrado antes de separar por dueño'), 'un informe cerrado antes no ofrece dueños y lo dice');
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', 'ENEX');
+    assert(printInformeEl.innerHTML.includes('Dueño: Enex S.A.') && printInformeEl.innerHTML.includes('10 de 40 SKU') && printInformeEl.innerHTML.includes('ENEX-PEND') && !printInformeEl.innerHTML.includes('SKU-PEND'), 'el informe de un dueño muestra solo sus números y sus reconteos, obtuvo: '+printInformeEl.innerHTML);
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', '__sin');
+    assert(printInformeEl.innerHTML.includes('Dueño: Sin dueño') && printInformeEl.innerHTML.includes('30 de 60 SKU'), 'también se puede ver lo que no tiene dueño');
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', 'COPEC');
+    assert(printInformeEl.innerHTML.includes('0 de 0 SKU') && !printInformeEl.innerHTML.includes('SKU-PEND'), 'un dueño sin nada en el período se ve vacío, nunca con el total');
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', '');
+    assert(printInformeEl.innerHTML.includes('SKU-PEND') && !printInformeEl.innerHTML.includes('Dueño:'), 'con "Todos los dueños" es el informe completo de siempre');
+    ctx.__appstate.perfil = perfilAntesInforme;
+    ctx.__appstate.duenosStock = duenosAntesInforme;
+    ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
+  }
+
   // Plan básico: imprimirInformeGuardado tampoco debe hacer nada (mismo gate).
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', dashboard_ejecutivo_habilitado:false}} };
   printInformeEl.innerHTML = '';
@@ -4168,6 +4343,243 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // cargas del panel (empresas/resumen/leads/planes) realmente funcionaban -- un corte de red al
   // entrar por primera vez al panel de súper-admin lo dejaba vacío para siempre. Ahora cada una
   // devuelve true/false, para que quien las orquesta (bind()) sepa si de verdad terminaron.
+  {
+    const htmlSaDuenos = ctx.renderSuperAdmin();
+    assert((htmlSaDuenos.match(/class="sa-empresa-duenos"/g)||[]).length===2, 'el súper admin tiene un interruptor de dueños de stock por empresa, obtuvo: '+htmlSaDuenos);
+  }
+
+  // ===== Dar de baja una empresa (Joel, 21/10/2026; Edge Function eliminar-empresa) =====
+  // Solo una empresa desactivada; muestra cuánto tiene; pide el nombre exacto y la casilla de
+  // respaldo; llama a la Edge Function por tandas hasta que termina, con el avance a la vista.
+  {
+    const saAntes = ctx.__appstate.superadmin;
+    const fetchAntesBaja = ctx.fetch;
+    ctx.__appstate.superadmin = {...saAntes, empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-x', nombre:'Cliente Viejo', activo:false, plan_id:'plan-pro'}], baja:null};
+    const htmlLista = ctx.renderSuperAdmin();
+    assert(htmlLista.includes('data-baja-empresa-sa="emp-x"') && !htmlLista.includes('data-baja-empresa-sa="emp-1"'), 'solo una empresa desactivada ofrece "Dar de baja", obtuvo: '+htmlLista);
+
+    const llamadasEdge = [];
+    let respuestasEdge = [];
+    ctx.fetch = async (url, opts) => {
+      const u = String(url);
+      if(u.includes('/rest/v1/rpc/resumen_datos_empresa')){
+        const r = {usuarios:3, skus:1200, conteos:40, fotos_archivos:12, fotos_mb:3.5, auditoria:900, flow_eventos:0};
+        return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(r), json: async()=>r };
+      }
+      if(u.includes('/functions/v1/eliminar-empresa')){
+        llamadasEdge.push(JSON.parse(opts.body));
+        const r = respuestasEdge.shift() || {terminado:true, borradas:{}};
+        return { status: r.__status || 200, ok: !r.__status, headers:{get:()=>null}, json: async()=>r, text: async()=>JSON.stringify(r) };
+      }
+      return fetchAntesBaja(url, opts);
+    };
+    await ctx.abrirBajaEmpresa('emp-x');
+    const b = ctx.__appstate.superadmin.baja;
+    assert(b && b.resumen && b.resumen.skus===1200, 'abrir la baja trae el resumen de la empresa, obtuvo: '+JSON.stringify(b));
+    assert(ctx.textoResumenBaja(b.resumen)==='3 personas · 1.200 materiales · 40 conteos · 12 fotos (3,5 MB) · 900 filas de auditoría', 'el resumen dice cuánto se borra, sin los ceros, obtuvo: '+ctx.textoResumenBaja(b.resumen));
+    const htmlPanel = ctx.renderSuperAdmin();
+    assert(htmlPanel.includes('Dar de baja "Cliente Viejo"') && htmlPanel.includes('id="baja-nombre"') && /id="btn-ejecutar-baja"[^>]*disabled/.test(htmlPanel), 'el panel pide el nombre y parte con el botón deshabilitado, obtuvo: '+htmlPanel);
+    assert(!ctx.bajaEmpresaLista('Cliente viejo', true) && !ctx.bajaEmpresaLista('Cliente Viejo', false) && ctx.bajaEmpresaLista('  Cliente Viejo ', true), 'se habilita solo con el nombre exacto y la casilla de respaldo');
+
+    // Por tandas: tres respuestas "sigue" y una "terminado"; el avance se acumula.
+    respuestasEdge = [
+      {terminado:false, fase:'fotos', borradas:{fotos:12}},
+      {terminado:false, fase:'conteos', borradas:{conteos:40, skus:0}},
+      {terminado:false, fase:'skus', borradas:{skus:1200}},
+      {terminado:true, borradas:{usuarios:3, auditoria:900}},
+    ];
+    confirmLlamadas.length = 0; confirmRespuesta = true;
+    const ok = await ctx.ejecutarBajaEmpresa('Cliente Viejo');
+    assert(ok===true && llamadasEdge.length===4 && llamadasEdge.every(c=>c.empresaId==='emp-x' && c.nombre==='Cliente Viejo' && c.resumen && c.resumen.skus===1200), 'llama a la Edge Function hasta que termina, siempre con la empresa, el nombre y el resumen, obtuvo: '+JSON.stringify(llamadasEdge));
+    assert(confirmLlamadas.length===1 && /Cliente Viejo/.test(confirmLlamadas[0]) && /No se puede deshacer/.test(confirmLlamadas[0]), 'pregunta antes de borrar, con el nombre y que no se puede deshacer');
+    assert(ctx.__appstate.superadmin.baja===null, 'al terminar se cierra el panel');
+
+    // Al terminar se recarga la lista de empresas (acá, la del mock, vacía): se espera y se vuelve
+    // a poner la de la prueba.
+    await new Promise(r=>setTimeout(r, 50));
+    ctx.__appstate.superadmin.empresas = [{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-x', nombre:'Cliente Viejo', activo:false, plan_id:'plan-pro'}];
+    // Un error a mitad de camino se ve, con lo ya borrado, y se puede seguir.
+    await ctx.abrirBajaEmpresa('emp-x');
+    respuestasEdge = [{terminado:false, fase:'conteos', borradas:{conteos:200}}, {__status:500, error:'conteos: canceling statement due to statement timeout', borradas:{}}];
+    llamadasEdge.length = 0;
+    const ok2 = await ctx.ejecutarBajaEmpresa('Cliente Viejo');
+    const b2 = ctx.__appstate.superadmin.baja;
+    assert(ok2===false && b2 && /statement timeout/.test(b2.error) && b2.progreso && b2.progreso.borradas.conteos===200 && !b2.ejecutando, 'un error se muestra con lo ya borrado y deja reintentar, obtuvo: '+JSON.stringify(b2));
+    const htmlError = ctx.renderSuperAdmin();
+    assert(htmlError.includes('Seguir con la baja') && htmlError.includes('Lo ya borrado quedó borrado'), 'el panel ofrece seguir donde quedó, obtuvo: '+htmlError);
+    assert(ctx.textoProgresoBaja(b2.progreso).startsWith('Borrando… 200 filas'), 'el avance cuenta lo borrado, obtuvo: '+ctx.textoProgresoBaja(b2.progreso));
+
+    // Si se cancela la pregunta, no se llama a nada.
+    llamadasEdge.length = 0; confirmRespuesta = false;
+    await ctx.ejecutarBajaEmpresa('Cliente Viejo');
+    assert(llamadasEdge.length===0, 'cancelando la confirmación no se borra nada');
+    confirmRespuesta = true;
+    // Con el nombre mal escrito, tampoco.
+    await ctx.ejecutarBajaEmpresa('Cliente');
+    assert(llamadasEdge.length===0, 'con el nombre mal escrito no se borra nada');
+
+    ctx.fetch = fetchAntesBaja;
+    ctx.__appstate.superadmin = saAntes;
+  }
+
+  // ===== Descargar todos los datos de la empresa (administrador) =====
+  {
+    const hojas = ctx.hojasExportacionEmpresa('emp-1');
+    assert(hojas.length===30 && hojas.every(h=>h.hoja.length<=31) && new Set(hojas.map(h=>h.hoja)).size===hojas.length, 'una hoja por tabla, con nombres válidos para Excel y sin repetir, obtuvo: '+JSON.stringify(hojas.map(h=>h.hoja)));
+    assert(hojas.filter(h=>!/^\/(conteo_fotos|plan_semanal_skus)\?/.test(h.ruta)).every(h=>h.ruta.includes('emp-1')), 'cada consulta con empresa filtra por la empresa propia (el súper admin ve personas de todas)');
+    assert(hojas.filter(h=>!h.ruta.startsWith('/empresas?')).every(h=>h.ruta.includes('order=id.asc')), 'todas se piden ordenadas: sin orden, la paginación puede repetir o saltarse filas');
+    const largo = 'x'.repeat(70000);
+    const filas = ctx.filasHojaExportacion([{id:1, datos:{a:1}, texto:largo, vacio:null}]);
+    assert(filas[0].datos==='{"a":1}' && filas[0].vacio==='' && filas[0].texto.length===32000 && filas[0]['texto (2)'].length===32000 && filas[0]['texto (3)'].length===6000, 'objetos a JSON y texto largo repartido en columnas, sin cortar nada, obtuvo: '+JSON.stringify(Object.keys(filas[0])));
+
+    const perfilAntesExp = ctx.__appstate.perfil;
+    const fetchAntesExp = ctx.fetch;
+    ctx.__appstate.perfil = {id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Ñandú'}};
+    const pedidosExp = [];
+    ctx.fetch = async (url, opts) => {
+      const u = decodeURIComponent(String(url));
+      pedidosExp.push(u);
+      const filasResp = u.includes('/skus?') ? [{id:'s1', sku_code:'A-1'}] : [];
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filasResp), json: async()=>filasResp };
+    };
+    xlsxEscrituras.length = 0;
+    await ctx.exportarDatosEmpresa();
+    const esc = xlsxEscrituras[0];
+    assert(esc && /^inventia-minera-nandu-\d{4}-\d{2}-\d{2}\.xlsx$/.test(esc.nombreArchivo), 'descarga un Excel con el nombre de la empresa, obtuvo: '+(esc && esc.nombreArchivo));
+    assert(esc && esc.libro.hojas['Léeme'] && esc.libro.hojas['Materiales'][0].sku_code==='A-1' && esc.libro.hojas['Conteos'].aoa, 'trae el Léeme y una hoja por tabla, obtuvo: '+JSON.stringify(Object.keys((esc||{libro:{hojas:{}}}).libro.hojas)));
+    assert(pedidosExp.length===30, 'pide cada tabla una vez (de a 1.000 filas), obtuvo: '+pedidosExp.length);
+    // Un error en una tabla no entrega un archivo a medias.
+    ctx.fetch = async (url, opts) => String(url).includes('/auditoria?')
+      ? { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'se cayó'}), json: async()=>({message:'se cayó'}) }
+      : fetchAntesExp(url, opts);
+    xlsxEscrituras.length = 0;
+    const toastsAntesExp = elements['toast-root'].hijos.length;
+    await ctx.exportarDatosEmpresa();
+    const toastsExp = elements['toast-root'].hijos.slice(toastsAntesExp).map(t=>t.textContent);
+    assert(xlsxEscrituras.length===0 && toastsExp.some(t=>/No se pudo descargar todo: Auditoría/.test(t)), 'si una tabla falla, no se descarga nada y se dice cuál, obtuvo: '+JSON.stringify(toastsExp));
+    // Un operador no descarga.
+    ctx.__appstate.perfil = {...ctx.__appstate.perfil, rol:'operador'};
+    xlsxEscrituras.length = 0;
+    await ctx.exportarDatosEmpresa();
+    assert(xlsxEscrituras.length===0, 'un operador no puede descargar los datos de la empresa');
+    ctx.fetch = fetchAntesExp;
+    ctx.__appstate.perfil = perfilAntesExp;
+  }
+  // ===== Reportar un problema (Joel, 21/10/2026; tabla tickets) =====
+  {
+    const st = ctx.__appstate;
+    const perfilAntesT = st.perfil, sesionAntesT = st.session, viewAntesT = st.view, fetchAntesT = ctx.fetch;
+    st.session = {access_token:'tok', user:{id:'auth-ana'}};
+    st.perfil = {id:1, nombre:'Ana', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Ñandú'}};
+    st.view = 'conteo';
+    const pedidosT = [];
+    let respuestaT = () => [];
+    ctx.fetch = async (url, opts) => {
+      const u = decodeURIComponent(String(url));
+      pedidosT.push({u, metodo:(opts&&opts.method)||'GET', body: opts && typeof opts.body==='string' ? JSON.parse(opts.body) : (opts && opts.body)});
+      const r = respuestaT(u, opts);
+      if(r && r.__error) return { status:r.__error, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:r.mensaje}), json: async()=>({message:r.mensaje}) };
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(r), json: async()=>r };
+    };
+    // Un mensaje de error trae el botón "Reportar", que abre la ventana con el error ya puesto.
+    const raizT = elements['toast-root'];
+    let antes = raizT.hijos.length;
+    ctx.toast('No se pudo guardar el conteo: la cantidad contada es inválida', 'err');
+    const toastErr = raizT.hijos[antes];
+    const botonT = toastErr.hijos[0];
+    assert(toastErr.textContent==='No se pudo guardar el conteo: la cantidad contada es inválida' && botonT && botonT.textContent==='Reportar', 'el error muestra su mensaje tal cual y un botón Reportar, obtuvo: '+JSON.stringify(toastErr.hijos.map(h=>h.textContent)));
+    ctx.toast('Conteo guardado');
+    assert(raizT.hijos[raizT.hijos.length-1].hijos.length===0, 'un aviso que no es error no lleva botón Reportar');
+    botonT.listeners.click[0]();
+    await new Promise(r=>setTimeout(r, 20));
+    assert(st.reporte && st.reporte.error==='No se pudo guardar el conteo: la cantidad contada es inválida' && st.reporte.pantalla==='Contar', 'Reportar abre la ventana con el error y la pantalla, obtuvo: '+JSON.stringify(st.reporte));
+    assert(pedidosT.some(p=>p.u.startsWith('/rest/v1/tickets?') && p.u.includes('creado_por=eq.auth-ana')) || pedidosT.some(p=>p.u.includes('/tickets?') && p.u.includes('creado_por=eq.auth-ana')), 'al abrir carga "Tus reportes", solo los propios (un admin ve más bajo RLS), obtuvo: '+JSON.stringify(pedidosT.map(p=>p.u)));
+    antes = raizT.hijos.length;
+    ctx.toast('Otro error', 'err');
+    assert(raizT.hijos[antes].hijos.length===0, 'con la ventana ya abierta, un error nuevo no ofrece otro Reportar');
+    // Sin texto no se envía y se dice por qué.
+    elements['reporte-descripcion'] = undefined; delete elements['reporte-descripcion'];
+    makeEl('reporte-descripcion').value = '   ';
+    pedidosT.length = 0;
+    await ctx.enviarReporte();
+    assert(st.reporte.errorEnvio && /qué pasó/.test(st.reporte.errorEnvio) && !pedidosT.some(p=>p.metodo==='POST'), 'sin descripción no envía nada y lo dice, obtuvo: '+st.reporte.errorEnvio);
+    // Si el servidor falla, la ventana sigue abierta con lo escrito y el error a la vista.
+    makeEl('reporte-descripcion').value = 'No avanza al guardar';
+    respuestaT = (u, o) => (o && o.method==='POST') ? {__error:400, mensaje:'Ya enviaste 10 reportes en la última hora.'} : [];
+    await ctx.enviarReporte();
+    assert(st.reporte && !st.reporte.enviando && !st.reporte.enviado && st.reporte.descripcion==='No avanza al guardar' && /10 reportes/.test(st.reporte.errorEnvio), 'un error del servidor se ve en la ventana y no se pierde lo escrito, obtuvo: '+JSON.stringify(st.reporte));
+    // Envío correcto: la empresa, el autor y el estado los pone la base, no el navegador.
+    pedidosT.length = 0;
+    respuestaT = (u, o) => (o && o.method==='POST') ? [{id:'t-1', numero:17}] : [];
+    await ctx.enviarReporte();
+    const postT = pedidosT.find(p=>p.metodo==='POST');
+    assert(postT && postT.u.startsWith(ctx.SUPABASE_URL ? ctx.SUPABASE_URL : '') && postT.u.includes('/tickets?select=id,numero'), 'inserta en tickets, obtuvo: '+JSON.stringify(pedidosT.map(p=>p.u)));
+    assert(postT.body.descripcion==='No avanza al guardar' && postT.body.error_mensaje==='No se pudo guardar el conteo: la cantidad contada es inválida' && postT.body.pantalla==='Contar' && postT.body.foto_ruta===null, 'manda lo escrito, el error y la pantalla, obtuvo: '+JSON.stringify(postT.body));
+    assert(!('empresa_id' in postT.body) && !('creado_por' in postT.body) && !('estado' in postT.body), 'no manda empresa, autor ni estado: los pone la base');
+    assert(postT.body.contexto && 'dispositivo' in postT.body.contexto && 'version' in postT.body.contexto && postT.body.contexto.vista==='conteo' && 'sentry_evento' in postT.body.contexto, 'adjunta equipo, versión, pantalla y evento de Sentry, obtuvo: '+JSON.stringify(postT.body.contexto));
+    assert(st.reporte.enviado===17 && !st.reporte.errorEnvio, 'confirma con el número del reporte, obtuvo: '+JSON.stringify(st.reporte));
+    // Con foto: se sube a <empresa>/tickets/ y la ruta va en el reporte.
+    ctx.abrirReporte('');
+    await new Promise(r=>setTimeout(r, 20));
+    makeEl('reporte-descripcion').value = 'Mira la pantalla';
+    st.reporte.foto = {name:'captura.png', type:'image/png', size:1000};
+    pedidosT.length = 0;
+    await ctx.enviarReporte();
+    const subidaT = pedidosT.find(p=>p.u.includes('/storage/v1/object/fotos-inventario/'));
+    const postFotoT = pedidosT.find(p=>p.metodo==='POST' && p.u.includes('/tickets?'));
+    assert(subidaT && /\/storage\/v1\/object\/fotos-inventario\/emp-1\/tickets\/[0-9a-f-]{36}\.jpg$/.test(subidaT.u) && postFotoT && postFotoT.body.foto_ruta===subidaT.u.split('/fotos-inventario/')[1], 'la foto va a la carpeta tickets de la empresa y su ruta queda en el reporte, obtuvo: '+JSON.stringify(pedidosT.map(p=>p.u)));
+    ctx.cerrarReporte();
+    assert(st.reporte===null, 'Cerrar quita la ventana');
+    // Listas: los del equipo, solo de la empresa propia; la bandeja del súper admin, sin resolver.
+    pedidosT.length = 0;
+    await ctx.cargarTicketsEquipo();
+    assert(pedidosT.some(p=>p.u.includes('/tickets?') && p.u.includes('empresa_id=eq.emp-1')), 'los reportes del equipo filtran por la empresa propia (un súper admin ve todas bajo RLS)');
+    await ctx.cargarTicketsSuperAdmin();
+    assert(pedidosT.some(p=>p.u.includes('/tickets?') && p.u.includes('estado=neq.resuelto')), 'la bandeja del súper admin muestra por omisión los sin resolver');
+    st.tickets.sa.filtro = 'todos';
+    pedidosT.length = 0;
+    await ctx.cargarTicketsSuperAdmin();
+    assert(pedidosT.some(p=>p.u.includes('/tickets?') && !p.u.includes('estado=')), 'con "Todos" no filtra por estado');
+    // Un error al cargar se ve como error, no como lista vacía.
+    respuestaT = () => ({__error:500, mensaje:'se cayó'});
+    await ctx.cargarTicketsEquipo();
+    const htmlErrorT = ctx.htmlListaTickets(st.tickets.equipo, 'equipo', 'Nadie reportó nada');
+    assert(/No se pudieron cargar los reportes: se cayó/.test(htmlErrorT) && /data-tickets-reintentar="equipo"/.test(htmlErrorT) && !/Nadie reportó nada/.test(htmlErrorT), 'un fallo al cargar se muestra con su mensaje y Reintentar, obtuvo: '+htmlErrorT);
+    // Cómo se ve cada reporte.
+    st.superadmin.empresas = [{id:'emp-2', nombre:'Cliente <Dos>'}];
+    const tk = {id:'t-9', numero:9, empresa_id:'emp-2', creado_por_nombre:'Luis', descripcion:'No <carga>', error_mensaje:'Error 400', pantalla:'Contar', contexto:{dispositivo:'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Version/17.0 Mobile/15E148 Safari/604.1', pantalla_px:'390×844', en_linea:false}, foto_ruta:'emp-2/tickets/a.jpg', estado:'en_revision', respuesta:'Ya está arreglado', respondido_por_nombre:'Joel', respondido_en:'2026-10-21T15:00:00Z', creado_en:'2026-10-21T14:00:00Z'};
+    const htmlMio = ctx.htmlTicket(tk, 'mio');
+    assert(/#9/.test(htmlMio) && /En revisión/.test(htmlMio) && /Ya está arreglado/.test(htmlMio) && /Respuesta de Joel/.test(htmlMio) && /No &lt;carga&gt;/.test(htmlMio) && !/data-ticket-guardar/.test(htmlMio) && !/Luis/.test(htmlMio), 'el propio muestra estado y respuesta, escapado y sin controles, obtuvo: '+htmlMio);
+    const htmlSa = ctx.htmlTicket(tk, 'sa');
+    assert(/Cliente &lt;Dos&gt;/.test(htmlSa) && /Luis/.test(htmlSa) && /iPhone · Safari/.test(htmlSa) && /sin conexión/.test(htmlSa) && /data-ticket-foto="emp-2\/tickets\/a.jpg"/.test(htmlSa) && /data-ticket-guardar="t-9"/.test(htmlSa) && /data-ticket-respuesta="t-9"/.test(htmlSa), 'la bandeja muestra empresa, persona, equipo, foto y los controles para responder, obtuvo: '+htmlSa);
+    assert(ctx.describirDispositivo('Mozilla/5.0 (Linux; Android 14) AppleWebKit Chrome/129 Mobile Safari/537.36')==='Android · Chrome' && ctx.describirDispositivo('Mozilla/5.0 (Windows NT 10.0) Chrome/129 Safari/537.36 Edg/129')==='Windows · Edge', 'describe el equipo en pocas palabras');
+    // Responder: solo viaja lo que cambió; sin cambios no se llama a la base.
+    st.tickets.sa.filas = [tk];
+    st.tickets.sa.borradores = {};
+    pedidosT.length = 0;
+    await ctx.guardarTicketSuperAdmin('t-9');
+    assert(!pedidosT.some(p=>p.metodo==='PATCH'), 'sin cambios no guarda nada');
+    st.tickets.sa.borradores = {'t-9': {estado:'resuelto', respuesta:'Ya está arreglado'}};
+    respuestaT = (u, o) => (o && o.method==='PATCH') ? [{...tk, estado:'resuelto'}] : [];
+    await ctx.guardarTicketSuperAdmin('t-9');
+    const patchT = pedidosT.find(p=>p.metodo==='PATCH');
+    assert(patchT && patchT.u.includes('/tickets?id=eq.t-9') && JSON.stringify(patchT.body)==='{"estado":"resuelto"}', 'solo manda el estado si la respuesta no cambió, obtuvo: '+JSON.stringify(patchT));
+    assert(st.tickets.sa.filas[0].estado==='resuelto' && !st.tickets.sa.borradores['t-9'] && st.tickets.sa.guardando===null, 'la fila queda con lo guardado y se limpia el borrador');
+    // Dónde se ofrece: la hoja Más y Configuraciones (para todos); "Reportes de tu equipo", solo admin.
+    st.view = 'config';
+    st.tickets.equipo = {cargado:true, cargando:false, filas:[], error:null};
+    const htmlConfigOp = ctx.renderConfiguraciones();
+    assert(/id="btn-reportar-config"/.test(htmlConfigOp) && !/Reportes de tu equipo/.test(htmlConfigOp), 'un operador ve Reportar un problema pero no los reportes del equipo');
+    st.perfil = {...st.perfil, rol:'admin'};
+    assert(/Reportes de tu equipo/.test(ctx.renderConfiguraciones()), 'el admin ve los reportes de su equipo');
+    st.view = 'dashboard';
+    assert(/id="btn-reportar-problema"/.test(ctx.renderShell()), 'la hoja Más ofrece Reportar');
+    st.tickets = ctx.ticketsEstadoInicial();
+    st.reporte = null;
+    ctx.fetch = fetchAntesT;
+    st.perfil = perfilAntesT; st.session = sesionAntesT; st.view = viewAntesT;
+    await new Promise(r=>setTimeout(r, 30));
+  }
   assert(await ctx.cargarEmpresasSuperAdmin()===true, 'cargarEmpresasSuperAdmin debe devolver true cuando el pedido funciona');
   const fetchOriginalSuperAdmin = ctx.fetch;
   ctx.fetch = async (url, opts) => {
@@ -4932,7 +5344,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.confirmarCargaMasiva();
   const postCarga = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   assert(!!postCarga, 'confirmarCargaMasiva debe hacer POST a /skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key'), 'la carga masiva debe hacer upsert por (empresa_id, sku_code, bodega_key, batch_key, ubicacion_key, storage_bin_key), obtuvo: '+postCarga.url);
+  assert(postCarga.url.includes('on_conflict=empresa_id,sku_code,bodega_key,batch_key,ubicacion_key,storage_bin_key,dueno'), 'la carga masiva debe hacer upsert por la identidad con dueño (empresa_id, sku_code, bodega_key, batch_key, ubicacion_key, storage_bin_key, dueno; ver 20261020_duenos_stock.sql), obtuvo: '+postCarga.url);
   const filasCarga = JSON.parse(postCarga.opts.body);
   assert(filasCarga.length===2, 'dos filas del mismo código en bodegas distintas deben llegar ambas al upsert, no deduplicarse a una sola, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
@@ -5055,6 +5467,383 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const motivoVacioAgrup = bodyAgrup.detalle_errores.find(e=>/código de sku vacío/i.test(e.motivo));
   assert(!!motivoVacioAgrup && motivoVacioAgrup.cantidad===1, 'la fila sin código debe contarse aparte, obtuvo: '+JSON.stringify(bodyAgrup.detalle_errores));
 
+  // ===== Dueños de stock (Joel, 20/10/2026) =====
+  // Un operador logístico guarda mercadería de varios clientes: cada fila de stock es de uno.
+  // La lista la activa un súper admin por empresa (usa_duenos_stock) y la edita un administrador.
+  {
+    const perfilAntesDuenos = ctx.__appstate.perfil;
+    const fetchAntesDuenos = ctx.fetch;
+    const base = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1' };
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    assert(!ctx.usaDuenosStock() && !ctx.renderConfiguraciones().includes('Dueños de stock'), 'sin el interruptor, Configuraciones no muestra dueños: nada cambia para las demás empresas');
+
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    const pedidos = [];
+    let respuestaDuenos = () => ({status:200, body:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}, {id:'d2', codigo:'COPEC', nombre:null, activo:false}]});
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      if(u.pathname==='/rest/v1/duenos_stock'){
+        pedidos.push({url:String(url), metodo:(opts&&opts.method)||'GET', body: opts && opts.body ? JSON.parse(opts.body) : null});
+        const r = (opts && opts.method && opts.method!=='GET') ? {status:201, body:''} : respuestaDuenos();
+        if(r.status>=400) return { status:r.status, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify(r.body) };
+        return { status:r.status, ok:true, headers:{get:()=>null}, text: async()=> typeof r.body==='string' ? r.body : JSON.stringify(r.body), json: async()=>r.body };
+      }
+      return fetchAntesDuenos(url, opts);
+    };
+    await ctx.cargarDuenosStock();
+    const htmlDuenos = ctx.renderConfiguraciones();
+    assert(ctx.usaDuenosStock() && htmlDuenos.includes('Dueños de stock') && htmlDuenos.includes('id="form-nuevo-dueno"') && htmlDuenos.includes('ENEX') && htmlDuenos.includes('Enex S.A.') && htmlDuenos.includes('Inactivo'), 'con el interruptor, Configuraciones lista los dueños, con su estado, obtuvo: '+htmlDuenos);
+    assert(pedidos[0].url.includes('select=id,codigo,nombre,activo'), 'pide la lista de la empresa, obtuvo: '+JSON.stringify(pedidos));
+
+    pedidos.length = 0;
+    const toastsAntesDueno = elements['toast-root'].hijos.length;
+    assert(await ctx.crearDuenoStock('   ', 'x')===false && !pedidos.length, 'sin código no se crea nada');
+    assert(await ctx.crearDuenoStock('  ENEX2 ', '  Enex Dos ')===true, 'crea el dueño');
+    const post = pedidos.find(x=>x.metodo==='POST');
+    assert(post && post.body[0].empresa_id==='emp-1' && post.body[0].codigo==='ENEX2' && post.body[0].nombre==='Enex Dos', 'manda código y nombre sin espacios, en la empresa actual, obtuvo: '+JSON.stringify(post));
+
+    // Un código repetido se dice con palabras, no con el error crudo del índice.
+    const fetchSinDup = ctx.fetch;
+    ctx.fetch = async (url, opts) => (new URL(url).pathname==='/rest/v1/duenos_stock' && opts && opts.method==='POST')
+      ? { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "duenos_stock_empresa_id_codigo_key"'}) }
+      : fetchSinDup(url, opts);
+    assert(await ctx.crearDuenoStock('ENEX', '')===false, 'un código repetido no se crea');
+    ctx.fetch = fetchSinDup;
+    const toastsDueno = elements['toast-root'].hijos.slice(toastsAntesDueno).map(t=>t.textContent);
+    assert(toastsDueno.some(t=>t==='El dueño ENEX ya está en la lista'), 'avisa que el dueño ya existe, obtuvo: '+JSON.stringify(toastsDueno));
+
+    pedidos.length = 0;
+    await ctx.actualizarDuenoStock('d2', {activo:true});
+    const patch = pedidos.find(x=>x.metodo==='PATCH');
+    assert(patch && patch.url.includes('id=eq.d2') && patch.body.activo===true, 'reactivar es un PATCH del activo, sin tocar el código, obtuvo: '+JSON.stringify(patch));
+
+    // Si la lista no carga, se ve el error con Reintentar, no "todavía no hay dueños".
+    respuestaDuenos = () => ({status:500, body:{message:'se cayó la base'}});
+    await ctx.cargarDuenosStock();
+    const htmlErrorDuenos = ctx.renderConfiguraciones();
+    assert(htmlErrorDuenos.includes('No se pudo cargar la lista de dueños') && htmlErrorDuenos.includes('id="btn-reintentar-duenos"') && !htmlErrorDuenos.includes('Todavía no hay dueños'), 'un error del servidor se ve como error, obtuvo: '+htmlErrorDuenos);
+
+    // Un operador no ve la sección: la lista la administra un administrador.
+    ctx.__appstate.perfil = {...base, rol:'operador', empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    assert(!ctx.renderConfiguraciones().includes('id="form-nuevo-dueno"'), 'un operador no administra dueños');
+
+    // El duplicado de un material se reconoce por cualquiera de los dos índices de identidad.
+    assert(ctx.esErrorCodigoSkuDuplicado({message:'duplicate key value violates unique constraint "skus_identidad_con_dueno_key"'}) && ctx.esErrorCodigoSkuDuplicado({message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'}), 'los dos índices de identidad cuentan como material repetido');
+
+    // Cerrar sesión olvida la lista: otra cuenta en el mismo equipo no ve los dueños de la anterior.
+    assert(ctx.estadoTrasCerrarSesion().duenosStock.lista.length===0, 'cerrar sesión limpia la lista de dueños');
+
+    ctx.fetch = fetchAntesDuenos;
+    ctx.__appstate.perfil = perfilAntesDuenos;
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
+  }
+
+  // ===== Dueños de stock, paso 6: el dueño se ve en pantalla y se elige al crear un SKU =====
+  {
+    const perfilAntes = ctx.__appstate.perfil;
+    const base = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1' };
+    const lista = [{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}, {id:'d2', codigo:'COPEC', nombre:null, activo:true}, {id:'d3', codigo:'VIEJO', nombre:'Cliente que se fue', activo:false}];
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
+
+    // Sin el interruptor, nada nuevo aparece aunque la fila traiga dueño.
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    assert(ctx.chipDueno({dueno:'ENEX'})==='' && ctx.chipDuenoBajoCodigo({dueno:'ENEX'})==='' && ctx.campoDuenoSku()==='', 'sin dueños activados no se muestra ni se pide el dueño');
+
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    assert(ctx.chipDueno({dueno:'ENEX'}).includes('Enex S.A.'), 'el chip muestra el nombre del dueño, obtuvo '+ctx.chipDueno({dueno:'ENEX'}));
+    assert(ctx.chipDueno({dueno:'COPEC'}).includes('COPEC'), 'sin nombre, el chip muestra el código');
+    assert(ctx.chipDueno({dueno:'OTRO'}).includes('OTRO'), 'un dueño que no está en la lista igual se ve, por su código');
+    assert(ctx.chipDueno({dueno:''})==='' && ctx.chipDueno(null)==='', 'una fila sin dueño no muestra chip');
+    assert(ctx.chipDueno({dueno:'<b>X</b>'}).includes('&lt;b&gt;'), 'el código se escapa');
+
+    const campo = ctx.campoDuenoSku();
+    assert(campo.includes('id="s-dueno"') && campo.includes('<option value="">Sin dueño</option>') && campo.includes('value="ENEX"') && campo.includes('Enex S.A. (ENEX)') && campo.includes('value="COPEC"') && !campo.includes('VIEJO'), 'al crear un SKU se elige entre los dueños activos, con "Sin dueño", obtuvo '+campo);
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'se cayó la base' };
+    assert(ctx.campoDuenoSku().includes('No se pudo cargar la lista de dueños: se cayó la base'), 'si la lista no carga se ve el error, no una lista vacía');
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
+
+    // El mismo material en el mismo sitio, de otro dueño, no es la misma posición.
+    const filas = [{bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'ENEX'}];
+    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'COPEC'})===null, 'otro dueño en el mismo sitio es otra posición');
+    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'ENEX'})===filas[0], 'el mismo dueño en el mismo sitio sí se repite');
+    assert(ctx.posicionSkuRepetida([{bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:''}], {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null})!==null, 'sin dueños, la posición repetida se detecta como siempre');
+
+    // Stock de bodega por dueño: el filtro va a la consulta (y al Excel), no se filtra en pantalla.
+    const stockDuenoAntes = ctx.__appstate.bodega.stockDueno;
+    ctx.__appstate.bodega.stockDueno = 'ENEX';
+    assert(ctx.filtroDuenoStock()==='&dueno=eq.ENEX', 'con un dueño elegido, la consulta filtra por él, obtuvo '+ctx.filtroDuenoStock());
+    ctx.__appstate.bodega.stockDueno = '__sin';
+    assert(ctx.filtroDuenoStock()==='&dueno=eq.', '"Sin dueño" filtra las filas sin dueño, obtuvo '+ctx.filtroDuenoStock());
+    ctx.__appstate.bodega.stockDueno = '';
+    assert(ctx.filtroDuenoStock()==='', '"Todos los dueños" no filtra');
+    const selStock = ctx.selectorDuenoStock();
+    assert(selStock.includes('id="stock-dueno"') && selStock.includes('Todos los dueños') && selStock.includes('Enex S.A. (ENEX)') && selStock.includes('Cliente que se fue (VIEJO) · inactivo') && selStock.includes('value="__sin"'), 'el filtro ofrece todos, cada dueño (también los inactivos, que pueden tener stock) y sin dueño, obtuvo '+selStock);
+    const fetchAntesStock = ctx.fetch;
+    let urlStock = null;
+    ctx.fetch = async (url, opts) => {
+      if(String(url).includes('/rest/v1/stock_actual')){ urlStock = String(url); return { status:200, ok:true, headers:{get:()=>'0-0/0'}, text: async()=>'[]' }; }
+      return fetchAntesStock(url, opts);
+    };
+    ctx.__appstate.bodega.stockDueno = 'ENEX';
+    await ctx.cargarStockBodega(0);
+    assert(urlStock && urlStock.includes('&dueno=eq.ENEX'), 'cargar el stock lleva el filtro de dueño, obtuvo '+urlStock);
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    urlStock = null;
+    await ctx.cargarStockBodega(0);
+    assert(urlStock && !urlStock.includes('dueno'), 'sin dueños activados la consulta del stock es la de siempre, obtuvo '+urlStock);
+    ctx.fetch = fetchAntesStock;
+    ctx.__appstate.bodega.stockDueno = stockDuenoAntes;
+
+    // Buscar y SKU filtran en la base (p_dueno). Sin filtro, la app manda exactamente los mismos
+    // parámetros que siempre y la base responde con la versión de siempre de cada función.
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    assert(JSON.stringify(ctx.parametroDuenoRpc(''))==='{}' && ctx.parametroDuenoRpc('ENEX').p_dueno==='ENEX' && ctx.parametroDuenoRpc('__sin').p_dueno==='', 'p_dueno: nada sin filtro, el código del dueño, o vacío para "sin dueño"');
+    const busquedaAntes = ctx.__appstate.busqueda;
+    ctx.__appstate.busqueda = {...busquedaAntes, dueno:''};
+    const sinFiltro = ctx.construirParametrosBusquedaRpc();
+    assert(!('p_dueno' in sinFiltro) && Object.keys(sinFiltro).length===12, 'sin filtro de dueño, Buscar manda los 12 parámetros de siempre, obtuvo '+JSON.stringify(Object.keys(sinFiltro)));
+    ctx.__appstate.busqueda = {...busquedaAntes, dueno:'ENEX'};
+    assert(ctx.construirParametrosBusquedaRpc().p_dueno==='ENEX' && Object.keys(ctx.cuerpoFilasBusqueda(0, 30)).length===17, 'con filtro, Buscar manda p_dueno, y las filas llevan los 17 parámetros de la versión con dueño');
+    assert(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda).includes('Dueño: Enex S.A.'), 'el filtro de dueño aparece entre los filtros activos, obtuvo '+JSON.stringify(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda)));
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    assert(!('p_dueno' in ctx.construirParametrosBusquedaRpc()) && !ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda).some(c=>c.includes('Dueño')), 'sin dueños activados, un filtro que quedó guardado no se aplica ni se muestra');
+    ctx.__appstate.busqueda = busquedaAntes;
+
+    const fetchAntesSkus = ctx.fetch;
+    let cuerpoPagina = null;
+    ctx.fetch = async (url, opts) => {
+      if(String(url).includes('/rest/v1/rpc/pagina_skus')){ cuerpoPagina = JSON.parse(opts.body); return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:0, rows:[]}), json: async()=>({total:0, rows:[]}) }; }
+      return fetchAntesSkus(url, opts);
+    };
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    ctx.__appstate.skusFiltroDueno = 'ENEX';
+    await ctx.cargarSkusPagina(0);
+    assert(cuerpoPagina && cuerpoPagina.p_dueno==='ENEX' && cuerpoPagina.p_desde===0, 'la tabla de SKU pide la página filtrada por dueño, obtuvo '+JSON.stringify(cuerpoPagina));
+    const htmlSkusVacio = ctx.renderTablaSkus();
+    assert(htmlSkusVacio.includes('id="skus-dueno"') && htmlSkusVacio.includes('Ningún material activo de Enex S.A.') && !htmlSkusVacio.includes('Aún no hay SKU cargados'), 'con filtro y sin resultados, la tabla dice que ese dueño no tiene materiales, no que no hay SKU, obtuvo '+htmlSkusVacio);
+    ctx.__appstate.skusFiltroDueno = '';
+    await ctx.cargarSkusPagina(0);
+    assert(cuerpoPagina && !('p_dueno' in cuerpoPagina), 'sin filtro, la tabla de SKU pide la página de siempre, obtuvo '+JSON.stringify(cuerpoPagina));
+    // Regresión (la destapó la prueba e2e, 21/10/2026): la página sin filtro, pedida al entrar,
+    // respondía DESPUÉS que la filtrada y la tabla quedaba con lo de todos los dueños y el filtro en
+    // ENEX. Solo se muestra la respuesta del último pedido.
+    {
+      let soltarLenta;
+      ctx.fetch = async (url, opts) => {
+        if(!String(url).includes('/rest/v1/rpc/pagina_skus')) return fetchAntesSkus(url, opts);
+        const cuerpo = JSON.parse(opts.body);
+        const filas = cuerpo.p_dueno==='ENEX' ? [{id:'s1', sku_code:'ENEX-1', dueno:'ENEX'}] : [{id:'s1', sku_code:'ENEX-1', dueno:'ENEX'}, {id:'s2', sku_code:'COPEC-1', dueno:'COPEC'}];
+        const resp = { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:filas.length, rows:filas}), json: async()=>({total:filas.length, rows:filas}) };
+        if(!cuerpo.p_dueno) return new Promise(r=>{ soltarLenta = ()=> r(resp); });
+        return resp;
+      };
+      ctx.__appstate.skusFiltroDueno = '';
+      const lenta = ctx.cargarSkusPagina(0);
+      ctx.__appstate.skusFiltroDueno = 'ENEX';
+      await ctx.cargarSkusPagina(0);
+      soltarLenta();
+      await lenta;
+      assert(ctx.__appstate.skusPagina.rows.length===1 && ctx.__appstate.skusPagina.rows[0].sku_code==='ENEX-1', 'una respuesta vieja sin filtro no reemplaza la página filtrada, obtuvo '+JSON.stringify(ctx.__appstate.skusPagina.rows));
+      ctx.__appstate.skusFiltroDueno = '';
+    }
+    ctx.fetch = fetchAntesSkus;
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0};
+
+    // Paso 7: tarjeta "Por dueño" del Panel. Sin dueños activados no se pide ni se muestra.
+    {
+      const fetchAntesResumen = ctx.fetch;
+      let pedidosResumen = 0;
+      let respuestaResumen = () => ({status:200, body:[
+        { dueno:'', total_activo:10, contados:5, cuadrado:4, con_diferencia:1, merma:1, excedente:0, pendiente:0, valor_perdidas:-1500, valor_excedentes:0 },
+        { dueno:'ENEX', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
+      ]});
+      ctx.fetch = async (url, opts) => {
+        if(String(url).includes('/rest/v1/rpc/resumen_por_dueno')){
+          pedidosResumen++;
+          const r = respuestaResumen();
+          if(r.status>=400) return { status:r.status, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify(r.body) };
+          return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(r.body), json: async()=>r.body };
+        }
+        return fetchAntesResumen(url, opts);
+      };
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+      await ctx.cargarResumenDuenos();
+      assert(pedidosResumen===0 && ctx.renderResumenPorDueno()==='', 'sin dueños activados, el Panel no pide ni muestra el resumen por dueño');
+
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+      await ctx.cargarResumenDuenos();
+      const htmlResumen = ctx.renderResumenPorDueno();
+      assert(pedidosResumen===1 && htmlResumen.includes('Por dueño') && htmlResumen.includes('Enex S.A.') && htmlResumen.includes('Sin dueño') && htmlResumen.includes('25%') && htmlResumen.includes('id="btn-exportar-resumen-duenos"'), 'con dueños, la tarjeta muestra cada dueño con su avance, obtuvo '+htmlResumen);
+      assert(htmlResumen.indexOf('Enex S.A.') < htmlResumen.indexOf('Sin dueño'), 'lo que no tiene dueño va al final');
+      assert(htmlResumen.includes('>$30.000<') && htmlResumen.includes('>$12.000<') && !htmlResumen.includes('$-'), 'muestra el faltante y el sobrante en pesos, sin signo, obtuvo '+htmlResumen);
+
+      respuestaResumen = () => ({status:500, body:{message:'se cayó la base'}});
+      await ctx.cargarResumenDuenos();
+      const htmlErrorResumen = ctx.renderResumenPorDueno();
+      assert(htmlErrorResumen.includes('No se pudo cargar el resumen por dueño: se cayó la base') && htmlErrorResumen.includes('id="btn-reintentar-resumen-duenos"'), 'un error del servidor se ve como error, con Reintentar, obtuvo '+htmlErrorResumen);
+      ctx.fetch = fetchAntesResumen;
+      ctx.__appstate.resumenDuenos = { cargado:false, cargando:false, filas:[], error:'' };
+    }
+
+    // La lista de dueños se pide al entrar (Panel). Si falla (app abierta sin señal), la próxima
+    // pantalla que la necesita la vuelve a pedir; cuando ya cargó, no se repite.
+    {
+      const fetchAntesLista = ctx.fetch;
+      let pedidosLista = 0, fallar = true;
+      ctx.fetch = async (url, opts) => {
+        if(new URL(url).pathname==='/rest/v1/duenos_stock'){
+          pedidosLista++;
+          if(fallar) return { status:503, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'sin señal'}) };
+          return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(lista), json: async()=>lista };
+        }
+        return fetchAntesLista(url, opts);
+      };
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+      ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
+      await ctx.asegurarDatosDeVista('conteo');
+      assert(pedidosLista===1 && ctx.__appstate.duenosStock.error, 'el primer intento falla y se ve el error');
+      fallar = false;
+      await ctx.asegurarDatosDeVista('mover');
+      assert(pedidosLista===2 && ctx.__appstate.duenosStock.cargado && !ctx.__appstate.duenosStock.error, 'la siguiente pantalla vuelve a pedir la lista y esta vez carga, obtuvo '+pedidosLista);
+      await ctx.asegurarDatosDeVista('carga');
+      assert(pedidosLista===2, 'con la lista ya cargada no se vuelve a pedir, obtuvo '+pedidosLista);
+      ctx.fetch = fetchAntesLista;
+      ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
+    }
+
+    // Panel filtrado por dueño: con dueño elegido va p_dueno (versión filtrada en la base); sin él,
+    // la llamada es exactamente la de siempre. Filtrado, no pisa el estado de bodega que comparten
+    // Inicio y Movimientos, y el Estado general se recarga con el Panel filtrado.
+    {
+      const fetchAntesPanel = ctx.fetch;
+      const cuerpos = [];
+      let pedidosResumenGeneral = 0;
+      ctx.fetch = async (url, opts) => {
+        const u = String(url);
+        if(u.includes('/rest/v1/rpc/dashboard_ejecutivo')){
+          cuerpos.push(JSON.parse(opts.body));
+          const body = { total:[], diario:[], semanal:[], mensual:[], resumenGeneral:[{total_activo:7}], bodega:{ pendientes:[{id:'parcial'}], ultimosMovimientos:[], valorizacion:null } };
+          return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(body), json: async()=>body };
+        }
+        if(u.includes('/rest/v1/rpc/resumen_general_skus_signos')){ pedidosResumenGeneral++; return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]', json: async()=>[] }; }
+        if(u.includes('/rest/v1/rpc/resumen_por_dueno')) return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]', json: async()=>[] };
+        return fetchAntesPanel(url, opts);
+      };
+      const perfilBodegaDuenos = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true, modulo_bodega_habilitado:true}};
+      ctx.__appstate.perfil = perfilBodegaDuenos;
+      const bodegaAntes = ctx.__appstate.bodega;
+      const dashAntes = ctx.__appstate.dash, resumenGeneralAntes = ctx.__appstate.resumenGeneral, desactualizadoAntes = ctx.__appstate.dashDesactualizado;
+      ctx.__appstate.bodega = {...bodegaAntes, pendientes:[{id:'toda-la-empresa'}]};
+      ctx.__appstate.dashDueno = '';
+      await ctx.cargarDashboard();
+      const sinFiltroPanel = cuerpos[cuerpos.length-1];
+      assert(!('p_dueno' in sinFiltroPanel) && Object.keys(sinFiltroPanel).sort().join(',')==='p_criticidad,p_dias', 'sin dueño elegido, el Panel pide exactamente lo de siempre, obtuvo '+JSON.stringify(sinFiltroPanel));
+      ctx.__appstate.bodega = {...ctx.__appstate.bodega, pendientes:[{id:'toda-la-empresa'}]};
+      ctx.__appstate.dashDueno = 'ENEX';
+      await ctx.cargarDashboard();
+      assert(cuerpos[cuerpos.length-1].p_dueno==='ENEX', 'con dueño elegido, el Panel pide la versión filtrada');
+      assert(ctx.__appstate.bodega.pendientes[0].id==='toda-la-empresa', 'filtrado por dueño, el Panel no pisa los pendientes de bodega que usan Inicio y Movimientos');
+      assert(ctx.__appstate.resumenGeneral.datos && ctx.__appstate.resumenGeneral.datos.total_activo===7, 'el Estado general viene del Panel filtrado');
+      const n = cuerpos.length;
+      await ctx.cargarResumenGeneralSkus();
+      assert(pedidosResumenGeneral===0 && cuerpos.length===n+1 && cuerpos[n].p_dueno==='ENEX', 'cambiar la criticidad con un dueño elegido recarga el Panel filtrado, no el resumen de toda la empresa');
+      const htmlFiltro = ctx.renderFiltroDuenoPanel();
+      assert(htmlFiltro.includes('id="dash-dueno"') && htmlFiltro.includes('Panel de <strong>Enex S.A.</strong>') && htmlFiltro.includes('Las tarjetas de bodega muestran toda la empresa'), 'el Panel dice de qué dueño es y que bodega es de toda la empresa, obtuvo '+htmlFiltro);
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+      assert(ctx.renderFiltroDuenoPanel()==='', 'sin dueños activados el Panel no muestra el filtro');
+      ctx.__appstate.dashDueno = 'ENEX';
+      ctx.__appstate.dashDueno = '';
+      ctx.__appstate.bodega = bodegaAntes;
+      ctx.__appstate.dash = dashAntes; ctx.__appstate.resumenGeneral = resumenGeneralAntes; ctx.__appstate.dashDesactualizado = desactualizadoAntes;
+      ctx.fetch = fetchAntesPanel;
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    }
+
+    // Cerrar sesión olvida los filtros de dueño: otra cuenta no hereda un filtro que no ve.
+    ctx.__appstate.skusFiltroDueno = 'ENEX';
+    const tras = ctx.estadoTrasCerrarSesion();
+    ctx.__appstate.dashDueno = 'ENEX';
+    assert(tras.skusFiltroDueno==='' && tras.busqueda.dueno==='' && tras.bodega.stockDueno==='' && ctx.estadoTrasCerrarSesion().dashDueno==='', 'cerrar sesión limpia los filtros de dueño');
+    ctx.__appstate.dashDueno = '';
+    ctx.__appstate.skusFiltroDueno = '';
+
+    ctx.__appstate.perfil = perfilAntes;
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
+  }
+
+  // ===== Carga de Excel con dueño del stock (Joel, 20/10/2026, paso 4) =====
+  // El mismo código de dos clientes en el mismo bin son dos materiales. Los dueños nuevos se
+  // agregan a la lista antes de subir los materiales, y "Reemplazar completo" solo toca los
+  // dueños que trae el archivo.
+  {
+    const perfilAntesCargaDueno = ctx.__appstate.perfil;
+    const previewAntesCargaDueno = ctx.__appstate.cargaPreview;
+    const duenosAntes = ctx.__appstate.duenosStock;
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    assert(!ctx.camposCargaSkus().some(c=>c.campo==='dueno'), 'sin el interruptor, la carga no ofrece la columna de dueño');
+    ctx.__appstate.perfil = { ...ctx.__appstate.perfil, empresas:{nombre:'Operador SIL', usa_duenos_stock:true} };
+    assert(ctx.camposCargaSkus().some(c=>c.campo==='dueno'), 'con el interruptor, la carga ofrece la columna Dueño del stock');
+    assert(ctx.detectarMapeo(['Material','Dueño','CÓDIGO CLIENTE'], ctx.camposCargaSkus()).dueno==='Dueño', 'reconoce una columna llamada Dueño, y no se confunde con CÓDIGO CLIENTE');
+
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista:[{id:'d1', codigo:'ENEX', nombre:'Enex', activo:true}], error:'' };
+    const pd = {
+      file:{name:'wms.csv'}, modo:'reemplazar', repetidas:'sumar', confirmaReemplazo:true,
+      campos: ctx.camposCargaSkus(), headers:['Codigo','Bodega','Bin','Stock','Costo','Cliente'],
+      mapeo:{ sku_code:'Codigo', bodega:'Bodega', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo', dueno:'Cliente' },
+      data:[
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'2', Costo:'10', Cliente:'ENEX' },
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'5', Costo:'10', Cliente:' COPEC ' },
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'1', Costo:'10', Cliente:'ENEX' },
+        { Codigo:'P-2', Bodega:'CD1', Bin:'A-2', Stock:'7', Costo:'10', Cliente:'' },
+      ],
+    };
+    ctx.__appstate.cargaPreview = pd;
+    const resDueno = ctx.resumenArchivoCarga(pd.data, pd.mapeo);
+    assert(resDueno.materiales===3 && resDueno.repetidas===1, 'el mismo código y bin con dos dueños son dos materiales; la fila repetida es solo la del mismo dueño, obtuvo: '+JSON.stringify(resDueno));
+    const rep = ctx.identidadesRepetidas(pd.data, pd.mapeo);
+    assert(rep.total===1 && rep.ejemplos[0].dueno==='ENEX' && rep.ejemplos[0].stockSumado===3, 'la repetida es la de ENEX, con su suma, obtuvo: '+JSON.stringify(rep));
+    const htmlCargaDueno = ctx.renderCargaPreview();
+    assert(htmlCargaDueno.includes('2 dueño(s) en el archivo: COPEC, ENEX') && htmlCargaDueno.includes('Hay filas sin dueño') && htmlCargaDueno.includes('1 dueño(s) nuevo(s) se agregan a la lista: COPEC') && htmlCargaDueno.includes('dueño ENEX'), 'el preview dice qué dueños trae, cuáles son nuevos y en qué dueño está la repetida, obtuvo: '+htmlCargaDueno);
+    ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'se cayó la base' };
+    assert(ctx.renderCargaPreview().includes('No se pudo revisar la lista de dueños (se cayó la base)'), 'si la lista de dueños no cargó, se dice');
+
+    const fetchAntesCargaDueno = ctx.fetch;
+    ctx.fetch = async (url, opts) => {
+      const u = String(url);
+      if(u.includes('/rest/v1/duenos_stock') && opts && opts.method==='POST'){ calls.push({url:u, opts}); return { status:201, ok:true, headers:{get:()=>null}, text: async()=>'' }; }
+      return fetchAntesCargaDueno(url, opts);
+    };
+    calls.length = 0;
+    await ctx.confirmarCargaMasiva();
+    ctx.fetch = fetchAntesCargaDueno;
+    const iDuenos = calls.findIndex(c=>c.url.includes('/rest/v1/duenos_stock') && c.opts && c.opts.method==='POST');
+    const iSkus = calls.findIndex(c=>c.url.includes('/rest/v1/skus?on_conflict') && c.opts && c.opts.method==='POST');
+    assert(iDuenos>=0 && iSkus>iDuenos, 'los dueños nuevos se agregan antes de subir los materiales (el trigger exige que existan), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const postDuenos = calls[iDuenos];
+    assert(postDuenos.url.includes('on_conflict=empresa_id,codigo') && /ignore-duplicates/.test(JSON.stringify(postDuenos.opts.headers||{})) && JSON.parse(postDuenos.opts.body).map(x=>x.codigo).join(',')==='COPEC,ENEX', 'agrega los dueños del archivo sin duplicar ni tocar los existentes, y sin el vacío, obtuvo: '+JSON.stringify(postDuenos));
+    const filasDueno = JSON.parse(calls[iSkus].opts.body);
+    const stockDe = (code, dueno) => (filasDueno.find(f=>f.sku_code===code && f.dueno===dueno)||{}).stock_sistema;
+    assert(filasDueno.length===3 && stockDe('P-1','ENEX')===3 && stockDe('P-1','COPEC')===5 && stockDe('P-2','')===7, 'cada dueño con su cantidad (ENEX sumado 2+1), y la fila sin dueño con dueño vacío, obtuvo: '+JSON.stringify(filasDueno));
+    const patchReemplazo = calls.find(c=>c.url.includes('/rest/v1/skus?activo=eq.true') && c.opts && c.opts.method==='PATCH');
+    assert(patchReemplazo && decodeURIComponent(patchReemplazo.url).includes('dueno=in.("","COPEC","ENEX")'), 'Reemplazar completo solo desactiva dentro de los dueños del archivo, obtuvo: '+(patchReemplazo && decodeURIComponent(patchReemplazo.url)));
+    const regDueno = calls.find(c=>c.url.includes('/rest/v1/cargas_masivas') && c.opts && c.opts.method==='POST');
+    assert(regDueno && JSON.stringify(JSON.parse(regDueno.opts.body)[0].duenos)==='["","COPEC","ENEX"]', 'la carga anota qué dueños trajo, para acotar los sobrantes, obtuvo: '+(regDueno && regDueno.opts.body));
+
+    // Sin columna de dueño (aunque la empresa use dueños): nada cambia.
+    ctx.__appstate.cargaPreview = { ...pd, modo:'reemplazar', mapeo:{ sku_code:'Codigo', bodega:'Bodega', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo' } };
+    calls.length = 0;
+    await ctx.confirmarCargaMasiva();
+    const filasSin = JSON.parse(calls.find(c=>c.url.includes('/rest/v1/skus?on_conflict')).opts.body);
+    const patchSin = calls.find(c=>c.url.includes('/rest/v1/skus?activo=eq.true') && c.opts && c.opts.method==='PATCH');
+    const regSin = JSON.parse(calls.find(c=>c.url.includes('/rest/v1/cargas_masivas')).opts.body)[0];
+    assert(!filasSin.some(f=>'dueno' in f) && !patchSin.url.includes('dueno=') && !('duenos' in regSin) && !calls.some(c=>c.url.includes('/rest/v1/duenos_stock')), 'sin columna de dueño, la carga es la de siempre, obtuvo: '+JSON.stringify({filasSin, url: patchSin.url, regSin}));
+
+    ctx.__appstate.perfil = perfilAntesCargaDueno;
+    ctx.__appstate.cargaPreview = previewAntesCargaDueno;
+    ctx.__appstate.duenosStock = duenosAntes;
+    ctx.__appstate.cargaResultado = null;
+  }
+
   // ===== Aviso de filas que comparten identidad =====
   // El upsert se queda con la última cuando dos filas coinciden en código + bodega + batch +
   // ubicación + bin. La carga de Escondida del 10 de septiembre trajo 61.722 filas y escribió
@@ -5093,6 +5882,52 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const htmlPreviewRep = ctx.renderCargaPreview();
   assert(htmlPreviewRep.includes('3 fila(s) del archivo comparten identidad'), 'el preview avisa antes de confirmar, obtuvo: '+htmlPreviewRep);
   assert(htmlPreviewRep.includes('10001445') && htmlPreviewRep.includes('20002'), 'muestra ejemplos concretos para poder revisar el export');
+
+  // ===== Filas repetidas: sumarlas o quedarse con la última (Joel, 20/10/2026) =====
+  // Un WMS anota cada pallet en su propia fila: dos pallets del mismo lote en el mismo bin son el
+  // mismo material y su stock es la suma. Quien carga lo elige viendo los números; por defecto,
+  // como siempre, queda la última.
+  {
+    const previewRep = ctx.__appstate.cargaPreview;
+    assert(htmlPreviewRep.includes('name="repetidas-carga" value="sumar"') && htmlPreviewRep.includes('Sumar sus cantidades') && htmlPreviewRep.includes('Quedarse con la última'), 'el aviso ofrece sumar o quedarse con la última, obtuvo: '+htmlPreviewRep);
+    assert(/value="ultima" checked/.test(htmlPreviewRep), 'por defecto queda la última, como hasta ahora');
+    const ej20002 = repetidas.ejemplos.find(e=>e.sku_code==='20002');
+    assert(ej20002 && ej20002.stockSumado===18 && ej20002.stockUltima===7, 'el ejemplo muestra qué stock queda con cada opción (5+6+7=18, o 7), obtuvo: '+JSON.stringify(ej20002));
+
+    const cargarCon = async (modoRep) => {
+      ctx.__appstate.cargaPreview = {...previewRep, repetidas: modoRep};
+      calls.length = 0;
+      await ctx.confirmarCargaMasiva();
+      const post = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
+      const reg = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/cargas_masivas'));
+      return { filas: JSON.parse(post.opts.body), detalle: JSON.parse(reg.opts.body)[0].detalle_errores };
+    };
+    const stockDe = (filas, code, bin) => (filas.find(f=>f.sku_code===code && f.storage_bin===bin)||{}).stock_sistema;
+
+    const conUltima = await cargarCon('ultima');
+    assert(conUltima.filas.length===4 && stockDe(conUltima.filas,'20002','A-1')===7 && stockDe(conUltima.filas,'10001445','N1E-120-F2')===2, 'quedándose con la última: 4 materiales, con el stock de la última fila, obtuvo: '+JSON.stringify(conUltima.filas));
+    assert(conUltima.detalle.some(e=>/descartadas: quedó la última/.test(e.motivo) && e.cantidad===3), 'el historial dice cuántas filas repetidas se descartaron, obtuvo: '+JSON.stringify(conUltima.detalle));
+
+    const conSuma = await cargarCon('sumar');
+    assert(conSuma.filas.length===4, 'sumando, siguen siendo 4 materiales, obtuvo: '+conSuma.filas.length);
+    assert(stockDe(conSuma.filas,'20002','A-1')===18 && stockDe(conSuma.filas,'10001445','N1E-120-F2')===4, 'sumando, el stock es la suma de las filas repetidas (5+6+7, 2+2), obtuvo: '+JSON.stringify(conSuma.filas));
+    assert(stockDe(conSuma.filas,'10001445','N1E-120-F3')===14 && stockDe(conSuma.filas,'10001445','N1E-120-F4')===3, 'las filas de otro bin no se tocan, obtuvo: '+JSON.stringify(conSuma.filas));
+    assert(conSuma.detalle.some(e=>/sumadas en su material/.test(e.motivo) && e.cantidad===3), 'el historial dice cuántas filas repetidas se sumaron, obtuvo: '+JSON.stringify(conSuma.detalle));
+    assert(ctx.__appstate.cargaResultado && ctx.__appstate.cargaResultado.repetidasModo==='sumar' && ctx.renderResultadoDeCarga().includes('3 repetidas sumadas'), 'el resultado de la carga dice que se sumaron, obtuvo: '+ctx.renderResultadoDeCarga());
+
+    // Sumar junta también el stock informativo (bloqueado, tránsito); lo demás queda de la última
+    // fila que lo trae, y una fila sin stock no anula la suma.
+    const fusion = ctx.fusionarFilaRepetida(
+      { sku_code:'X', stock_sistema:2, stock_bloqueado:1, costo_unitario:100, descripcion:'Perno' },
+      { sku_code:'X', stock_sistema:null, stock_bloqueado:3, costo_unitario:null, descripcion:'Perno M16' });
+    assert(fusion.stock_sistema===2 && fusion.stock_bloqueado===4 && fusion.costo_unitario===100 && fusion.descripcion==='Perno M16', 'la fusión suma cantidades y conserva el último dato no vacío, obtuvo: '+JSON.stringify(fusion));
+
+    ctx.__appstate.cargaPreview = {...previewRep, repetidas:'sumar'};
+    const htmlSuma = ctx.renderCargaPreview();
+    assert(htmlSuma.includes('3 fila(s) repetidas se suman a su material') && /value="sumar" checked/.test(htmlSuma), 'con sumar elegido, el resumen lo dice, obtuvo: '+htmlSuma);
+    ctx.__appstate.cargaPreview = previewRep;
+    ctx.__appstate.cargaResultado = null;
+  }
 
   // Un archivo sin filas repetidas no muestra el aviso.
   ctx.__appstate.cargaPreview = {
@@ -5144,7 +5979,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const toastRootOmit = elements['toast-root'];
   const toastsAntesOmit = toastRootOmit.hijos.length;
   calls.length = 0;
+  desactivarSinSitioRespuesta = 2;
   await ctx.confirmarCargaMasiva();
+  desactivarSinSitioRespuesta = 0;
   const postOmit = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus'));
   const filasOmit = JSON.parse(postOmit.opts.body);
   assert(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo).materiales===filasOmit.length, 'el resumen previo debe prometer exactamente los materiales que llegan al upsert (tránsito), obtuvo: '+JSON.stringify(ctx.resumenArchivoCarga(previewOmit.data, previewOmit.mapeo))+' vs '+filasOmit.length);
@@ -5164,6 +6001,32 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert((cuerpoOmit.detalle_errores||[]).some(e=>/sin ubicación, sin storage bin y con stock 0/i.test(e.motivo) && e.cantidad===3), 'el historial deja constancia de cuántas se omitieron y por qué, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
   const toastsOmit = toastRootOmit.hijos.slice(toastsAntesOmit).map(t=>t.textContent);
   assert(toastsOmit.some(t=>t.includes('8 SKUs cargados') && t.includes('3 omitidas')), 'el aviso final dice cuántas se omitieron, obtuvo: '+JSON.stringify(toastsOmit));
+  await new Promise(r=>setTimeout(r, 0));
+
+  // La otra mitad de la regla (Joel, 19/10/2026: el 10418772 mostraba 2 en tránsito y en SAP no
+  // había): la fila sin sitio que quedó de una carga ANTERIOR, cuando el material todavía no
+  // venía con bin, se desactiva al terminar la carga, con el sello de esta carga.
+  const pedidoSinSitio = calls.find(c=>c.url.includes('/rpc/desactivar_filas_sin_sitio_de_carga'));
+  assert(!!pedidoSinSitio && JSON.parse(pedidoSinSitio.opts.body).p_marca===binOmit.updated_at, 'tras el upsert debe pedir desactivar las filas viejas sin sitio con el sello de esta carga, obtuvo: '+(pedidoSinSitio && pedidoSinSitio.opts.body)+' vs '+binOmit.updated_at);
+  assert(calls.indexOf(pedidoSinSitio) > calls.indexOf(postOmit), 'se pide después de guardar las filas (si no, las hermanas ubicadas todavía no tienen el sello)');
+  assert((cuerpoOmit.detalle_errores||[]).some(e=>/desactivadas: su material ya viene con bin/.test(e.motivo) && e.cantidad===2), 'el historial deja constancia de cuántas filas viejas se desactivaron, obtuvo: '+JSON.stringify(cuerpoOmit.detalle_errores));
+  assert(toastsOmit.some(t=>t.includes('2 filas viejas sin ubicación ni bin desactivadas')), 'el aviso final lo dice, obtuvo: '+JSON.stringify(toastsOmit));
+
+  // Si eso falla, la carga ya quedó guardada: se avisa el error, no se esconde.
+  desactivarSinSitioFalla = 'permission denied for table skus';
+  ctx.__appstate.cargaPreview = previewOmit;
+  const toastsAntesFalla = toastRootOmit.hijos.length;
+  await ctx.confirmarCargaMasiva();
+  desactivarSinSitioFalla = null;
+  const toastsFalla = toastRootOmit.hijos.slice(toastsAntesFalla).map(t=>t.textContent);
+  assert(toastsFalla.some(t=>t.includes('La carga quedó guardada, pero no se pudieron desactivar las filas viejas sin ubicación ni bin: permission denied for table skus')), 'el error se muestra con su mensaje, obtuvo: '+JSON.stringify(toastsFalla));
+  await new Promise(r=>setTimeout(r, 0));
+
+  // Un archivo sin columna de ubicación ni de bin no usa la regla: no se pide nada.
+  ctx.__appstate.cargaPreview = {...previewOmit, mapeo: {...previewOmit.mapeo, ubicacion:'', storage_bin:''}};
+  calls.length = 0;
+  await ctx.confirmarCargaMasiva();
+  assert(!calls.some(c=>c.url.includes('/rpc/desactivar_filas_sin_sitio_de_carga')), 'sin ubicación ni bin en el archivo no debe desactivar nada');
   await new Promise(r=>setTimeout(r, 0));
 
   // El historial muestra las omitidas y su motivo aunque no haya errores.
@@ -6044,7 +6907,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.calcularImpactoReemplazo();
     const imp = ctx.__appstate.cargaPreview.impactoReemplazo;
-    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code,bodega,batch,ubicacion,storage_bin')), 'debe traer los pendientes con su clave completa, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code,bodega,batch,ubicacion,storage_bin')), 'debe traer los pendientes con su clave completa, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(calls.some(c=>c.url.includes('/conteos?select=sku_id,skus(') && c.url.includes('ciclo_id=eq.ciclo-1')), 'debe traer los contados del ciclo actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(!calls.some(c=>c.url.includes('/rest/v1/skus?')), 'nunca debe traer el maestro entero para esto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(imp && !imp.cargando && imp.pendientes.total===3 && imp.pendientes.noVienen===2, 'de 3 pendientes, 2 no vienen (B, y A en otro bin): la clave es código+bodega+batch+ubicación+bin, obtuvo: '+JSON.stringify(imp));
@@ -6088,12 +6951,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     ctx.bind();
     await new Promise(r=>setTimeout(r,0));
-    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code')), 'al pintar la vista en modo Reemplazar sin cálculo, se calcula solo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code')), 'al pintar la vista en modo Reemplazar sin cálculo, se calcula solo, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.cargaPreview = { ...previewReemplazo(), modo:'complementar' };
     calls.length = 0;
     ctx.bind();
     await new Promise(r=>setTimeout(r,0));
-    assert(!calls.some(c=>c.url.includes('/reconteo_pendiente?select=sku_code')), 'en Agregar/complementar no se calcula nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(!calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code')), 'en Agregar/complementar no se calcula nada, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.cargaPreview = null;
     ctx.__appstate.ciclos = ciclosAntes;
   }
@@ -7285,6 +8148,82 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const toastsGrupoAuto = toastRootGrupoAuto.hijos.slice(toastsAntesGrupoAuto);
   assert(toastsGrupoAuto.length===1 && toastsGrupoAuto[0].textContent==='Ya existe un grupo automático de Crítico activo', 'debe avisar con un mensaje claro si ya hay un grupo automático activo, obtuvo: '+JSON.stringify(toastsGrupoAuto.map(t=>t.textContent)));
   grupoAutomaticoDuplicado = false;
+  // El índice nuevo (uno por empresa y dueño, 20261022_duenos_stock_grupos_pegar.sql) se reconoce igual.
+  assert(ctx.esIndiceGrupoAutomatico('duplicate key value violates unique constraint "idx_grupos_conteo_automatico_critico_dueno"') && ctx.esIndiceGrupoAutomatico('idx_grupos_conteo_automatico_critico_unico') && !ctx.esIndiceGrupoAutomatico('otro error'), 'el aviso de grupo automático repetido reconoce el índice de antes y el nuevo');
+
+  // ===== Grupos de conteo por dueño (Joel, 21/10/2026; 20261022_duenos_stock_grupos.sql) =====
+  {
+    assert(!('dueno' in JSON.parse(postGrupoManual.opts.body)[0]), 'sin dueño elegido, el grupo se crea igual que siempre (sin la columna)');
+    const perfilAntesGrupoDueno = ctx.__appstate.perfil;
+    const duenosAntesGrupo = ctx.__appstate.duenosStock;
+    const gruposAntesDueno = ctx.__appstate.grupos;
+    const busquedaAntesGrupo = ctx.__appstate.busqueda;
+    const fetchAntesGrupoDueno = ctx.fetch;
+    ctx.__appstate.perfil = {...perfilAntesGrupoDueno, empresas:{...(perfilAntesGrupoDueno.empresas||{}), usa_duenos_stock:true}};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    assert(ctx.duenoDesdeFiltro('')===undefined && ctx.duenoDesdeFiltro('__sin')==='' && ctx.duenoDesdeFiltro('ENEX')==='ENEX', 'el selector de dueño se traduce a: todos (sin columna), sin dueño (vacío) o el código');
+
+    ctx.__appstate.grupos = {...gruposAntesDueno, creando:true, grupoAbierto:null, lista:[{id:'g-auto', nombre:'Críticos', automatico_critico:true, activo:true, dueno:null, miembros:[{count:0}]}]};
+    const htmlFormDueno = ctx.renderGrupos();
+    assert(htmlFormDueno.includes('<select id="grupo-dueno">') && htmlFormDueno.includes('id="grupo-automatico-critico"'), 'con dueños, crear grupo ofrece el dueño y permite otro automático de críticos (uno por dueño), obtuvo: '+htmlFormDueno);
+
+    calls.length = 0;
+    await ctx.crearGrupo('IE Enex', '60', false, '2027-01-15', 'ENEX');
+    const postGrupoDueno = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
+    assert(postGrupoDueno && JSON.parse(postGrupoDueno.opts.body)[0].dueno==='ENEX', 'el grupo se crea con el dueño elegido, obtuvo: '+(postGrupoDueno && postGrupoDueno.opts.body));
+
+    // crearGrupo recarga la lista de grupos de fondo: se espera a que termine, si no reemplazaría la
+    // lista de esta prueba a mitad de camino.
+    await new Promise(r=>setTimeout(r, 100));
+    // Lo que el grupo mira del maestro va solo con las filas de su dueño.
+    const urlsGrupo = [];
+    ctx.fetch = async (url, opts) => {
+      urlsGrupo.push(decodeURIComponent(String(url)));
+      const cuerpo = String(url).includes('/rpc/buscar_skus_lectura')
+        ? [{sku_code:'P-3', descripcion:'Perno', bodega:'B1', dueno:'ENEX'}, {sku_code:'P-2', descripcion:'Perno', bodega:'B1', dueno:'COPEC'}]
+        : String(url).includes('/skus_grupos_conteo') ? [{id:'m1', sku_code:'P-1', bodega:'B1'}] : [];
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cuerpo), json: async()=>cuerpo };
+    };
+    const grupoEnex = {id:'g-enex', nombre:'IE Enex', automatico_critico:false, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:1}]};
+    const autoEnex = {id:'g-auto-enex', nombre:'Críticos Enex', automatico_critico:true, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:0}]};
+    // cargado:true: con la vista Grupos en pantalla, un render volvería a pedir la lista (vacía acá).
+    ctx.__appstate.grupos = {...gruposAntesDueno, cargado:true, cargando:false, creando:false, grupoAbierto:'g-enex', lista:[grupoEnex, autoEnex], miembros:[]};
+    await ctx.cargarSeguimientoGrupo('g-enex');
+    await ctx.cargarMiembrosGrupo('g-enex');
+    const consultasSkus = urlsGrupo.filter(u=>u.includes('/rest/v1/skus?'));
+    assert(consultasSkus.length===2 && consultasSkus.every(u=>u.includes('&dueno=eq.ENEX')), 'seguimiento y miembros de un grupo con dueño miran solo sus filas, obtuvo: '+JSON.stringify(consultasSkus));
+    urlsGrupo.length = 0;
+    await ctx.cargarSeguimientoGrupo('g-auto-enex');
+    assert(urlsGrupo.some(u=>u.includes('/rest/v1/skus?') && u.includes('critico=eq.true') && u.includes('&dueno=eq.ENEX')), 'el automático de críticos de un dueño son los críticos de ese dueño, obtuvo: '+JSON.stringify(urlsGrupo));
+    ctx.__appstate.grupos.candidatoTexto = 'perno';
+    await ctx.buscarCandidatosGrupo();
+    assert(ctx.__appstate.grupos.candidatos.length===1 && ctx.__appstate.grupos.candidatos[0].sku_code==='P-3', 'al agregar materiales a un grupo con dueño se ofrecen solo los de ese dueño, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+    const htmlDetalleDueno = ctx.renderGrupos();
+    assert(htmlDetalleDueno.includes('Dueño: Enex S.A.'), 'la ficha del grupo dice de qué dueño es');
+    ctx.__appstate.grupos = {...ctx.__appstate.grupos, grupoAbierto:null};
+    assert(ctx.renderGrupos().includes(' · Dueño: Enex S.A.'), 'la lista de grupos dice el dueño de cada grupo');
+
+    // El plan que genera el grupo lleva su dueño en cada entrada; uno de todos, igual que siempre.
+    const diasPlan = [{fecha:'2026-10-25', materiales:1, zonas:[{bodega:'B1', ubicacion:'U1', materiales:[{sku_code:'P-1', storage_bin:'A-1'}]}]}];
+    assert(ctx.entradasParaCrearPlanGrupo(diasPlan, 'ENEX').every(e=>e.dueno==='ENEX') && ctx.entradasParaCrearPlanGrupo(diasPlan, null).every(e=>!('dueno' in e)), 'las entradas del plan de un grupo llevan su dueño, y sin dueño no llevan la columna');
+
+    // Buscar por el automático de críticos de un dueño: viaja como p_solo_criticos + p_dueno.
+    ctx.__appstate.grupos = {...ctx.__appstate.grupos, lista:[grupoEnex, autoEnex]};
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-enex', dueno:''};
+    const pAuto = ctx.construirParametrosBusquedaRpc();
+    assert(pAuto.p_solo_criticos===true && pAuto.p_dueno==='ENEX' && pAuto.p_grupo_id===null, 'el automático de un dueño busca los críticos de ese dueño, obtuvo: '+JSON.stringify(pAuto));
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-enex', dueno:'COPEC'};
+    assert(!['ENEX','COPEC',''].includes(ctx.construirParametrosBusquedaRpc().p_dueno) && /^\u0001/.test(ctx.construirParametrosBusquedaRpc().p_dueno), 'el automático de un dueño filtrado por otro dueño no trae nada');
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-enex', dueno:''};
+    const pManual = ctx.construirParametrosBusquedaRpc();
+    assert(pManual.p_grupo_id==='g-enex' && !('p_dueno' in pManual), 'un grupo a mano con dueño lo filtra la base por p_grupo_id, sin p_dueno, obtuvo: '+JSON.stringify(pManual));
+
+    ctx.fetch = fetchAntesGrupoDueno;
+    ctx.__appstate.perfil = perfilAntesGrupoDueno;
+    ctx.__appstate.duenosStock = duenosAntesGrupo;
+    ctx.__appstate.grupos = gruposAntesDueno;
+    ctx.__appstate.busqueda = busquedaAntesGrupo;
+  }
 
   // Abrir un grupo automático: cargarMiembrosGrupo NO debe tocar skus_grupos_conteo (no hay nada
   // que listar ahí) y cargarSeguimientoGrupo debe leer directo de skus.critico=true.
@@ -7956,6 +8895,67 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postConteoSincronizado = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteos'));
   assert(!!postConteoSincronizado, 'reintentarAccionOffline debe volver a intentar el envío aunque el conteo estuviera en error, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   assert(ctx.__appstate.colaOffline.length===0, 'si el reintento manual tiene éxito, el conteo debe salir de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+  // ===== Sin espacio en el celular (Joel, 20/10/2026: "¿no se llena con 1.000 SKU al día?") =====
+  // Antes guardarColaOffline se tragaba el error de cuota: la pantalla mostraba "por enviar" algo
+  // que solo estaba en memoria y se perdía al cerrar la app. Ahora no se guarda, se dice, y el
+  // formulario conserva lo escrito.
+  {
+    const ls = ctx.localStorage;
+    ctx.guardarColaOffline([]);
+    const largoBase = [...Array(ls.length)].reduce((n,_,i)=> n + ls.key(i).length + ls.getItem(ls.key(i)).length, 0);
+    ls.__cuota = largoBase + 40; // no cabe ni un item más
+
+    let errCuota = null;
+    try{ ctx.encolarAccionOffline('conteo', {sku_id:'sku-lleno', sku_code:'SKU-LLENO', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:5}); }catch(e){ errCuota = e; }
+    assert(errCuota && errCuota.message===vm.runInContext('MENSAJE_COLA_SIN_ESPACIO', ctx), 'sin espacio, encolar debe fallar con un mensaje claro, obtuvo: '+(errCuota && errCuota.message));
+    assert(ctx.__appstate.colaOffline.length===0 && ctx.leerColaOffline().length===0, 'sin espacio, la pantalla no muestra como guardado lo que no quedó en el celular, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+
+    // Antes de rendirse se borran las cachés de agregados (se vuelven a pedir con señal); el plan
+    // preparado no se toca.
+    ls.__cuota = Infinity;
+    ls.setItem('agg_v1_emp-1_generales', JSON.stringify({t:Date.now(), v:'x'.repeat(3000)}));
+    ls.setItem('plan_dia_cache', JSON.stringify({u1:{fecha:'2026-10-20', entradas:[], selecciones:{}}}));
+    const largoConCaches = [...Array(ls.length)].reduce((n,_,i)=> n + ls.key(i).length + ls.getItem(ls.key(i)).length, 0);
+    ls.__cuota = largoConCaches + 200;
+    const itemTrasLiberar = ctx.encolarAccionOffline('conteo', {sku_id:'sku-cabe', sku_code:'SKU-CABE', usuario_id:'u1', empresa_id:'emp-1', cantidad_contada:5});
+    assert(!!itemTrasLiberar && ctx.leerColaOffline().length===1, 'liberando las cachés de agregados el conteo cabe y queda guardado');
+    assert(ls.getItem('agg_v1_emp-1_generales')===null && ls.getItem('plan_dia_cache')!==null, 'se borra la caché de agregados pero no el plan preparado');
+    ls.removeItem('plan_dia_cache');
+    ls.__cuota = Infinity;
+    ctx.guardarColaOffline([]);
+
+    // guardarConteo sin señal y sin espacio: no queda en la cola, el SKU y lo escrito siguen, y
+    // se avisa en rojo con el motivo.
+    const fetchAntesLleno = ctx.fetch;
+    ctx.fetch = async (url, opts) => { if(String(url).includes('/rest/v1/conteos') && opts && opts.method==='POST') throw new ctx.__TypeError('Failed to fetch'); return fetchAntesLleno(url, opts); };
+    ctx.__appstate.skuSeleccionado = { id:'sku-lleno', sku_code:'SKU-LLENO', bodega:'Nave' };
+    ctx.__appstate.conteoFotos = [];
+    ls.__cuota = [...Array(ls.length)].reduce((n,_,i)=> n + ls.key(i).length + ls.getItem(ls.key(i)).length, 0) + 40;
+    const toastRootLleno = elements['toast-root'];
+    const toastsAntesLleno = toastRootLleno.hijos.length;
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:'Nave', observacion:''});
+    ls.__cuota = Infinity;
+    const toastsLleno = toastRootLleno.hijos.slice(toastsAntesLleno);
+    assert(ctx.__appstate.colaOffline.length===0, 'sin espacio el conteo no aparece como guardado, obtuvo: '+JSON.stringify(ctx.__appstate.colaOffline));
+    assert(ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.id==='sku-lleno', 'sin espacio el material sigue elegido para volver a intentarlo');
+    assert(toastsLleno.some(t=> t.className==='toast err' && t.textContent===vm.runInContext('MENSAJE_COLA_SIN_ESPACIO', ctx)), 'sin espacio se avisa en rojo con el motivo, obtuvo: '+JSON.stringify(toastsLleno.map(t=>[t.className,t.textContent])));
+
+    // Con foto y sin espacio para ella (IndexedDB aborta al confirmar): el conteo tampoco queda
+    // a medias en la cola, y la foto sigue en el formulario.
+    ctx.indexedDB.sinEspacio = true;
+    ctx.__appstate.conteoFotos = [{ file: { name:'foto.jpg', type:'image/jpeg' } }];
+    const toastsAntesFotoLlena = toastRootLleno.hijos.length;
+    await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:'Nave', observacion:''});
+    ctx.indexedDB.sinEspacio = false;
+    const toastsFotoLlena = toastRootLleno.hijos.slice(toastsAntesFotoLlena);
+    assert(ctx.__appstate.colaOffline.length===0 && ctx.leerColaOffline().length===0, 'si la foto no cabe, el conteo no queda en la cola sin ella, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    assert(ctx.__appstate.conteoFotos.length===1 && ctx.__appstate.skuSeleccionado, 'si la foto no cabe, el material y la foto siguen en el formulario');
+    assert(toastsFotoLlena.some(t=> t.className==='toast err' && t.textContent===vm.runInContext('MENSAJE_FOTO_SIN_ESPACIO', ctx)), 'si la foto no cabe se avisa en rojo con el motivo, obtuvo: '+JSON.stringify(toastsFotoLlena.map(t=>[t.className,t.textContent])));
+    ctx.fetch = fetchAntesLleno;
+    ctx.__appstate.skuSeleccionado = null;
+    ctx.__appstate.conteoFotos = [];
+  }
 
   // Compatibilidad: un item que ya estaba encolado ANTES de agregar idempotencia no trae
   // idempotency_key (undefined) -- procesarUnItemOffline debe asignarle una la primera vez que
@@ -10488,24 +11488,79 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   ctx.__appstate.dashboardModo = 'ejecutivo';
 
-  // ===== Buscar: carga inicial hasta TOPE_CARGA_TOTAL_BUSQUEDA de una vez, con el total real
-  // pedido en paralelo al RPC contar_busqueda_skus -- ver buscarConteos. Con más de mil filas (un
-  // caso ancho, sin filtro), no alcanza a traer todo de una: sigue paginando con
-  // "Siguiente"/buscarMasConteos. =====
+  // ===== Buscar: carga inicial de TOPE_CARGA_TOTAL_BUSQUEDA, con el total real pedido en
+  // paralelo al RPC contar_busqueda_skus -- ver buscarConteos. Si el total cabe bajo
+  // TOPE_CARGA_COMPLETA_BUSQUEDA, el resto se trae solo, de a mil (Joel, 19/10/2026: con 1.218
+  // resultados, "me sale primeros 1.000, eso no sirve, deben ser los datos reales"). =====
   const filaBusquedaGenerica = (i) => ({sku_id:'sku-ancho-'+i, sku_code:'SKU-ANCHO-'+i, descripcion:'Item '+i, bodega:'Nave', ubicacion:null, storage_bin:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, capturado_en:null, fuera_de_plan:null, ciclo_id:null, ciclo_nombre:null, fotos:[], batch:null, contado_por:null, critico:false, clase_abc:null});
   skusBusquedaFixture = Array.from({length:1005}, (_,i)=>filaBusquedaGenerica(i));
   ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   calls.length = 0;
   await ctx.buscarConteos();
-  const busquedaCallInicial = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
-  assert(!!busquedaCallInicial && JSON.parse(busquedaCallInicial.opts.body).p_limite===1000, 'la carga inicial debe pedir hasta TOPE_CARGA_TOTAL_BUSQUEDA, no solo TAM_PAGINA_LISTA, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===true, 'con más filas que el tope, debe cargar hasta el tope y saber el total real (1005) vía el RPC contar_busqueda_skus, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas}));
-  assert(ctx.__appstate.busqueda.paginaOffset===1000, 'debe recordar cuántas filas crudas ya se pidieron al servidor, obtuvo: '+ctx.__appstate.busqueda.paginaOffset);
+  const pedidosFilasBusqueda = calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).map(c=>JSON.parse(c.opts.body));
+  assert(pedidosFilasBusqueda.length===2 && pedidosFilasBusqueda[0].p_limite===1000 && pedidosFilasBusqueda[0].p_offset===0 && pedidosFilasBusqueda[1].p_offset===1000 && pedidosFilasBusqueda[1].p_limite===1000, 'con 1.005 resultados debe pedir la primera tanda de mil y después el resto desde donde quedó, obtuvo: '+JSON.stringify(pedidosFilasBusqueda.map(c=>[c.p_offset,c.p_limite])));
+  assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.total===1005 && ctx.__appstate.busqueda.hayMas===false && ctx.__appstate.busqueda.paginaOffset===1005 && !ctx.__appstate.busqueda.cargandoResto, 'con un total bajo el tope de carga completa, debe quedar TODO cargado (1.005, no 1.000), obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, total:ctx.__appstate.busqueda.total, hayMas:ctx.__appstate.busqueda.hayMas, off:ctx.__appstate.busqueda.paginaOffset}));
+  const htmlBuscar1005 = ctx.renderBuscar();
+  assert(htmlBuscar1005.includes('>1.005 resultados<') && !htmlBuscar1005.includes('Primeros 1000') && !htmlBuscar1005.includes('Mostrando los primeros') && htmlBuscar1005.includes('No contado (1.005)'), 'con todo cargado, el título, los gráficos y su leyenda cuentan los 1.005, obtuvo: '+htmlBuscar1005.slice(htmlBuscar1005.indexOf('resultado')-60, htmlBuscar1005.indexOf('resultado')+900));
+  assert(htmlBuscar1005.includes('data-estado-clave="No contado"'), 'con todo cargado, tocar una porción sigue filtrando la tabla, obtuvo: '+htmlBuscar1005.slice(0,200));
+
+  // Dos búsquedas seguidas (la persona cambia el orden o un filtro mientras carga): lo que llega
+  // de la anterior se descarta. Sin el número de búsqueda, las dos cargas en segundo plano
+  // sumaban sus tandas a la misma lista y quedaban filas repetidas (1.010 en vez de 1.005).
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  const busquedaVieja = ctx.buscarConteos();
+  const busquedaNueva = ctx.buscarConteos();
+  await Promise.all([busquedaVieja, busquedaNueva]);
+  const idsBusquedaDoble = ctx.__appstate.busqueda.resultados.map(r=>r.sku_id);
+  assert(idsBusquedaDoble.length===1005 && new Set(idsBusquedaDoble).size===1005, 'dos búsquedas seguidas no deben mezclar sus filas, obtuvo: '+idsBusquedaDoble.length+' filas, '+new Set(idsBusquedaDoble).size+' distintas');
+
+  // Más ancha que el tope de carga completa (5.003): trae solo la primera tanda, como antes, y los
+  // gráficos salen del resumen del servidor con el total real. Tocar una porción no se ofrece
+  // (filtraría solo lo cargado) y el aviso dice cómo lograrlo.
+  skusBusquedaFixture = Array.from({length:5003}, (_,i)=> i<3000 ? filaBusquedaGenerica(i) : {...filaBusquedaGenerica(i), conteo_id:'c-'+i, estado:'aprobado', diferencia: i<3100 ? -1 : 0, contado_por: i%2 ? 'Ana' : 'Luis'});
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  calls.length = 0;
+  await ctx.buscarConteos();
+  assert(calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).length===1, 'sobre el tope de carga completa no debe traer el resto en segundo plano, obtuvo: '+calls.filter(c=>c.url.includes('/rpc/filas_busqueda_skus')).length+' pedidos de filas');
+  const pedidoResumen = calls.find(c=>c.url.includes('/rpc/resumen_busqueda_skus'));
+  assert(!!pedidoResumen && JSON.parse(pedidoResumen.opts.body).p_solo_con_fotos===false && 'p_texto' in JSON.parse(pedidoResumen.opts.body), 'con resultados sin cargar debe pedir el resumen con los mismos filtros, obtuvo: '+(pedidoResumen && pedidoResumen.opts.body));
+  assert(ctx.__appstate.busqueda.resultados.length===1000 && ctx.__appstate.busqueda.hayMas===true && ctx.__appstate.busqueda.resumenServidor && ctx.__appstate.busqueda.resumenServidor.total===5003, 'debe quedar con la primera tanda y el resumen del servidor, obtuvo: '+JSON.stringify({n:ctx.__appstate.busqueda.resultados.length, r:ctx.__appstate.busqueda.resumenServidor}));
+  const htmlBuscarAncho = ctx.renderBuscar();
+  assert(htmlBuscarAncho.includes('>5.003 resultados<') && htmlBuscarAncho.includes('Los 5.003 resultados') && !htmlBuscarAncho.includes('Primeros 1000'), 'los gráficos deben decir que cuentan los 5.003, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('5.003')-80, htmlBuscarAncho.indexOf('5.003')+600));
+  assert(htmlBuscarAncho.includes('No contado (3.000)') && htmlBuscarAncho.includes('Cuadrado (1.903)') && htmlBuscarAncho.includes('Diferencia negativa (100)') && htmlBuscarAncho.includes('De 2.003 contados'), 'el resumen por estado debe ser el del total, no el de los mil cargados (que eran todos "No contado"), obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Resumen por estado'), htmlBuscarAncho.indexOf('Resumen por estado')+1500));
+  assert(htmlBuscarAncho.includes('Quién contó') && htmlBuscarAncho.includes('Luis (1.002)') && htmlBuscarAncho.includes('Ana (1.001)'), 'quién contó también sale del total, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Quién contó'), htmlBuscarAncho.indexOf('Quién contó')+1500));
+  assert(!htmlBuscarAncho.includes('data-estado-clave') && !htmlBuscarAncho.includes('data-porcion-clave'), 'con la lista incompleta, las porciones no deben ofrecerse para filtrar (filtrarían solo lo cargado)');
+  assert(htmlBuscarAncho.includes('Mostrando los primeros 1.000 de 5.003') && htmlBuscarAncho.includes('acota la búsqueda a 5.000 resultados o menos'), 'el aviso debe decir cuánto de la tabla está cargado y cómo filtrar tocando los gráficos, obtuvo: '+htmlBuscarAncho.slice(htmlBuscarAncho.indexOf('Mostrando'), htmlBuscarAncho.indexOf('Mostrando')+400));
   calls.length = 0;
   await ctx.buscarMasConteos();
   const busquedaCallMas = calls.find(c=>c.url.includes('/rpc/filas_busqueda_skus'));
   assert(!!busquedaCallMas && JSON.parse(busquedaCallMas.opts.body).p_offset===1000, 'buscarMasConteos debe pedir la página siguiente desde donde quedó, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-  assert(ctx.__appstate.busqueda.resultados.length===1005 && ctx.__appstate.busqueda.hayMas===false, 'debe agregar las filas restantes hasta completar el total real y marcar que ya no hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+  assert(ctx.__appstate.busqueda.resultados.length===1030 && ctx.__appstate.busqueda.hayMas===true, 'debe agregar la tanda siguiente y seguir sabiendo que hay más, obtuvo: '+ctx.__appstate.busqueda.resultados.length);
+
+  // Si el resumen del servidor falla, el error se ve (no se disfraza): los gráficos vuelven a
+  // armarse con lo cargado y lo dicen.
+  resumenBusquedaFalla = 'canceling statement due to statement timeout';
+  ctx.__appstate.busqueda = {texto:'', bodega:'', estado:'', soloConFotos:false, resultados:[], total:null, buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
+  await ctx.buscarConteos();
+  resumenBusquedaFalla = null;
+  const htmlBuscarResumenFalla = ctx.renderBuscar();
+  assert(htmlBuscarResumenFalla.includes('No se pudo calcular el resumen con el total: canceling statement due to statement timeout') && htmlBuscarResumenFalla.includes('Primeros 1000 de 5.003'), 'con el resumen caído, el error debe verse y los gráficos decir que cuentan solo lo cargado, obtuvo: '+htmlBuscarResumenFalla.slice(htmlBuscarResumenFalla.indexOf('resultados<'), htmlBuscarResumenFalla.indexOf('resultados<')+900));
+
+  // Mientras el resumen no llega, los gráficos no muestran lo parcial como si fuera el total.
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resumenServidor:null, resumenError:'', resumenPendiente:true};
+  const htmlBuscarCalculando = ctx.renderBuscar();
+  assert(htmlBuscarCalculando.includes('Calculando con todos los resultados…') && !htmlBuscarCalculando.includes('Primeros 1000'), 'mientras calcula, debe decirlo en vez de mostrar el parcial, obtuvo: '+htmlBuscarCalculando.slice(htmlBuscarCalculando.indexOf('Resumen por estado')-200, htmlBuscarCalculando.indexOf('Resumen por estado')+600));
+  // "Solo con fotografías" se filtra en la app sobre lo cargado, así que el total del conteo no
+  // vale; el resumen del servidor sí lo aplica, y con él el total vuelve a ser exacto (antes: "1000+").
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloConFotos:true, resumenPendiente:false, resumenServidor:{total:12, estados:{no_contado:0, negativa:2, positiva:0, pendiente:0, cuadrado:10}, personas:[{nombre:'Ana', n:12}]}};
+  const htmlBuscarFotosTotal = ctx.renderBuscar();
+  assert(htmlBuscarFotosTotal.includes('>12 resultados<') && htmlBuscarFotosTotal.includes('Los 12 resultados'), 'con "Solo con fotografías", el total debe ser el del resumen del servidor, obtuvo: '+htmlBuscarFotosTotal.slice(htmlBuscarFotosTotal.indexOf('resultados<')-60, htmlBuscarFotosTotal.indexOf('resultados<')+200));
+  // Mientras se trae la lista completa en segundo plano, el avance se ve (y tiene el id que
+  // cargarRestoBusqueda actualiza sin repintar la pantalla).
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, soloConFotos:false, total:1218, resumenServidor:{total:1218, estados:{no_contado:0, negativa:228, positiva:184, pendiente:0, cuadrado:806}, personas:[{nombre:'Ana', n:1218}]}, cargandoResto:{cargados:1000, objetivo:1218}};
+  const htmlBuscarCargandoResto = ctx.renderBuscar();
+  assert(htmlBuscarCargandoResto.includes('id="buscar-progreso-carga"') && htmlBuscarCargandoResto.includes('Cargando la lista completa: 1.000 de 1.218') && htmlBuscarCargandoResto.includes('Cuadrado (806)'), 'mientras carga el resto, debe verse el avance y los gráficos con el total, obtuvo: '+htmlBuscarCargandoResto.slice(htmlBuscarCargandoResto.indexOf('resultados<')-60, htmlBuscarCargandoResto.indexOf('resultados<')+400));
+  ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, cargandoResto:null, resumenServidor:null};
 
   // Caso típico (un total chico, por debajo del tope): queda TODO cargado en la primera llamada,
   // sin necesidad de "Siguiente" -- así el conteo de arriba y los gráficos ya reflejan el total
@@ -10647,13 +11702,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.busqueda.filtroContadoPor===null, 'sin ninguna persona elegida el filtro queda en null, obtuvo: '+JSON.stringify(ctx.__appstate.busqueda.filtroContadoPor));
 
   // renderBuscar con el filtro activo: la tabla solo debe mostrar las filas de la persona
-  // seleccionada, con el chip "Filtrando por" visible y sin controles de paginación (es un
-  // drill-down sobre lo ya cargado, no una página más).
+  // seleccionada, con el chip "Filtrando por" visible. Desde el 15/10/2026 también pagina de a 15
+  // (antes salía entera): con 3 filas, una sola página y "Siguiente" deshabilitado.
   ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: filasQuienContoInteractivo, yaBuscado:true, filtroContadoPor:'Ana', busquedaPagina:0, hayMas:false};
   const htmlFiltradoAna = ctx.renderBuscar();
   assert(htmlFiltradoAna.includes('id="btn-quitar-filtro-contador"') && htmlFiltradoAna.includes('Filtrando por'), 'con el filtro activo debe verse el chip "Filtrando por" con su botón para quitarlo, obtuvo: '+htmlFiltradoAna);
   assert((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length===3, 'filtrando por Ana la tabla debe mostrar solo sus 3 filas, obtuvo: '+((htmlFiltradoAna.match(/<tr>\s*<td/g)||[]).length));
-  assert(!htmlFiltradoAna.includes('id="buscar-pagina-prev"'), 'con el filtro activo no deben verse los controles de paginación, obtuvo: '+htmlFiltradoAna);
+  assert(htmlFiltradoAna.includes('1–3 de 3 · pág. 1') && /id="buscar-pagina-next"[^>]*disabled/.test(htmlFiltradoAna), 'con el filtro activo la paginación cuenta las filas filtradas y no ofrece una página siguiente que no existe, obtuvo: '+htmlFiltradoAna);
+
+  // Con más de 15 filas filtradas: páginas de 15 sobre lo filtrado, sin pedir más al servidor, y
+  // elegir otra porción vuelve a la página 1.
+  {
+    const muchasAna = Array.from({length:20}, (_, i)=> ({...filasQuienContoInteractivo[0], sku_id:'ana-'+i, sku_code:'ANA-'+String(i).padStart(2,'0'), contado_por:'Ana', contado_por_id:'u-ana'}));
+    const resultadosAntes = ctx.__appstate.busqueda.resultados;
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: [...muchasAna, ...filasQuienContoInteractivo.filter(r=>r.contado_por!=='Ana')], filtroContadoPor:['Ana'], filtroEstado:null, busquedaPagina:0, hayMas:true, seleccionados:[]};
+    const pag1 = ctx.renderBuscar();
+    assert((pag1.match(/<tr>\s*<td/g)||[]).length===15 && pag1.includes('1–15 de 20 · pág. 1') && !/id="buscar-pagina-next"[^>]*disabled/.test(pag1), 'filtrando 20 filas, la primera página muestra 15 y ofrece la siguiente, obtuvo '+((pag1.match(/<tr>\s*<td/g)||[]).length)+' filas');
+    const callsAntesPagina = calls.length;
+    await ctx.avanzarPaginaBuscar();
+    assert(calls.length===callsAntesPagina, 'avanzar de página con el filtro activo no pide más tandas al servidor, obtuvo '+(calls.length-callsAntesPagina)+' llamadas');
+    const pag2 = ctx.renderBuscar();
+    assert(ctx.__appstate.busqueda.busquedaPagina===1 && (pag2.match(/<tr>\s*<td/g)||[]).length===5 && pag2.includes('16–20 de 20 · pág. 2') && /id="buscar-pagina-next"[^>]*disabled/.test(pag2), 'la segunda página muestra las 5 filas que quedan y no hay tercera, obtuvo: '+(pag2.match(/<tr>\s*<td/g)||[]).length+' filas');
+    ctx.toggleFiltroContadoPor('Beto');
+    assert(ctx.__appstate.busqueda.busquedaPagina===0, 'elegir otra porción vuelve a la página 1, obtuvo: '+ctx.__appstate.busqueda.busquedaPagina);
+    ctx.toggleFiltroEstado('Cuadrado');
+    assert(ctx.__appstate.busqueda.busquedaPagina===0, 'elegir una porción del estado también vuelve a la página 1');
+    ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados: resultadosAntes, filtroContadoPor:'Ana', filtroEstado:null, busquedaPagina:0, hayMas:false};
+  }
 
   // Exportar con el filtro "Quién contó" activo: es un drill-down sobre lo ya cargado (ver
   // renderBuscar más arriba), así que debe exportar esa misma selección sin volver a pedirle
@@ -10989,6 +12064,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(documentMock.getElementById('c-cant').value==='17', 'la cantidad tipeada no debe perderse al re-renderizar, obtuvo: '+documentMock.getElementById('c-cant').value);
   assert(documentMock.getElementById('c-bodega').value==='Nave Mina', 'la ubicación general tipeada no debe perderse, obtuvo: '+documentMock.getElementById('c-bodega').value);
   assert(documentMock.getElementById('c-obs').value==='Con daño visible', 'la observación tipeada no debe perderse, obtuvo: '+documentMock.getElementById('c-obs').value);
+
+  // capturarFormularioConteo / restaurarFormularioConteo: cualquier render() con Contar abierto
+  // conserva lo tecleado, pero solo si sigue elegido el MISMO material. Elegir otro o guardar
+  // (skuSeleccionado en null) parte de un formulario limpio: nunca se arrastra una cantidad ajena.
+  {
+    const vistaAntes = ctx.__appstate.view, skuAntes = ctx.__appstate.skuSeleccionado;
+    const skuA = { id:'sku-a', sku_code:'A-1' }, skuB = { id:'sku-b', sku_code:'B-1' };
+    ctx.__appstate.view = 'conteo'; ctx.__appstate.skuSeleccionado = skuA;
+    documentMock.getElementById('c-cant').value = '9';
+    let snap = ctx.capturarFormularioConteo();
+    assert(snap && snap.valores['c-cant'] === '9', 'con Contar abierto se captura la cantidad tecleada, obtuvo '+JSON.stringify(snap));
+    documentMock.getElementById('c-cant').value = '';
+    ctx.restaurarFormularioConteo(snap);
+    assert(documentMock.getElementById('c-cant').value === '9', 'el mismo material recupera la cantidad tras el repintado, obtuvo '+documentMock.getElementById('c-cant').value);
+    documentMock.getElementById('c-cant').value = '';
+    ctx.__appstate.skuSeleccionado = skuB;
+    ctx.restaurarFormularioConteo(snap);
+    assert(documentMock.getElementById('c-cant').value === '', 'otro material parte con la cantidad vacía, obtuvo '+documentMock.getElementById('c-cant').value);
+    ctx.__appstate.skuSeleccionado = null;
+    ctx.restaurarFormularioConteo(snap);
+    assert(documentMock.getElementById('c-cant').value === '', 'tras guardar (sin material elegido) no se repone nada, obtuvo '+documentMock.getElementById('c-cant').value);
+    ctx.__appstate.view = 'skus'; ctx.__appstate.skuSeleccionado = skuA;
+    assert(ctx.capturarFormularioConteo() === null, 'fuera de Contar no se captura nada');
+    ctx.__appstate.view = vistaAntes; ctx.__appstate.skuSeleccionado = skuAntes;
+  }
 
   // asociarCodigoBarras: guarda el código en el SKU elegido (PATCH a /skus?id=eq.<id>), lo
   // refleja de inmediato en la lista ya cargada (sin esperar un refetch) y deja ese SKU
@@ -11328,6 +12428,113 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.__appstate.contarPlan.desdeCache===false, 'sin caché para una selección nunca vista, no debe marcar desdeCache:true, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan));
   const nuevosToastsCascadaOffline = toastRootCascadaOffline.hijos.slice(toastsAntesCascadaOffline);
   assert(nuevosToastsCascadaOffline.length>0, 'sin caché para esa selección, debe avisar el error como antes, obtuvo: '+JSON.stringify(nuevosToastsCascadaOffline));
+  // ===== Preparar para sin señal (Joel, 20/10/2026: "si me planifican 100 SKU, entro, selecciono
+  // el día de hoy, ¿estoy listo para contar offline?") =====
+  // Antes solo quedaba en el celular el lugar que se abría con señal. "Preparar para sin señal"
+  // guarda todos los lugares del día y los reconteos pendientes; sin señal, lo contado sale de la
+  // lista; y al volver la señal, el aviso de "plan guardado" se va solo.
+  {
+    const cpAntes = ctx.__appstate.contarPlan, fetchAntes = ctx.fetch, colaAntes = ctx.__appstate.colaOffline, onLineAntes = ctx.navigator.onLine;
+    ctx.localStorage.removeItem('plan_dia_cache'); ctx.localStorage.removeItem('reconteos_cache');
+    ctx.__appstate.colaOffline = [];
+    ctx.__appstate.contarPlan = { cargado:false, cargando:false, fecha:'2026-08-24', entradas:[], bodega:'', ubicacion:'', skusPendientes:null, desdeCache:false };
+    await ctx.cargarPlanDeHoy('2026-08-24');
+    const lugaresPrep = ctx.lugaresPlanDia(ctx.__appstate.contarPlan.entradas).map(l=>l.bodega+'||'+l.ubic);
+    assert(JSON.stringify(lugaresPrep)===JSON.stringify(['__sin_ubicacion__||','Nave Mina||Interior Nave','__bodega_vacia__||Piso']), 'los lugares del día son los mismos de las tarjetas (las dos entradas de Interior Nave son un solo lugar), obtuvo: '+JSON.stringify(lugaresPrep));
+    const htmlAntesPrep = ctx.renderPlanDelDia();
+    assert(htmlAntesPrep.includes('id="btn-preparar-sin-senal"') && htmlAntesPrep.includes('los 3 lugares de este día y los reconteos pendientes'), 'con señal y sin preparar, Contar ofrece "Preparar para sin señal", obtuvo: '+htmlAntesPrep.slice(0, 1500));
+    calls.length = 0;
+    await ctx.prepararSinSenal();
+    const cachePrep = JSON.parse(ctx.localStorage.getItem('plan_dia_cache'))['resp-yo'];
+    const clavesPrep = Object.keys(cachePrep.selecciones||{}).sort();
+    assert(JSON.stringify(clavesPrep)===JSON.stringify(['Nave Mina||Interior Nave','__bodega_vacia__||Piso','__sin_ubicacion__||']), 'debe guardar los SKU pendientes de los 3 lugares, no solo del que se abrió, obtuvo: '+JSON.stringify(clavesPrep));
+    const skusPrep = clavesPrep.reduce((n,k)=> n + cachePrep.selecciones[k].length, 0);
+    assert(cachePrep.preparado && cachePrep.preparado.lugares===3 && cachePrep.preparado.skus===skusPrep && cachePrep.preparado.reconteos===30, 'debe anotar qué quedó guardado (3 lugares, sus SKU y los reconteos), obtuvo: '+JSON.stringify(cachePrep.preparado));
+    const pedidoReconteosPrep = calls.find(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code'));
+    assert(!!pedidoReconteosPrep && !pedidoReconteosPrep.url.includes('fotos'), 'los reconteos se guardan sin fotos (pesan y verlas necesita señal), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(JSON.parse(ctx.localStorage.getItem('reconteos_cache'))['resp-yo'].filas.length===30, 'los reconteos pendientes quedan en el celular');
+    const htmlPrep = ctx.renderPlanDelDia();
+    assert(htmlPrep.includes('Listo para contar sin señal') && htmlPrep.includes('3 lugares, '+skusPrep+' SKU y 30 reconteos guardados'), 'después de preparar, Contar dice qué quedó guardado, obtuvo: '+htmlPrep.slice(0, 1500));
+
+    // Sin señal, cualquiera de los lugares se abre desde lo guardado, aunque nunca se haya tocado.
+    ctx.fetch = async () => { throw new ctx.__TypeError('Failed to fetch'); };
+    ctx.navigator.onLine = false;
+    await ctx.elegirCascadaContar({bodega:'__bodega_vacia__', ubicacion:'Piso'});
+    const cpPiso = ctx.__appstate.contarPlan;
+    assert(cpPiso.desdeCache===true && Array.isArray(cpPiso.skusPendientes) && cpPiso.skusPendientes.length===cachePrep.selecciones['__bodega_vacia__||Piso'].length && cpPiso.skusPendientes.length>1, 'sin señal, un lugar preparado y nunca abierto debe mostrar sus SKU, obtuvo: '+JSON.stringify(cpPiso));
+    assert(!ctx.renderPlanDelDia().includes('id="btn-preparar-sin-senal"') || ctx.renderPlanDelDia().includes('Listo para contar sin señal'), 'sin señal no se ofrece preparar (no se podría)');
+
+    // Lo contado que espera en la cola sale de la lista y queda nombrado aparte.
+    const contadoPrep = cpPiso.skusPendientes[0];
+    ctx.__appstate.colaOffline = [{id:'cola-prep-1', tipo:'conteo', sku_id: contadoPrep.id, sku_code: contadoPrep.sku_code, cantidad_contada:3, estado:'pendiente', creado_en:'2026-08-24T12:00:00Z'}];
+    const htmlContadoPrep = ctx.renderPlanDelDia();
+    assert(!htmlContadoPrep.includes(`data-pick-plan="${contadoPrep.id}"`) && htmlContadoPrep.includes(`<span class="contar-n">${cpPiso.skusPendientes.length-1}</span>`), 'el SKU contado sin señal sale de la lista y el contador baja, obtuvo: '+htmlContadoPrep.slice(htmlContadoPrep.indexOf('contar-lista-cab'), htmlContadoPrep.indexOf('contar-lista-cab')+400));
+    assert(htmlContadoPrep.includes('id="contar-por-enviar"') && htmlContadoPrep.includes('1 contado, por enviar: '+contadoPrep.sku_code), 'y queda nombrado como contado por enviar, obtuvo: '+htmlContadoPrep.slice(-900));
+    ctx.__appstate.colaOffline = [];
+
+    // Si el celular no tiene espacio, no dice "listo": lo dice como error.
+    ctx.fetch = fetchAntes; ctx.navigator.onLine = true;
+    const setItemAntes = ctx.localStorage.setItem;
+    ctx.localStorage.setItem = (k, v) => { if(k==='plan_dia_cache') throw new Error('QuotaExceededError'); return setItemAntes.call(ctx.localStorage, k, v); };
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, preparacionError:''};
+    await ctx.prepararSinSenal();
+    ctx.localStorage.setItem = setItemAntes;
+    assert(/no queda espacio en este celular/.test(ctx.__appstate.contarPlan.preparacionError||'') && ctx.renderPlanDelDia().includes('No se pudo preparar para sin señal: no queda espacio'), 'sin espacio debe verse el error, no "listo", obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.preparacionError));
+
+    // Vuelve la señal: el plan guardado se cambia por el del servidor y el aviso se va solo (antes
+    // seguía hasta cambiar de día). Conserva el lugar elegido.
+    ctx.__appstate.contarPlan = {...ctx.__appstate.contarPlan, preparacionError:'', desdeCache:true, entradas: cachePrep.entradas};
+    assert(ctx.renderPlanDelDia().includes('mostrando el plan guardado'), 'con el plan guardado, el aviso está');
+    await ctx.refrescarContarTrasSenal();
+    assert(ctx.__appstate.contarPlan.desdeCache===false && ctx.__appstate.contarPlan.bodega==='__bodega_vacia__' && !ctx.renderPlanDelDia().includes('mostrando el plan guardado'), 'al volver la señal el aviso de plan guardado se quita solo y el lugar sigue elegido, obtuvo: '+JSON.stringify({desdeCache: ctx.__appstate.contarPlan.desdeCache, bodega: ctx.__appstate.contarPlan.bodega}));
+
+    // ===== Reconteo sin señal =====
+    const perfilAntesRec = ctx.__appstate.perfil;
+    ctx.__appstate.perfil = {...perfilAntesRec, rol:'admin'};
+    const recBase = {stock_sistema:10, ultima_cantidad_contada:8, ultima_diferencia:-2, causa_probable:'Sin patrón detectado'};
+    ctx.localStorage.setItem('reconteos_cache', JSON.stringify({'resp-yo': {en:'2026-10-20T11:15:00.000Z', filas:[
+      {...recBase, id:'rc-a', conteo_id:'cc-a', sku_code:'ABC-1', descripcion:'Filtro', ultimo_conteo_fecha:'2026-10-13T15:00:00Z'},
+      {...recBase, id:'rc-b', conteo_id:'cc-b', sku_code:'XYZ-2', descripcion:'Perno', ultimo_conteo_fecha:'2026-10-06T15:00:00Z'},
+      {...recBase, id:'rc-c', conteo_id:'cc-c', sku_code:'ABC-3', descripcion:'Sello', ultimo_conteo_fecha:'2026-10-14T15:00:00Z'},
+    ]}}));
+    ctx.fetch = async () => { throw new ctx.__TypeError('Failed to fetch'); };
+    ctx.navigator.onLine = false;
+    Object.assign(ctx.__appstate, {reconteos:[], reconteosCargados:false, reconteosError:'', reconteoSemana:null, reconteoTexto:'', reconteosSeleccionados:[], reconteosDesdeCache:null});
+    await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteos.length===3 && ctx.__appstate.reconteosDesdeCache==='2026-10-20T11:15:00.000Z' && !ctx.__appstate.reconteosError, 'sin señal, Reconteo muestra la lista guardada, obtuvo: '+JSON.stringify({n:ctx.__appstate.reconteos.length, en:ctx.__appstate.reconteosDesdeCache, err:ctx.__appstate.reconteosError}));
+    assert(JSON.stringify(ctx.__appstate.reconteosPorSemana)===JSON.stringify([{semana:'2026-10-05', pendientes:1},{semana:'2026-10-12', pendientes:2}]), 'el gráfico por semana sale de lo guardado, lunes a lunes, obtuvo: '+JSON.stringify(ctx.__appstate.reconteosPorSemana));
+    const htmlRecSin = ctx.renderReconteo();
+    assert(htmlRecSin.includes('id="reconteo-sin-senal"') && htmlRecSin.includes('<b>Sin señal:</b> lista guardada en este celular el ') && htmlRecSin.includes('Descartar, Ajustado en ERP, Editar y Ajustar stock necesitan señal'), 'debe decir que es la lista guardada y qué necesita señal, obtuvo: '+htmlRecSin.slice(0, 2500));
+    assert(/data-recontar="rc-a"(?![^>]*disabled)/.test(htmlRecSin) && /data-descartar-reconteo="cc-a"[^>]*disabled/.test(htmlRecSin) && /data-cerrar-ajuste-erp="cc-a"[^>]*disabled/.test(htmlRecSin), 'Recontar sigue activo; Descartar y Ajustado en ERP se apagan sin señal');
+    ctx.__appstate.reconteoTexto = 'abc'; await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteos.map(r=>r.sku_code).join(',')==='ABC-1,ABC-3', 'buscar por texto funciona sobre lo guardado, obtuvo: '+ctx.__appstate.reconteos.map(r=>r.sku_code));
+    ctx.__appstate.reconteoTexto = ''; ctx.__appstate.reconteoSemana = '2026-10-05'; await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteos.map(r=>r.sku_code).join(',')==='XYZ-2', 'filtrar por semana funciona sobre lo guardado, obtuvo: '+ctx.__appstate.reconteos.map(r=>r.sku_code));
+    ctx.__appstate.reconteoSemana = null; await ctx.cargarReconteos();
+    ctx.__appstate.colaOffline = [{id:'cola-rec-1', tipo:'conteo', sku_id:'rc-a', sku_code:'ABC-1', cantidad_contada:9, es_reconteo:true, estado:'pendiente', creado_en:'2026-10-20T12:00:00Z'}];
+    const htmlRecontado = ctx.renderReconteo();
+    assert(!htmlRecontado.includes('data-recontar="rc-a"') && htmlRecontado.includes('1 recontado, por enviar: ABC-1'), 'lo recontado sin señal sale de la lista y queda nombrado, obtuvo: '+htmlRecontado.slice(0, 2500));
+    ctx.__appstate.colaOffline = [];
+    ctx.localStorage.removeItem('reconteos_cache');
+    Object.assign(ctx.__appstate, {reconteos:[], reconteosCargados:false, reconteosError:'', reconteosDesdeCache:null});
+    await ctx.cargarReconteos();
+    assert(ctx.__appstate.reconteosError && !ctx.__appstate.reconteosCargados, 'sin señal y sin lista guardada, el error se ve (no "no hay pendientes"), obtuvo: '+JSON.stringify(ctx.__appstate.reconteosError));
+
+    // Con señal, abrir Reconteo deja de paso la lista completa guardada en el celular.
+    ctx.fetch = fetchAntes; ctx.navigator.onLine = true;
+    await ctx.cargarReconteos();
+    await new Promise(r=>setTimeout(r, 10));
+    const cacheRecOnline = JSON.parse(ctx.localStorage.getItem('reconteos_cache')||'{}')['resp-yo'];
+    assert(ctx.__appstate.reconteosDesdeCache===null && cacheRecOnline && cacheRecOnline.filas.length===30, 'con señal, Reconteo guarda la lista para usarla sin señal, obtuvo: '+JSON.stringify(cacheRecOnline && cacheRecOnline.filas.length));
+    calls.length = 0;
+    await ctx.cargarReconteos(); await new Promise(r=>setTimeout(r, 10));
+    assert(!calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code')), 'no vuelve a bajar la lista completa en cada visita (como mucho cada 15 minutos)');
+
+    ctx.__appstate.perfil = perfilAntesRec;
+    ctx.__appstate.colaOffline = colaAntes; ctx.navigator.onLine = onLineAntes; ctx.fetch = fetchAntes;
+    ctx.__appstate.contarPlan = cpAntes;
+  }
+
   // Bug real (Joel, 13/10/2026): tras el error la lista quedaba en "Cargando SKU pendientes…" para
   // siempre; el error tiene que quedar a la vista, con su mensaje y un botón para reintentar.
   assert(ctx.__appstate.contarPlan.skusPendientes===null && ctx.__appstate.contarPlan.errorSkus==='No hay conexión con el servidor.', 'el fallo deja errorSkus con el motivo, obtuvo: '+JSON.stringify(ctx.__appstate.contarPlan.errorSkus));
@@ -11690,6 +12897,201 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(ctx.fotosFilaBuscar(sinMigracion).map(f=>f.foto_url).join()==='a.jpg,b.jpg' && ctx.etiquetaFotoBuscar(sinMigracion.fotos[0], sinMigracion)==='Conteo 1',
     'sin conteo_id ni ciclo_id en las fotos (servidor sin la migración) quedan como antes');
   assert(ctx.fotosFilaBuscar({fotos:[]}).length===0 && ctx.fotosFilaBuscar({}).length===0, 'una fila sin fotos sigue sin fotos');
+
+  // ===== Crear y contar un SKU sin señal (Joel, 14/10/2026) =====
+  // Un conteo se amarra al material por su id, que pone el servidor al crear el SKU: sin señal no
+  // existe. El conteo espera en la cola detrás de su SKU y sale con el id que el SKU recibió.
+  {
+    const fetchAntesCrearContar = ctx.fetch;
+    let servidorCaido = true;
+    // Sin señal también para navigator.onLine: guardarConteo intenta enviar de una vez cuando cree
+    // que hay señal, y esa pasada en segundo plano se cruzaría con las de la prueba.
+    const onLineAntes = ctx.navigator.onLine;
+    const sinSenal = v => { servidorCaido = v; ctx.navigator.onLine = !v; };
+    sinSenal(true);
+    let perderRespuestaSku = false;
+    const skusServidor = [{id:'srv-existente', sku_code:'OTRO-1', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'Z-9', batch:null, activo:true, capturado_en:'2026-10-01T10:00:00.000Z'},
+      {id:'srv-inactivo', sku_code:'VIEJO-1', bodega:'Nave Mina', ubicacion:null, storage_bin:null, batch:null, activo:false, capturado_en:'2026-01-01T10:00:00.000Z'}];
+    const conteosServidor = [];
+    const pedidos = [];
+    const respuesta = (status, cuerpo) => ({status, ok: status<300, headers:{get:()=>null}, text: async()=> cuerpo===undefined ? '' : JSON.stringify(cuerpo)});
+    const posKey = f => [f.sku_code, f.bodega||'', f.batch||'', f.ubicacion||'', f.storage_bin||''].join('|');
+    ctx.fetch = async (url, opts) => {
+      const u = new URL(url);
+      const metodo = (opts && opts.method) || 'GET';
+      if(servidorCaido) throw new ctx.__TypeError('Failed to fetch');
+      if(u.pathname==='/rest/v1/skus' && metodo==='POST'){
+        const fila = JSON.parse(opts.body)[0];
+        pedidos.push({tipo:'sku', fila});
+        if(skusServidor.some(s=> posKey(s)===posKey(fila))) return respuesta(409, {message:'duplicate key value violates unique constraint "skus_empresa_id_sku_code_bodega_batch_ubicacion_bin_key"'});
+        const creada = {id:'srv-'+fila.sku_code, activo:true, ...fila};
+        skusServidor.push(creada);
+        if(perderRespuestaSku){ perderRespuestaSku = false; throw new ctx.__TypeError('Failed to fetch'); }
+        return respuesta(201, [creada]);
+      }
+      if(u.pathname==='/rest/v1/skus' && metodo==='GET' && u.search.includes('sku_code=eq.')){
+        const codigo = decodeURIComponent(u.search.split('sku_code=eq.')[1].split('&')[0]);
+        return respuesta(200, skusServidor.filter(s=> s.sku_code===codigo));
+      }
+      if(u.pathname==='/rest/v1/conteos' && metodo==='POST'){
+        const fila = JSON.parse(opts.body)[0];
+        pedidos.push({tipo:'conteo', fila});
+        conteosServidor.push(fila);
+        return respuesta(201, [{id:'conteo-'+conteosServidor.length}]);
+      }
+      return fetchAntesCrearContar(url, opts);
+    };
+    const datosSku = {sku_code:'NUEVO-1', descripcion:'Válvula de bola', categoria:null, batch:null, unidad_medida:'UN', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'Z-1', stock_sistema:3, costo_unitario:1500, critico:true};
+    ctx.guardarColaOffline([]);
+    ctx.__appstate.skuRecienCreado = null;
+
+    // 1. Sin señal: el SKU queda en la cola y se ofrece contarlo.
+    const okCrear = await ctx.crearSkuManual({...datosSku});
+    const itemSku = ctx.leerColaOffline()[0];
+    assert(okCrear===true && itemSku && itemSku.tipo==='sku', 'sin señal el SKU se encola, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    assert(ctx.__appstate.skuRecienCreado && ctx.__appstate.skuRecienCreado.id===null && ctx.__appstate.skuRecienCreado.sku_local_id===itemSku.id,
+      'el SKU recién creado sin señal queda para "Contar ahora", amarrado a su item de la cola, obtuvo: '+JSON.stringify(ctx.__appstate.skuRecienCreado));
+    ctx.__appstate.view = 'skus';
+    const htmlSkus = ctx.renderSkus();
+    assert(htmlSkus.includes('id="btn-contar-sku-creado"') && htmlSkus.includes('Sin enviar') && htmlSkus.includes('NUEVO-1'), 'la pantalla SKU ofrece "Contar ahora" y dice que el SKU no se ha enviado');
+
+    // 2. "Contar ahora": Contar con el SKU elegido y el aviso de que espera envío.
+    ctx.contarSkuRecienCreado();
+    assert(ctx.__appstate.view==='conteo' && ctx.__appstate.skuSeleccionado && ctx.__appstate.skuSeleccionado.sku_local_id===itemSku.id && !ctx.__appstate.skuSeleccionado.id,
+      '"Contar ahora" lleva a Contar con el SKU nuevo elegido, obtuvo: '+JSON.stringify({view:ctx.__appstate.view, sku:ctx.__appstate.skuSeleccionado}));
+    assert(ctx.__appstate.skuRecienCreado===null, 'el aviso de SKU recién creado se cierra al ir a contarlo');
+    assert(ctx.renderConteo().includes('SKU nuevo, sin enviar'), 'la ficha de Contar avisa que el SKU todavía no se envía');
+
+    // 3. Guardar el conteo: a la cola, con el id local del SKU, sin intentar /conteos.
+    ctx.__appstate.conteoFotos = [];
+    elements['toast-root'].hijos.length = 0;
+    pedidos.length = 0;
+    await ctx.guardarConteo({cantidad:'2', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    const colaConConteo = ctx.leerColaOffline();
+    const itemConteo = colaConConteo.find(i=> i.tipo==='conteo');
+    assert(colaConConteo.length===2 && itemConteo && itemConteo.sku_local_id===itemSku.id && !itemConteo.sku_id && itemConteo.cantidad_contada===2,
+      'el conteo de un SKU sin enviar queda en la cola con el id local del SKU, obtuvo: '+JSON.stringify(colaConConteo));
+    assert(!pedidos.some(p=> p.tipo==='conteo'), 'nunca se manda un conteo sin el id de su material');
+    assert(JSON.stringify(elements['toast-root'].hijos).includes('después del SKU nuevo NUEVO-1'), 'el aviso dice que el conteo sale después del SKU, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+    assert(ctx.__appstate.skuSeleccionado===null, 'tras guardar, Contar queda listo para el siguiente material');
+
+    // 4. El buscador de Contar encuentra el SKU sin enviar (por código o descripción) y, sin
+    // señal, dice que no pudo buscar en el maestro en vez de "No se encontraron coincidencias".
+    ctx.__appstate.skuSearch = 'nuevo';
+    await ctx.buscarSkusLibre('nuevo');
+    assert(ctx.__appstate.buscadorLibre.error, 'una búsqueda que falla queda como error, obtuvo: '+JSON.stringify(ctx.__appstate.buscadorLibre));
+    const htmlBuscador = ctx.renderResultadosBuscadorLibre();
+    assert(htmlBuscador.includes('data-pick-local-btn="'+itemSku.id+'"') && htmlBuscador.includes('Sin enviar') && htmlBuscador.includes('No se pudo buscar en el maestro') && !htmlBuscador.includes('No se encontraron coincidencias'),
+      'sin señal, el buscador muestra el SKU sin enviar y el error del maestro, obtuvo: '+htmlBuscador);
+    ctx.__appstate.skuSearch = 'válvula';
+    assert(ctx.renderResultadosBuscadorLibre().includes('NUEVO-1'), 'también lo encuentra por descripción');
+    assert(ctx.skusPendientesQueCoinciden('n').length===0, 'con menos de 2 caracteres no busca, igual que el servidor');
+    ctx.__appstate.skuSearch = ''; ctx.__appstate.buscadorLibre = {resultados:[], buscando:false};
+
+    // 5. El panel: el conteo "Espera al SKU" (sin Reintentar) y el SKU dice cuántos lo esperan.
+    ctx.__appstate.offlineModal = true;
+    const htmlPanel = ctx.renderOfflineModal();
+    ctx.__appstate.offlineModal = false;
+    assert(htmlPanel.includes('Espera al SKU') && htmlPanel.includes('1 conteo espera a este SKU') && (htmlPanel.match(/data-reintentar-offline=/g)||[]).length===1,
+      'el panel muestra el conteo esperando a su SKU, sin botón de reintentar propio, obtuvo: '+htmlPanel);
+
+    // 6. Vuelve la señal: primero el SKU (con costo y crítico), después el conteo con el id nuevo.
+    sinSenal(false);
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    assert(pedidos.length===2 && pedidos[0].tipo==='sku' && pedidos[1].tipo==='conteo', 'se envía el SKU y después su conteo, obtuvo: '+JSON.stringify(pedidos.map(p=>p.tipo)));
+    assert(pedidos[0].fila.costo_unitario===1500 && pedidos[0].fila.critico===true, 'el SKU creado sin señal llega con su costo y su marca de crítico, obtuvo: '+JSON.stringify(pedidos[0].fila));
+    assert(pedidos[1].fila.sku_id==='srv-NUEVO-1', 'el conteo sale amarrado al id que el servidor le dio al SKU, obtuvo: '+pedidos[1].fila.sku_id);
+    assert(pedidos[1].fila.capturado_en===new Date(itemConteo.creado_en).toISOString(), 'el conteo conserva la hora en que se contó, no la de envío');
+    assert(ctx.leerColaOffline().length===0, 'la cola queda vacía, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+
+    // 7. La respuesta del SKU se pierde (el servidor sí lo creó): al reintentar no se duplica ni
+    // queda en error; se reconoce por su capturado_en y el conteo sale con ese id.
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-2'});
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'5', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    sinSenal(false); perderRespuestaSku = true;
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    assert(ctx.leerColaOffline().length===2 && ctx.leerColaOffline().every(i=> i.estado==='pendiente') && !pedidos.some(p=> p.tipo==='conteo'),
+      'si la respuesta del SKU se pierde, ni el SKU ni su conteo se dan por enviados, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+    await ctx.sincronizarColaOffline();
+    assert(skusServidor.filter(s=> s.sku_code==='NUEVO-2').length===1, 'el SKU no se crea dos veces');
+    const conteoNuevo2 = conteosServidor[conteosServidor.length-1];
+    assert(conteoNuevo2.sku_id==='srv-NUEVO-2' && conteoNuevo2.cantidad_contada===5 && ctx.leerColaOffline().length===0,
+      'al reintentar, el SKU ya creado se reconoce y su conteo sale con ese id, obtuvo: '+JSON.stringify({conteoNuevo2, cola: ctx.leerColaOffline()}));
+
+    // 8. Otra persona ya lo había creado en esa posición: el SKU queda en error con "Usar el que
+    // ya existe"; su conteo espera (no se manda, no se marca error) y con ese botón sale sobre el
+    // material existente.
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'OTRO-1', storage_bin:'Z-9'});
+    const itemOtro = ctx.leerColaOffline()[0];
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'7', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    sinSenal(false);
+    pedidos.length = 0;
+    await ctx.sincronizarColaOffline();
+    const colaOtro = ctx.leerColaOffline();
+    const skuOtro = colaOtro.find(i=> i.id===itemOtro.id);
+    const conteoOtro = colaOtro.find(i=> i.tipo==='conteo');
+    assert(skuOtro && skuOtro.estado==='error' && /ya existe/.test(skuOtro.error) && skuOtro.sku_existente && skuOtro.sku_existente.id==='srv-existente',
+      'el SKU que ya existe queda en error con el material existente a mano, obtuvo: '+JSON.stringify(skuOtro));
+    assert(conteoOtro && conteoOtro.estado==='pendiente' && !pedidos.some(p=> p.tipo==='conteo'), 'su conteo espera, sin enviarse ni marcarse error, obtuvo: '+JSON.stringify(conteoOtro));
+    ctx.__appstate.offlineModal = true;
+    assert(ctx.renderOfflineModal().includes('data-usar-sku-existente="'+itemOtro.id+'"'), 'el panel ofrece "Usar el que ya existe"');
+    ctx.__appstate.offlineModal = false;
+    confirmRespuesta = true; confirmLlamadas.length = 0;
+    await ctx.usarSkuExistenteEnCola(itemOtro.id);
+    assert(confirmLlamadas.length===1 && /ya existe en esa misma posición/.test(confirmLlamadas[0]) && /El conteo guardado se enviará/.test(confirmLlamadas[0]), 'pide confirmación explicando qué pasa, obtuvo: '+JSON.stringify(confirmLlamadas));
+    assert(conteosServidor[conteosServidor.length-1].sku_id==='srv-existente' && conteosServidor[conteosServidor.length-1].cantidad_contada===7 && ctx.leerColaOffline().length===0,
+      'el conteo sale sobre el material que ya existía y la cola queda vacía, obtuvo: '+JSON.stringify(ctx.leerColaOffline()));
+
+    // 9. Existe pero inactivo: se explica, sin "Usar el que ya existe" (contar sobre un material
+    // inactivo lo dejaría fuera de Buscar).
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'VIEJO-1', ubicacion:null, storage_bin:null});
+    sinSenal(false);
+    await ctx.sincronizarColaOffline();
+    const skuViejo = ctx.leerColaOffline()[0];
+    assert(skuViejo && skuViejo.estado==='error' && /inactivo/.test(skuViejo.error), 'si el que existe está inactivo, se dice, obtuvo: '+JSON.stringify(skuViejo));
+    ctx.__appstate.offlineModal = true;
+    assert(!ctx.renderOfflineModal().includes('data-usar-sku-existente='), 'no se ofrece usar un material inactivo');
+    ctx.__appstate.offlineModal = false;
+
+    // 10. Descartar un SKU con conteos esperándolo: se avisa y se van juntos.
+    ctx.guardarColaOffline([]);
+    sinSenal(true);
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-3'});
+    const itemNuevo3 = ctx.leerColaOffline()[0];
+    ctx.__appstate.skuSeleccionado = {...ctx.__appstate.skuRecienCreado};
+    await ctx.guardarConteo({cantidad:'1', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+    confirmRespuesta = true; confirmLlamadas.length = 0;
+    await ctx.descartarAccionOffline(itemNuevo3.id);
+    assert(/También se descartará el conteo guardado/.test(confirmLlamadas[0]||'') && ctx.leerColaOffline().length===0,
+      'descartar el SKU avisa y descarta también su conteo, obtuvo: '+JSON.stringify({confirm:confirmLlamadas, cola:ctx.leerColaOffline()}));
+
+    // 11. Contar un SKU nuevo que ya no está en la cola: no se guarda un conteo huérfano.
+    ctx.__appstate.skuSeleccionado = {id:null, sku_local_id:'local-ya-no-esta', sku_code:'NUEVO-3', bodega:'Nave Mina'};
+    elements['toast-root'].hijos.length = 0;
+    await ctx.guardarConteo({cantidad:'1', ubicacion:'', bodega:'Nave Mina', observacion:''});
+    assert(ctx.leerColaOffline().length===0 && JSON.stringify(elements['toast-root'].hijos).includes('ya no está pendiente'), 'un conteo sin SKU al que esperar no se guarda y se explica');
+
+    // 12. Con señal también se ofrece "Contar ahora", con el id real.
+    sinSenal(false);
+    ctx.__appstate.skuRecienCreado = null;
+    await ctx.crearSkuManual({...datosSku, sku_code:'NUEVO-4'});
+    assert(ctx.__appstate.skuRecienCreado && ctx.__appstate.skuRecienCreado.id==='srv-NUEVO-4' && ctx.leerColaOffline().length===0,
+      'con señal, el SKU recién creado queda con su id real para contarlo, obtuvo: '+JSON.stringify(ctx.__appstate.skuRecienCreado));
+
+    ctx.fetch = fetchAntesCrearContar;
+    ctx.navigator.onLine = onLineAntes;
+    ctx.guardarColaOffline([]);
+    ctx.__appstate.skuRecienCreado = null;
+    ctx.__appstate.view = 'conteo';
+    ctx.__appstate.skuSeleccionado = skuDano; // lo que sigue espera el material elegido, como antes de este bloque
+  }
 
   // El formulario: las dos marcas siempre; el campo de unidades solo con material dañado.
   ctx.__appstate.view = 'conteo'; ctx.__appstate.conteoMaterialDanado = false; ctx.__appstate.conteoPackingDanado = false;
@@ -13975,6 +15377,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.formaInstalarApp(pc)==='directa', 'con beforeinstallprompt (Chrome/Edge) debe instalarse con el diálogo del navegador, incluso en computador');
     ctx.__appstate.instalarApp = { ...ctx.__appstate.instalarApp, instalada:true };
     assert(ctx.formaInstalarApp(iPhone)===null, 'si ya corre instalada no se ofrece instalar');
+    // Junto a "Preparar para sin señal" se recomienda instalarla (Joel, 20/10/2026): abierta en
+    // el navegador, Safari borra lo guardado si el sitio no se abre en 7 días.
+    assert(ctx.recomendacionInstalarSinSenal()==='', 'ya instalada, no se recomienda instalarla');
+    ctx.__appstate.instalarApp = { hayEvento:true, instalada:false, bannerOculto:true, guiaAbierta:false };
+    const recInstalar = ctx.recomendacionInstalarSinSenal();
+    assert(recInstalar.includes('id="btn-sin-senal-instalar"') && recInstalar.includes('pantalla de inicio') && recInstalar.includes('7 días'), 'sin instalar, junto a Preparar se recomienda instalarla y por qué (aunque se haya cerrado el aviso general), obtuvo: '+recInstalar);
 
     // El evento del navegador: se guarda, el botón lo usa una vez y, aceptado, la app queda instalada.
     ctx.__appstate.instalarApp = { hayEvento:false, instalada:false, bannerOculto:false, guiaAbierta:false };
