@@ -3628,6 +3628,22 @@ async function verificarVersionNueva(){
   try{ return await versionChequeoEnCurso; }
   finally{ versionChequeoEnCurso = null; }
 }
+// La copia que corre esta pantalla puede ser la guardada en el teléfono, más vieja que la del
+// servidor. Pasó de verdad el 21/10/2026: se publicó una versión y no apareció el aviso, porque
+// el primer HEAD ya devolvía la nueva y se tomaba como la que estaba corriendo. Por eso se le
+// pregunta al service worker qué entregó y esa pasa a ser la versión de arranque.
+function preguntarVersionEntregada(){
+  try{
+    const sw = navigator.serviceWorker;
+    if(!sw || !sw.ready) return;
+    sw.ready.then(()=>{ if(sw.controller) sw.controller.postMessage({tipo:'inventia-que-version'}); }).catch(()=>{});
+  }catch(e){ /* sin service worker: queda el chequeo por HEAD */ }
+}
+function usarVersionEntregada(version){
+  if(!version) return;
+  versionPublicadaAlArrancar = version;
+  verificarVersionNueva();
+}
 function recargarPorVersionNueva(){
   if(typeof location!=='undefined' && location.reload) location.reload();
 }
@@ -20629,7 +20645,10 @@ async function iniciarApp(){
     // de verdad que cambió es el service worker, que acaba de reemplazar la copia guardada.
     navigator.serviceWorker.addEventListener('message', ev => {
       if(ev && ev.data && ev.data.tipo === 'inventia-version-nueva' && !state.versionNueva) setState({versionNueva:true});
+      if(ev && ev.data && ev.data.tipo === 'inventia-version-entregada') usarVersionEntregada(ev.data.version);
     });
+    // Qué versión está corriendo de verdad esta pantalla: la sabe el service worker, que la entregó.
+    preguntarVersionEntregada();
   }
   // Al recuperar la señal, intentamos enviar los conteos que quedaron guardados sin conexión.
   // .catch() explícito: sincronizarColaOffline() es async y el navegador no espera ni atrapa lo

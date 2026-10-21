@@ -15051,6 +15051,20 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(calls.some(c=>c.opts && c.opts.method==='HEAD') && ctx.__appstate.versionNueva===true, 'volver a primer plano debe revisar la versión publicada, obtuvo: '+JSON.stringify(calls.map(c=>[c.url, c.opts && c.opts.method])));
     ctx.__appstate.versionNueva = false;
     etagPublicado = '"v1"';
+    // La versión de arranque es la que entregó el service worker, no la del servidor (21/10/2026:
+    // corría la copia guardada, el primer HEAD ya traía la nueva y nunca salía el aviso).
+    ctx.usarVersionEntregada('"v0"');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.versionNueva===true, 'si el service worker entregó una copia distinta a la publicada, sale el aviso');
+    ctx.__appstate.versionNueva = false;
+    ctx.usarVersionEntregada('"v1"');
+    await new Promise(r=>setTimeout(r, 20));
+    assert(ctx.__appstate.versionNueva===false, 'si entregó la misma que la publicada, no hay aviso');
+    ctx.usarVersionEntregada(null);
+    assert(ctx.__appstate.versionNueva===false, 'sin respuesta del service worker no cambia nada');
+    const swVersion = fs.readFileSync(path.join(__dirname, '..', 'app', 'sw.js'), 'utf8');
+    assert(/cache:'no-cache'/.test(swVersion) && /redirect:'manual'/.test(swVersion), 'el service worker revalida el HTML con el servidor (GitHub Pages lo manda con max-age=600)');
+    assert(swVersion.includes("'inventia-que-version'") && swVersion.includes("'inventia-version-entregada'"), 'el service worker responde qué versión le entregó a cada pantalla');
   }
 
   // ===== Arranque por pestaña: cada vista pide lo suyo la primera vez, y los refrescos tras una
