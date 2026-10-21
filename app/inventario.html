@@ -10402,6 +10402,25 @@ function conservandoCamposConteo(fn){
   ids.forEach(id=>{ const el = document.getElementById(id); if(el && valores[id]!==undefined) el.value = valores[id]; });
 }
 
+// Lo mismo, pero para CUALQUIER render() mientras el formulario de Contar está a la vista (como
+// capturarFormularioPlan): las cargas de fondo que terminan después de abrir Contar repintan la
+// pantalla entera, y sin señal fallan todas justo cuando la persona ya tecleó la cantidad. El
+// campo quedaba vacío y Guardar no hacía nada (es required). Lo destapó CI el 21/10/2026, en la
+// prueba de contar un SKU creado sin señal. Se restaura solo si sigue elegido el MISMO material
+// (misma referencia en el estado): elegir otro, o guardar (deja skuSeleccionado en null), parte
+// de un formulario limpio, como siempre.
+const CAMPOS_FORMULARIO_CONTEO = ['c-cant', 'c-bodega', 'c-ubic', 'c-obs', 'c-cant-danada'];
+function capturarFormularioConteo(){
+  if(state.view !== 'conteo' || !state.skuSeleccionado || !document.getElementById('form-conteo')) return null;
+  const valores = {};
+  CAMPOS_FORMULARIO_CONTEO.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
+  return { sku: state.skuSeleccionado, valores };
+}
+function restaurarFormularioConteo(snap){
+  if(!snap || state.view !== 'conteo' || state.skuSeleccionado !== snap.sku) return;
+  CAMPOS_FORMULARIO_CONTEO.forEach(id=>{ const el = document.getElementById(id); if(el && snap.valores[id]!==undefined) el.value = snap.valores[id]; });
+}
+
 // Bug reportado: al elegir bodega/ubicación/storage bin en "Agregar a la planificación", la
 // selección desaparecía sola. Causa: mientras la persona llena ese formulario, hay de sobra
 // actividad de fondo que dispara un render() completo sin relación alguna con lo que está
@@ -17328,10 +17347,12 @@ function renderDom(){
   // lo que la persona está llenando) reconstruye toda la pantalla desde cero, así que hay que
   // guardar el formulario "Agregar a la planificación" antes y devolverlo después.
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
+  const snapshotConteo = capturarFormularioConteo();
   const root = document.getElementById('app');
   root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderEditorFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCerrarLoteErpModal() + renderDescartarLoteModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
+  restaurarFormularioConteo(snapshotConteo);
 }
 
 function renderCuentaBloqueada(){

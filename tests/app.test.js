@@ -11414,6 +11414,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(documentMock.getElementById('c-bodega').value==='Nave Mina', 'la ubicación general tipeada no debe perderse, obtuvo: '+documentMock.getElementById('c-bodega').value);
   assert(documentMock.getElementById('c-obs').value==='Con daño visible', 'la observación tipeada no debe perderse, obtuvo: '+documentMock.getElementById('c-obs').value);
 
+  // capturarFormularioConteo / restaurarFormularioConteo: cualquier render() con Contar abierto
+  // conserva lo tecleado, pero solo si sigue elegido el MISMO material. Elegir otro o guardar
+  // (skuSeleccionado en null) parte de un formulario limpio: nunca se arrastra una cantidad ajena.
+  {
+    const vistaAntes = ctx.__appstate.view, skuAntes = ctx.__appstate.skuSeleccionado;
+    const skuA = { id:'sku-a', sku_code:'A-1' }, skuB = { id:'sku-b', sku_code:'B-1' };
+    ctx.__appstate.view = 'conteo'; ctx.__appstate.skuSeleccionado = skuA;
+    documentMock.getElementById('c-cant').value = '9';
+    let snap = ctx.capturarFormularioConteo();
+    assert(snap && snap.valores['c-cant'] === '9', 'con Contar abierto se captura la cantidad tecleada, obtuvo '+JSON.stringify(snap));
+    documentMock.getElementById('c-cant').value = '';
+    ctx.restaurarFormularioConteo(snap);
+    assert(documentMock.getElementById('c-cant').value === '9', 'el mismo material recupera la cantidad tras el repintado, obtuvo '+documentMock.getElementById('c-cant').value);
+    documentMock.getElementById('c-cant').value = '';
+    ctx.__appstate.skuSeleccionado = skuB;
+    ctx.restaurarFormularioConteo(snap);
+    assert(documentMock.getElementById('c-cant').value === '', 'otro material parte con la cantidad vacía, obtuvo '+documentMock.getElementById('c-cant').value);
+    ctx.__appstate.skuSeleccionado = null;
+    ctx.restaurarFormularioConteo(snap);
+    assert(documentMock.getElementById('c-cant').value === '', 'tras guardar (sin material elegido) no se repone nada, obtuvo '+documentMock.getElementById('c-cant').value);
+    ctx.__appstate.view = 'skus'; ctx.__appstate.skuSeleccionado = skuA;
+    assert(ctx.capturarFormularioConteo() === null, 'fuera de Contar no se captura nada');
+    ctx.__appstate.view = vistaAntes; ctx.__appstate.skuSeleccionado = skuAntes;
+  }
+
   // asociarCodigoBarras: guarda el código en el SKU elegido (PATCH a /skus?id=eq.<id>), lo
   // refleja de inmediato en la lista ya cargada (sin esperar un refetch) y deja ese SKU
   // seleccionado, listo para registrar el conteo — así la próxima lectura de este mismo
