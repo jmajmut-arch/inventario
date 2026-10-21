@@ -28,7 +28,8 @@ const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', 
 // `version` simula publicar: cambia el ETag, como hace GitHub Pages al subir una versión nueva.
 // Lo usa la prueba del service worker, que necesita que el servidor tenga algo distinto a lo
 // guardado en el teléfono.
-const servidorEstado = { version: 1 };
+// `cacheControl` imita la cabecera del servidor: GitHub Pages manda max-age=600 al HTML.
+const servidorEstado = { version: 1, cacheControl: 'no-cache' };
 function iniciarServidor(){
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -38,7 +39,7 @@ function iniciarServidor(){
         if(err){ res.writeHead(404); res.end('not found'); return; }
         const ext = path.extname(filePath);
         res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream',
-          'ETag': `"v${servidorEstado.version}-${urlPath}"`, 'Cache-Control': 'no-cache' });
+          'ETag': `"v${servidorEstado.version}-${urlPath}"`, 'Cache-Control': servidorEstado.cacheControl });
         res.end(data);
       });
     });
@@ -2467,6 +2468,39 @@ async function loguear(page, perfil, prepararRutas){
     assert(abrio, 'sin conexión la app tiene que seguir abriendo desde la copia guardada');
     await context.setOffline(false);
     await context.close();
+  }
+
+  // ===== Versión nueva con la caché de GitHub Pages (max-age=600) =====
+  // Pasó de verdad el 21/10/2026: se publicó "Reportar un problema" y en el teléfono de Joel no
+  // apareció ni la opción ni la barra "Hay una versión nueva". GitHub Pages sirve el HTML con
+  // max-age=600, así que la descarga de fondo del service worker volvía con la copia vieja de la
+  // caché del navegador; y la app tomaba como "su" versión la del servidor (ya nueva), no la que
+  // estaba corriendo. Se abre la app de nuevo (navegación normal, no Recargar) como al tocar el ícono.
+  {
+    servidorEstado.version = 1;
+    servidorEstado.cacheControl = 'max-age=600';
+    const context = await browser.newContext({ viewport:{ width:420, height:900 }, serviceWorkers:'allow' });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('version-max-age: '+err.message));
+    // Sin page.route a propósito: con cualquier ruta interceptada Playwright apaga la caché HTTP,
+    // y es justo esa caché la que escondía la versión nueva. La pantalla de ingreso no llama a
+    // Supabase, y en localhost la app no inicializa Sentry.
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'domcontentloaded' });
+    await page.waitForSelector('#f-email', { state:'visible', timeout:ESPERA });
+    await page.evaluate(() => navigator.serviceWorker ? navigator.serviceWorker.ready.then(()=>true) : false);
+    await page.waitForTimeout(1200);
+    // Segunda apertura con v1: deja la copia en la caché HTTP del navegador (dentro de los 10 min).
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'domcontentloaded' });
+    await page.waitForSelector('#f-email', { state:'visible', timeout:ESPERA });
+    await page.waitForTimeout(800);
+    servidorEstado.version = 2;
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'domcontentloaded' });
+    await page.waitForSelector('#f-email', { state:'visible', timeout:ESPERA });
+    const aviso = await esperarCondicion(page, () => typeof state !== 'undefined' && state.versionNueva === true);
+    assert(aviso, 'con max-age=600, abrir la app tras publicar tiene que mostrar "Hay una versión nueva"');
+    await context.close();
+    servidorEstado.version = 1;
+    servidorEstado.cacheControl = 'no-cache';
   }
 
   // ===== Recargar deja a la persona en la pantalla en la que estaba =====

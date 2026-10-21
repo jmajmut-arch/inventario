@@ -47,14 +47,38 @@ function esDocumento(req){
 
 // Sin número de versión (la app es un HTML servido por GitHub Pages), así que la versión es lo que
 // diga el servidor: ETag, y si no hay, la fecha de modificación o el largo.
+function marcaVersion(res){
+  return res ? (res.headers.get('etag') || res.headers.get('last-modified') || res.headers.get('content-length')) : null;
+}
 function cambioLaVersion(anterior, nueva){
-  const marca = res => res.headers.get('etag') || res.headers.get('last-modified') || res.headers.get('content-length');
-  const a = marca(anterior), b = marca(nueva);
+  const a = marcaVersion(anterior), b = marcaVersion(nueva);
   return !!a && !!b && a !== b;
 }
 
-async function avisarVersionNueva(){
+// Qué versión del HTML se le entregó a cada pantalla (id de la pestaña → ETag). La app lo pregunta
+// al arrancar para saber qué está corriendo de verdad: si es la copia guardada y el servidor ya
+// tiene otra, muestra el aviso. Sin esto la app tomaba como suya la versión del servidor (ya
+// nueva) y nunca notaba la diferencia. Vive en memoria: si el navegador apaga el service worker
+// entre medio, la app se queda con el chequeo de siempre.
+const versionesEntregadas = new Map();
+function recordarVersionEntregada(clienteId, res){
+  const marca = marcaVersion(res);
+  if(!clienteId || !marca) return;
+  versionesEntregadas.set(clienteId, marca);
+  if(versionesEntregadas.size > 50) versionesEntregadas.delete(versionesEntregadas.keys().next().value);
+}
+self.addEventListener('message', event => {
+  if(!event.data || event.data.tipo !== 'inventia-que-version' || !event.source) return;
+  event.source.postMessage({tipo:'inventia-version-entregada', version: versionesEntregadas.get(event.source.id) || null});
+});
+
+async function avisarVersionNueva(clienteId){
   const pestanas = await self.clients.matchAll({type:'window'});
+  // La pantalla que se está abriendo puede no figurar todavía entre las pestañas: se le avisa igual.
+  if(clienteId && !pestanas.some(c => c.id === clienteId)){
+    const nueva = await self.clients.get(clienteId);
+    if(nueva) pestanas.push(nueva);
+  }
   pestanas.forEach(c => c.postMessage({tipo:'inventia-version-nueva'}));
 }
 
@@ -69,13 +93,23 @@ self.addEventListener('fetch', event => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
     const guardada = await cache.match(req);
+    const esDoc = esDocumento(req);
+    if(guardada && esDoc) recordarVersionEntregada(event.resultingClientId, guardada);
 
     const desdeLaRed = (async () => {
       try{
-        const res = await fetch(req);
+        // El HTML se revalida siempre con el servidor (no-cache: si no cambió, responde 304 y no
+        // baja nada). Pasó de verdad el 21/10/2026: GitHub Pages lo sirve con max-age=600, así que
+        // durante diez minutos después de cada apertura esta descarga "nueva" volvía con la copia
+        // vieja de la caché del navegador; la versión publicada no llegaba y no salía el aviso.
+        // redirect:'manual', como la navegación original: una redirección no se guarda.
+        const res = esDoc
+          ? await fetch(new Request(req.url, {cache:'no-cache', credentials:'same-origin', redirect:'manual'}))
+          : await fetch(req);
         if(res && res.ok){
           await cache.put(req, res.clone());
-          if(guardada && esDocumento(req) && cambioLaVersion(guardada, res)) await avisarVersionNueva();
+          if(!guardada && esDoc) recordarVersionEntregada(event.resultingClientId, res);
+          if(guardada && esDoc && cambioLaVersion(guardada, res)) await avisarVersionNueva(event.resultingClientId);
         }
         return res;
       }catch(e){
