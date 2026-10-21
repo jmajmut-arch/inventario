@@ -5252,6 +5252,45 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.fetch = fetchAntesStock;
     ctx.__appstate.bodega.stockDueno = stockDuenoAntes;
 
+    // Buscar y SKU filtran en la base (p_dueno). Sin filtro, la app manda exactamente los mismos
+    // parámetros que siempre y la base responde con la versión de siempre de cada función.
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    assert(JSON.stringify(ctx.parametroDuenoRpc(''))==='{}' && ctx.parametroDuenoRpc('ENEX').p_dueno==='ENEX' && ctx.parametroDuenoRpc('__sin').p_dueno==='', 'p_dueno: nada sin filtro, el código del dueño, o vacío para "sin dueño"');
+    const busquedaAntes = ctx.__appstate.busqueda;
+    ctx.__appstate.busqueda = {...busquedaAntes, dueno:''};
+    const sinFiltro = ctx.construirParametrosBusquedaRpc();
+    assert(!('p_dueno' in sinFiltro) && Object.keys(sinFiltro).length===12, 'sin filtro de dueño, Buscar manda los 12 parámetros de siempre, obtuvo '+JSON.stringify(Object.keys(sinFiltro)));
+    ctx.__appstate.busqueda = {...busquedaAntes, dueno:'ENEX'};
+    assert(ctx.construirParametrosBusquedaRpc().p_dueno==='ENEX' && Object.keys(ctx.cuerpoFilasBusqueda(0, 30)).length===17, 'con filtro, Buscar manda p_dueno, y las filas llevan los 17 parámetros de la versión con dueño');
+    assert(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda).includes('Dueño: Enex S.A.'), 'el filtro de dueño aparece entre los filtros activos, obtuvo '+JSON.stringify(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda)));
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+    assert(!('p_dueno' in ctx.construirParametrosBusquedaRpc()) && !ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda).some(c=>c.includes('Dueño')), 'sin dueños activados, un filtro que quedó guardado no se aplica ni se muestra');
+    ctx.__appstate.busqueda = busquedaAntes;
+
+    const fetchAntesSkus = ctx.fetch;
+    let cuerpoPagina = null;
+    ctx.fetch = async (url, opts) => {
+      if(String(url).includes('/rest/v1/rpc/pagina_skus')){ cuerpoPagina = JSON.parse(opts.body); return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:0, rows:[]}), json: async()=>({total:0, rows:[]}) }; }
+      return fetchAntesSkus(url, opts);
+    };
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    ctx.__appstate.skusFiltroDueno = 'ENEX';
+    await ctx.cargarSkusPagina(0);
+    assert(cuerpoPagina && cuerpoPagina.p_dueno==='ENEX' && cuerpoPagina.p_desde===0, 'la tabla de SKU pide la página filtrada por dueño, obtuvo '+JSON.stringify(cuerpoPagina));
+    const htmlSkusVacio = ctx.renderTablaSkus();
+    assert(htmlSkusVacio.includes('id="skus-dueno"') && htmlSkusVacio.includes('Ningún material activo de Enex S.A.') && !htmlSkusVacio.includes('Aún no hay SKU cargados'), 'con filtro y sin resultados, la tabla dice que ese dueño no tiene materiales, no que no hay SKU, obtuvo '+htmlSkusVacio);
+    ctx.__appstate.skusFiltroDueno = '';
+    await ctx.cargarSkusPagina(0);
+    assert(cuerpoPagina && !('p_dueno' in cuerpoPagina), 'sin filtro, la tabla de SKU pide la página de siempre, obtuvo '+JSON.stringify(cuerpoPagina));
+    ctx.fetch = fetchAntesSkus;
+    ctx.__appstate.skusPagina = {rows:[], page:0, total:0};
+
+    // Cerrar sesión olvida los filtros de dueño: otra cuenta no hereda un filtro que no ve.
+    ctx.__appstate.skusFiltroDueno = 'ENEX';
+    const tras = ctx.estadoTrasCerrarSesion();
+    assert(tras.skusFiltroDueno==='' && tras.busqueda.dueno==='' && tras.bodega.stockDueno==='', 'cerrar sesión limpia los filtros de dueño');
+    ctx.__appstate.skusFiltroDueno = '';
+
     ctx.__appstate.perfil = perfilAntes;
     ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
   }

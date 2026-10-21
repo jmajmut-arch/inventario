@@ -993,6 +993,7 @@ let state = {
   // en el servidor (debounced, con tope de resultados) contra el maestro completo.
   buscadorLibre: { resultados: [], buscando: false },
   skuSeleccionado: null,
+  skusFiltroDueno: '', // con dueños de stock: filtro de la tabla de SKU ('' todos, '__sin', o un código)
   conteoOrigenPlan: false, // el SKU seleccionado viene del plan del día o de un reconteo (true) o del buscador libre (false, "fuera de plan")
   // "Lo encontré en otra ubicación": los campos de ubicación siempre muestran el valor del
   // maestro, fijos (nadie tiene que escribir dónde lo encontró) — marcar este check solo
@@ -1083,7 +1084,7 @@ let state = {
   ubicacionesLista: { cargado:false, cargando:false, filas:[], error:null },
   // Buscar: desplegable "Contado por" (ver cargarPersonasBuscar).
   personasBuscar: { cargado:false, cargando:false, filas:[], error:null },
-  busqueda: { texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'' },
+  busqueda: { texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', dueno:'' },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
   exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
   dashboardModo: 'ejecutivo',
@@ -2571,7 +2572,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -2879,7 +2880,7 @@ function repintarAvisoVecesContadoPeriodo(){
 // ultimo_conteo_por_sku y skus_valor_abc, vistas sin FK que PostgREST no podía embeber -- y con
 // la señal de faena cada una cuesta más que la consulta en sí.
 async function fetchSkusPagina(page){
-  const d = await rest('/rpc/pagina_skus', {method:'POST', body:{p_desde: page*SKUS_POR_PAGINA, p_limite: SKUS_POR_PAGINA}}) || {};
+  const d = await rest('/rpc/pagina_skus', {method:'POST', body:{p_desde: page*SKUS_POR_PAGINA, p_limite: SKUS_POR_PAGINA, ...parametroDuenoRpc(state.skusFiltroDueno)}}) || {};
   return { data: d.rows||[], total: Number(d.total)||0 };
 }
 
@@ -6289,6 +6290,7 @@ function construirParametrosBusquedaRpc(){
     p_fecha_hasta: hasta,
     p_usuario_id: state.busqueda.usuarioId || null,
     p_grupo_id: (grupo && !grupo.automatico_critico) ? grupo.id : null,
+    ...parametroDuenoRpc(state.busqueda.dueno),
   };
 }
 
@@ -6309,7 +6311,7 @@ function irABuscarSku(skuCode){
     busqueda: {
       texto: skuCode, bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null,
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, seleccionados:[],
-      usuarioId:null, usuarioNombre:null, grupoId:'',
+      usuarioId:null, usuarioNombre:null, grupoId:'', dueno:'',
     },
   });
   buscarConteos();
@@ -6332,7 +6334,7 @@ function irABuscarDelDia(fecha){
       resultados:[], buscando:true, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, seleccionados:[],
       usuarioId: esAdmin ? null : (state.perfil && state.perfil.id) || null,
       usuarioNombre: esAdmin ? null : (state.perfil && state.perfil.nombre) || null,
-      grupoId:'',
+      grupoId:'', dueno:'',
     },
   });
   buscarConteos();
@@ -8714,17 +8716,35 @@ function filtroDuenoStock(){
   if(!usaDuenosStock() || !d) return '';
   return `&dueno=eq.${d==='__sin' ? '' : encodeURIComponent(d)}`;
 }
+// Filtro por dueño, igual en Stock, Buscar y SKU: '' = todos, '__sin' = sin dueño, o el código.
+// Se ofrecen también los dueños inactivos: pueden tener stock todavía.
+function opcionesFiltroDueno(valor){
+  const lista = state.duenosStock.lista||[];
+  return `<option value="" ${valor===''?'selected':''}>Todos los dueños</option>
+      ${lista.map(x=>`<option value="${esc(x.codigo)}" ${valor===x.codigo?'selected':''}>${esc(x.nombre ? `${x.nombre} (${x.codigo})` : x.codigo)}${x.activo?'':' · inactivo'}</option>`).join('')}
+      <option value="__sin" ${valor==='__sin'?'selected':''}>Sin dueño</option>`;
+}
+function avisoErrorListaDuenos(estilo){
+  return state.duenosStock.error? `<div class="hint" style="${estilo||''}color:var(--danger)">No se pudo cargar la lista de dueños: ${esc(state.duenosStock.error)}</div>` : '';
+}
+// p_dueno para los RPC de Buscar y SKU: solo con dueños activados y un filtro elegido. Sin él la
+// app llama a la versión de siempre de la función (la que no lleva p_dueno; ver
+// 20261021_duenos_stock_filtros.sql), así que nada cambia para las demás empresas.
+function parametroDuenoRpc(valor){
+  if(!usaDuenosStock() || !valor) return {};
+  return { p_dueno: valor==='__sin' ? '' : valor };
+}
+function etiquetaFiltroDueno(valor){
+  if(!valor) return '';
+  return valor==='__sin' ? 'Sin dueño' : 'Dueño: ' + (etiquetaDueno({dueno: valor}) || valor);
+}
 function selectorDuenoStock(){
   if(!usaDuenosStock()) return '';
-  const d = state.bodega.stockDueno;
-  const lista = state.duenosStock.lista||[];
   return `<label for="stock-dueno" style="font-size:13px;margin:0 0 4px">Dueño del stock</label>
     <select id="stock-dueno" style="margin:0 0 10px">
-      <option value="" ${d===''?'selected':''}>Todos los dueños</option>
-      ${lista.map(x=>`<option value="${esc(x.codigo)}" ${d===x.codigo?'selected':''}>${esc(x.nombre ? `${x.nombre} (${x.codigo})` : x.codigo)}${x.activo?'':' · inactivo'}</option>`).join('')}
-      <option value="__sin" ${d==='__sin'?'selected':''}>Sin dueño</option>
+      ${opcionesFiltroDueno(state.bodega.stockDueno)}
     </select>
-    ${state.duenosStock.error? `<div class="hint" style="margin:-6px 0 10px;color:var(--danger)">No se pudo cargar la lista de dueños: ${esc(state.duenosStock.error)}</div>` : ''}`;
+    ${avisoErrorListaDuenos('margin:-6px 0 10px;')}`;
 }
 // Excel del stock actual completo (no solo los 300 de pantalla): pagina por limit/offset.
 async function exportarStockExcel(){
@@ -13239,6 +13259,9 @@ function renderTablaSkus(){
   return `
     <div class="section-head"><h2 style="font-size:17px">SKU activos (${sp.error && !sp.rows.length ? '—' : sp.total.toLocaleString('es-CL')})</h2></div>
     <div class="card">
+      ${usaDuenosStock()? `<label for="skus-dueno" style="font-size:13px;margin:0 0 4px">Dueño del stock</label>
+      <select id="skus-dueno" style="margin:0 0 10px">${opcionesFiltroDueno(state.skusFiltroDueno||'')}</select>
+      ${avisoErrorListaDuenos('margin:-6px 0 10px;')}` : ''}
       ${esAdmin && sp.rows.length? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
         <label class="conteo-check" style="margin:0">
           <input type="checkbox" id="chk-skus-todos" ${todosMarcados?'checked':''}>
@@ -13273,7 +13296,7 @@ function renderTablaSkus(){
         <button class="btn btn-secondary" id="skus-pag-next" style="width:auto;flex:none;padding:8px 14px" ${paginaActual>=totalPaginas?'disabled':''}>Siguiente</button>
       </div>` : sp.error ? `<div class="empty" id="skus-lista-error" style="color:${sp.sinSenal?'var(--warn)':'var(--danger)'}">${sp.sinSenal
         ? 'Sin señal: la lista de SKU no se puede cargar ahora. Lo que guardes arriba queda en este dispositivo y se envía al volver la señal.'
-        : `No se pudo cargar la lista de SKU: ${esc(sp.error)}`}</div>` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
+        : `No se pudo cargar la lista de SKU: ${esc(sp.error)}`}</div>` : (usaDuenosStock() && state.skusFiltroDueno) ? `<div class="empty"><div class="glyph">▭</div>Ningún material activo ${state.skusFiltroDueno==='__sin' ? 'sin dueño' : `de ${esc(etiquetaFiltroDueno(state.skusFiltroDueno).replace(/^Dueño: /,''))}`}.</div>` : `<div class="empty"><div class="glyph">▭</div>Aún no hay SKU cargados.</div>`}
       ${sp.error && sp.rows.length? `<div class="hint" style="margin-top:8px;color:${sp.sinSenal?'var(--warn)':'var(--danger)'}">${sp.sinSenal? 'Sin señal: esta lista puede no estar al día.' : `No se pudo actualizar la lista: ${esc(sp.error)}`}</div>` : ''}
       ${esAdmin? `<details class="acciones-masivas" id="skus-acciones-masivas">
         <summary>Acciones masivas</summary>
@@ -14120,6 +14143,7 @@ function chipsFiltrosBuscar(b){
   if(b.ubicacion) chips.push(b.ubicacion);
   if(b.estado) chips.push(etiquetaEstado[b.estado] || b.estado);
   if(b.claseAbc) chips.push(b.claseAbc==='__sin_clasificar__' ? 'Sin clasificar' : 'Clase '+b.claseAbc);
+  if(usaDuenosStock() && b.dueno) chips.push(etiquetaFiltroDueno(b.dueno));
   if(b.ciclo) chips.push(b.ciclo==='__sin_ciclo__' ? 'Sin ciclo' : (((state.ciclos||[]).find(c=>c.id===b.ciclo)||{}).nombre || 'Ciclo'));
   if(b.grupoId) chips.push('Grupo: '+((gruposParaFiltroBuscar().find(g=>g.id===b.grupoId)||{}).nombre || '…'));
   if(b.usuarioId) chips.push('Contó: '+(b.usuarioNombre || 'esta cuenta'));
@@ -14263,6 +14287,10 @@ function renderBuscar(){
               <option value="__sin_clasificar__" ${b.claseAbc==='__sin_clasificar__'?'selected':''}>Sin clasificar</option>
             </select>
             </div>
+            ${usaDuenosStock()? `<div><label for="b-dueno">Dueño del stock</label>
+            <select id="b-dueno">${opcionesFiltroDueno(b.dueno||'')}</select>
+            ${avisoErrorListaDuenos('margin-top:4px;')}
+            </div>` : ''}
           </div>
           <div id="b-ubicaciones-aviso" class="hint" style="margin-top:4px${ul.error?';color:var(--danger)':''}">${textoAvisoUbicacionesBuscar(ul)}</div>
           <details class="buscar-mas" id="buscar-mas" ${masAbierto? 'open' : ''}>
@@ -18524,6 +18552,8 @@ function bind(){
         setState({skusSeleccionados: seleccionados});
       });
     });
+    const selDuenoSkus = document.getElementById('skus-dueno');
+    if(selDuenoSkus) selDuenoSkus.addEventListener('change', ()=>{ state.skusFiltroDueno = selDuenoSkus.value; cargarSkusPagina(0); });
     const chkTodos = document.getElementById('chk-skus-todos');
     if(chkTodos) chkTodos.addEventListener('change', e=>{
       const idsPagina = state.skusPagina.rows.map(s=>s.id);
@@ -19040,7 +19070,7 @@ function bind(){
     recordarPlegable('buscar-filtros', abierto=>{ state.busqueda.filtrosAbiertos = abierto; });
     recordarPlegable('buscar-mas', abierto=>{ state.busqueda.masFiltrosAbierto = abierto; });
     const btnLimpiarFiltros = document.getElementById('btn-limpiar-filtros-buscar');
-    if(btnLimpiarFiltros) btnLimpiarFiltros.addEventListener('click', ()=> setState({busqueda:{...state.busqueda, texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', grupoId:'', usuarioId:null, usuarioNombre:null, claseAbc:'', fechaDesde:'', fechaHasta:'', soloConFotos:false, soloFueraDePlan:false, filtrosAbiertos:true}}));
+    if(btnLimpiarFiltros) btnLimpiarFiltros.addEventListener('click', ()=> setState({busqueda:{...state.busqueda, texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', grupoId:'', usuarioId:null, usuarioNombre:null, claseAbc:'', fechaDesde:'', fechaHasta:'', soloConFotos:false, soloFueraDePlan:false, dueno:'', filtrosAbiertos:true}}));
     document.getElementById('form-buscar').addEventListener('submit', e=>{
       e.preventDefault();
       const selCiclo = document.getElementById('b-ciclo');
@@ -19062,6 +19092,7 @@ function bind(){
         soloConFotos: document.getElementById('b-solo-fotos').checked,
         soloFueraDePlan: document.getElementById('b-solo-fuera-plan').checked,
         claseAbc: document.getElementById('b-clase-abc').value,
+        dueno: document.getElementById('b-dueno') ? document.getElementById('b-dueno').value : '',
         fechaDesde: document.getElementById('b-fecha-desde').value,
         fechaHasta: document.getElementById('b-fecha-hasta').value,
         buscando: true,

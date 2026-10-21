@@ -2187,6 +2187,66 @@ async function loguear(page, perfil){
     await context.close();
   }
 
+  // ===== Dueños de stock: filtro por dueño en Buscar y en la tabla de SKU, a 420 px =====
+  // El filtro viaja a la base como p_dueno; sin elegirlo, los pedidos son los de siempre.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('filtros-dueno: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    await mockearSupabaseApp(page, perfilDuenos);
+    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    const cuerposFilas = [], cuerposPagina = [];
+    const fila = (id, dueno) => ({ sku_id:id, sku_code:'P-100', descripcion:'Filtro de aire', bodega:'CD1', ubicacion:'RK', storage_bin:'R-01-02', batch:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, dueno });
+    await page.route('**/rest/v1/rpc/filas_busqueda_skus**', route => {
+      const c = route.request().postDataJSON() || {};
+      cuerposFilas.push(c);
+      const filas = c.p_dueno==='ENEX' ? [fila('s1','ENEX')] : [fila('s1','ENEX'), fila('s2','COPEC')];
+      return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) });
+    });
+    await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: (route.request().postDataJSON()||{}).p_dueno==='ENEX' ? '1' : '2' }));
+    await page.route('**/rest/v1/rpc/pagina_skus**', route => {
+      const c = route.request().postDataJSON() || {};
+      cuerposPagina.push(c);
+      const rows = c.p_dueno==='__nadie__' ? [] : [{ id:'s1', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'CD1', storage_bin:'R-01-02', stock_sistema:2, activo:true, dueno:'ENEX' }];
+      return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ total: rows.length, rows }) });
+    });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+
+    await page.click('#btn-ir-buscar');
+    await page.waitForSelector('#b-texto', { timeout:ESPERA });
+    await page.fill('#b-texto', 'P-100');
+    await page.click('.buscar-btn');
+    assert(await esperarCondicion(page, () => document.querySelectorAll('.chk-buscar-fila').length === 2), 'sin filtro aparecen los dos dueños');
+    assert(!('p_dueno' in cuerposFilas[cuerposFilas.length-1]), 'sin filtro de dueño, Buscar pide lo de siempre, obtuvo '+JSON.stringify(cuerposFilas[cuerposFilas.length-1]));
+    await page.click('#buscar-filtros > summary');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#b-dueno option')].some(o=>o.value==='ENEX')), 'Buscar ofrece filtrar por dueño');
+    await page.selectOption('#b-dueno', 'ENEX');
+    const desbordeFiltros = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeFiltros <= 0, 'a 420 px los filtros con dueño no desbordan, obtuvo '+desbordeFiltros);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-filtro-dueno-420.png', fullPage: true });
+    await page.click('.buscar-btn');
+    assert(await esperarCondicion(page, () => document.querySelectorAll('.chk-buscar-fila').length === 1), 'con el filtro se ve solo el material de ese dueño');
+    assert(cuerposFilas[cuerposFilas.length-1].p_dueno === 'ENEX', 'el filtro viaja a la base, obtuvo '+JSON.stringify(cuerposFilas[cuerposFilas.length-1]));
+    assert(await esperarVisible(page, '#buscar-filtros .fchip:has-text("Dueño: Enex S.A.")'), 'el chip dice de qué dueño es la búsqueda');
+
+    await page.evaluate(() => setState({ view:'skus' }));
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#skus-dueno option')].some(o=>o.value==='ENEX')), 'la tabla de SKU ofrece filtrar por dueño');
+    assert(!('p_dueno' in cuerposPagina[cuerposPagina.length-1]), 'sin filtro, la tabla de SKU pide lo de siempre');
+    await page.selectOption('#skus-dueno', 'COPEC');
+    assert(await esperarCondicion(page, () => !!document.querySelector('#skus-dueno') && document.querySelector('#skus-dueno').value === 'COPEC'), 'el filtro elegido queda marcado tras recargar la tabla');
+    assert(cuerposPagina[cuerposPagina.length-1].p_dueno === 'COPEC', 'la tabla pide la página filtrada, obtuvo '+JSON.stringify(cuerposPagina[cuerposPagina.length-1]));
+    const desbordeSkus = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeSkus <= 0, 'a 420 px la tabla de SKU con filtro no desborda, obtuvo '+desbordeSkus);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/skus-filtro-dueno-420.png', fullPage: true });
+    await context.close();
+  }
+
   // ===== Buscar (Fase 4 del rediseño): caja grande, filtros plegables y chips, en el navegador =====
   // A 420 px: la caja mide 56 px y el botón va al lado; "Más filtros" parte cerrado pero sus
   // campos existen (el submit los lee); al buscar, los filtros se pliegan, aparecen los chips y
