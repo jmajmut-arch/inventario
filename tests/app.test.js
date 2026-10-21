@@ -2175,70 +2175,70 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   {
     const perfilAntesPlanDueno = ctx.__appstate.perfil;
     const listaAntesPlanDueno = ctx.__appstate.duenosStock;
-    ctx.__appstate.plan.duenoAgregar = 'ENEX'; // quedó de una sesión con dueños: sin el interruptor no vale
+    ctx.__appstate.plan.duenoAgregar = 'VERTICE'; // quedó de una sesión con dueños: sin el interruptor no vale
     assert(ctx.duenoAgregarPlan()===undefined && !ctx.renderPlanificacion().includes('id="p-dueno"'), 'sin el interruptor no hay selector de dueño ni dueño que mandar');
     ctx.__appstate.perfil = {...perfilAntesPlanDueno, empresas:{...perfilAntesPlanDueno.empresas, usa_duenos_stock:true}};
-    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}]};
     ctx.__appstate.plan.duenoAgregar = '';
     const htmlTodos = ctx.renderPlanificacion();
-    assert(htmlTodos.includes('<select id="p-dueno">') && htmlTodos.includes('<option value="" selected>Todos los dueños</option>') && htmlTodos.includes('Enex S.A. (ENEX)') && htmlTodos.includes('incluye lo de todos, como siempre'), 'con dueños, el formulario ofrece elegir uno y parte en "Todos los dueños", obtuvo: '+(htmlTodos.match(/<select id="p-dueno">[\s\S]*?<\/select>/)||[''])[0]);
+    assert(htmlTodos.includes('<select id="p-dueno">') && htmlTodos.includes('<option value="" selected>Todos los dueños</option>') && htmlTodos.includes('Vertice S.A. (VERTICE)') && htmlTodos.includes('incluye lo de todos, como siempre'), 'con dueños, el formulario ofrece elegir uno y parte en "Todos los dueños", obtuvo: '+(htmlTodos.match(/<select id="p-dueno">[\s\S]*?<\/select>/)||[''])[0]);
     assert(ctx.duenoAgregarPlan()===undefined, '"Todos los dueños" es la entrada de siempre');
-    ctx.__appstate.plan.duenoAgregar = 'ENEX';
-    assert(ctx.duenoAgregarPlan()==='ENEX' && ctx.renderPlanificacion().includes('incluirá solo los materiales de este dueño'), 'con un dueño elegido, se avisa que la entrada es solo suya');
+    ctx.__appstate.plan.duenoAgregar = 'VERTICE';
+    assert(ctx.duenoAgregarPlan()==='VERTICE' && ctx.renderPlanificacion().includes('incluirá solo los materiales de este dueño'), 'con un dueño elegido, se avisa que la entrada es solo suya');
     ctx.__appstate.plan.duenoAgregar = '__sin';
     assert(ctx.duenoAgregarPlan()==='', '"Sin dueño" va como texto vacío (lo que no tiene dueño), no como "todos"');
 
     calls.length = 0;
-    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01','A-02'], responsableId:'', nota:'', dueno:'ENEX'});
+    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01','A-02'], responsableId:'', nota:'', dueno:'VERTICE'});
     const postDueno = calls.find(c=>c.opts && c.opts.method==='POST' && /\/plan_semanal(\?|$)/.test(c.url));
     const filasDueno = postDueno ? JSON.parse(postDueno.opts.body) : [];
-    assert(filasDueno.length===2 && filasDueno.every(f=>f.dueno==='ENEX'), 'cada fila de la entrada lleva el dueño elegido, obtuvo: '+JSON.stringify(filasDueno));
+    assert(filasDueno.length===2 && filasDueno.every(f=>f.dueno==='VERTICE'), 'cada fila de la entrada lleva el dueño elegido, obtuvo: '+JSON.stringify(filasDueno));
     const fotoDueno = calls.filter(c=>c.url.includes('/skus_planificables?'));
-    assert(fotoDueno.length===1 && fotoDueno[0].url.includes('&dueno=eq.ENEX'), 'la foto de la entrada guarda solo los materiales de ese dueño, obtuvo: '+JSON.stringify(fotoDueno.map(c=>c.url)));
+    assert(fotoDueno.length===1 && fotoDueno[0].url.includes('&dueno=eq.VERTICE'), 'la foto de la entrada guarda solo los materiales de ese dueño, obtuvo: '+JSON.stringify(fotoDueno.map(c=>c.url)));
     calls.length = 0;
     await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:'', dueno:''});
     const postSinDueno = calls.find(c=>c.opts && c.opts.method==='POST' && /\/plan_semanal(\?|$)/.test(c.url));
     assert(postSinDueno && JSON.parse(postSinDueno.opts.body)[0].dueno==='' && calls.some(c=>c.url.includes('/skus_planificables?') && /&dueno=eq\.(&|$)/.test(c.url)), '"Sin dueño" se guarda y se filtra como texto vacío, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     // El aviso de solape y los pendientes sin storage bin cuentan solo a ese dueño.
     calls.length = 0;
-    await ctx.contarUniversoUbicacion({bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true, dueno:'ENEX'});
-    await ctx.contarPendientesSinBin('Nave Mina', 'Interior Nave', 'ENEX').catch(()=>{});
-    assert(calls.length===2 && calls.every(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.ENEX')), 'los conteos del formulario filtran por el dueño elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    await ctx.contarUniversoUbicacion({bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true, dueno:'VERTICE'});
+    await ctx.contarPendientesSinBin('Nave Mina', 'Interior Nave', 'VERTICE').catch(()=>{});
+    assert(calls.length===2 && calls.every(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.VERTICE')), 'los conteos del formulario filtran por el dueño elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
     // Los números de las listas de lugares son los del dueño elegido (vistas *_dueno); sin dueño, las
     // vistas y pedidos de siempre (las usan también otras pantallas).
     calls.length = 0;
-    await ctx.opcionesEspecificas('Nave Mina', 'ENEX');
-    await ctx.opcionesBins('Nave Mina', 'Interior Nave', 'ENEX');
-    await ctx.opcionesBins('Nave Mina', '', 'ENEX');
+    await ctx.opcionesEspecificas('Nave Mina', 'VERTICE');
+    await ctx.opcionesBins('Nave Mina', 'Interior Nave', 'VERTICE');
+    await ctx.opcionesBins('Nave Mina', '', 'VERTICE');
     await ctx.opcionesEspecificas('Nave Mina');
     await ctx.opcionesBins('Nave Mina', 'Interior Nave');
     const urlsListas = calls.map(c=>decodeURIComponent(c.url));
-    assert(urlsListas.slice(0,3).every(u=>/\/ubicaciones_(especificas|bins)_dueno\?/.test(u) && u.includes('&dueno=eq.ENEX')) && urlsListas.slice(3).every(u=>/\/ubicaciones_(especificas|bins)\?/.test(u) && !u.includes('dueno')), 'con dueño las listas salen de las vistas por dueño; sin él, las de siempre, obtuvo: '+JSON.stringify(urlsListas));
-    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    assert(urlsListas.slice(0,3).every(u=>/\/ubicaciones_(especificas|bins)_dueno\?/.test(u) && u.includes('&dueno=eq.VERTICE')) && urlsListas.slice(3).every(u=>/\/ubicaciones_(especificas|bins)\?/.test(u) && !u.includes('dueno')), 'con dueño las listas salen de las vistas por dueño; sin él, las de siempre, obtuvo: '+JSON.stringify(urlsListas));
+    ctx.__appstate.plan.duenoAgregar = 'VERTICE';
     ctx.__appstate.plan.listasDueno = null;
     const pPlan = ctx.__appstate.plan;
     assert(ctx.listasPlanFormulario(pPlan).generales===pPlan.generales && !ctx.listasPlanFormulario(pPlan).delDueno, 'mientras no llegan los números del dueño se ven los de siempre, y el formulario lo dice');
     assert(ctx.renderPlanificacion().includes('Calculando sus números'), 'avisa que está calculando los números del dueño');
-    ctx.__appstate.plan.listasDueno = {dueno:'ENEX', generales:[{bodega:'Nave Mina', dueno:'ENEX', cantidad_pendiente:3, cantidad_skus:5}], sinUbicacionCount:2};
+    ctx.__appstate.plan.listasDueno = {dueno:'VERTICE', generales:[{bodega:'Nave Mina', dueno:'VERTICE', cantidad_pendiente:3, cantidad_skus:5}], sinUbicacionCount:2};
     const htmlListasDueno = ctx.renderPlanificacion();
     assert(htmlListasDueno.includes('<option value="Nave Mina">Nave Mina (3/5)</option>') && htmlListasDueno.includes('SKU sin ubicación (2)') && htmlListasDueno.includes('los números de las listas son los suyos'), 'con los números del dueño, Ubicación general y "SKU sin ubicación" muestran los suyos, obtuvo: '+(htmlListasDueno.match(/<select id="p-bodega">[\s\S]*?<\/select>/)||[''])[0]);
-    ctx.__appstate.plan.duenoAgregar = 'COPEC';
+    ctx.__appstate.plan.duenoAgregar = 'ALBA';
     assert(!ctx.listasPlanFormulario(ctx.__appstate.plan).delDueno, 'los números de otro dueño no se muestran para el dueño recién elegido');
-    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    ctx.__appstate.plan.duenoAgregar = 'VERTICE';
     calls.length = 0;
     await ctx.cargarListasPlanDueno();
-    assert(calls.some(c=>decodeURIComponent(c.url).includes('/ubicaciones_generales_dueno?dueno=eq.ENEX')) && calls.some(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.ENEX')), 'cargarListasPlanDueno pide la ubicación general y los sin ubicación de ese dueño, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>decodeURIComponent(c.url).includes('/ubicaciones_generales_dueno?dueno=eq.VERTICE')) && calls.some(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.VERTICE')), 'cargarListasPlanDueno pide la ubicación general y los sin ubicación de ese dueño, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     ctx.__appstate.plan.duenoAgregar = '';
     await ctx.cargarListasPlanDueno();
     assert(ctx.__appstate.plan.listasDueno===null, 'con "Todos los dueños" se vuelve a las listas de siempre');
     ctx.__appstate.plan.duenoAgregar = '__sin';
 
     // La entrada dice de qué dueño es: en Planificación, en la hoja impresa y en Contar.
-    assert(ctx.etiquetaDuenoEntradaPlan({dueno:null})==='' && ctx.etiquetaDuenoEntradaPlan({dueno:'ENEX'})==='Enex S.A.' && ctx.etiquetaDuenoEntradaPlan({dueno:''})==='Sin dueño' && ctx.etiquetaDuenoEntradaPlan({dueno:'OTRO'})==='OTRO', 'el dueño de una entrada se muestra con su nombre, o su código si no está en la lista; una entrada de todos no muestra nada');
-    assert(ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:'ENEX', responsable_nombre:'Ana'}).includes('Dueño: Enex S.A.') && !ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:null}).includes('Dueño'), 'la hoja impresa dice el dueño de la entrada, si tiene');
+    assert(ctx.etiquetaDuenoEntradaPlan({dueno:null})==='' && ctx.etiquetaDuenoEntradaPlan({dueno:'VERTICE'})==='Vertice S.A.' && ctx.etiquetaDuenoEntradaPlan({dueno:''})==='Sin dueño' && ctx.etiquetaDuenoEntradaPlan({dueno:'OTRO'})==='OTRO', 'el dueño de una entrada se muestra con su nombre, o su código si no está en la lista; una entrada de todos no muestra nada');
+    assert(ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:'VERTICE', responsable_nombre:'Ana'}).includes('Dueño: Vertice S.A.') && !ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:null}).includes('Dueño'), 'la hoja impresa dice el dueño de la entrada, si tiene');
     ctx.__appstate.perfil = perfilAntesPlanDueno;
-    assert(ctx.etiquetaDuenoEntradaPlan({dueno:'ENEX'})==='', 'sin el interruptor, una entrada no muestra dueño');
+    assert(ctx.etiquetaDuenoEntradaPlan({dueno:'VERTICE'})==='', 'sin el interruptor, una entrada no muestra dueño');
     ctx.__appstate.duenosStock = listaAntesPlanDueno;
     ctx.__appstate.plan.duenoAgregar = '';
   }
@@ -3933,23 +3933,23 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const duenosAntesInforme = ctx.__appstate.duenosStock;
     const base = informesCicloFixture[0];
     const seccion = (universo, contados, sku) => ({avance_total:[{bodega:'B1', skus_universo:universo, skus_contados:contados, porcentaje_avance:0}], exactitud_por_bodega:[], diferencias_recientes:{sin_diferencia:0, con_diferencia:0}, ranking_responsable:[], valorizacion_diferencias:[], reconteos_sin_resolver: sku? [{sku_code:sku, descripcion:'', ultima_diferencia:-1, causa_probable:null, ultimo_conteo_fecha:'2027-03-01'}] : []});
-    const conDuenos = {...base, id:'inf-d', datos:{...base.datos, por_dueno:{'ENEX': seccion(40, 10, 'ENEX-PEND'), '': seccion(60, 30, null)}}};
+    const conDuenos = {...base, id:'inf-d', datos:{...base.datos, por_dueno:{'VERTICE': seccion(40, 10, 'VERTICE-PEND'), '': seccion(60, 30, null)}}};
     const viejo = {...base, id:'inf-v'};
     ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[conDuenos, viejo]};
     assert(!ctx.renderCiclos().includes('data-informe-dueno'), 'sin dueños activados no hay selector de dueño en los informes');
     ctx.__appstate.perfil = {...perfilAntesInforme, empresas:{...perfilAntesInforme.empresas, usa_duenos_stock:true}};
-    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}]};
     const htmlInformesDueno = ctx.renderCiclos();
-    assert(htmlInformesDueno.includes('data-informe-dueno="inf-d"') && htmlInformesDueno.includes('<option value="ENEX">Enex S.A.</option>') && htmlInformesDueno.includes('<option value="__sin">Sin dueño</option>'), 'un informe con dueños ofrece elegir el dueño, obtuvo: '+htmlInformesDueno);
+    assert(htmlInformesDueno.includes('data-informe-dueno="inf-d"') && htmlInformesDueno.includes('<option value="VERTICE">Vertice S.A.</option>') && htmlInformesDueno.includes('<option value="__sin">Sin dueño</option>'), 'un informe con dueños ofrece elegir el dueño, obtuvo: '+htmlInformesDueno);
     assert(!htmlInformesDueno.includes('data-informe-dueno="inf-v"') && htmlInformesDueno.includes('Cerrado antes de separar por dueño'), 'un informe cerrado antes no ofrece dueños y lo dice');
     printInformeEl.innerHTML = '';
-    ctx.imprimirInformeGuardado('inf-d', 'ENEX');
-    assert(printInformeEl.innerHTML.includes('Dueño: Enex S.A.') && printInformeEl.innerHTML.includes('10 de 40 SKU') && printInformeEl.innerHTML.includes('ENEX-PEND') && !printInformeEl.innerHTML.includes('SKU-PEND'), 'el informe de un dueño muestra solo sus números y sus reconteos, obtuvo: '+printInformeEl.innerHTML);
+    ctx.imprimirInformeGuardado('inf-d', 'VERTICE');
+    assert(printInformeEl.innerHTML.includes('Dueño: Vertice S.A.') && printInformeEl.innerHTML.includes('10 de 40 SKU') && printInformeEl.innerHTML.includes('VERTICE-PEND') && !printInformeEl.innerHTML.includes('SKU-PEND'), 'el informe de un dueño muestra solo sus números y sus reconteos, obtuvo: '+printInformeEl.innerHTML);
     printInformeEl.innerHTML = '';
     ctx.imprimirInformeGuardado('inf-d', '__sin');
     assert(printInformeEl.innerHTML.includes('Dueño: Sin dueño') && printInformeEl.innerHTML.includes('30 de 60 SKU'), 'también se puede ver lo que no tiene dueño');
     printInformeEl.innerHTML = '';
-    ctx.imprimirInformeGuardado('inf-d', 'COPEC');
+    ctx.imprimirInformeGuardado('inf-d', 'ALBA');
     assert(printInformeEl.innerHTML.includes('0 de 0 SKU') && !printInformeEl.innerHTML.includes('SKU-PEND'), 'un dueño sin nada en el período se ve vacío, nunca con el total');
     printInformeEl.innerHTML = '';
     ctx.imprimirInformeGuardado('inf-d', '');
@@ -5368,6 +5368,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.detectarMapeo(['Material','Material Status'], ctx.__CAMPOS_SKU).batch==='Material Status' && ctx.detectarMapeo(['Material','Batch','Material Status'], ctx.__CAMPOS_SKU).batch==='Batch', 'sin otra columna de batch, "Material Status" sigue sirviendo');
     const abrev = ctx.detectarMapeo(['Mat.','Alm.','UMB','Tipo'], ctx.__CAMPOS_SKU);
     assert(abrev.sku_code==='Mat.' && abrev.bodega==='Alm.' && abrev.unidad_medida==='UMB' && abrev.tipo_material==='Tipo', 'las abreviaturas de siempre se siguen reconociendo, obtuvo: '+JSON.stringify(abrev));
+    // Filas repetidas: una empresa con dueños de stock (operador logístico, WMS) parte en Sumar;
+    // las demás siguen en "la última", como siempre (22/10/2026: la primera carga de prueba de un
+    // WMS se confirmó con "la última" y quedaron 1.742 unidades menos).
+    {
+      const perfilAntesRep = ctx.__appstate.perfil;
+      ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+      assert(ctx.repetidasPorDefectoCarga()==='ultima', 'sin dueños de stock, por defecto queda la última');
+      ctx.__appstate.perfil = { ...ctx.__appstate.perfil, empresas:{nombre:'Operador Demo', usa_duenos_stock:true} };
+      assert(ctx.repetidasPorDefectoCarga()==='sumar', 'con dueños de stock, por defecto se suma');
+      assert(html.includes("repetidas:repetidasPorDefectoCarga()"), 'la vista previa de la carga usa ese valor por defecto');
+      ctx.__appstate.perfil = perfilAntesRep;
+    }
     // Costo opcional: sin la columna no se bloquea, se avisa y no se pisa el costo que ya había.
     const costo = ctx.__CAMPOS_SKU.find(c=>c.campo==='costo_unitario');
     assert(costo && costo.obligatorio===false, 'el costo unitario ya no es obligatorio en la carga');
@@ -5518,9 +5530,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
     assert(!ctx.usaDuenosStock() && !ctx.renderConfiguraciones().includes('Dueños de stock'), 'sin el interruptor, Configuraciones no muestra dueños: nada cambia para las demás empresas');
 
-    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
     const pedidos = [];
-    let respuestaDuenos = () => ({status:200, body:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}, {id:'d2', codigo:'COPEC', nombre:null, activo:false}]});
+    let respuestaDuenos = () => ({status:200, body:[{id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}, {id:'d2', codigo:'ALBA', nombre:null, activo:false}]});
     ctx.fetch = async (url, opts) => {
       const u = new URL(url);
       if(u.pathname==='/rest/v1/duenos_stock'){
@@ -5533,25 +5545,25 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     };
     await ctx.cargarDuenosStock();
     const htmlDuenos = ctx.renderConfiguraciones();
-    assert(ctx.usaDuenosStock() && htmlDuenos.includes('Dueños de stock') && htmlDuenos.includes('id="form-nuevo-dueno"') && htmlDuenos.includes('ENEX') && htmlDuenos.includes('Enex S.A.') && htmlDuenos.includes('Inactivo'), 'con el interruptor, Configuraciones lista los dueños, con su estado, obtuvo: '+htmlDuenos);
+    assert(ctx.usaDuenosStock() && htmlDuenos.includes('Dueños de stock') && htmlDuenos.includes('id="form-nuevo-dueno"') && htmlDuenos.includes('VERTICE') && htmlDuenos.includes('Vertice S.A.') && htmlDuenos.includes('Inactivo'), 'con el interruptor, Configuraciones lista los dueños, con su estado, obtuvo: '+htmlDuenos);
     assert(pedidos[0].url.includes('select=id,codigo,nombre,activo'), 'pide la lista de la empresa, obtuvo: '+JSON.stringify(pedidos));
 
     pedidos.length = 0;
     const toastsAntesDueno = elements['toast-root'].hijos.length;
     assert(await ctx.crearDuenoStock('   ', 'x')===false && !pedidos.length, 'sin código no se crea nada');
-    assert(await ctx.crearDuenoStock('  ENEX2 ', '  Enex Dos ')===true, 'crea el dueño');
+    assert(await ctx.crearDuenoStock('  VERTICE2 ', '  Vertice Dos ')===true, 'crea el dueño');
     const post = pedidos.find(x=>x.metodo==='POST');
-    assert(post && post.body[0].empresa_id==='emp-1' && post.body[0].codigo==='ENEX2' && post.body[0].nombre==='Enex Dos', 'manda código y nombre sin espacios, en la empresa actual, obtuvo: '+JSON.stringify(post));
+    assert(post && post.body[0].empresa_id==='emp-1' && post.body[0].codigo==='VERTICE2' && post.body[0].nombre==='Vertice Dos', 'manda código y nombre sin espacios, en la empresa actual, obtuvo: '+JSON.stringify(post));
 
     // Un código repetido se dice con palabras, no con el error crudo del índice.
     const fetchSinDup = ctx.fetch;
     ctx.fetch = async (url, opts) => (new URL(url).pathname==='/rest/v1/duenos_stock' && opts && opts.method==='POST')
       ? { status:409, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'duplicate key value violates unique constraint "duenos_stock_empresa_id_codigo_key"'}) }
       : fetchSinDup(url, opts);
-    assert(await ctx.crearDuenoStock('ENEX', '')===false, 'un código repetido no se crea');
+    assert(await ctx.crearDuenoStock('VERTICE', '')===false, 'un código repetido no se crea');
     ctx.fetch = fetchSinDup;
     const toastsDueno = elements['toast-root'].hijos.slice(toastsAntesDueno).map(t=>t.textContent);
-    assert(toastsDueno.some(t=>t==='El dueño ENEX ya está en la lista'), 'avisa que el dueño ya existe, obtuvo: '+JSON.stringify(toastsDueno));
+    assert(toastsDueno.some(t=>t==='El dueño VERTICE ya está en la lista'), 'avisa que el dueño ya existe, obtuvo: '+JSON.stringify(toastsDueno));
 
     pedidos.length = 0;
     await ctx.actualizarDuenoStock('d2', {activo:true});
@@ -5565,7 +5577,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(htmlErrorDuenos.includes('No se pudo cargar la lista de dueños') && htmlErrorDuenos.includes('id="btn-reintentar-duenos"') && !htmlErrorDuenos.includes('Todavía no hay dueños'), 'un error del servidor se ve como error, obtuvo: '+htmlErrorDuenos);
 
     // Un operador no ve la sección: la lista la administra un administrador.
-    ctx.__appstate.perfil = {...base, rol:'operador', empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+    ctx.__appstate.perfil = {...base, rol:'operador', empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
     assert(!ctx.renderConfiguraciones().includes('id="form-nuevo-dueno"'), 'un operador no administra dueños');
 
     // El duplicado de un material se reconoce por cualquiera de los dos índices de identidad.
@@ -5583,51 +5595,51 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   {
     const perfilAntes = ctx.__appstate.perfil;
     const base = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1' };
-    const lista = [{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}, {id:'d2', codigo:'COPEC', nombre:null, activo:true}, {id:'d3', codigo:'VIEJO', nombre:'Cliente que se fue', activo:false}];
+    const lista = [{id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}, {id:'d2', codigo:'ALBA', nombre:null, activo:true}, {id:'d3', codigo:'VIEJO', nombre:'Cliente que se fue', activo:false}];
     ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
 
     // Sin el interruptor, nada nuevo aparece aunque la fila traiga dueño.
     ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
-    assert(ctx.chipDueno({dueno:'ENEX'})==='' && ctx.chipDuenoBajoCodigo({dueno:'ENEX'})==='' && ctx.campoDuenoSku()==='', 'sin dueños activados no se muestra ni se pide el dueño');
+    assert(ctx.chipDueno({dueno:'VERTICE'})==='' && ctx.chipDuenoBajoCodigo({dueno:'VERTICE'})==='' && ctx.campoDuenoSku()==='', 'sin dueños activados no se muestra ni se pide el dueño');
 
-    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
-    assert(ctx.chipDueno({dueno:'ENEX'}).includes('Enex S.A.'), 'el chip muestra el nombre del dueño, obtuvo '+ctx.chipDueno({dueno:'ENEX'}));
-    assert(ctx.chipDueno({dueno:'COPEC'}).includes('COPEC'), 'sin nombre, el chip muestra el código');
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
+    assert(ctx.chipDueno({dueno:'VERTICE'}).includes('Vertice S.A.'), 'el chip muestra el nombre del dueño, obtuvo '+ctx.chipDueno({dueno:'VERTICE'}));
+    assert(ctx.chipDueno({dueno:'ALBA'}).includes('ALBA'), 'sin nombre, el chip muestra el código');
     assert(ctx.chipDueno({dueno:'OTRO'}).includes('OTRO'), 'un dueño que no está en la lista igual se ve, por su código');
     assert(ctx.chipDueno({dueno:''})==='' && ctx.chipDueno(null)==='', 'una fila sin dueño no muestra chip');
     assert(ctx.chipDueno({dueno:'<b>X</b>'}).includes('&lt;b&gt;'), 'el código se escapa');
 
     const campo = ctx.campoDuenoSku();
-    assert(campo.includes('id="s-dueno"') && campo.includes('<option value="">Sin dueño</option>') && campo.includes('value="ENEX"') && campo.includes('Enex S.A. (ENEX)') && campo.includes('value="COPEC"') && !campo.includes('VIEJO'), 'al crear un SKU se elige entre los dueños activos, con "Sin dueño", obtuvo '+campo);
+    assert(campo.includes('id="s-dueno"') && campo.includes('<option value="">Sin dueño</option>') && campo.includes('value="VERTICE"') && campo.includes('Vertice S.A. (VERTICE)') && campo.includes('value="ALBA"') && !campo.includes('VIEJO'), 'al crear un SKU se elige entre los dueños activos, con "Sin dueño", obtuvo '+campo);
     ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'se cayó la base' };
     assert(ctx.campoDuenoSku().includes('No se pudo cargar la lista de dueños: se cayó la base'), 'si la lista no carga se ve el error, no una lista vacía');
     ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
 
     // El mismo material en el mismo sitio, de otro dueño, no es la misma posición.
-    const filas = [{bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'ENEX'}];
-    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'COPEC'})===null, 'otro dueño en el mismo sitio es otra posición');
-    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'ENEX'})===filas[0], 'el mismo dueño en el mismo sitio sí se repite');
+    const filas = [{bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'VERTICE'}];
+    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'ALBA'})===null, 'otro dueño en el mismo sitio es otra posición');
+    assert(ctx.posicionSkuRepetida(filas, {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:'VERTICE'})===filas[0], 'el mismo dueño en el mismo sitio sí se repite');
     assert(ctx.posicionSkuRepetida([{bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null, dueno:''}], {bodega:'B1', ubicacion:null, storage_bin:'BIN-1', batch:null})!==null, 'sin dueños, la posición repetida se detecta como siempre');
 
     // Stock de bodega por dueño: el filtro va a la consulta (y al Excel), no se filtra en pantalla.
     const stockDuenoAntes = ctx.__appstate.bodega.stockDueno;
-    ctx.__appstate.bodega.stockDueno = 'ENEX';
-    assert(ctx.filtroDuenoStock()==='&dueno=eq.ENEX', 'con un dueño elegido, la consulta filtra por él, obtuvo '+ctx.filtroDuenoStock());
+    ctx.__appstate.bodega.stockDueno = 'VERTICE';
+    assert(ctx.filtroDuenoStock()==='&dueno=eq.VERTICE', 'con un dueño elegido, la consulta filtra por él, obtuvo '+ctx.filtroDuenoStock());
     ctx.__appstate.bodega.stockDueno = '__sin';
     assert(ctx.filtroDuenoStock()==='&dueno=eq.', '"Sin dueño" filtra las filas sin dueño, obtuvo '+ctx.filtroDuenoStock());
     ctx.__appstate.bodega.stockDueno = '';
     assert(ctx.filtroDuenoStock()==='', '"Todos los dueños" no filtra');
     const selStock = ctx.selectorDuenoStock();
-    assert(selStock.includes('id="stock-dueno"') && selStock.includes('Todos los dueños') && selStock.includes('Enex S.A. (ENEX)') && selStock.includes('Cliente que se fue (VIEJO) · inactivo') && selStock.includes('value="__sin"'), 'el filtro ofrece todos, cada dueño (también los inactivos, que pueden tener stock) y sin dueño, obtuvo '+selStock);
+    assert(selStock.includes('id="stock-dueno"') && selStock.includes('Todos los dueños') && selStock.includes('Vertice S.A. (VERTICE)') && selStock.includes('Cliente que se fue (VIEJO) · inactivo') && selStock.includes('value="__sin"'), 'el filtro ofrece todos, cada dueño (también los inactivos, que pueden tener stock) y sin dueño, obtuvo '+selStock);
     const fetchAntesStock = ctx.fetch;
     let urlStock = null;
     ctx.fetch = async (url, opts) => {
       if(String(url).includes('/rest/v1/stock_actual')){ urlStock = String(url); return { status:200, ok:true, headers:{get:()=>'0-0/0'}, text: async()=>'[]' }; }
       return fetchAntesStock(url, opts);
     };
-    ctx.__appstate.bodega.stockDueno = 'ENEX';
+    ctx.__appstate.bodega.stockDueno = 'VERTICE';
     await ctx.cargarStockBodega(0);
-    assert(urlStock && urlStock.includes('&dueno=eq.ENEX'), 'cargar el stock lleva el filtro de dueño, obtuvo '+urlStock);
+    assert(urlStock && urlStock.includes('&dueno=eq.VERTICE'), 'cargar el stock lleva el filtro de dueño, obtuvo '+urlStock);
     ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
     urlStock = null;
     await ctx.cargarStockBodega(0);
@@ -5637,15 +5649,15 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
     // Buscar y SKU filtran en la base (p_dueno). Sin filtro, la app manda exactamente los mismos
     // parámetros que siempre y la base responde con la versión de siempre de cada función.
-    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
-    assert(JSON.stringify(ctx.parametroDuenoRpc(''))==='{}' && ctx.parametroDuenoRpc('ENEX').p_dueno==='ENEX' && ctx.parametroDuenoRpc('__sin').p_dueno==='', 'p_dueno: nada sin filtro, el código del dueño, o vacío para "sin dueño"');
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
+    assert(JSON.stringify(ctx.parametroDuenoRpc(''))==='{}' && ctx.parametroDuenoRpc('VERTICE').p_dueno==='VERTICE' && ctx.parametroDuenoRpc('__sin').p_dueno==='', 'p_dueno: nada sin filtro, el código del dueño, o vacío para "sin dueño"');
     const busquedaAntes = ctx.__appstate.busqueda;
     ctx.__appstate.busqueda = {...busquedaAntes, dueno:''};
     const sinFiltro = ctx.construirParametrosBusquedaRpc();
     assert(!('p_dueno' in sinFiltro) && Object.keys(sinFiltro).length===12, 'sin filtro de dueño, Buscar manda los 12 parámetros de siempre, obtuvo '+JSON.stringify(Object.keys(sinFiltro)));
-    ctx.__appstate.busqueda = {...busquedaAntes, dueno:'ENEX'};
-    assert(ctx.construirParametrosBusquedaRpc().p_dueno==='ENEX' && Object.keys(ctx.cuerpoFilasBusqueda(0, 30)).length===17, 'con filtro, Buscar manda p_dueno, y las filas llevan los 17 parámetros de la versión con dueño');
-    assert(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda).includes('Dueño: Enex S.A.'), 'el filtro de dueño aparece entre los filtros activos, obtuvo '+JSON.stringify(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda)));
+    ctx.__appstate.busqueda = {...busquedaAntes, dueno:'VERTICE'};
+    assert(ctx.construirParametrosBusquedaRpc().p_dueno==='VERTICE' && Object.keys(ctx.cuerpoFilasBusqueda(0, 30)).length===17, 'con filtro, Buscar manda p_dueno, y las filas llevan los 17 parámetros de la versión con dueño');
+    assert(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda).includes('Dueño: Vertice S.A.'), 'el filtro de dueño aparece entre los filtros activos, obtuvo '+JSON.stringify(ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda)));
     ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
     assert(!('p_dueno' in ctx.construirParametrosBusquedaRpc()) && !ctx.chipsFiltrosBuscar(ctx.__appstate.busqueda).some(c=>c.includes('Dueño')), 'sin dueños activados, un filtro que quedó guardado no se aplica ni se muestra');
     ctx.__appstate.busqueda = busquedaAntes;
@@ -5656,35 +5668,35 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       if(String(url).includes('/rest/v1/rpc/pagina_skus')){ cuerpoPagina = JSON.parse(opts.body); return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:0, rows:[]}), json: async()=>({total:0, rows:[]}) }; }
       return fetchAntesSkus(url, opts);
     };
-    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
-    ctx.__appstate.skusFiltroDueno = 'ENEX';
+    ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
+    ctx.__appstate.skusFiltroDueno = 'VERTICE';
     await ctx.cargarSkusPagina(0);
-    assert(cuerpoPagina && cuerpoPagina.p_dueno==='ENEX' && cuerpoPagina.p_desde===0, 'la tabla de SKU pide la página filtrada por dueño, obtuvo '+JSON.stringify(cuerpoPagina));
+    assert(cuerpoPagina && cuerpoPagina.p_dueno==='VERTICE' && cuerpoPagina.p_desde===0, 'la tabla de SKU pide la página filtrada por dueño, obtuvo '+JSON.stringify(cuerpoPagina));
     const htmlSkusVacio = ctx.renderTablaSkus();
-    assert(htmlSkusVacio.includes('id="skus-dueno"') && htmlSkusVacio.includes('Ningún material activo de Enex S.A.') && !htmlSkusVacio.includes('Aún no hay SKU cargados'), 'con filtro y sin resultados, la tabla dice que ese dueño no tiene materiales, no que no hay SKU, obtuvo '+htmlSkusVacio);
+    assert(htmlSkusVacio.includes('id="skus-dueno"') && htmlSkusVacio.includes('Ningún material activo de Vertice S.A.') && !htmlSkusVacio.includes('Aún no hay SKU cargados'), 'con filtro y sin resultados, la tabla dice que ese dueño no tiene materiales, no que no hay SKU, obtuvo '+htmlSkusVacio);
     ctx.__appstate.skusFiltroDueno = '';
     await ctx.cargarSkusPagina(0);
     assert(cuerpoPagina && !('p_dueno' in cuerpoPagina), 'sin filtro, la tabla de SKU pide la página de siempre, obtuvo '+JSON.stringify(cuerpoPagina));
     // Regresión (la destapó la prueba e2e, 21/10/2026): la página sin filtro, pedida al entrar,
     // respondía DESPUÉS que la filtrada y la tabla quedaba con lo de todos los dueños y el filtro en
-    // ENEX. Solo se muestra la respuesta del último pedido.
+    // VERTICE. Solo se muestra la respuesta del último pedido.
     {
       let soltarLenta;
       ctx.fetch = async (url, opts) => {
         if(!String(url).includes('/rest/v1/rpc/pagina_skus')) return fetchAntesSkus(url, opts);
         const cuerpo = JSON.parse(opts.body);
-        const filas = cuerpo.p_dueno==='ENEX' ? [{id:'s1', sku_code:'ENEX-1', dueno:'ENEX'}] : [{id:'s1', sku_code:'ENEX-1', dueno:'ENEX'}, {id:'s2', sku_code:'COPEC-1', dueno:'COPEC'}];
+        const filas = cuerpo.p_dueno==='VERTICE' ? [{id:'s1', sku_code:'VERTICE-1', dueno:'VERTICE'}] : [{id:'s1', sku_code:'VERTICE-1', dueno:'VERTICE'}, {id:'s2', sku_code:'ALBA-1', dueno:'ALBA'}];
         const resp = { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:filas.length, rows:filas}), json: async()=>({total:filas.length, rows:filas}) };
         if(!cuerpo.p_dueno) return new Promise(r=>{ soltarLenta = ()=> r(resp); });
         return resp;
       };
       ctx.__appstate.skusFiltroDueno = '';
       const lenta = ctx.cargarSkusPagina(0);
-      ctx.__appstate.skusFiltroDueno = 'ENEX';
+      ctx.__appstate.skusFiltroDueno = 'VERTICE';
       await ctx.cargarSkusPagina(0);
       soltarLenta();
       await lenta;
-      assert(ctx.__appstate.skusPagina.rows.length===1 && ctx.__appstate.skusPagina.rows[0].sku_code==='ENEX-1', 'una respuesta vieja sin filtro no reemplaza la página filtrada, obtuvo '+JSON.stringify(ctx.__appstate.skusPagina.rows));
+      assert(ctx.__appstate.skusPagina.rows.length===1 && ctx.__appstate.skusPagina.rows[0].sku_code==='VERTICE-1', 'una respuesta vieja sin filtro no reemplaza la página filtrada, obtuvo '+JSON.stringify(ctx.__appstate.skusPagina.rows));
       ctx.__appstate.skusFiltroDueno = '';
     }
     ctx.fetch = fetchAntesSkus;
@@ -5696,7 +5708,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       let pedidosResumen = 0;
       let respuestaResumen = () => ({status:200, body:[
         { dueno:'', total_activo:10, contados:5, cuadrado:4, con_diferencia:1, merma:1, excedente:0, pendiente:0, valor_perdidas:-1500, valor_excedentes:0 },
-        { dueno:'ENEX', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
+        { dueno:'VERTICE', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
       ]});
       ctx.fetch = async (url, opts) => {
         if(String(url).includes('/rest/v1/rpc/resumen_por_dueno')){
@@ -5711,11 +5723,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       await ctx.cargarResumenDuenos();
       assert(pedidosResumen===0 && ctx.renderResumenPorDueno()==='', 'sin dueños activados, el Panel no pide ni muestra el resumen por dueño');
 
-      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
       await ctx.cargarResumenDuenos();
       const htmlResumen = ctx.renderResumenPorDueno();
-      assert(pedidosResumen===1 && htmlResumen.includes('Por dueño') && htmlResumen.includes('Enex S.A.') && htmlResumen.includes('Sin dueño') && htmlResumen.includes('25%') && htmlResumen.includes('id="btn-exportar-resumen-duenos"'), 'con dueños, la tarjeta muestra cada dueño con su avance, obtuvo '+htmlResumen);
-      assert(htmlResumen.indexOf('Enex S.A.') < htmlResumen.indexOf('Sin dueño'), 'lo que no tiene dueño va al final');
+      assert(pedidosResumen===1 && htmlResumen.includes('Por dueño') && htmlResumen.includes('Vertice S.A.') && htmlResumen.includes('Sin dueño') && htmlResumen.includes('25%') && htmlResumen.includes('id="btn-exportar-resumen-duenos"'), 'con dueños, la tarjeta muestra cada dueño con su avance, obtuvo '+htmlResumen);
+      assert(htmlResumen.indexOf('Vertice S.A.') < htmlResumen.indexOf('Sin dueño'), 'lo que no tiene dueño va al final');
       assert(htmlResumen.includes('>$30.000<') && htmlResumen.includes('>$12.000<') && !htmlResumen.includes('$-'), 'muestra el faltante y el sobrante en pesos, sin signo, obtuvo '+htmlResumen);
 
       respuestaResumen = () => ({status:500, body:{message:'se cayó la base'}});
@@ -5739,7 +5751,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
         }
         return fetchAntesLista(url, opts);
       };
-      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
       ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
       await ctx.asegurarDatosDeVista('conteo');
       assert(pedidosLista===1 && ctx.__appstate.duenosStock.error, 'el primer intento falla y se ve el error');
@@ -5770,7 +5782,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
         if(u.includes('/rest/v1/rpc/resumen_por_dueno')) return { status:200, ok:true, headers:{get:()=>null}, text: async()=>'[]', json: async()=>[] };
         return fetchAntesPanel(url, opts);
       };
-      const perfilBodegaDuenos = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true, modulo_bodega_habilitado:true}};
+      const perfilBodegaDuenos = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true, modulo_bodega_habilitado:true}};
       ctx.__appstate.perfil = perfilBodegaDuenos;
       const bodegaAntes = ctx.__appstate.bodega;
       const dashAntes = ctx.__appstate.dash, resumenGeneralAntes = ctx.__appstate.resumenGeneral, desactualizadoAntes = ctx.__appstate.dashDesactualizado;
@@ -5780,30 +5792,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
       const sinFiltroPanel = cuerpos[cuerpos.length-1];
       assert(!('p_dueno' in sinFiltroPanel) && Object.keys(sinFiltroPanel).sort().join(',')==='p_criticidad,p_dias', 'sin dueño elegido, el Panel pide exactamente lo de siempre, obtuvo '+JSON.stringify(sinFiltroPanel));
       ctx.__appstate.bodega = {...ctx.__appstate.bodega, pendientes:[{id:'toda-la-empresa'}]};
-      ctx.__appstate.dashDueno = 'ENEX';
+      ctx.__appstate.dashDueno = 'VERTICE';
       await ctx.cargarDashboard();
-      assert(cuerpos[cuerpos.length-1].p_dueno==='ENEX', 'con dueño elegido, el Panel pide la versión filtrada');
+      assert(cuerpos[cuerpos.length-1].p_dueno==='VERTICE', 'con dueño elegido, el Panel pide la versión filtrada');
       assert(ctx.__appstate.bodega.pendientes[0].id==='toda-la-empresa', 'filtrado por dueño, el Panel no pisa los pendientes de bodega que usan Inicio y Movimientos');
       assert(ctx.__appstate.resumenGeneral.datos && ctx.__appstate.resumenGeneral.datos.total_activo===7, 'el Estado general viene del Panel filtrado');
       const n = cuerpos.length;
       await ctx.cargarResumenGeneralSkus();
-      assert(pedidosResumenGeneral===0 && cuerpos.length===n+1 && cuerpos[n].p_dueno==='ENEX', 'cambiar la criticidad con un dueño elegido recarga el Panel filtrado, no el resumen de toda la empresa');
+      assert(pedidosResumenGeneral===0 && cuerpos.length===n+1 && cuerpos[n].p_dueno==='VERTICE', 'cambiar la criticidad con un dueño elegido recarga el Panel filtrado, no el resumen de toda la empresa');
       const htmlFiltro = ctx.renderFiltroDuenoPanel();
-      assert(htmlFiltro.includes('id="dash-dueno"') && htmlFiltro.includes('Panel de <strong>Enex S.A.</strong>') && htmlFiltro.includes('Las tarjetas de bodega muestran toda la empresa'), 'el Panel dice de qué dueño es y que bodega es de toda la empresa, obtuvo '+htmlFiltro);
+      assert(htmlFiltro.includes('id="dash-dueno"') && htmlFiltro.includes('Panel de <strong>Vertice S.A.</strong>') && htmlFiltro.includes('Las tarjetas de bodega muestran toda la empresa'), 'el Panel dice de qué dueño es y que bodega es de toda la empresa, obtuvo '+htmlFiltro);
       ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
       assert(ctx.renderFiltroDuenoPanel()==='', 'sin dueños activados el Panel no muestra el filtro');
-      ctx.__appstate.dashDueno = 'ENEX';
+      ctx.__appstate.dashDueno = 'VERTICE';
       ctx.__appstate.dashDueno = '';
       ctx.__appstate.bodega = bodegaAntes;
       ctx.__appstate.dash = dashAntes; ctx.__appstate.resumenGeneral = resumenGeneralAntes; ctx.__appstate.dashDesactualizado = desactualizadoAntes;
       ctx.fetch = fetchAntesPanel;
-      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador Demo', usa_duenos_stock:true}};
     }
 
     // Cerrar sesión olvida los filtros de dueño: otra cuenta no hereda un filtro que no ve.
-    ctx.__appstate.skusFiltroDueno = 'ENEX';
+    ctx.__appstate.skusFiltroDueno = 'VERTICE';
     const tras = ctx.estadoTrasCerrarSesion();
-    ctx.__appstate.dashDueno = 'ENEX';
+    ctx.__appstate.dashDueno = 'VERTICE';
     assert(tras.skusFiltroDueno==='' && tras.busqueda.dueno==='' && tras.bodega.stockDueno==='' && ctx.estadoTrasCerrarSesion().dashDueno==='', 'cerrar sesión limpia los filtros de dueño');
     ctx.__appstate.dashDueno = '';
     ctx.__appstate.skusFiltroDueno = '';
@@ -5822,19 +5834,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const duenosAntes = ctx.__appstate.duenosStock;
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
     assert(!ctx.camposCargaSkus().some(c=>c.campo==='dueno'), 'sin el interruptor, la carga no ofrece la columna de dueño');
-    ctx.__appstate.perfil = { ...ctx.__appstate.perfil, empresas:{nombre:'Operador SIL', usa_duenos_stock:true} };
+    ctx.__appstate.perfil = { ...ctx.__appstate.perfil, empresas:{nombre:'Operador Demo', usa_duenos_stock:true} };
     assert(ctx.camposCargaSkus().some(c=>c.campo==='dueno'), 'con el interruptor, la carga ofrece la columna Dueño del stock');
     assert(ctx.detectarMapeo(['Material','Dueño','CÓDIGO CLIENTE'], ctx.camposCargaSkus()).dueno==='Dueño', 'reconoce una columna llamada Dueño, y no se confunde con CÓDIGO CLIENTE');
 
-    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista:[{id:'d1', codigo:'ENEX', nombre:'Enex', activo:true}], error:'' };
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista:[{id:'d1', codigo:'VERTICE', nombre:'Vertice', activo:true}], error:'' };
     const pd = {
       file:{name:'wms.csv'}, modo:'reemplazar', repetidas:'sumar', confirmaReemplazo:true,
       campos: ctx.camposCargaSkus(), headers:['Codigo','Bodega','Bin','Stock','Costo','Cliente'],
       mapeo:{ sku_code:'Codigo', bodega:'Bodega', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo', dueno:'Cliente' },
       data:[
-        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'2', Costo:'10', Cliente:'ENEX' },
-        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'5', Costo:'10', Cliente:' COPEC ' },
-        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'1', Costo:'10', Cliente:'ENEX' },
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'2', Costo:'10', Cliente:'VERTICE' },
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'5', Costo:'10', Cliente:' ALBA ' },
+        { Codigo:'P-1', Bodega:'CD1', Bin:'A-1', Stock:'1', Costo:'10', Cliente:'VERTICE' },
         { Codigo:'P-2', Bodega:'CD1', Bin:'A-2', Stock:'7', Costo:'10', Cliente:'' },
       ],
     };
@@ -5842,9 +5854,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const resDueno = ctx.resumenArchivoCarga(pd.data, pd.mapeo);
     assert(resDueno.materiales===3 && resDueno.repetidas===1, 'el mismo código y bin con dos dueños son dos materiales; la fila repetida es solo la del mismo dueño, obtuvo: '+JSON.stringify(resDueno));
     const rep = ctx.identidadesRepetidas(pd.data, pd.mapeo);
-    assert(rep.total===1 && rep.ejemplos[0].dueno==='ENEX' && rep.ejemplos[0].stockSumado===3, 'la repetida es la de ENEX, con su suma, obtuvo: '+JSON.stringify(rep));
+    assert(rep.total===1 && rep.ejemplos[0].dueno==='VERTICE' && rep.ejemplos[0].stockSumado===3, 'la repetida es la de VERTICE, con su suma, obtuvo: '+JSON.stringify(rep));
     const htmlCargaDueno = ctx.renderCargaPreview();
-    assert(htmlCargaDueno.includes('2 dueño(s) en el archivo: COPEC, ENEX') && htmlCargaDueno.includes('Hay filas sin dueño') && htmlCargaDueno.includes('1 dueño(s) nuevo(s) se agregan a la lista: COPEC') && htmlCargaDueno.includes('dueño ENEX'), 'el preview dice qué dueños trae, cuáles son nuevos y en qué dueño está la repetida, obtuvo: '+htmlCargaDueno);
+    assert(htmlCargaDueno.includes('2 dueño(s) en el archivo: ALBA, VERTICE') && htmlCargaDueno.includes('Hay filas sin dueño') && htmlCargaDueno.includes('1 dueño(s) nuevo(s) se agregan a la lista: ALBA') && htmlCargaDueno.includes('dueño VERTICE'), 'el preview dice qué dueños trae, cuáles son nuevos y en qué dueño está la repetida, obtuvo: '+htmlCargaDueno);
     ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'se cayó la base' };
     assert(ctx.renderCargaPreview().includes('No se pudo revisar la lista de dueños (se cayó la base)'), 'si la lista de dueños no cargó, se dice');
 
@@ -5861,14 +5873,14 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const iSkus = calls.findIndex(c=>c.url.includes('/rest/v1/skus?on_conflict') && c.opts && c.opts.method==='POST');
     assert(iDuenos>=0 && iSkus>iDuenos, 'los dueños nuevos se agregan antes de subir los materiales (el trigger exige que existan), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     const postDuenos = calls[iDuenos];
-    assert(postDuenos.url.includes('on_conflict=empresa_id,codigo') && /ignore-duplicates/.test(JSON.stringify(postDuenos.opts.headers||{})) && JSON.parse(postDuenos.opts.body).map(x=>x.codigo).join(',')==='COPEC,ENEX', 'agrega los dueños del archivo sin duplicar ni tocar los existentes, y sin el vacío, obtuvo: '+JSON.stringify(postDuenos));
+    assert(postDuenos.url.includes('on_conflict=empresa_id,codigo') && /ignore-duplicates/.test(JSON.stringify(postDuenos.opts.headers||{})) && JSON.parse(postDuenos.opts.body).map(x=>x.codigo).join(',')==='ALBA,VERTICE', 'agrega los dueños del archivo sin duplicar ni tocar los existentes, y sin el vacío, obtuvo: '+JSON.stringify(postDuenos));
     const filasDueno = JSON.parse(calls[iSkus].opts.body);
     const stockDe = (code, dueno) => (filasDueno.find(f=>f.sku_code===code && f.dueno===dueno)||{}).stock_sistema;
-    assert(filasDueno.length===3 && stockDe('P-1','ENEX')===3 && stockDe('P-1','COPEC')===5 && stockDe('P-2','')===7, 'cada dueño con su cantidad (ENEX sumado 2+1), y la fila sin dueño con dueño vacío, obtuvo: '+JSON.stringify(filasDueno));
+    assert(filasDueno.length===3 && stockDe('P-1','VERTICE')===3 && stockDe('P-1','ALBA')===5 && stockDe('P-2','')===7, 'cada dueño con su cantidad (VERTICE sumado 2+1), y la fila sin dueño con dueño vacío, obtuvo: '+JSON.stringify(filasDueno));
     const patchReemplazo = calls.find(c=>c.url.includes('/rest/v1/skus?activo=eq.true') && c.opts && c.opts.method==='PATCH');
-    assert(patchReemplazo && decodeURIComponent(patchReemplazo.url).includes('dueno=in.("","COPEC","ENEX")'), 'Reemplazar completo solo desactiva dentro de los dueños del archivo, obtuvo: '+(patchReemplazo && decodeURIComponent(patchReemplazo.url)));
+    assert(patchReemplazo && decodeURIComponent(patchReemplazo.url).includes('dueno=in.("","ALBA","VERTICE")'), 'Reemplazar completo solo desactiva dentro de los dueños del archivo, obtuvo: '+(patchReemplazo && decodeURIComponent(patchReemplazo.url)));
     const regDueno = calls.find(c=>c.url.includes('/rest/v1/cargas_masivas') && c.opts && c.opts.method==='POST');
-    assert(regDueno && JSON.stringify(JSON.parse(regDueno.opts.body)[0].duenos)==='["","COPEC","ENEX"]', 'la carga anota qué dueños trajo, para acotar los sobrantes, obtuvo: '+(regDueno && regDueno.opts.body));
+    assert(regDueno && JSON.stringify(JSON.parse(regDueno.opts.body)[0].duenos)==='["","ALBA","VERTICE"]', 'la carga anota qué dueños trajo, para acotar los sobrantes, obtuvo: '+(regDueno && regDueno.opts.body));
 
     // Sin columna de dueño (aunque la empresa use dueños): nada cambia.
     ctx.__appstate.cargaPreview = { ...pd, modo:'reemplazar', mapeo:{ sku_code:'Codigo', bodega:'Bodega', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo' } };
@@ -8201,17 +8213,17 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const busquedaAntesGrupo = ctx.__appstate.busqueda;
     const fetchAntesGrupoDueno = ctx.fetch;
     ctx.__appstate.perfil = {...perfilAntesGrupoDueno, empresas:{...(perfilAntesGrupoDueno.empresas||{}), usa_duenos_stock:true}};
-    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
-    assert(ctx.duenoDesdeFiltro('')===undefined && ctx.duenoDesdeFiltro('__sin')==='' && ctx.duenoDesdeFiltro('ENEX')==='ENEX', 'el selector de dueño se traduce a: todos (sin columna), sin dueño (vacío) o el código');
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}]};
+    assert(ctx.duenoDesdeFiltro('')===undefined && ctx.duenoDesdeFiltro('__sin')==='' && ctx.duenoDesdeFiltro('VERTICE')==='VERTICE', 'el selector de dueño se traduce a: todos (sin columna), sin dueño (vacío) o el código');
 
     ctx.__appstate.grupos = {...gruposAntesDueno, creando:true, grupoAbierto:null, lista:[{id:'g-auto', nombre:'Críticos', automatico_critico:true, activo:true, dueno:null, miembros:[{count:0}]}]};
     const htmlFormDueno = ctx.renderGrupos();
     assert(htmlFormDueno.includes('<select id="grupo-dueno">') && htmlFormDueno.includes('id="grupo-automatico-critico"'), 'con dueños, crear grupo ofrece el dueño y permite otro automático de críticos (uno por dueño), obtuvo: '+htmlFormDueno);
 
     calls.length = 0;
-    await ctx.crearGrupo('IE Enex', '60', false, '2027-01-15', 'ENEX');
+    await ctx.crearGrupo('IE Vertice', '60', false, '2027-01-15', 'VERTICE');
     const postGrupoDueno = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
-    assert(postGrupoDueno && JSON.parse(postGrupoDueno.opts.body)[0].dueno==='ENEX', 'el grupo se crea con el dueño elegido, obtuvo: '+(postGrupoDueno && postGrupoDueno.opts.body));
+    assert(postGrupoDueno && JSON.parse(postGrupoDueno.opts.body)[0].dueno==='VERTICE', 'el grupo se crea con el dueño elegido, obtuvo: '+(postGrupoDueno && postGrupoDueno.opts.body));
 
     // crearGrupo recarga la lista de grupos de fondo: se espera a que termine, si no reemplazaría la
     // lista de esta prueba a mitad de camino.
@@ -8221,43 +8233,43 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.fetch = async (url, opts) => {
       urlsGrupo.push(decodeURIComponent(String(url)));
       const cuerpo = String(url).includes('/rpc/buscar_skus_lectura')
-        ? [{sku_code:'P-3', descripcion:'Perno', bodega:'B1', dueno:'ENEX'}, {sku_code:'P-2', descripcion:'Perno', bodega:'B1', dueno:'COPEC'}]
+        ? [{sku_code:'P-3', descripcion:'Perno', bodega:'B1', dueno:'VERTICE'}, {sku_code:'P-2', descripcion:'Perno', bodega:'B1', dueno:'ALBA'}]
         : String(url).includes('/skus_grupos_conteo') ? [{id:'m1', sku_code:'P-1', bodega:'B1'}] : [];
       return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cuerpo), json: async()=>cuerpo };
     };
-    const grupoEnex = {id:'g-enex', nombre:'IE Enex', automatico_critico:false, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:1}]};
-    const autoEnex = {id:'g-auto-enex', nombre:'Críticos Enex', automatico_critico:true, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:0}]};
+    const grupoVertice = {id:'g-vertice', nombre:'IE Vertice', automatico_critico:false, activo:true, dueno:'VERTICE', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:1}]};
+    const autoVertice = {id:'g-auto-vertice', nombre:'Críticos Vertice', automatico_critico:true, activo:true, dueno:'VERTICE', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:0}]};
     // cargado:true: con la vista Grupos en pantalla, un render volvería a pedir la lista (vacía acá).
-    ctx.__appstate.grupos = {...gruposAntesDueno, cargado:true, cargando:false, creando:false, grupoAbierto:'g-enex', lista:[grupoEnex, autoEnex], miembros:[]};
-    await ctx.cargarSeguimientoGrupo('g-enex');
-    await ctx.cargarMiembrosGrupo('g-enex');
+    ctx.__appstate.grupos = {...gruposAntesDueno, cargado:true, cargando:false, creando:false, grupoAbierto:'g-vertice', lista:[grupoVertice, autoVertice], miembros:[]};
+    await ctx.cargarSeguimientoGrupo('g-vertice');
+    await ctx.cargarMiembrosGrupo('g-vertice');
     const consultasSkus = urlsGrupo.filter(u=>u.includes('/rest/v1/skus?'));
-    assert(consultasSkus.length===2 && consultasSkus.every(u=>u.includes('&dueno=eq.ENEX')), 'seguimiento y miembros de un grupo con dueño miran solo sus filas, obtuvo: '+JSON.stringify(consultasSkus));
+    assert(consultasSkus.length===2 && consultasSkus.every(u=>u.includes('&dueno=eq.VERTICE')), 'seguimiento y miembros de un grupo con dueño miran solo sus filas, obtuvo: '+JSON.stringify(consultasSkus));
     urlsGrupo.length = 0;
-    await ctx.cargarSeguimientoGrupo('g-auto-enex');
-    assert(urlsGrupo.some(u=>u.includes('/rest/v1/skus?') && u.includes('critico=eq.true') && u.includes('&dueno=eq.ENEX')), 'el automático de críticos de un dueño son los críticos de ese dueño, obtuvo: '+JSON.stringify(urlsGrupo));
+    await ctx.cargarSeguimientoGrupo('g-auto-vertice');
+    assert(urlsGrupo.some(u=>u.includes('/rest/v1/skus?') && u.includes('critico=eq.true') && u.includes('&dueno=eq.VERTICE')), 'el automático de críticos de un dueño son los críticos de ese dueño, obtuvo: '+JSON.stringify(urlsGrupo));
     ctx.__appstate.grupos.candidatoTexto = 'perno';
     await ctx.buscarCandidatosGrupo();
     assert(ctx.__appstate.grupos.candidatos.length===1 && ctx.__appstate.grupos.candidatos[0].sku_code==='P-3', 'al agregar materiales a un grupo con dueño se ofrecen solo los de ese dueño, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
     const htmlDetalleDueno = ctx.renderGrupos();
-    assert(htmlDetalleDueno.includes('Dueño: Enex S.A.'), 'la ficha del grupo dice de qué dueño es');
+    assert(htmlDetalleDueno.includes('Dueño: Vertice S.A.'), 'la ficha del grupo dice de qué dueño es');
     ctx.__appstate.grupos = {...ctx.__appstate.grupos, grupoAbierto:null};
-    assert(ctx.renderGrupos().includes(' · Dueño: Enex S.A.'), 'la lista de grupos dice el dueño de cada grupo');
+    assert(ctx.renderGrupos().includes(' · Dueño: Vertice S.A.'), 'la lista de grupos dice el dueño de cada grupo');
 
     // El plan que genera el grupo lleva su dueño en cada entrada; uno de todos, igual que siempre.
     const diasPlan = [{fecha:'2026-10-25', materiales:1, zonas:[{bodega:'B1', ubicacion:'U1', materiales:[{sku_code:'P-1', storage_bin:'A-1'}]}]}];
-    assert(ctx.entradasParaCrearPlanGrupo(diasPlan, 'ENEX').every(e=>e.dueno==='ENEX') && ctx.entradasParaCrearPlanGrupo(diasPlan, null).every(e=>!('dueno' in e)), 'las entradas del plan de un grupo llevan su dueño, y sin dueño no llevan la columna');
+    assert(ctx.entradasParaCrearPlanGrupo(diasPlan, 'VERTICE').every(e=>e.dueno==='VERTICE') && ctx.entradasParaCrearPlanGrupo(diasPlan, null).every(e=>!('dueno' in e)), 'las entradas del plan de un grupo llevan su dueño, y sin dueño no llevan la columna');
 
     // Buscar por el automático de críticos de un dueño: viaja como p_solo_criticos + p_dueno.
-    ctx.__appstate.grupos = {...ctx.__appstate.grupos, lista:[grupoEnex, autoEnex]};
-    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-enex', dueno:''};
+    ctx.__appstate.grupos = {...ctx.__appstate.grupos, lista:[grupoVertice, autoVertice]};
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-vertice', dueno:''};
     const pAuto = ctx.construirParametrosBusquedaRpc();
-    assert(pAuto.p_solo_criticos===true && pAuto.p_dueno==='ENEX' && pAuto.p_grupo_id===null, 'el automático de un dueño busca los críticos de ese dueño, obtuvo: '+JSON.stringify(pAuto));
-    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-enex', dueno:'COPEC'};
-    assert(!['ENEX','COPEC',''].includes(ctx.construirParametrosBusquedaRpc().p_dueno) && /^\u0001/.test(ctx.construirParametrosBusquedaRpc().p_dueno), 'el automático de un dueño filtrado por otro dueño no trae nada');
-    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-enex', dueno:''};
+    assert(pAuto.p_solo_criticos===true && pAuto.p_dueno==='VERTICE' && pAuto.p_grupo_id===null, 'el automático de un dueño busca los críticos de ese dueño, obtuvo: '+JSON.stringify(pAuto));
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-vertice', dueno:'ALBA'};
+    assert(!['VERTICE','ALBA',''].includes(ctx.construirParametrosBusquedaRpc().p_dueno) && /^\u0001/.test(ctx.construirParametrosBusquedaRpc().p_dueno), 'el automático de un dueño filtrado por otro dueño no trae nada');
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-vertice', dueno:''};
     const pManual = ctx.construirParametrosBusquedaRpc();
-    assert(pManual.p_grupo_id==='g-enex' && !('p_dueno' in pManual), 'un grupo a mano con dueño lo filtra la base por p_grupo_id, sin p_dueno, obtuvo: '+JSON.stringify(pManual));
+    assert(pManual.p_grupo_id==='g-vertice' && !('p_dueno' in pManual), 'un grupo a mano con dueño lo filtra la base por p_grupo_id, sin p_dueno, obtuvo: '+JSON.stringify(pManual));
 
     ctx.fetch = fetchAntesGrupoDueno;
     ctx.__appstate.perfil = perfilAntesGrupoDueno;

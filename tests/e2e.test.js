@@ -556,7 +556,7 @@ async function loguear(page, perfil, prepararRutas){
     page.on('pageerror', err => erroresPagina.push('duenos-stock: '+err.message));
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
-    const duenos = [{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }];
+    const duenos = [{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }];
     const creados = [];
     // La lista de dueños se simula antes de entrar: el Panel ya la pide al iniciar sesión.
     await loguear(page, perfilDuenos, () => page.route('**/rest/v1/duenos_stock**', r=> {
@@ -565,13 +565,13 @@ async function loguear(page, perfil, prepararRutas){
     }));
     await page.evaluate(() => setState({ view:'config' }));
     assert(await esperarVisible(page, '#form-nuevo-dueno'), 'con el interruptor, Configuraciones muestra Dueños de stock');
-    assert(await esperarCondicion(page, () => document.body.textContent.includes('Enex S.A.')), 'la lista muestra los dueños de la empresa');
-    await page.fill('#nuevo-dueno-codigo', 'COPEC');
-    await page.fill('#nuevo-dueno-nombre', 'Copec');
+    assert(await esperarCondicion(page, () => document.body.textContent.includes('Vertice S.A.')), 'la lista muestra los dueños de la empresa');
+    await page.fill('#nuevo-dueno-codigo', 'ALBA');
+    await page.fill('#nuevo-dueno-nombre', 'Alba');
     await page.click('#form-nuevo-dueno button[type="submit"]');
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('td.mono strong')].some(e=>e.textContent==='COPEC')), 'el dueño nuevo aparece en la lista');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('td.mono strong')].some(e=>e.textContent==='ALBA')), 'el dueño nuevo aparece en la lista');
     const res = await page.evaluate(() => ({ codigo: document.getElementById('nuevo-dueno-codigo').value, desborde: document.documentElement.scrollWidth - window.innerWidth }));
-    assert(creados.length===1 && creados[0].codigo==='COPEC' && creados[0].nombre==='Copec' && res.codigo==='' && res.desborde<=0, 'se crea con código y nombre, el formulario se limpia y a 420 px no desborda, obtuvo '+JSON.stringify({creados, res}));
+    assert(creados.length===1 && creados[0].codigo==='ALBA' && creados[0].nombre==='Alba' && res.codigo==='' && res.desborde<=0, 'se crea con código y nombre, el formulario se limpia y a 420 px no desborda, obtuvo '+JSON.stringify({creados, res}));
     await context.close();
   }
 
@@ -588,27 +588,27 @@ async function loguear(page, perfil, prepararRutas){
     const orden = [], upserts = [], duenosCreados = [];
     await loguear(page, perfilDuenos, () => page.route('**/rest/v1/duenos_stock**', r=> {
       if(r.request().method()==='POST'){ orden.push('duenos'); duenosCreados.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); }
-      return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex', activo:true }]) });
+      return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice', activo:true }]) });
     }));
     await page.route('**/rest/v1/skus?on_conflict=**', r=> { orden.push('skus'); upserts.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); });
     await page.evaluate(() => setState({ view:'carga' }));
     await page.waitForSelector('#file-skus', { state:'attached', timeout:ESPERA });
     const csv = 'Codigo,Descripcion,Bodega,Ubicacion,Storage Bin,Stock,Costo,Cliente\n'
-      + 'P-100,Filtro de aire,CD1,RK,R-01-02,2,1500,ENEX\n'
-      + 'P-100,Filtro de aire,CD1,RK,R-01-02,5,1500,COPEC\n';
+      + 'P-100,Filtro de aire,CD1,RK,R-01-02,2,1500,VERTICE\n'
+      + 'P-100,Filtro de aire,CD1,RK,R-01-02,5,1500,ALBA\n';
     await page.setInputFiles('#file-skus', { name:'stock-wms.csv', mimeType:'text/csv', buffer: Buffer.from(csv) });
     await page.waitForSelector('#map-dueno', { timeout:ESPERA });
     for(const [campo, col] of [['sku_code','Codigo'],['descripcion','Descripcion'],['bodega','Bodega'],['ubicacion','Ubicacion'],['storage_bin','Storage Bin'],['stock_sistema','Stock'],['costo_unitario','Costo'],['dueno','Cliente']]){
       if(await page.$eval(`#map-${campo}`, el=>el.value) !== col){ await page.selectOption(`#map-${campo}`, col); await page.waitForTimeout(150); }
     }
-    assert(await esperarCondicion(page, () => document.body.textContent.includes('1 dueño(s) nuevo(s) se agregan a la lista: COPEC') && document.body.textContent.includes('2 filas → 2 materiales')), 'el preview dice que son 2 materiales y que COPEC es un dueño nuevo');
+    assert(await esperarCondicion(page, () => document.body.textContent.includes('1 dueño(s) nuevo(s) se agregan a la lista: ALBA') && document.body.textContent.includes('2 filas → 2 materiales')), 'el preview dice que son 2 materiales y que ALBA es un dueño nuevo');
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde<=0, 'a 420 px la revisión de la carga no desborda, obtuvo '+desborde);
     if(await page.$('#chk-confirma-aviso-bodega')) await page.check('#chk-confirma-aviso-bodega');
     await page.click('#btn-confirmar-carga');
     assert(await esperarCondicion(page, () => !!state.cargaResultado), 'la carga termina');
     const stock = d => (upserts.find(f=>f.dueno===d)||{}).stock_sistema;
-    assert(orden[0]==='duenos' && duenosCreados.map(x=>x.codigo).join(',')==='COPEC,ENEX' && upserts.length===2 && stock('ENEX')===2 && stock('COPEC')===5, 'primero los dueños, después los dos materiales, cada uno con su cantidad, obtuvo '+JSON.stringify({orden, duenosCreados, upserts:upserts.map(f=>[f.dueno,f.stock_sistema])}));
+    assert(orden[0]==='duenos' && duenosCreados.map(x=>x.codigo).join(',')==='ALBA,VERTICE' && upserts.length===2 && stock('VERTICE')===2 && stock('ALBA')===5, 'primero los dueños, después los dos materiales, cada uno con su cantidad, obtuvo '+JSON.stringify({orden, duenosCreados, upserts:upserts.map(f=>[f.dueno,f.stock_sistema])}));
     await context.close();
   }
 
@@ -622,7 +622,7 @@ async function loguear(page, perfil, prepararRutas){
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
     // La lista de dueños se simula antes de entrar: el Panel ya la pide al iniciar sesión.
-    await loguear(page, perfilDuenos, () => page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) })));
+    await loguear(page, perfilDuenos, () => page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }, { id:'d2', codigo:'ALBA', nombre:'Alba', activo:true }]) })));
     const creados = [];
     await page.route('**/rest/v1/rpc/catalogos_pantalla_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
       categorias:['Repuestos'], unidades:['EA'], batches:[],
@@ -637,33 +637,33 @@ async function loguear(page, perfil, prepararRutas){
       return route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'srv-sku-88', activo:true, ...fila }]) });
     });
     await page.route('**/rest/v1/rpc/buscar_skus_lectura**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
-      { id:'s-enex', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:2, dueno:'ENEX' },
-      { id:'s-copec', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:5, dueno:'COPEC' },
+      { id:'s-vertice', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:2, dueno:'VERTICE' },
+      { id:'s-alba', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:5, dueno:'ALBA' },
     ]) }));
 
     await page.evaluate(() => setState({view:'skus'}));
     await page.waitForSelector('#form-sku');
     if(!(await page.isVisible('#s-code'))) await page.click('#skus-agregar > summary');
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#s-dueno option')].some(o=>o.value==='ENEX')), 'el formulario ofrece los dueños de la empresa');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#s-dueno option')].some(o=>o.value==='VERTICE')), 'el formulario ofrece los dueños de la empresa');
     await page.waitForFunction(() => [...document.querySelectorAll('#s-bodega option')].some(o=>o.value==='Nave Mina'), null, { timeout:ESPERA });
     await page.fill('#s-code', 'NUEVO-88');
     await page.press('#s-code', 'Tab');
     await page.fill('#s-desc', 'Valvula de bola');
-    await page.selectOption('#s-dueno', 'ENEX');
+    await page.selectOption('#s-dueno', 'VERTICE');
     await page.selectOption('#s-bodega', 'Nave Mina');
     await page.fill('#s-bin', 'N1E-001-A1');
     const desbordeForm = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeForm <= 0, 'a 420 px el formulario con dueño no desborda, obtuvo '+desbordeForm);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/sku-form-dueno-420.png', fullPage: true });
-    assert((await page.inputValue('#s-dueno')) === 'ENEX', 'elegir la bodega no borra el dueño elegido, obtuvo '+(await page.inputValue('#s-dueno')));
+    assert((await page.inputValue('#s-dueno')) === 'VERTICE', 'elegir la bodega no borra el dueño elegido, obtuvo '+(await page.inputValue('#s-dueno')));
     await page.click('#form-sku button[type=submit]');
     assert(await esperarCondicion(page, () => !!document.getElementById('btn-contar-sku-creado')), 'el SKU se guarda');
-    assert(creados.length===1 && creados[0].dueno==='ENEX' && creados[0].sku_code==='NUEVO-88', 'el SKU viaja con el dueño elegido, obtuvo '+JSON.stringify(creados));
+    assert(creados.length===1 && creados[0].dueno==='VERTICE' && creados[0].sku_code==='NUEVO-88', 'el SKU viaja con el dueño elegido, obtuvo '+JSON.stringify(creados));
 
     await page.click('#btn-contar-sku-creado');
     await page.waitForSelector('#form-conteo', { timeout:ESPERA });
     const chipFicha = await page.textContent('.conteo-ficha .chip-dueno');
-    assert(chipFicha === 'Enex S.A.', 'la ficha de Contar muestra de quién es el material, obtuvo '+chipFicha);
+    assert(chipFicha === 'Vertice S.A.', 'la ficha de Contar muestra de quién es el material, obtuvo '+chipFicha);
     const desbordeFicha = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeFicha <= 0, 'a 420 px la ficha con dueño no desborda, obtuvo '+desbordeFicha);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-ficha-dueno-420.png' });
@@ -673,7 +673,7 @@ async function loguear(page, perfil, prepararRutas){
     await page.keyboard.type('P-100');
     assert(await esperarCondicion(page, () => document.querySelectorAll('#buscador-libre-resultados [data-pick] .chip-dueno').length === 2), 'el buscador muestra el dueño de cada resultado');
     const chips = await page.$$eval('#buscador-libre-resultados [data-pick] .chip-dueno', els => els.map(e => e.textContent));
-    assert(chips.join('|') === 'Enex S.A.|Copec', 'dos clientes con el mismo código se distinguen por su dueño, obtuvo '+JSON.stringify(chips));
+    assert(chips.join('|') === 'Vertice S.A.|Alba', 'dos clientes con el mismo código se distinguen por su dueño, obtuvo '+JSON.stringify(chips));
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-buscador-dueno-420.png' });
     await context.close();
   }
@@ -1080,11 +1080,11 @@ async function loguear(page, perfil, prepararRutas){
     perfilDuenos.empresas.usa_duenos_stock = true;
     const urlsSinBin = [], cuerposPlan = [];
     await loguear(page, perfilDuenos, async () => {
-      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }, { id:'d2', codigo:'ALBA', nombre:'Alba', activo:true }]) }));
     });
     const hoy = await page.evaluate(() => fechaISO(new Date()));
     const entradas = [
-      { id:'pd1', fecha:hoy, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:null, responsable_id:null, responsable_nombre:null, ciclo_nombre:null, nota:null, skus_excluidos:[], por_sku:false, dueno:'ENEX' },
+      { id:'pd1', fecha:hoy, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:null, responsable_id:null, responsable_nombre:null, ciclo_nombre:null, nota:null, skus_excluidos:[], por_sku:false, dueno:'VERTICE' },
       { id:'pd2', fecha:hoy, bodega:'Nave Mina', ubicacion:'Pasillo 4', storage_bin:null, responsable_id:null, responsable_nombre:null, ciclo_nombre:null, nota:null, skus_excluidos:[], por_sku:false, dueno:null },
     ];
     await page.route('**/rest/v1/rpc/plan_ventana_pantalla**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ entradas, universo:{} }) }));
@@ -1092,13 +1092,13 @@ async function loguear(page, perfil, prepararRutas){
     await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:40, cantidad_pendiente:30}]) }));
     await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:4}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-02', cantidad_skus:4}]) }));
     // Las vistas por dueño (registradas después: ganan sobre las de arriba, cuyo patrón también las toma).
-    await page.route('**/rest/v1/ubicaciones_generales_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', dueno:'ENEX', cantidad_skus:9, cantidad_pendiente:7}]) }));
-    await page.route('**/rest/v1/ubicaciones_especificas_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', dueno:'ENEX', cantidad_skus:9, cantidad_pendiente:7}]) }));
-    await page.route('**/rest/v1/ubicaciones_bins_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', dueno:'ENEX', cantidad_skus:2}]) }));
+    await page.route('**/rest/v1/ubicaciones_generales_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', dueno:'VERTICE', cantidad_skus:9, cantidad_pendiente:7}]) }));
+    await page.route('**/rest/v1/ubicaciones_especificas_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', dueno:'VERTICE', cantidad_skus:9, cantidad_pendiente:7}]) }));
+    await page.route('**/rest/v1/ubicaciones_bins_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', dueno:'VERTICE', cantidad_skus:2}]) }));
     await page.route(/skus_disponibles_planificar\?.*storage_bin\.is\.null/, route => {
       const url = decodeURIComponent(route.request().url());
       urlsSinBin.push(url);
-      const n = url.includes('dueno=eq.ENEX') ? 5 : 22;
+      const n = url.includes('dueno=eq.VERTICE') ? 5 : 22;
       route.fulfill({ status:200, contentType:'application/json', headers:{'content-range':`0-0/${n}`, 'access-control-expose-headers':'content-range', 'access-control-allow-origin':'*'}, body:'[]' });
     });
     await page.route(/\/rest\/v1\/plan_semanal(\?|$)/, route => {
@@ -1108,29 +1108,29 @@ async function loguear(page, perfil, prepararRutas){
       route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify(filas.map((f,i)=>({ ...f, id:'nuevo-'+i }))) });
     });
     await page.evaluate(() => setState({ view:'plan' }));
-    assert(await esperarVisible(page, '.plan-item:has-text("Pasillo 3") .plan-item-responsable:has-text("Dueño: Enex S.A.")'), 'la entrada de un dueño dice de quién es');
+    assert(await esperarVisible(page, '.plan-item:has-text("Pasillo 3") .plan-item-responsable:has-text("Dueño: Vertice S.A.")'), 'la entrada de un dueño dice de quién es');
     assert(!(await page.isVisible('.plan-item:has-text("Pasillo 4") .plan-item-responsable:has-text("Dueño")')), 'una entrada de todos los dueños no muestra dueño');
 
     await page.click('#btn-toggle-agregar-plan');
     await page.waitForSelector('#form-plan', { state:'visible', timeout:ESPERA });
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#p-dueno option')].some(o=>o.value==='ENEX')), 'el formulario ofrece elegir el dueño');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#p-dueno option')].some(o=>o.value==='VERTICE')), 'el formulario ofrece elegir el dueño');
     await page.selectOption('#p-bodega', 'Nave Mina');
     await page.waitForFunction(() => /22 sin storage bin/.test(document.getElementById('p-bin-resumen').textContent), null, { timeout:ESPERA });
     assert(!urlsSinBin[urlsSinBin.length-1].includes('dueno='), 'con "Todos los dueños", los pendientes sin bin se cuentan como siempre, obtuvo '+urlsSinBin[urlsSinBin.length-1]);
     const bodegaTodos = await page.$eval('#p-bodega option[value="Nave Mina"]', o => o.textContent);
     assert(bodegaTodos === 'Nave Mina (30/40)', 'con "Todos los dueños" la ubicación general muestra los números de siempre, obtuvo '+bodegaTodos);
-    await page.selectOption('#p-dueno', 'ENEX');
+    await page.selectOption('#p-dueno', 'VERTICE');
     await page.waitForFunction(() => /5 sin storage bin/.test(document.getElementById('p-bin-resumen').textContent), null, { timeout:ESPERA });
     const listasDueno = await page.evaluate(() => ({ bodega: (document.querySelector('#p-bodega option[value="Nave Mina"]')||{}).textContent, ubic: [...document.querySelectorAll('#p-ubic option')].map(o=>o.textContent), bins: [...document.querySelectorAll('#p-bin option')].map(o=>o.textContent), resumen: document.getElementById('p-bin-resumen').textContent }));
     assert(listasDueno.bodega === 'Nave Mina (7/9)' && listasDueno.ubic.join('|') === 'Todas (7/9)|Pasillo 3 (7/9)' && listasDueno.bins.join('|') === 'A-01 — 2 SKU' && listasDueno.resumen === '(1 bin / 2 SKU · 5 sin storage bin)', 'con un dueño, las tres listas muestran sus números, obtuvo '+JSON.stringify(listasDueno));
     const formDueno = await page.evaluate(() => ({ dueno: document.getElementById('p-dueno').value, bodega: document.getElementById('p-bodega').value, hint: document.getElementById('p-campos-ubicacion').textContent }));
-    assert(formDueno.dueno === 'ENEX' && formDueno.bodega === 'Nave Mina' && formDueno.hint.includes('los números de las listas son los suyos'), 'elegir el dueño no borra el resto del formulario y avisa que la entrada es solo suya, obtuvo '+JSON.stringify(formDueno));
+    assert(formDueno.dueno === 'VERTICE' && formDueno.bodega === 'Nave Mina' && formDueno.hint.includes('los números de las listas son los suyos'), 'elegir el dueño no borra el resto del formulario y avisa que la entrada es solo suya, obtuvo '+JSON.stringify(formDueno));
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde <= 0, 'a 420 px Planificación con el dueño no desborda, obtuvo '+desborde);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/plan-dueno-420.png', fullPage: true });
     await page.click('#form-plan button[type="submit"]');
     for(let i=0; i<100 && !cuerposPlan.length; i++) await page.waitForTimeout(50);
-    assert(cuerposPlan.length === 1 && cuerposPlan[0].length === 1 && cuerposPlan[0][0].dueno === 'ENEX' && cuerposPlan[0][0].bodega === 'Nave Mina', 'la entrada se guarda con el dueño elegido, obtuvo '+JSON.stringify(cuerposPlan));
+    assert(cuerposPlan.length === 1 && cuerposPlan[0].length === 1 && cuerposPlan[0][0].dueno === 'VERTICE' && cuerposPlan[0][0].bodega === 'Nave Mina', 'la entrada se guarda con el dueño elegido, obtuvo '+JSON.stringify(cuerposPlan));
     await context.close();
   }
 
@@ -1144,31 +1144,31 @@ async function loguear(page, perfil, prepararRutas){
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
     const cuerposGrupo = [];
-    const grupos = [{ id:'gd1', nombre:'Críticos Enex', automatico_critico:true, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:0}] }];
+    const grupos = [{ id:'gd1', nombre:'Críticos Vertice', automatico_critico:true, activo:true, dueno:'VERTICE', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:0}] }];
     await loguear(page, perfilDuenos, async () => {
-      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }, { id:'d2', codigo:'ALBA', nombre:'Alba', activo:true }]) }));
     });
     await page.route('**/rest/v1/grupos_conteo**', route => {
       if(route.request().method() === 'POST'){ cuerposGrupo.push(route.request().postDataJSON()); return route.fulfill({ status:201, contentType:'application/json', body:'' }); }
       return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(grupos) });
     });
     await page.evaluate(() => setState({ view:'grupos' }));
-    assert(await esperarVisible(page, '.plan-item:has-text("Críticos Enex") .hint:has-text("Dueño: Enex S.A.")'), 'la lista de grupos dice el dueño de cada grupo');
+    assert(await esperarVisible(page, '.plan-item:has-text("Críticos Vertice") .hint:has-text("Dueño: Vertice S.A.")'), 'la lista de grupos dice el dueño de cada grupo');
     await page.click('#btn-nuevo-grupo');
     await page.waitForSelector('#form-crear-grupo', { timeout:ESPERA });
-    await page.fill('#grupo-nombre', 'IE Copec');
+    await page.fill('#grupo-nombre', 'IE Alba');
     await page.fill('#grupo-frecuencia', '90');
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#grupo-dueno option')].some(o=>o.value==='COPEC')), 'crear grupo ofrece elegir el dueño');
-    await page.selectOption('#grupo-dueno', 'COPEC');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#grupo-dueno option')].some(o=>o.value==='ALBA')), 'crear grupo ofrece elegir el dueño');
+    await page.selectOption('#grupo-dueno', 'ALBA');
     const campos = await page.evaluate(() => [document.getElementById('grupo-nombre').value, document.getElementById('grupo-frecuencia').value].join('|'));
-    assert(campos === 'IE Copec|90', 'elegir el dueño no borra lo ya escrito, obtuvo '+campos);
+    assert(campos === 'IE Alba|90', 'elegir el dueño no borra lo ya escrito, obtuvo '+campos);
     assert(await page.isVisible('#grupo-automatico-critico'), 'con dueños se puede crear otro automático de críticos (uno por dueño)');
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde <= 0, 'a 420 px crear grupo con dueño no desborda, obtuvo '+desborde);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/grupo-dueno-420.png', fullPage: true });
     await page.click('#form-crear-grupo button[type="submit"]');
     for(let i=0; i<100 && !cuerposGrupo.length; i++) await page.waitForTimeout(50);
-    assert(cuerposGrupo.length === 1 && cuerposGrupo[0][0].dueno === 'COPEC' && cuerposGrupo[0][0].nombre === 'IE Copec', 'el grupo se guarda con el dueño elegido, obtuvo '+JSON.stringify(cuerposGrupo));
+    assert(cuerposGrupo.length === 1 && cuerposGrupo[0][0].dueno === 'ALBA' && cuerposGrupo[0][0].nombre === 'IE Alba', 'el grupo se guarda con el dueño elegido, obtuvo '+JSON.stringify(cuerposGrupo));
     await context.close();
   }
 
@@ -1180,15 +1180,15 @@ async function loguear(page, perfil, prepararRutas){
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
     await loguear(page, perfilDuenos, async () => {
-      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }]) }));
+      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }]) }));
     });
     const seccion = (u, c) => ({ avance_total:[{bodega:'B1', skus_universo:u, skus_contados:c, porcentaje_avance:0}], exactitud_por_bodega:[], diferencias_recientes:{sin_diferencia:0, con_diferencia:0}, ranking_responsable:[], valorizacion_diferencias:[], reconteos_sin_resolver:[] });
     await page.route('**/rest/v1/informes_ciclo**', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
-      { id:'inf-1', ciclo_nombre:'Trimestre de prueba con nombre largo', fecha_inicio:'2026-07-01', fecha_cierre:'2026-09-30T20:00:00Z', datos:{ ...seccion(100, 40), por_dueno:{ 'ENEX': seccion(30, 12), '': seccion(70, 28) } } },
+      { id:'inf-1', ciclo_nombre:'Trimestre de prueba con nombre largo', fecha_inicio:'2026-07-01', fecha_cierre:'2026-09-30T20:00:00Z', datos:{ ...seccion(100, 40), por_dueno:{ 'VERTICE': seccion(30, 12), '': seccion(70, 28) } } },
     ]) }));
     await page.evaluate(() => setState({ view:'ciclos' }));
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('[data-informe-dueno="inf-1"] option')].some(o=>o.value==='ENEX')), 'el informe de cierre ofrece elegir el dueño');
-    await page.selectOption('[data-informe-dueno="inf-1"]', 'ENEX');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('[data-informe-dueno="inf-1"] option')].some(o=>o.value==='VERTICE')), 'el informe de cierre ofrece elegir el dueño');
+    await page.selectOption('[data-informe-dueno="inf-1"]', 'VERTICE');
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde <= 0, 'a 420 px la lista de informes con dueño no desborda, obtuvo '+desborde);
     if (process.env.E2E_CAPTURAS) await (await page.$('[data-informe-dueno="inf-1"]')).evaluate(el => el.closest('.card').scrollIntoView({block:'center'}));
@@ -1196,7 +1196,7 @@ async function loguear(page, perfil, prepararRutas){
     await page.evaluate(() => { window.print = () => {}; });
     await page.click('[data-ver-informe-ciclo="inf-1"]');
     const impreso = await page.evaluate(() => document.getElementById('print-informe').textContent);
-    assert(impreso.includes('Dueño: Enex S.A.') && impreso.includes('12 de 30 SKU'), 'el informe impreso es el del dueño elegido, obtuvo '+impreso.slice(0, 300));
+    assert(impreso.includes('Dueño: Vertice S.A.') && impreso.includes('12 de 30 SKU'), 'el informe impreso es el del dueño elegido, obtuvo '+impreso.slice(0, 300));
     await context.close();
   }
 
@@ -2093,16 +2093,16 @@ async function loguear(page, perfil, prepararRutas){
     perfilBodega.empresas.bodega_funciones = {};
     perfilBodega.empresas.usa_duenos_stock = true;
     await mockearSupabaseApp(page, perfilBodega);
-    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }, { id:'d2', codigo:'ALBA', nombre:'Alba', activo:true }]) }));
     const urlsStock = [];
     const filasStock = [
-      { sku_id:'s1', sku_code:'P-100', descripcion:'Filtro de aire', storage_bin:'R-01-02', stock:2, unidad_medida:'UN', valor:3000, costo_unitario:1500, dueno:'ENEX' },
-      { sku_id:'s2', sku_code:'P-100', descripcion:'Filtro de aire', storage_bin:'R-01-02', stock:5, unidad_medida:'UN', valor:7500, costo_unitario:1500, dueno:'COPEC' },
+      { sku_id:'s1', sku_code:'P-100', descripcion:'Filtro de aire', storage_bin:'R-01-02', stock:2, unidad_medida:'UN', valor:3000, costo_unitario:1500, dueno:'VERTICE' },
+      { sku_id:'s2', sku_code:'P-100', descripcion:'Filtro de aire', storage_bin:'R-01-02', stock:5, unidad_medida:'UN', valor:7500, costo_unitario:1500, dueno:'ALBA' },
     ];
     await page.route('**/rest/v1/stock_actual**', route => {
       const u = route.request().url();
       urlsStock.push(u);
-      const filas = u.includes('dueno=eq.ENEX') ? filasStock.filter(f=>f.dueno==='ENEX') : filasStock;
+      const filas = u.includes('dueno=eq.VERTICE') ? filasStock.filter(f=>f.dueno==='VERTICE') : filasStock;
       return route.fulfill({ status:200, contentType:'application/json', headers:{ 'Content-Range': `0-${filas.length-1}/${filas.length}`, 'Access-Control-Expose-Headers':'Content-Range' }, body: JSON.stringify(filas) });
     });
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
@@ -2111,11 +2111,11 @@ async function loguear(page, perfil, prepararRutas){
     await page.click('#auth-form button[type="submit"]');
     await page.waitForSelector('.tabbar', { timeout:ESPERA });
     await page.evaluate(() => setState({ view:'stock' }));
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#stock-dueno option')].some(o=>o.value==='ENEX')), 'Stock ofrece filtrar por dueño');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#stock-dueno option')].some(o=>o.value==='VERTICE')), 'Stock ofrece filtrar por dueño');
     assert(await esperarCondicion(page, () => document.querySelectorAll('.chip-dueno').length === 2), 'cada fila del stock muestra su dueño');
-    await page.selectOption('#stock-dueno', 'ENEX');
+    await page.selectOption('#stock-dueno', 'VERTICE');
     assert(await esperarCondicion(page, () => document.querySelectorAll('.chip-dueno').length === 1), 'al elegir un dueño se ve solo su stock');
-    assert(urlsStock[urlsStock.length-1].includes('dueno=eq.ENEX'), 'el filtro va a la consulta, obtuvo '+urlsStock[urlsStock.length-1]);
+    assert(urlsStock[urlsStock.length-1].includes('dueno=eq.VERTICE'), 'el filtro va a la consulta, obtuvo '+urlsStock[urlsStock.length-1]);
     const desbordeStock = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeStock <= 0, 'a 420 px el Stock con filtro de dueño no desborda, obtuvo '+desbordeStock);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/stock-dueno-420.png', fullPage: true });
@@ -2562,20 +2562,20 @@ async function loguear(page, perfil, prepararRutas){
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
     await mockearSupabaseApp(page, perfilDuenos);
-    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }, { id:'d2', codigo:'ALBA', nombre:'Alba', activo:true }]) }));
     const cuerposFilas = [], cuerposPagina = [];
     const fila = (id, dueno) => ({ sku_id:id, sku_code:'P-100', descripcion:'Filtro de aire', bodega:'CD1', ubicacion:'RK', storage_bin:'R-01-02', batch:null, conteo_id:null, cantidad_contada:null, estado:null, diferencia:null, fecha_conteo:null, fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, dueno });
     await page.route('**/rest/v1/rpc/filas_busqueda_skus**', route => {
       const c = route.request().postDataJSON() || {};
       cuerposFilas.push(c);
-      const filas = c.p_dueno==='ENEX' ? [fila('s1','ENEX')] : [fila('s1','ENEX'), fila('s2','COPEC')];
+      const filas = c.p_dueno==='VERTICE' ? [fila('s1','VERTICE')] : [fila('s1','VERTICE'), fila('s2','ALBA')];
       return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) });
     });
-    await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: (route.request().postDataJSON()||{}).p_dueno==='ENEX' ? '1' : '2' }));
+    await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: (route.request().postDataJSON()||{}).p_dueno==='VERTICE' ? '1' : '2' }));
     await page.route('**/rest/v1/rpc/pagina_skus**', route => {
       const c = route.request().postDataJSON() || {};
       cuerposPagina.push(c);
-      const rows = c.p_dueno==='__nadie__' ? [] : [{ id:'s1', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'CD1', storage_bin:'R-01-02', stock_sistema:2, activo:true, dueno:'ENEX' }];
+      const rows = c.p_dueno==='__nadie__' ? [] : [{ id:'s1', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'CD1', storage_bin:'R-01-02', stock_sistema:2, activo:true, dueno:'VERTICE' }];
       return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ total: rows.length, rows }) });
     });
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
@@ -2591,25 +2591,25 @@ async function loguear(page, perfil, prepararRutas){
     assert(await esperarCondicion(page, () => document.querySelectorAll('.chk-buscar-fila').length === 2), 'sin filtro aparecen los dos dueños');
     assert(!('p_dueno' in cuerposFilas[cuerposFilas.length-1]), 'sin filtro de dueño, Buscar pide lo de siempre, obtuvo '+JSON.stringify(cuerposFilas[cuerposFilas.length-1]));
     await page.click('#buscar-filtros > summary');
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#b-dueno option')].some(o=>o.value==='ENEX')), 'Buscar ofrece filtrar por dueño');
-    await page.selectOption('#b-dueno', 'ENEX');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#b-dueno option')].some(o=>o.value==='VERTICE')), 'Buscar ofrece filtrar por dueño');
+    await page.selectOption('#b-dueno', 'VERTICE');
     const desbordeFiltros = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeFiltros <= 0, 'a 420 px los filtros con dueño no desbordan, obtuvo '+desbordeFiltros);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-filtro-dueno-420.png', fullPage: true });
     await page.click('.buscar-btn');
     assert(await esperarCondicion(page, () => document.querySelectorAll('.chk-buscar-fila').length === 1), 'con el filtro se ve solo el material de ese dueño');
-    assert(cuerposFilas[cuerposFilas.length-1].p_dueno === 'ENEX', 'el filtro viaja a la base, obtuvo '+JSON.stringify(cuerposFilas[cuerposFilas.length-1]));
-    assert(await esperarVisible(page, '#buscar-filtros .fchip:has-text("Dueño: Enex S.A.")'), 'el chip dice de qué dueño es la búsqueda');
+    assert(cuerposFilas[cuerposFilas.length-1].p_dueno === 'VERTICE', 'el filtro viaja a la base, obtuvo '+JSON.stringify(cuerposFilas[cuerposFilas.length-1]));
+    assert(await esperarVisible(page, '#buscar-filtros .fchip:has-text("Dueño: Vertice S.A.")'), 'el chip dice de qué dueño es la búsqueda');
 
     await page.evaluate(() => setState({ view:'skus' }));
-    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#skus-dueno option')].some(o=>o.value==='ENEX')), 'la tabla de SKU ofrece filtrar por dueño');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#skus-dueno option')].some(o=>o.value==='VERTICE')), 'la tabla de SKU ofrece filtrar por dueño');
     assert(!('p_dueno' in cuerposPagina[cuerposPagina.length-1]), 'sin filtro, la tabla de SKU pide lo de siempre');
-    await page.selectOption('#skus-dueno', 'COPEC');
-    assert(await esperarCondicion(page, () => !!document.querySelector('#skus-dueno') && document.querySelector('#skus-dueno').value === 'COPEC'), 'el filtro elegido queda marcado tras recargar la tabla');
-    // El pedido filtrado puede llegar un momento después de que el selector ya muestra COPEC (y antes
+    await page.selectOption('#skus-dueno', 'ALBA');
+    assert(await esperarCondicion(page, () => !!document.querySelector('#skus-dueno') && document.querySelector('#skus-dueno').value === 'ALBA'), 'el filtro elegido queda marcado tras recargar la tabla');
+    // El pedido filtrado puede llegar un momento después de que el selector ya muestra ALBA (y antes
     // de él, alguno de la carga inicial sin filtro): se espera a que aparezca, en vez de mirar el último.
-    for(let i=0; i<100 && !cuerposPagina.some(c=>c.p_dueno === 'COPEC'); i++) await page.waitForTimeout(50);
-    assert(cuerposPagina.some(c=>c.p_dueno === 'COPEC'), 'la tabla pide la página filtrada, obtuvo '+JSON.stringify(cuerposPagina));
+    for(let i=0; i<100 && !cuerposPagina.some(c=>c.p_dueno === 'ALBA'); i++) await page.waitForTimeout(50);
+    assert(cuerposPagina.some(c=>c.p_dueno === 'ALBA'), 'la tabla pide la página filtrada, obtuvo '+JSON.stringify(cuerposPagina));
     const desbordeSkus = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeSkus <= 0, 'a 420 px la tabla de SKU con filtro no desborda, obtuvo '+desbordeSkus);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/skus-filtro-dueno-420.png', fullPage: true });
@@ -2624,17 +2624,17 @@ async function loguear(page, perfil, prepararRutas){
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
     await mockearSupabaseApp(page, perfilDuenos);
-    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }, { id:'d2', codigo:'ALBA', nombre:'Alba', activo:true }]) }));
     let pedidosResumen = 0;
     await page.route('**/rest/v1/rpc/resumen_por_dueno**', r=> { pedidosResumen++; return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
       { dueno:'', total_activo:10, contados:5, cuadrado:4, con_diferencia:1, merma:1, excedente:0, pendiente:0, valor_perdidas:-1500, valor_excedentes:0 },
-      { dueno:'COPEC', total_activo:120, contados:30, cuadrado:28, con_diferencia:2, merma:1, excedente:1, pendiente:0, valor_perdidas:-4000, valor_excedentes:2500 },
-      { dueno:'ENEX', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
+      { dueno:'ALBA', total_activo:120, contados:30, cuadrado:28, con_diferencia:2, merma:1, excedente:1, pendiente:0, valor_perdidas:-4000, valor_excedentes:2500 },
+      { dueno:'VERTICE', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
     ]) }); });
     const cuerposPanel = [];
     await page.route('**/rest/v1/rpc/dashboard_ejecutivo**', r=> { cuerposPanel.push(r.request().postDataJSON() || {}); return r.fallback(); });
     const urlsExport = [];
-    await page.route('**/rest/v1/conteos_exportables**', r=> { urlsExport.push(r.request().url()); return r.fulfill({ status:200, contentType:'application/json', headers:{ 'Content-Range':'0-0/1', 'Access-Control-Expose-Headers':'Content-Range' }, body: JSON.stringify([{ conteo_id:'c1', sku_code:'P-100', descripcion:'Filtro de aire', cantidad_contada:2, diferencia:0, estado:'aprobado', fecha_conteo:'2026-10-20T12:00:00Z', capturado_en:'2026-10-20T12:00:00Z', dueno:'ENEX' }]) }); });
+    await page.route('**/rest/v1/conteos_exportables**', r=> { urlsExport.push(r.request().url()); return r.fulfill({ status:200, contentType:'application/json', headers:{ 'Content-Range':'0-0/1', 'Access-Control-Expose-Headers':'Content-Range' }, body: JSON.stringify([{ conteo_id:'c1', sku_code:'P-100', descripcion:'Filtro de aire', cantidad_contada:2, diferencia:0, estado:'aprobado', fecha_conteo:'2026-10-20T12:00:00Z', capturado_en:'2026-10-20T12:00:00Z', dueno:'VERTICE' }]) }); });
     await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
     await page.fill('#f-email', 'ana@minera-andes.cl');
     await page.fill('#f-pass', '123456');
@@ -2643,7 +2643,7 @@ async function loguear(page, perfil, prepararRutas){
     await page.evaluate(() => setState({ view:'dashboard', dashboardModo:'operativo' }));
     assert(await esperarCondicion(page, () => !!document.getElementById('btn-exportar-resumen-duenos')), 'el Panel muestra la tarjeta Por dueño');
     const chipsResumen = await page.$$eval('.chip-dueno', els => els.map(e => e.textContent));
-    assert(chipsResumen.includes('Enex S.A.') && chipsResumen.includes('Copec'), 'la tarjeta nombra a cada dueño, obtuvo '+JSON.stringify(chipsResumen));
+    assert(chipsResumen.includes('Vertice S.A.') && chipsResumen.includes('Alba'), 'la tarjeta nombra a cada dueño, obtuvo '+JSON.stringify(chipsResumen));
     assert(pedidosResumen >= 1, 'el resumen por dueño se pide al abrir el Panel');
     const desbordeResumen = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeResumen <= 0, 'a 420 px la tarjeta Por dueño no desborda la página, obtuvo '+desbordeResumen);
@@ -2651,14 +2651,14 @@ async function loguear(page, perfil, prepararRutas){
     // El Panel completo filtrado por dueño: sin elegir, la llamada es la de siempre; al elegir, va
     // p_dueno y el Panel dice de quién es.
     assert(cuerposPanel.length && !('p_dueno' in cuerposPanel[cuerposPanel.length-1]), 'sin dueño elegido, el Panel pide lo de siempre, obtuvo '+JSON.stringify(cuerposPanel[cuerposPanel.length-1]));
-    await page.selectOption('#dash-dueno', 'ENEX');
-    assert(await esperarCondicion(page, () => document.body.textContent.includes('Panel de Enex S.A.')), 'al elegir un dueño, el Panel dice de quién es');
-    assert(await esperarCondicion(page, () => !state.dashDesactualizado) && cuerposPanel[cuerposPanel.length-1].p_dueno === 'ENEX', 'el Panel pide la versión filtrada por dueño, obtuvo '+JSON.stringify(cuerposPanel[cuerposPanel.length-1]));
+    await page.selectOption('#dash-dueno', 'VERTICE');
+    assert(await esperarCondicion(page, () => document.body.textContent.includes('Panel de Vertice S.A.')), 'al elegir un dueño, el Panel dice de quién es');
+    assert(await esperarCondicion(page, () => !state.dashDesactualizado) && cuerposPanel[cuerposPanel.length-1].p_dueno === 'VERTICE', 'el Panel pide la versión filtrada por dueño, obtuvo '+JSON.stringify(cuerposPanel[cuerposPanel.length-1]));
     const desbordePanelFiltro = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordePanelFiltro <= 0, 'a 420 px el Panel con filtro de dueño no desborda, obtuvo '+desbordePanelFiltro);
     if (process.env.E2E_CAPTURAS){ await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: process.env.E2E_CAPTURAS + '/panel-filtro-dueno-420.png' }); }
     await page.selectOption('#dash-dueno', '');
-    assert(await esperarCondicion(page, () => !document.body.textContent.includes('Panel de Enex S.A.')), 'volver a "Todos los dueños" quita el filtro');
+    assert(await esperarCondicion(page, () => !document.body.textContent.includes('Panel de Vertice S.A.')), 'volver a "Todos los dueños" quita el filtro');
     const descargaResumen = page.waitForEvent('download', { timeout:ESPERA }).catch(()=>null);
     await page.click('#btn-exportar-resumen-duenos');
     const archivoResumen = await descargaResumen;
@@ -2666,12 +2666,12 @@ async function loguear(page, perfil, prepararRutas){
 
     await page.evaluate(() => setState({ exportarModal:true }));
     await page.waitForSelector('#ex-dueno', { timeout:ESPERA });
-    await page.selectOption('#ex-dueno', 'ENEX');
+    await page.selectOption('#ex-dueno', 'VERTICE');
     const descargaConteos = page.waitForEvent('download', { timeout:ESPERA }).catch(()=>null);
     await page.click('#form-exportar-conteos button[type="submit"]');
     const archivoConteos = await descargaConteos;
-    assert(urlsExport.length && urlsExport[urlsExport.length-1].includes('dueno=eq.ENEX'), 'la exportación de conteos filtra por el dueño elegido, obtuvo '+urlsExport[urlsExport.length-1]);
-    assert(archivoConteos && archivoConteos.suggestedFilename().startsWith('conteos_ENEX_'), 'el archivo lleva el dueño en el nombre, obtuvo '+(archivoConteos && archivoConteos.suggestedFilename()));
+    assert(urlsExport.length && urlsExport[urlsExport.length-1].includes('dueno=eq.VERTICE'), 'la exportación de conteos filtra por el dueño elegido, obtuvo '+urlsExport[urlsExport.length-1]);
+    assert(archivoConteos && archivoConteos.suggestedFilename().startsWith('conteos_VERTICE_'), 'el archivo lleva el dueño en el nombre, obtuvo '+(archivoConteos && archivoConteos.suggestedFilename()));
     await context.close();
   }
 
