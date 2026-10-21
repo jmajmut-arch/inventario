@@ -10032,7 +10032,7 @@ async function prepararCargaMasiva(file){
     const campos = camposCargaSkus();
     const mapeo = detectarMapeo(headers, campos);
     const avisoBodega = await calcularAvisoBodega(data, mapeo.bodega);
-    setState({cargaPreview: { file, headers, data, campos, mapeo, modo:'complementar', repetidas:REPETIDAS_QUEDA_ULTIMA, confirmaReemplazo:false, avisoBodega }});
+    setState({cargaPreview: { file, headers, data, campos, mapeo, modo:'complementar', repetidas:repetidasPorDefectoCarga(), confirmaReemplazo:false, avisoBodega }});
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -10214,10 +10214,13 @@ function renderResumenArchivoCarga(data, mapeo, repetidasModo){
 // ubicación + bin). Un ERP que repite una línea por error quiere quedarse con una; un WMS que
 // anota cada pallet o partida en su propia fila quiere sumarlas (Joel, 20/10/2026, con el stock de
 // un operador logístico: 4 de 19 filas eran otro pallet del mismo lote en el mismo bin, y quedarse
-// con la última perdía 4 de 24 unidades). Lo decide quien carga, viendo los números; por defecto
-// queda la última, que es lo de siempre.
+// con la última perdía 4 de 24 unidades). Lo decide quien carga, viendo los números. Por defecto
+// queda la última, que es lo de siempre, salvo en una empresa con dueños de stock (un operador
+// logístico, con WMS): ahí parte en Sumar (Joel, 22/10/2026). Pasó de verdad: la primera carga de
+// prueba de un WMS se confirmó con "la última" y quedaron 1.742 unidades menos.
 const REPETIDAS_QUEDA_ULTIMA = 'ultima';
 const REPETIDAS_SUMAR = 'sumar';
+function repetidasPorDefectoCarga(){ return usaDuenosStock() ? REPETIDAS_SUMAR : REPETIDAS_QUEDA_ULTIMA; }
 const MOTIVO_FILAS_REPETIDAS_SUMADAS = 'Filas repetidas (mismo código, bodega, batch, ubicación y storage bin) sumadas en su material';
 const MOTIVO_FILAS_REPETIDAS_PISADAS = 'Filas repetidas (mismo código, bodega, batch, ubicación y storage bin) descartadas: quedó la última';
 // Al sumar, se suman las cantidades; el resto (descripción, costo, unidad…) queda de la última
@@ -17897,8 +17900,8 @@ function renderDuenosStockConfig(){
     <div class="section-head"><div><span class="eyebrow">Maestro</span><h2 style="font-size:15px">Dueños de stock ${campoConInfo('Si guardas mercadería de varios clientes, cada material es de uno de ellos: el mismo código de dos clientes en el mismo bin son dos materiales, cada uno con su cantidad. El código es el que trae tu archivo (por ejemplo, la columna del cliente en tu WMS) y no se puede cambiar; el nombre sí.')}</h2></div></div>
     <div class="card">
       <form id="form-nuevo-dueno" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;max-width:620px;margin-bottom:12px">
-        <div style="flex:1 1 140px"><label for="nuevo-dueno-codigo">Código</label><input type="text" id="nuevo-dueno-codigo" placeholder="Ej. ENEX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="margin:0"></div>
-        <div style="flex:2 1 180px"><label for="nuevo-dueno-nombre">Nombre</label><input type="text" id="nuevo-dueno-nombre" placeholder="Ej. Enex S.A." autocomplete="off" style="margin:0"></div>
+        <div style="flex:1 1 140px"><label for="nuevo-dueno-codigo">Código</label><input type="text" id="nuevo-dueno-codigo" placeholder="Ej. CLI01" autocomplete="off" autocapitalize="characters" spellcheck="false" style="margin:0"></div>
+        <div style="flex:2 1 180px"><label for="nuevo-dueno-nombre">Nombre</label><input type="text" id="nuevo-dueno-nombre" placeholder="Ej. Distribuidora del Norte S.A." autocomplete="off" style="margin:0"></div>
         <button type="submit" class="btn btn-secondary" style="width:auto;flex:none;padding:8px 14px">Agregar</button>
       </form>
       ${d.error ? `<div class="hint" role="alert" style="color:var(--danger)">No se pudo cargar la lista de dueños: ${esc(d.error)} <button type="button" class="link-btn" id="btn-reintentar-duenos">Reintentar</button></div>`
