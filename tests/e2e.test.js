@@ -715,6 +715,39 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Carga de un WMS sin costo, a 420 px (Joel, 22/10/2026) =====
+  // Columnas típicas de un WMS de operador logístico: la app tiene que proponer bien Material,
+  // Stock, Batch y Bodega (antes "RE" se llevaba el stock) y dejar cargar sin columna de costo.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('carga-wms: '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    const upserts = [];
+    await page.route('**/rest/v1/skus?on_conflict=**', r=> { upserts.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); });
+    await page.evaluate(() => setState({ view:'carga' }));
+    await page.waitForSelector('#file-skus', { state:'attached', timeout:ESPERA });
+    const csv = 'CÓDIGO CLIENTE,TIPO UBICACIÓN,UBICACIÓN,RE,PRODUCTO,NOMBRE,CANTIDAD UBICADA,BLOQUEADO,CONDICIÓN,LOTE,BODEGA\n'
+      + 'DEMO,RK,CLX01RK010101,1500123,P-100,FILTRO DE AIRE,4,0,3279090,L1,CD Norte\n'
+      + 'DEMO,MZ,CLX01MZ020101,1500124,P-200,CORREA B-52,6,1,3279091,L9,CD Norte\n';
+    await page.setInputFiles('#file-skus', { name:'stock-wms.csv', mimeType:'text/csv', buffer: Buffer.from(csv) });
+    await page.waitForSelector('#map-sku_code', { timeout:ESPERA });
+    const propuesto = await page.evaluate(() => ({...state.cargaPreview.mapeo}));
+    assert(propuesto.sku_code==='PRODUCTO' && propuesto.stock_sistema==='CANTIDAD UBICADA' && propuesto.batch==='LOTE' && propuesto.bodega==='BODEGA' && !propuesto.tipo_material, 'propone bien las columnas del WMS, obtuvo '+JSON.stringify(propuesto));
+    // El bin del WMS es UBICACIÓN y la ubicación el tipo (RK/MZ): eso lo elige quien carga.
+    await page.selectOption('#map-storage_bin', 'UBICACIÓN'); await page.waitForTimeout(150);
+    await page.selectOption('#map-ubicacion', 'TIPO UBICACIÓN'); await page.waitForTimeout(150);
+    const vista = await page.evaluate(() => ({ aviso: !!document.getElementById('aviso-carga-sin-costo'), deshabilitado: document.getElementById('btn-confirmar-carga').disabled, desborde: document.documentElement.scrollWidth - window.innerWidth }));
+    assert(vista.aviso && !vista.deshabilitado, 'sin costo avisa y deja confirmar, obtuvo '+JSON.stringify(vista));
+    assert(vista.desborde<=0, 'a 420 px la vista de columnas no desborda, obtuvo '+vista.desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/carga-wms-420.png', fullPage:true });
+    if(await page.$('#chk-confirma-aviso-bodega')) await page.check('#chk-confirma-aviso-bodega');
+    await page.click('#btn-confirmar-carga');
+    assert(await esperarCondicion(page, () => !!state.cargaResultado), 'la carga termina');
+    assert(upserts.length===2 && upserts.every(f=>!('costo_unitario' in f)) && upserts.find(f=>f.sku_code==='P-100').stock_sistema===4 && upserts.find(f=>f.sku_code==='P-100').storage_bin==='CLX01RK010101', 'carga los materiales sin tocar el costo, obtuvo '+JSON.stringify(upserts));
+    await context.close();
+  }
+
   // ===== Sin señal y sin espacio en el celular: el conteo no se da por guardado =====
   // Con el localStorage real de Chromium lleno: antes la pantalla decía "conteo guardado en este
   // dispositivo" y el conteo vivía solo en memoria. Ahora avisa sobre el botón y deja lo escrito.

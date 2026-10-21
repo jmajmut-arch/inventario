@@ -5350,6 +5350,47 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.stock_sistema===10) && filasCarga.some(f=>f.bodega==='Planta' && f.stock_sistema===4), 'cada fila debe conservar el stock de su propia bodega, obtuvo: '+JSON.stringify(filasCarga));
   assert(filasCarga.some(f=>f.bodega==='Nave' && f.costo_unitario===1500) && filasCarga.some(f=>f.bodega==='Planta' && f.costo_unitario===null), 'la carga masiva debe mapear costo_unitario cuando viene en el archivo, y dejarlo null cuando la celda viene vacía, obtuvo: '+JSON.stringify(filasCarga));
 
+
+  // ===== Carga: archivo de WMS y costo opcional (Joel, 22/10/2026) =====
+  // El stock de un operador logístico (un WMS, una fila por pallet) no se reconocía: "RE" (número
+  // de recepción) se llevaba el Stock sistema por estar dentro de "unrestricted stock", "CÓDIGO
+  // CLIENTE" el Material, "CONDICIÓN" el Batch y "TIPO UBICACIÓN" el Tipo de material. Y el costo,
+  // que un WMS no trae, bloqueaba la carga entera.
+  {
+    const camposWms = ctx.camposCargaSkus();
+    const wms = ctx.detectarMapeo(['CÓDIGO CLIENTE','TIPO UBICACIÓN','UBICACIÓN','RE','Bodega Destino','SUPERFAMILIA','FAMILIA','PRODUCTO','CODIGO ALTERNATIVO','UNIDAD','NOMBRE','CANTIDAD UBICADA','POR PICKEAR','BLOQUEADO','CONDICIÓN','LOTE','ID PARTIDA','TIPO CONDICIÓN','IMO PRODUCTO','FECHA PRODUCTO','BODEGA'], camposWms);
+    assert(wms.sku_code==='PRODUCTO' && wms.stock_sistema==='CANTIDAD UBICADA' && wms.batch==='LOTE' && wms.bodega==='BODEGA' && wms.descripcion==='NOMBRE' && wms.stock_bloqueado==='BLOQUEADO', 'reconoce las columnas de un WMS, obtuvo: '+JSON.stringify(wms));
+    assert(!wms.tipo_material && !Object.values(wms).includes('RE'), '"TIPO UBICACIÓN" no es el tipo de material y "RE" no es ningún campo, obtuvo: '+JSON.stringify(wms));
+    assert(Object.keys(ctx.detectarMapeo(['RE'], camposWms)).length===0, 'una columna de dos letras no gana un campo por estar dentro de otro nombre');
+    // Lo de siempre no cambia: el formato SAP de Escondida, planillas a mano y abreviaturas.
+    const sap = ctx.detectarMapeo(['Material','Material Description','Plant','Description of Storage Location','Storage Location','Storage Bin','Batch','Unrestricted Stock','Base Unit of Measure','Moving Average Price','Blocked Stock','Stock in Transit','Stock in Quality Inspection','Special Stock Type','Material Group','Plant Name'], ctx.__CAMPOS_SKU);
+    assert(JSON.stringify(sap)===JSON.stringify({sku_code:'Material', descripcion:'Material Description', storage_bin:'Storage Bin', batch:'Batch', stock_sistema:'Unrestricted Stock', stock_bloqueado:'Blocked Stock', tipo_stock_especial:'Special Stock Type', bodega:'Plant', ubicacion:'Storage Location', costo_unitario:'Moving Average Price', unidad_medida:'Base Unit of Measure', categoria:'Material Group', stock_transito_1:'Stock in Transit'}), 'el formato SAP se detecta igual que antes, obtuvo: '+JSON.stringify(sap));
+    assert(ctx.detectarMapeo(['Material','Material Status'], ctx.__CAMPOS_SKU).batch==='Material Status' && ctx.detectarMapeo(['Material','Batch','Material Status'], ctx.__CAMPOS_SKU).batch==='Batch', 'sin otra columna de batch, "Material Status" sigue sirviendo');
+    const abrev = ctx.detectarMapeo(['Mat.','Alm.','UMB','Tipo'], ctx.__CAMPOS_SKU);
+    assert(abrev.sku_code==='Mat.' && abrev.bodega==='Alm.' && abrev.unidad_medida==='UMB' && abrev.tipo_material==='Tipo', 'las abreviaturas de siempre se siguen reconociendo, obtuvo: '+JSON.stringify(abrev));
+    // Costo opcional: sin la columna no se bloquea, se avisa y no se pisa el costo que ya había.
+    const costo = ctx.__CAMPOS_SKU.find(c=>c.campo==='costo_unitario');
+    assert(costo && costo.obligatorio===false, 'el costo unitario ya no es obligatorio en la carga');
+    ctx.__appstate.cargaPreview = {
+      file: { name: 'wms.xlsx' }, modo: 'complementar', headers:['Codigo','Bodega','Ubic','Bin','Stock'], campos: ctx.__CAMPOS_SKU,
+      mapeo: { sku_code:'Codigo', bodega:'Bodega', ubicacion:'Ubic', storage_bin:'Bin', stock_sistema:'Stock' },
+      data: [ { Codigo:'P-1', Bodega:'CD Norte', Ubic:'RK', Bin:'A-01', Stock:'5' } ],
+    };
+    const htmlSinCosto = ctx.renderCargaPreview();
+    assert(htmlSinCosto.includes('id="aviso-carga-sin-costo"') && !/Falta asignar/.test(htmlSinCosto) && !/id="btn-confirmar-carga"[^>]*disabled/.test(htmlSinCosto), 'sin costo la carga se puede confirmar y avisa qué se pierde');
+    calls.length = 0;
+    await ctx.confirmarCargaMasiva();
+    const postSinCosto = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/skus?on_conflict'));
+    const filasSinCosto = postSinCosto ? JSON.parse(postSinCosto.opts.body) : [];
+    assert(filasSinCosto.length===1 && !('costo_unitario' in filasSinCosto[0]) && filasSinCosto[0].stock_sistema===5, 'sin columna de costo no se manda el campo (no pisa el costo guardado), obtuvo: '+JSON.stringify(filasSinCosto));
+    ctx.__appstate.cargaPreview = { file: { name: 'wms.xlsx' }, modo: 'complementar', headers:['Codigo','Bodega','Ubic','Bin','Stock','Costo'], campos: ctx.__CAMPOS_SKU,
+      mapeo: { sku_code:'Codigo', bodega:'Bodega', ubicacion:'Ubic', storage_bin:'Bin', stock_sistema:'Stock', costo_unitario:'Costo' },
+      data: [ { Codigo:'P-1', Bodega:'CD Norte', Ubic:'RK', Bin:'A-01', Stock:'5', Costo:'1200' } ] };
+    assert(!ctx.renderCargaPreview().includes('id="aviso-carga-sin-costo"'), 'con columna de costo no hay aviso');
+    ctx.__appstate.cargaPreview = null;
+    await new Promise(r=>setTimeout(r, 30));
+  }
+
   // ===== Carga masiva: el mismo sku_code+bodega en dos batches distintos tampoco debe
   // deduplicarse (a pedido de Joel: "en Contar, mostrar el SOH por los diferentes tipos de
   // batch") -- pero el mismo código+bodega+batch repetido dos veces sí se queda con el último.

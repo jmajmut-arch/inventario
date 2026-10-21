@@ -9611,28 +9611,32 @@ async function leerArchivoMasivo(file){
 // mezclar ambos conceptos en una sola columna habría hecho invisible el batch real de cada SKU
 // (ver conversación con Joel: quiere SOH desglosado por batch en Contar). `categoria` se relabeló
 // "Categoría" y perdió los alias que en realidad describían un lote (batch/lote/condición).
-// bodega/ubicacion/storage_bin/costo_unitario son obligatorios (no solo sku_code/stock_sistema):
-// sin ellos, Exactitud de ubicación, Valorización y el aviso de cambio de ubicación en Plan del
-// día quedan cojos — se prefiere exigir la columna en la carga a que fallen en silencio después.
+// bodega/ubicacion/storage_bin son obligatorios (no solo sku_code/stock_sistema): sin ellos,
+// Exactitud de ubicación y el aviso de cambio de ubicación en Plan del día quedan cojos — se
+// prefiere exigir la columna en la carga a que fallen en silencio después. El costo unitario ya
+// no (Joel, 22/10/2026): el stock de un operador logístico (un WMS) no trae costos, porque la
+// mercadería no es suya, y exigirlo bloqueaba la carga entera. Sin la columna, la carga avisa qué
+// se pierde (Valorización y Clase ABC) y no toca el costo que cada material ya tenía.
 const CAMPOS_SKU = [
   { campo:'sku_code', obligatorio:true, etiqueta:'Material',
-    alias:['material','sku','sku code','codigo','codigo sku','codigo material','cod','cod sku','item','item code','articulo','part number','material number','nro material','n material'] },
+    alias:['material','sku','sku code','codigo','codigo sku','codigo material','cod','cod sku','item','item code','articulo','part number','material number','nro material','n material','producto','codigo producto','cod producto','mat'] },
   { campo:'descripcion', obligatorio:false, etiqueta:'Descripcion',
-    alias:['material description','descripcion','descripcion material','texto breve de material','short text','nombre','detalle','desc'] },
+    alias:['material description','descripcion','descripcion material','texto breve de material','short text','nombre','detalle','desc','nombre producto','descripcion producto'] },
   { campo:'bodega', obligatorio:true, etiqueta:'Ubicación general (Planta)',
-    alias:['ubicacion general','description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito'] },
+    alias:['ubicacion general','description of storage location','sloc description','bodega','almacen','warehouse','plant','deposito','alm','bod'] },
   { campo:'ubicacion', obligatorio:true, etiqueta:'Ubicación específica (Storage Location)',
     alias:['ubicacion especifica','storage location','ubicacion','location','rack'] },
   { campo:'storage_bin', obligatorio:true, etiqueta:'Storage bin',
     alias:['storage bin','bin','posicion','slot'] },
   { campo:'batch', obligatorio:false, etiqueta:'Batch',
-    alias:['batch','batch number','batch id','batch status','lote','n de lote','n lote','numero de lote','estado material','material status','condicion','lot','lot number'] },
+    alias:['batch','batch number','batch id','batch status','lote','n de lote','n lote','numero de lote','estado material','material status','condicion','lot','lot number'],
+    debiles:['batch status','estado material','material status','condicion'] },
   { campo:'stock_sistema', obligatorio:true, etiqueta:'Stock sistema',
     alias:['unrestricted stock','stock_sistema','stock sistema','stock','existencia','cantidad','qty','quantity','saldo','on hand'] },
-  { campo:'costo_unitario', obligatorio:true, etiqueta:'Costo unitario',
+  { campo:'costo_unitario', obligatorio:false, etiqueta:'Costo unitario',
     alias:['costo unitario','costo_unitario','precio unitario','moving average price','standard price','unit cost','unit price','valor unitario','costo','precio'] },
   { campo:'unidad_medida', obligatorio:false, etiqueta:'Unidad de medida',
-    alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad'] },
+    alias:['unidad_medida','unidad de medida','base unit of measure','uom','um','unidad','umb'] },
   { campo:'categoria', obligatorio:false, etiqueta:'Categoría',
     alias:['categoria','plant name','material group','grupo de articulos','familia','grupo','clase'] },
   { campo:'critico', obligatorio:false, etiqueta:'Crítico',
@@ -9640,8 +9644,10 @@ const CAMPOS_SKU = [
   // Módulo de bodega: fijar el mínimo uno por uno no escala con catálogos grandes, así que el
   // Excel también puede traerlo. Igual que "Crítico", si la columna no viene no se toca lo que
   // el SKU ya tenía.
+  // "tipo" solo cuenta si la columna se llama exactamente así: como parte de otro encabezado
+  // ("TIPO UBICACIÓN", "TIPO DOCUMENTO") casi nunca es el tipo de material.
   { campo:'tipo_material', obligatorio:false, etiqueta:'Tipo de material',
-    alias:['tipo de material','tipo_material','tipo material','tipo','clasificacion','clasificación','material type','tipo de articulo'] },
+    alias:['tipo de material','tipo_material','tipo material','tipo','clasificacion','clasificación','material type','tipo de articulo'], soloExactos:['tipo'] },
   { campo:'stock_minimo', obligatorio:false, etiqueta:'Stock mínimo',
     alias:['stock minimo','stock_minimo','minimo','min stock','stock min','cantidad minima','punto de reorden','reorder point','minimum stock','min'] },
   // Estas cuatro son solo informativas (ver infoStockPorTipo/renderConteo/renderReconteo): se
@@ -9697,12 +9703,23 @@ function normalizarTexto(s){
 // filtro matcheaba erróneamente con el alias "stock in transit 2" (stock_transito_2)
 // solo por compartir "stock"/"in" -- dos palabras genéricas, no la señal real del campo.
 const PALABRAS_GENERICAS_MAPEO = new Set(['stock','de','en','la','el','a','of','in','on','the','and','y','del','para']);
-function puntajeColumna(headerNorm, aliases){
+// ¿`corto` está dentro de `largo`? Con menos de 4 letras tiene que ser una palabra entera: la
+// columna "RE" (número de recepción de un WMS) se llevaba el Stock sistema por estar dentro de
+// "unrestricted stock", y la Bodega por "deposito" (Joel, 22/10/2026).
+function contieneTextoColumna(largo, corto){
+  if(!corto) return false;
+  if(corto.length >= 4) return largo.includes(corto);
+  return largo.split(' ').includes(corto);
+}
+// `debiles`: alias que sirven si no hay nada mejor, pero pierden contra otra columna que calce
+// exacto con el campo (en un WMS, "LOTE" es el batch y "CONDICIÓN" no).
+function puntajeColumna(headerNorm, aliases, soloExactos, debiles){
   let mejor = 0;
   aliases.forEach((alias, idx)=>{
     const a = normalizarTexto(alias);
-    if(headerNorm === a){ mejor = Math.max(mejor, idx===0? 110 : 100); return; }
-    if(headerNorm.includes(a) || a.includes(headerNorm)){ mejor = Math.max(mejor, 75); return; }
+    if(headerNorm === a){ mejor = Math.max(mejor, idx===0? 110 : (debiles && debiles.includes(alias)) ? 90 : 100); return; }
+    if(soloExactos && soloExactos.includes(alias)) return;
+    if(contieneTextoColumna(headerNorm, a) || contieneTextoColumna(a, headerNorm)){ mejor = Math.max(mejor, 75); return; }
     const hw = new Set(headerNorm.split(' '));
     const comunes = a.split(' ').filter(w=>w && !PALABRAS_GENERICAS_MAPEO.has(w) && hw.has(w)).length;
     if(comunes) mejor = Math.max(mejor, 40 + comunes*10);
@@ -9740,7 +9757,7 @@ function detectarMapeo(headers, campos){
   const candidatos = [];
   campos.forEach(campo=>{
     headers.forEach((h,idx)=>{
-      const p = puntajeColumna(headersNorm[idx], campo.alias);
+      const p = puntajeColumna(headersNorm[idx], campo.alias, campo.soloExactos, campo.debiles);
       if(p>0) candidatos.push({campo:campo.campo, header:h, puntaje:p});
     });
   });
@@ -10393,7 +10410,9 @@ async function confirmarCargaMasiva(){
       storage_bin,
       bodega,
       stock_sistema,
-      costo_unitario,
+      // Sin columna de costo (un WMS no lo trae) se omite el campo: no se pisa con null el costo
+      // que el material ya tenía de una carga anterior o de una recepción.
+      ...(mapeo.costo_unitario? {costo_unitario} : {}),
       // Si el archivo no trae columna "Crítico", se omite el campo entero (no se manda ni en
       // false) -- así el upsert (resolution=merge-duplicates) no pisa el valor que ya tenía cada
       // SKU en la base. Solo se sobrescribe cuando la persona de verdad mandó esa columna.
@@ -14295,6 +14314,7 @@ function renderCargaPreview(){
     </div>
 
     ${camposFaltantes.length? `<div class="hint" style="color:var(--danger)">Falta asignar: ${camposFaltantes.map(c=>esc(c.etiqueta)).join(', ')}.</div>` : ''}
+    ${!mapeo.costo_unitario ? `<div class="hint" id="aviso-carga-sin-costo" style="color:var(--warn)">Sin columna de costo: los materiales nuevos quedan sin costo, así que no entran en la Valorización ni en la Clase ABC. Los que ya tenían costo lo conservan.</div>` : ''}
 
     ${renderResumenArchivoCarga(data, mapeo, state.cargaPreview.repetidas)}
 
