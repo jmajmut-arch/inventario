@@ -5285,6 +5285,68 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.fetch = fetchAntesSkus;
     ctx.__appstate.skusPagina = {rows:[], page:0, total:0};
 
+    // Paso 7: tarjeta "Por dueño" del Panel. Sin dueños activados no se pide ni se muestra.
+    {
+      const fetchAntesResumen = ctx.fetch;
+      let pedidosResumen = 0;
+      let respuestaResumen = () => ({status:200, body:[
+        { dueno:'', total_activo:10, contados:5, cuadrado:4, con_diferencia:1, merma:1, excedente:0, pendiente:0, valor_perdidas:-1500, valor_excedentes:0 },
+        { dueno:'ENEX', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
+      ]});
+      ctx.fetch = async (url, opts) => {
+        if(String(url).includes('/rest/v1/rpc/resumen_por_dueno')){
+          pedidosResumen++;
+          const r = respuestaResumen();
+          if(r.status>=400) return { status:r.status, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify(r.body) };
+          return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(r.body), json: async()=>r.body };
+        }
+        return fetchAntesResumen(url, opts);
+      };
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Minera Andes'}};
+      await ctx.cargarResumenDuenos();
+      assert(pedidosResumen===0 && ctx.renderResumenPorDueno()==='', 'sin dueños activados, el Panel no pide ni muestra el resumen por dueño');
+
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+      await ctx.cargarResumenDuenos();
+      const htmlResumen = ctx.renderResumenPorDueno();
+      assert(pedidosResumen===1 && htmlResumen.includes('Por dueño') && htmlResumen.includes('Enex S.A.') && htmlResumen.includes('Sin dueño') && htmlResumen.includes('25%') && htmlResumen.includes('id="btn-exportar-resumen-duenos"'), 'con dueños, la tarjeta muestra cada dueño con su avance, obtuvo '+htmlResumen);
+      assert(htmlResumen.indexOf('Enex S.A.') < htmlResumen.indexOf('Sin dueño'), 'lo que no tiene dueño va al final');
+      assert(htmlResumen.includes('>$30.000<') && htmlResumen.includes('>$12.000<') && !htmlResumen.includes('$-'), 'muestra el faltante y el sobrante en pesos, sin signo, obtuvo '+htmlResumen);
+
+      respuestaResumen = () => ({status:500, body:{message:'se cayó la base'}});
+      await ctx.cargarResumenDuenos();
+      const htmlErrorResumen = ctx.renderResumenPorDueno();
+      assert(htmlErrorResumen.includes('No se pudo cargar el resumen por dueño: se cayó la base') && htmlErrorResumen.includes('id="btn-reintentar-resumen-duenos"'), 'un error del servidor se ve como error, con Reintentar, obtuvo '+htmlErrorResumen);
+      ctx.fetch = fetchAntesResumen;
+      ctx.__appstate.resumenDuenos = { cargado:false, cargando:false, filas:[], error:'' };
+    }
+
+    // La lista de dueños se pide al entrar (Panel). Si falla (app abierta sin señal), la próxima
+    // pantalla que la necesita la vuelve a pedir; cuando ya cargó, no se repite.
+    {
+      const fetchAntesLista = ctx.fetch;
+      let pedidosLista = 0, fallar = true;
+      ctx.fetch = async (url, opts) => {
+        if(new URL(url).pathname==='/rest/v1/duenos_stock'){
+          pedidosLista++;
+          if(fallar) return { status:503, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'sin señal'}) };
+          return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(lista), json: async()=>lista };
+        }
+        return fetchAntesLista(url, opts);
+      };
+      ctx.__appstate.perfil = {...base, empresas:{nombre:'Operador SIL', usa_duenos_stock:true}};
+      ctx.__appstate.duenosStock = { cargado:false, cargando:false, lista:[], error:'' };
+      await ctx.asegurarDatosDeVista('conteo');
+      assert(pedidosLista===1 && ctx.__appstate.duenosStock.error, 'el primer intento falla y se ve el error');
+      fallar = false;
+      await ctx.asegurarDatosDeVista('mover');
+      assert(pedidosLista===2 && ctx.__appstate.duenosStock.cargado && !ctx.__appstate.duenosStock.error, 'la siguiente pantalla vuelve a pedir la lista y esta vez carga, obtuvo '+pedidosLista);
+      await ctx.asegurarDatosDeVista('carga');
+      assert(pedidosLista===2, 'con la lista ya cargada no se vuelve a pedir, obtuvo '+pedidosLista);
+      ctx.fetch = fetchAntesLista;
+      ctx.__appstate.duenosStock = { cargado:true, cargando:false, lista, error:'' };
+    }
+
     // Cerrar sesión olvida los filtros de dueño: otra cuenta no hereda un filtro que no ve.
     ctx.__appstate.skusFiltroDueno = 'ENEX';
     const tras = ctx.estadoTrasCerrarSesion();
