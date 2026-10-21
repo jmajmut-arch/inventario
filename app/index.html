@@ -1086,7 +1086,7 @@ let state = {
   personasBuscar: { cargado:false, cargando:false, filas:[], error:null },
   busqueda: { texto:'', bodega:'', ubicacion:'', estado:'', ciclo:'', soloConFotos:false, soloFueraDePlan:false, claseAbc:'', fechaDesde:'', fechaHasta:'', orden:null, resultados:[], total:null, buscando:false, yaBuscado:false, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0, filtroContadoPor:null, filtroEstado:null, exportando:false, seleccionados:[], exportandoPdf:false, usuarioId:null, usuarioNombre:null, grupoId:'', dueno:'' },
   // Exportar a Excel los conteos de una fecha o rango de fechas, para cargar a un ERP.
-  exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), exportando:false },
+  exportConteos: { desde: fechaISO(new Date()), hasta: fechaISO(new Date()), dueno:'', exportando:false },
   dashboardModo: 'ejecutivo',
   dashDetalleAbierto: false, // "Detalle" del Panel: nace plegado y se queda como la persona lo dejó (ver render())
   dashDiarioPagina: 0, // página actual de la tabla "Diario" (Dashboard operativo), 15 filas por página
@@ -1135,6 +1135,7 @@ let state = {
   // convivían como dos sitios y una bodega vacía no podía existir.
   ubicaciones: { cargado:false, cargando:false, lista:[], materialesPorBodega:{}, nuevaBodega:'', renombrando:null },
   duenosStock: { cargado:false, cargando:false, lista:[], error:'' },
+  resumenDuenos: { cargado:false, cargando:false, filas:[], error:'' }, // tarjeta "Por dueño" del Panel
   // Pantalla "Mover": buscar un material y cambiarle la ubicación. Existe como pestaña propia
   // porque el botón dentro del maestro no se encontraba: quedaba en la última columna de una
   // tabla de once, fuera del borde de la tarjeta.
@@ -2572,7 +2573,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -2633,7 +2634,7 @@ async function cargarTodo(){
 // Qué necesita cada pestaña (claves de CARGADORES). Buscar solo usa los períodos (transversal);
 // Calendario y Grupos ya cargan lo suyo con su propio flag `cargado`.
 const CARGAS_POR_VISTA = {
-  dashboard: ['dashboard'], // una sola llamada: trae el panel, el estado del maestro y las tarjetas de bodega
+  dashboard: ['dashboard', 'duenosStock'], // una sola llamada: trae el panel, el estado del maestro y las tarjetas de bodega (la lista de dueños, solo con dueños activados)
   // Dos llamadas: la página, y los cinco catálogos juntos (ver cargarCatalogosPantallaSkus).
   skus: ['skusPagina', 'skusCatalogos', 'duenosStock'],
   reconteo: ['reconteos', 'duenosStock'],
@@ -6145,6 +6146,8 @@ async function contarPendientesSinBin(bodega, ubicacion){
 // reconteo_pendiente.valor_diferencia_linea), no por magnitud en unidades — top 10 excedentes
 // (mayor valor a favor) y top 10 pérdidas (mayor valor en contra), por separado.
 async function cargarDashboard(){
+  // Con dueños de stock, la tarjeta "Por dueño" se pide en paralelo y se refresca junto al Panel.
+  if(usaDuenosStock()) cargarResumenDuenos();
   try{
     const d = await rest(`/rpc/dashboard_ejecutivo`, {method:'POST', body:{
       p_dias: VENTANA_PROYECCION_DIAS,
@@ -6566,6 +6569,7 @@ async function exportarBusquedaExcel(){
         : r.estado==='aprobado' ? 'Cuadrado' : (r.estado || 'ok');
       return {
         'SKU': r.sku_code,
+        ...(usaDuenosStock() ? {'Dueño': r.dueno ? (etiquetaDueno(r) || r.dueno) : ''} : {}),
         'Crítico': r.critico ? 'Sí' : 'No',
         'Batch': r.batch,
         'Descripción': r.descripcion,
@@ -7061,7 +7065,9 @@ async function exportarConteosExcel(){
     const desdeInstante = new Date(desde+'T00:00:00').toISOString();
     const siguienteDia = fechaISO(sumarDias(new Date(hastaReal+'T00:00:00'), 1));
     const hastaInstante = new Date(siguienteDia+'T00:00:00').toISOString();
-    const filtro = `/conteos_exportables?select=*&fecha_conteo=gte.${desdeInstante}&fecha_conteo=lt.${hastaInstante}&order=fecha_conteo.asc`;
+    const duenoExport = usaDuenosStock() ? (state.exportConteos.dueno||'') : '';
+    const filtroDueno = duenoExport ? `&dueno=eq.${duenoExport==='__sin' ? '' : encodeURIComponent(duenoExport)}` : '';
+    const filtro = `/conteos_exportables?select=*&fecha_conteo=gte.${desdeInstante}&fecha_conteo=lt.${hastaInstante}${filtroDueno}&order=fecha_conteo.asc`;
     const TAM_PAGINA = 1000;
     let inicio = 0, total = Infinity, filas = [];
     while(inicio < total){
@@ -7089,6 +7095,7 @@ async function exportarConteosExcel(){
     }
     const filasExcel = filas.map(f=>({
       'SKU': f.sku_code,
+      ...(usaDuenosStock() ? {'Dueño': f.dueno ? (etiquetaDueno(f) || f.dueno) : ''} : {}),
       'Descripción': f.descripcion,
       'Batch': f.batch,
       'Categoría': f.categoria,
@@ -7119,7 +7126,8 @@ async function exportarConteosExcel(){
     const hoja = XLSX.utils.json_to_sheet(filasExcel);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, 'Conteos');
-    const nombreArchivo = desde===hastaReal ? `conteos_${desde}.xlsx` : `conteos_${desde}_a_${hastaReal}.xlsx`;
+    const sufijoDueno = duenoExport ? `_${duenoExport==='__sin' ? 'sin-dueno' : duenoExport.replace(/[^A-Za-z0-9_-]+/g,'-')}` : '';
+    const nombreArchivo = desde===hastaReal ? `conteos${sufijoDueno}_${desde}.xlsx` : `conteos${sufijoDueno}_${desde}_a_${hastaReal}.xlsx`;
     XLSX.writeFile(libro, nombreArchivo);
     toast(`${filas.length} conteo${filas.length===1?'':'s'} exportado${filas.length===1?'':'s'}`);
   }catch(e){ toast(e.message,'err'); }
@@ -7441,7 +7449,10 @@ async function cargarDuenosStock(){
     const lista = await rest('/duenos_stock?select=id,codigo,nombre,activo&order=codigo.asc');
     setState({duenosStock:{...state.duenosStock, lista: lista||[], cargado:true, cargando:false, error:''}});
   }catch(e){
-    // Un error del servidor se ve como error (CLAUDE.md), no como "todavía no hay dueños".
+    // Un error del servidor se ve como error (CLAUDE.md), no como "todavía no hay dueños". La lista
+    // se pide al entrar (la usa el Panel): si la app abrió sin señal, la próxima pantalla que la
+    // necesite vuelve a intentarlo en vez de quedarse con el error hasta recargar.
+    cargasHechas.delete('duenosStock');
     setState({duenosStock:{...state.duenosStock, cargando:false, error: mensajeErrorCarga(e)}});
   }
 }
@@ -8737,6 +8748,78 @@ function parametroDuenoRpc(valor){
 function etiquetaFiltroDueno(valor){
   if(!valor) return '';
   return valor==='__sin' ? 'Sin dueño' : 'Dueño: ' + (etiquetaDueno({dueno: valor}) || valor);
+}
+// Resumen por dueño (resumen_por_dueno, ver 20261021_duenos_stock_resumen.sql): una fila por
+// dueño con el avance y las diferencias, sobre el último conteo de cada material, igual que el
+// Estado general. Solo en una empresa con dueños: en las demás no se pide ni se muestra.
+async function cargarResumenDuenos(){
+  if(!usaDuenosStock()) return;
+  setState({resumenDuenos:{...state.resumenDuenos, cargando:true, error:''}});
+  try{
+    const filas = await rest('/rpc/resumen_por_dueno', {method:'POST', body:{}}) || [];
+    setState({resumenDuenos:{cargado:true, cargando:false, filas, error:''}});
+  }catch(e){
+    setState({resumenDuenos:{...state.resumenDuenos, cargando:false, error: mensajeErrorCarga(e)}});
+  }
+}
+// Los dueños con nombre primero, en orden; lo que no tiene dueño, al final.
+function filasResumenDuenosOrdenadas(){
+  const nombre = f => f.dueno ? (etiquetaDueno(f) || f.dueno) : '';
+  return [...(state.resumenDuenos.filas||[])].sort((a,b)=> (a.dueno==='') - (b.dueno==='') || nombre(a).localeCompare(nombre(b), 'es'));
+}
+function renderResumenPorDueno(){
+  if(!usaDuenosStock()) return '';
+  const r = state.resumenDuenos;
+  const conValor = !ocultarStockOperador() && (r.filas||[]).some(f=>f.valor_perdidas!=null);
+  const moneda = n => '$'+Math.round(Number(n)||0).toLocaleString('es-CL');
+  const filas = filasResumenDuenosOrdenadas();
+  const cuerpo = r.error ? `<div class="hint" role="alert" style="color:var(--danger)">No se pudo cargar el resumen por dueño: ${esc(r.error)} <button type="button" class="btn btn-ghost btn-sm" id="btn-reintentar-resumen-duenos" style="width:auto">Reintentar</button></div>`
+    : (!r.cargado && r.cargando) || (!r.cargado && !r.error) ? `<div class="hint">Cargando…</div>`
+    : !filas.length ? `<div class="empty">Sin materiales activos.</div>`
+    : `<div class="table-wrap"><table>
+        <thead><tr><th>Dueño</th><th class="num">Materiales</th><th class="num">Contados</th><th class="num">Cuadrados</th><th class="num">Con diferencia</th>${conValor?'<th class="num">Faltante $</th><th class="num">Sobrante $</th>':''}</tr></thead>
+        <tbody>${filas.map(f=>{
+          const total = Number(f.total_activo)||0, contados = Number(f.contados)||0;
+          return `<tr>
+            <td>${f.dueno ? chipDueno(f) : '<span class="hint" style="margin:0">Sin dueño</span>'}</td>
+            <td class="num">${total.toLocaleString('es-CL')}</td>
+            <td class="num">${contados.toLocaleString('es-CL')}<div class="hint" style="margin:0;font-size:11px">${total? Math.round(contados*1000/total)/10 : 0}%</div></td>
+            <td class="num">${(Number(f.cuadrado)||0).toLocaleString('es-CL')}</td>
+            <td class="num">${Number(f.con_diferencia)? `<span class="badge badge-warn">${Number(f.con_diferencia).toLocaleString('es-CL')}</span>` : '0'}</td>
+            ${conValor? `<td class="num">${moneda(Math.abs(Number(f.valor_perdidas)||0))}</td><td class="num">${moneda(f.valor_excedentes)}</td>` : ''}
+          </tr>`; }).join('')}</tbody>
+      </table></div>`;
+  return `
+    <div class="section-head"><div><span class="eyebrow">Dueños de stock</span><h2 style="font-size:17px">Por dueño ${campoConInfo('Avance y diferencias de cada dueño, sobre todos sus materiales activos y el último conteo de cada uno (los mismos criterios que el Estado general). Faltante: se contó menos de lo que dice el sistema; sobrante: se contó más; en pesos, diferencia por costo unitario.')}</h2></div>
+      ${filas.length && !r.error? `<button type="button" class="btn btn-sm btn-secondary" id="btn-exportar-resumen-duenos" style="width:auto;padding:8px 12px;flex:none;display:flex;align-items:center;gap:6px">${ICONS.download} Excel</button>` : ''}
+    </div>
+    <div class="card">${cuerpo}</div>`;
+}
+function exportarResumenDuenosExcel(){
+  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+  const conValor = !ocultarStockOperador();
+  const rows = filasResumenDuenosOrdenadas().map(f=>{
+    const total = Number(f.total_activo)||0, contados = Number(f.contados)||0;
+    return {
+      'Dueño': f.dueno ? (etiquetaDueno(f) || f.dueno) : 'Sin dueño',
+      'Código del dueño': f.dueno || '',
+      'Materiales activos': total,
+      'Contados': contados,
+      '% contado': total ? Math.round(contados*1000/total)/10 : 0,
+      'Cuadrados': Number(f.cuadrado)||0,
+      'Con diferencia': Number(f.con_diferencia)||0,
+      ...(conValor ? {
+        'Con faltante': f.merma!=null ? Number(f.merma) : '',
+        'Con sobrante': f.excedente!=null ? Number(f.excedente) : '',
+        'Faltante $': f.valor_perdidas!=null ? Math.abs(Math.round(Number(f.valor_perdidas))) : '',
+        'Sobrante $': f.valor_excedentes!=null ? Math.round(Number(f.valor_excedentes)) : '',
+      } : {}),
+    };
+  });
+  if(!rows.length){ toast('No hay datos para exportar','err'); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Por dueño');
+  XLSX.writeFile(wb, `resumen-por-dueno-${fechaISO(new Date())}.xlsx`);
 }
 function selectorDuenoStock(){
   if(!usaDuenosStock()) return '';
@@ -12248,6 +12331,7 @@ function renderExportarModal(){
           <div><label for="ex-desde">Desde</label><input type="date" id="ex-desde" value="${esc(state.exportConteos.desde)}" required></div>
           <div><label for="ex-hasta">Hasta</label><input type="date" id="ex-hasta" value="${esc(state.exportConteos.hasta)}"></div>
         </div>
+        ${usaDuenosStock()? `<label for="ex-dueno">Dueño del stock</label><select id="ex-dueno">${opcionesFiltroDueno(state.exportConteos.dueno||'')}</select>${avisoErrorListaDuenos('margin-top:4px;')}` : ''}
         <div class="hint">Un archivo .xlsx con un renglón por conteo realizado en ese rango, con el detalle del material (SKU, descripción, batch, bodega, ubicación, storage bin, stock de sistema) y el resultado del conteo (cantidad, diferencia, estado, responsable, fecha).</div>
         <div style="margin-top:12px">
           <button type="submit" class="btn btn-primary" ${state.exportConteos.exportando?'disabled':''}>${state.exportConteos.exportando?'<span class="spinner"></span> Exportando…':`${ICONS.download} Exportar a Excel`}</button>
@@ -12875,6 +12959,7 @@ function renderDashboard(){
   const vistaOperativa = `
     ${renderBandaAcciones()}
     ${renderResumenGeneralSkus()}
+    ${renderResumenPorDueno()}
     ${renderAdherenciaPlan()}
     <div class="section-head"><h2 style="font-size:17px">Diario ${campoConInfo('SKU contados, con diferencia, reconteos y unidades por día calendario.')}</h2></div>
     <div class="card">
@@ -12905,7 +12990,7 @@ function renderDashboard(){
       ${ejecutivoIncluido? `<button class="segmented-btn ${modo==='ejecutivo'?'active':''}" data-dash-modo="ejecutivo">Ejecutivo</button>` : `<button class="segmented-btn" disabled title="Disponible en el plan Profesional">Ejecutivo 🔒</button>`}
       <button class="segmented-btn ${modo==='operativo'?'active':''}" data-dash-modo="operativo">Operativo</button>
     </div>
-    ${modo==='operativo'? vistaOperativa : renderInformeEjecutivo({detalleExtra: renderResumenGeneralSkus()})}
+    ${modo==='operativo'? vistaOperativa : renderInformeEjecutivo({detalleExtra: renderResumenGeneralSkus() + renderResumenPorDueno()})}
   </div>`;
 }
 
@@ -17097,7 +17182,7 @@ function renderListasBodegaConfig(){
 
 function exportarMovimientosExcel(){
   const rows = state.bodega.movimientos.map(m=>({
-    'N°': m.numero, 'Tipo': etiquetaTipoMovimiento(m.tipo), 'Fecha': m.fecha, 'SKU': m.sku_code, 'Descripción': m.descripcion, 'Batch': m.batch||'', 'Bin': m.storage_bin||'',
+    'N°': m.numero, 'Tipo': etiquetaTipoMovimiento(m.tipo), 'Fecha': m.fecha, 'SKU': m.sku_code, ...(usaDuenosStock() ? {'Dueño': m.dueno ? (etiquetaDueno(m) || m.dueno) : ''} : {}), 'Descripción': m.descripcion, 'Batch': m.batch||'', 'Bin': m.storage_bin||'',
     'Cantidad': m.cantidad, 'Unidad': m.unidad_medida||'', 'Estado': m.estado, 'Proveedor': m.proveedor_nombre||'', 'Guía': m.numero_guia||'', 'OC': m.numero_oc||'',
     'Retira': m.retirado_por_nombre||'', 'Área': m.retirado_por_area||'', 'Despacha': m.despachado_por_nombre||'', 'Destino': m.destino||'', 'Motivo': m.motivo||m.anulado_motivo||'', 'Registró': m.usuario_nombre||'',
     'Tipo material': m.tipo_material||'', 'Costo unitario': m.costo_aplicado!=null?Number(m.costo_aplicado):'', 'Monto': m.costo_aplicado!=null?Number(m.costo_aplicado)*Number(m.cantidad):'',
@@ -17579,6 +17664,7 @@ function bind(){
         ...state.exportConteos,
         desde: document.getElementById('ex-desde').value,
         hasta: document.getElementById('ex-hasta').value,
+        dueno: document.getElementById('ex-dueno') ? document.getElementById('ex-dueno').value : '',
       }});
       exportarConteosExcel();
     });
@@ -17695,7 +17781,11 @@ function bind(){
   document.getElementById('btn-ir-buscar').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'buscar'}); });
   document.getElementById('btn-ir-skus').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'skus'}); });
   document.getElementById('btn-ir-calendario').addEventListener('click', ()=>{ detenerEscaner(); setState({view:'calendario'}); });
-  document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=> setState({exportarModal:true}));
+  document.getElementById('btn-exportar-conteos-modal').addEventListener('click', ()=>{
+    // Con dueños, el filtro de la exportación necesita la lista (si esta pantalla no la cargó).
+    if(usaDuenosStock() && !state.duenosStock.cargado && !state.duenosStock.cargando) cargarDuenosStock();
+    setState({exportarModal:true});
+  });
   const btnSincronizarOffline = document.getElementById('btn-sincronizar-offline');
   if(btnSincronizarOffline) btnSincronizarOffline.addEventListener('click', sincronizarColaOffline);
   const btnRecargarVersion = document.getElementById('btn-recargar-version');
@@ -18416,6 +18506,10 @@ function bind(){
     document.querySelectorAll('[data-resumen-grafico]').forEach(btn=>{
       btn.addEventListener('click', ()=> setState({resumenGeneral: {...state.resumenGeneral, tipoGrafico: btn.dataset.resumenGrafico}}));
     });
+    const btnExportarResumenDuenos = document.getElementById('btn-exportar-resumen-duenos');
+    if(btnExportarResumenDuenos) btnExportarResumenDuenos.addEventListener('click', exportarResumenDuenosExcel);
+    const btnReintentarResumenDuenos = document.getElementById('btn-reintentar-resumen-duenos');
+    if(btnReintentarResumenDuenos) btnReintentarResumenDuenos.addEventListener('click', cargarResumenDuenos);
     const rgCriticidad = document.getElementById('rg-criticidad');
     if(rgCriticidad) rgCriticidad.addEventListener('change', e=>{
       state.resumenGeneral = {...state.resumenGeneral, criticidad: e.target.value};

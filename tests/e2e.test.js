@@ -100,8 +100,12 @@ async function mockearSupabaseApp(page, perfil){
   });
 }
 
-async function loguear(page, perfil){
+// prepararRutas: rutas propias de la prueba que tienen que estar antes de iniciar sesión (lo que
+// la app pide al entrar, como la lista de dueños del Panel). Van después de las simuladas por
+// mockearSupabaseApp para tener precedencia sobre ellas.
+async function loguear(page, perfil, prepararRutas){
   await mockearSupabaseApp(page, perfil);
+  if(prepararRutas) await prepararRutas();
   await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
   await page.fill('#f-email', 'ana@minera-andes.cl');
   await page.fill('#f-pass', '123456');
@@ -553,11 +557,11 @@ async function loguear(page, perfil){
     perfilDuenos.empresas.usa_duenos_stock = true;
     const duenos = [{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }];
     const creados = [];
-    await loguear(page, perfilDuenos);
-    await page.route('**/rest/v1/duenos_stock**', r=> {
+    // La lista de dueños se simula antes de entrar: el Panel ya la pide al iniciar sesión.
+    await loguear(page, perfilDuenos, () => page.route('**/rest/v1/duenos_stock**', r=> {
       if(r.request().method()==='POST'){ const f = JSON.parse(r.request().postData())[0]; creados.push(f); duenos.push({ id:'d'+(duenos.length+1), codigo:f.codigo, nombre:f.nombre, activo:true }); return r.fulfill({ status:201, contentType:'application/json', body:'' }); }
       return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(duenos) });
-    });
+    }));
     await page.evaluate(() => setState({ view:'config' }));
     assert(await esperarVisible(page, '#form-nuevo-dueno'), 'con el interruptor, Configuraciones muestra Dueños de stock');
     assert(await esperarCondicion(page, () => document.body.textContent.includes('Enex S.A.')), 'la lista muestra los dueños de la empresa');
@@ -579,12 +583,12 @@ async function loguear(page, perfil){
     page.on('pageerror', err => erroresPagina.push('carga-dueno: '+err.message));
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
-    await loguear(page, perfilDuenos);
+    // La lista de dueños se simula antes de entrar: el Panel ya la pide al iniciar sesión.
     const orden = [], upserts = [], duenosCreados = [];
-    await page.route('**/rest/v1/duenos_stock**', r=> {
+    await loguear(page, perfilDuenos, () => page.route('**/rest/v1/duenos_stock**', r=> {
       if(r.request().method()==='POST'){ orden.push('duenos'); duenosCreados.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); }
       return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex', activo:true }]) });
-    });
+    }));
     await page.route('**/rest/v1/skus?on_conflict=**', r=> { orden.push('skus'); upserts.push(...JSON.parse(r.request().postData())); return r.fulfill({ status:201, contentType:'application/json', body:'' }); });
     await page.evaluate(() => setState({ view:'carga' }));
     await page.waitForSelector('#file-skus', { state:'attached', timeout:ESPERA });
@@ -616,9 +620,9 @@ async function loguear(page, perfil){
     page.on('pageerror', err => erroresPagina.push('sku-dueno: '+err.message));
     const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
     perfilDuenos.empresas.usa_duenos_stock = true;
-    await loguear(page, perfilDuenos);
+    // La lista de dueños se simula antes de entrar: el Panel ya la pide al iniciar sesión.
+    await loguear(page, perfilDuenos, () => page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) })));
     const creados = [];
-    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
     await page.route('**/rest/v1/rpc/catalogos_pantalla_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
       categorias:['Repuestos'], unidades:['EA'], batches:[],
       generales:[{bodega:'Nave Mina', cantidad_skus:3}],
@@ -2244,6 +2248,52 @@ async function loguear(page, perfil){
     const desbordeSkus = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeSkus <= 0, 'a 420 px la tabla de SKU con filtro no desborda, obtuvo '+desbordeSkus);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/skus-filtro-dueno-420.png', fullPage: true });
+    await context.close();
+  }
+
+  // ===== Dueños de stock, paso 7: tarjeta "Por dueño" del Panel y exportación de conteos por dueño =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 }, acceptDownloads:true });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('resumen-dueno: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    await mockearSupabaseApp(page, perfilDuenos);
+    await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    let pedidosResumen = 0;
+    await page.route('**/rest/v1/rpc/resumen_por_dueno**', r=> { pedidosResumen++; return r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { dueno:'', total_activo:10, contados:5, cuadrado:4, con_diferencia:1, merma:1, excedente:0, pendiente:0, valor_perdidas:-1500, valor_excedentes:0 },
+      { dueno:'COPEC', total_activo:120, contados:30, cuadrado:28, con_diferencia:2, merma:1, excedente:1, pendiente:0, valor_perdidas:-4000, valor_excedentes:2500 },
+      { dueno:'ENEX', total_activo:200, contados:50, cuadrado:45, con_diferencia:5, merma:3, excedente:2, pendiente:0, valor_perdidas:-30000, valor_excedentes:12000 },
+    ]) }); });
+    const urlsExport = [];
+    await page.route('**/rest/v1/conteos_exportables**', r=> { urlsExport.push(r.request().url()); return r.fulfill({ status:200, contentType:'application/json', headers:{ 'Content-Range':'0-0/1', 'Access-Control-Expose-Headers':'Content-Range' }, body: JSON.stringify([{ conteo_id:'c1', sku_code:'P-100', descripcion:'Filtro de aire', cantidad_contada:2, diferencia:0, estado:'aprobado', fecha_conteo:'2026-10-20T12:00:00Z', capturado_en:'2026-10-20T12:00:00Z', dueno:'ENEX' }]) }); });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.evaluate(() => setState({ view:'dashboard', dashboardModo:'operativo' }));
+    assert(await esperarCondicion(page, () => !!document.getElementById('btn-exportar-resumen-duenos')), 'el Panel muestra la tarjeta Por dueño');
+    const chipsResumen = await page.$$eval('.chip-dueno', els => els.map(e => e.textContent));
+    assert(chipsResumen.includes('Enex S.A.') && chipsResumen.includes('Copec'), 'la tarjeta nombra a cada dueño, obtuvo '+JSON.stringify(chipsResumen));
+    assert(pedidosResumen >= 1, 'el resumen por dueño se pide al abrir el Panel');
+    const desbordeResumen = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeResumen <= 0, 'a 420 px la tarjeta Por dueño no desborda la página, obtuvo '+desbordeResumen);
+    if (process.env.E2E_CAPTURAS){ await page.$eval('#btn-exportar-resumen-duenos', el => el.scrollIntoView({block:'start'})); await page.screenshot({ path: process.env.E2E_CAPTURAS + '/panel-por-dueno-420.png' }); }
+    const descargaResumen = page.waitForEvent('download', { timeout:ESPERA }).catch(()=>null);
+    await page.click('#btn-exportar-resumen-duenos');
+    const archivoResumen = await descargaResumen;
+    assert(archivoResumen && /^resumen-por-dueno-.*\.xlsx$/.test(archivoResumen.suggestedFilename()), 'el Excel del resumen por dueño se descarga, obtuvo '+(archivoResumen && archivoResumen.suggestedFilename()));
+
+    await page.evaluate(() => setState({ exportarModal:true }));
+    await page.waitForSelector('#ex-dueno', { timeout:ESPERA });
+    await page.selectOption('#ex-dueno', 'ENEX');
+    const descargaConteos = page.waitForEvent('download', { timeout:ESPERA }).catch(()=>null);
+    await page.click('#form-exportar-conteos button[type="submit"]');
+    const archivoConteos = await descargaConteos;
+    assert(urlsExport.length && urlsExport[urlsExport.length-1].includes('dueno=eq.ENEX'), 'la exportación de conteos filtra por el dueño elegido, obtuvo '+urlsExport[urlsExport.length-1]);
+    assert(archivoConteos && archivoConteos.suggestedFilename().startsWith('conteos_ENEX_'), 'el archivo lleva el dueño en el nombre, obtuvo '+(archivoConteos && archivoConteos.suggestedFilename()));
     await context.close();
   }
 
