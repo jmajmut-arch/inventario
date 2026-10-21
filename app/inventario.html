@@ -695,6 +695,15 @@ textarea{resize:vertical;min-height:60px;}
    primero que se vea sea el plan, no el formulario. */
 .plan-agregar-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
 .plan-agregar-head h3{margin:0;font-size:15px;}
+.plan-sin-periodo{border-color:var(--amber);}
+.plan-sin-periodo h3{margin:0 0 6px;font-size:15px;}
+.plan-sin-periodo .hint{margin:0 0 12px;}
+.plan-sin-periodo-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px 12px;align-items:end;}
+.plan-sin-periodo-form label{margin-top:0;}
+.plan-sin-periodo-form .btn{grid-column:1 / -1;}
+.plan-sin-periodo-acciones{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;}
+.plan-sin-periodo-acciones .btn{width:auto;padding:0 16px;}
+@media (max-width:520px){.plan-sin-periodo-form{grid-template-columns:minmax(0,1fr);}}
 .plan-item-detalle{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
 .plan-sku-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
 .plan-sku-lista li{font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;}
@@ -1139,6 +1148,7 @@ let state = {
   reporte: null,
   tickets: ticketsEstadoInicial(),
   ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
+  ciclosCargados: false, // ya se leyeron los períodos: recién ahí "no hay ninguno actual" es un dato (ver estadoPeriodoParaPlanificar)
   cicloEditandoId: null,  // id del ciclo cuya fecha de inicio se está editando en Períodos, o null
   informesCiclo: { cargado:false, cargando:false, lista:[] }, // informes de cierre (ver marcar_ciclo_actual/informes_ciclo): un snapshot automático por cada ciclo ya cerrado
   opcionesCategorias: [], // valores de categoría ya usados por la empresa (sugerencia en "Cargar SKU")
@@ -2604,7 +2614,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], ciclosCargados:false, cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -3699,7 +3709,7 @@ async function cargarResponsables(){
 async function cargarCiclos(){
   try{
     const rows = await rest('/ciclos_conteo?select=id,nombre,es_actual,fecha_inicio&order=created_at.desc');
-    setState({ciclos: rows||[]});
+    setState({ciclos: rows||[], ciclosCargados:true});
     // Semana de conteo: la primera vez que se conocen los períodos, seleccionar el actual por
     // defecto en el filtro de Planificación (a pedido de Joel), en vez de arrancar en modo
     // "navegar por semana". Solo la primera vez -- cicloFiltroInicializado evita pisar lo que
@@ -3757,16 +3767,38 @@ async function cargarCalendario(mes){
   }
 }
 
+// Sin ningún período actual (empresa nueva), el que se crea con inicio hoy o antes queda como
+// actual de inmediato, en vez de esperar a la tarea de la noche (activar_periodos_programados):
+// antes, quien creaba su primer período y planificaba enseguida dejaba el plan fuera de todo
+// período. No se cierra nada (no había actual), así que no hace falta confirmar. Lo ya planificado
+// sin período desde su fecha de inicio pasa a ese período.
 async function crearCiclo(nombre, fechaInicio){
   if(!nombre || !perfilCargado()) return;
+  const inicio = fechaInicio || fechaISO(new Date());
+  const activarAhora = state.ciclosCargados && !(state.ciclos||[]).some(c=>c.es_actual) && inicio <= fechaISO(new Date());
   try{
-    await rest('/ciclos_conteo', {method:'POST', body:[{
-      empresa_id: state.perfil.empresa_id, nombre,
-      fecha_inicio: fechaInicio || fechaISO(new Date()),
-    }], prefer:'return=minimal'});
-    toast('Ciclo creado');
-    cargarCiclos();
-  }catch(e){ toast(e.message,'err'); }
+    const filas = await rest('/ciclos_conteo', {method:'POST', body:[{
+      empresa_id: state.perfil.empresa_id, nombre, fecha_inicio: inicio,
+    }], prefer: activarAhora? 'return=representation' : 'return=minimal'});
+    const nuevo = activarAhora && filas && filas[0];
+    if(!nuevo){
+      toast('Ciclo creado');
+      cargarCiclos();
+      return;
+    }
+    await rest('/rpc/marcar_ciclo_actual', {method:'POST', body:{ciclo_id: nuevo.id}});
+    let adoptadas = [];
+    try{
+      adoptadas = await rest(`/plan_semanal?ciclo_id=is.null&fecha=gte.${encodeURIComponent(inicio)}&select=id`, {method:'PATCH', body:{ciclo_id: nuevo.id}, prefer:'return=representation'}) || [];
+    }catch(e){
+      toast(`Período "${nombre}" creado y activo, pero no se pudo pasar a él lo ya planificado: ${e.message}`, 'err');
+    }
+    toast(`Período "${nombre}" creado y activo${adoptadas.length? ` · ${adoptadas.length} entrada${adoptadas.length===1?'':'s'} del plan pasa${adoptadas.length===1?'':'n'} a este período` : ''}`);
+    // Plan muestra el período recién activado, igual que al abrir la app con un período actual.
+    if(!state.plan.cicloFiltro) setState({plan:{...state.plan, cicloFiltro: nuevo.id, agregarAbierto:true}});
+    await cargarCiclos();
+    if(state.view==='plan') cargarPlanSemanal();
+  }catch(e){ toast(e.message,'err'); cargarCiclos(); }
 }
 
 async function editarFechaInicioCiclo(id, fechaInicio){
@@ -4604,6 +4636,9 @@ async function confirmarVistaPreviaComoPlan(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
   if(!grupo || !g.vistaPreviaDias || !g.vistaPreviaDias.length || !perfilCargado()) return;
+  // Igual que agregar a mano (ver estadoPeriodoParaPlanificar): sin período actual no se planifica.
+  const faltaPeriodo = estadoPeriodoParaPlanificar();
+  if(faltaPeriodo){ toast(mensajeFaltaPeriodo(faltaPeriodo),'err'); return; }
 
   const entradas = entradasParaCrearPlanGrupo(g.vistaPreviaDias, grupo.dueno);
   const totalMateriales = g.vistaPreviaDias.reduce((n,s)=>n+s.materiales, 0);
@@ -5903,9 +5938,37 @@ async function elegirCascadaContar(cambios){
 // entrada, si quien llama ya las pidió (generador de Grupos): evita volver a pedirlas para la foto.
 // dueno (opcional, ver duenoAgregarPlan): la entrada cubre solo los materiales de ese dueño. Sin
 // él, la fila se manda igual que siempre (sin la columna) y cubre a todos.
+// Planificar sin período (Joel, 21/10/2026): en una empresa sin período actual, lo planificado
+// quedaba con ciclo_id null -- fuera de todo período, de su filtro y de su informe de cierre, y el
+// aviso de "ya planificados" lo comparaba con todo el plan de antes. Pasó de verdad: una empresa
+// nueva planificó 8 entradas sin período y 4 quedaron repetidas. Devuelve qué falta, para que Plan
+// lo diga y ofrezca crear o activar el período; null si hay período actual o si todavía no se
+// leyeron los períodos (no se bloquea a ciegas).
+function estadoPeriodoParaPlanificar(){
+  if(!state.ciclosCargados) return null;
+  const ciclos = state.ciclos||[];
+  if(ciclos.some(c=>c.es_actual)) return null;
+  const hoy = fechaISO(new Date());
+  // state.ciclos viene del más nuevo al más viejo (created_at desc).
+  const activable = ciclos.find(c=>!c.fecha_inicio || c.fecha_inicio<=hoy) || null;
+  const proximo = ciclos.filter(c=>c.fecha_inicio && c.fecha_inicio>hoy).sort((a,b)=>a.fecha_inicio.localeCompare(b.fecha_inicio))[0] || null;
+  return {sinPeriodos: !ciclos.length, activable, proximo};
+}
+function mensajeFaltaPeriodo(f){
+  if(f.activable) return `Ningún período está activo: activa "${f.activable.nombre}" o crea uno antes de planificar.`;
+  if(f.proximo) return `Todavía no hay un período activo: "${f.proximo.nombre}" empieza el ${fmtFecha(f.proximo.fecha_inicio)}. Cambia su fecha de inicio en Períodos para planificar desde hoy.`;
+  return 'Primero crea el período de conteo: sin período, lo que planifiques queda fuera de todos.';
+}
+
 async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, ubicacionEsNula, cicloId, silencioso, skusIncluidos, universoConocido, dueno}){
   if(!fecha){ if(!silencioso) toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
+  const faltaPeriodo = !cicloId && estadoPeriodoParaPlanificar();
+  if(faltaPeriodo){
+    if(silencioso) throw new Error(mensajeFaltaPeriodo(faltaPeriodo));
+    toast(mensajeFaltaPeriodo(faltaPeriodo),'err');
+    return;
+  }
   // "SKU sin ubicación" es una sola entrada (no tiene bodega/ubicación/bin que cascadear). Lo
   // mismo para "ubicación nula" (bodega conocida, sin ubicación específica dentro de ella).
   const porSku = !!(skusIncluidos && skusIncluidos.length);
@@ -6136,6 +6199,8 @@ async function agregarPlanPorSku({fecha, responsableId, nota}){
   if(!elegidos.length){ toast('Busca y elige al menos un SKU','err'); return; }
   if(!fecha){ toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
+  const faltaPeriodo = estadoPeriodoParaPlanificar();
+  if(faltaPeriodo){ toast(mensajeFaltaPeriodo(faltaPeriodo),'err'); return; }
   const grupos = agruparSkusElegidosPorZona(elegidos);
   let creadas = 0, fallidas = 0, ultimoError = '';
   for(const g of grupos){
@@ -15559,6 +15624,49 @@ function htmlAtrasoPlan(p){
     </div>`;
 }
 
+// Tarjeta de Plan cuando no hay período actual: dice por qué importa y deja crearlo (o activarlo)
+// ahí mismo, sin ir a Períodos.
+function htmlPlanSinPeriodo(f){
+  const hoy = new Date();
+  const ejemplo = `T${Math.floor(hoy.getMonth()/3)+1} ${hoy.getFullYear()}`;
+  const porQue = 'Sin un período activo, lo que planifiques no queda en ninguno: no aparece al filtrar por período, no entra en su informe de cierre y el aviso de "ya planificado" lo compara con todo lo anterior.';
+  const formCrear = `
+      <form id="form-plan-crear-periodo" class="plan-sin-periodo-form">
+        <div>
+          <label for="plan-periodo-nombre">Nombre del período</label>
+          <input type="text" id="plan-periodo-nombre" placeholder="Ej. ${esc(ejemplo)}" required>
+        </div>
+        <div>
+          <label for="plan-periodo-inicio">Fecha de inicio</label>
+          <input type="date" id="plan-periodo-inicio" value="${esc(fechaISO(hoy))}" max="${esc(fechaISO(hoy))}" required>
+        </div>
+        <button type="submit" class="btn btn-primary" id="btn-plan-crear-periodo">Crear período y planificar</button>
+      </form>`;
+  if(f.activable) return `
+    <div class="card plan-sin-periodo" id="plan-sin-periodo">
+      <h3>Ningún período está activo</h3>
+      <p class="hint">${porQue}</p>
+      <div class="plan-sin-periodo-acciones">
+        <button type="button" class="btn btn-primary" id="btn-plan-activar-periodo" data-ciclo="${esc(f.activable.id)}">Activar "${esc(f.activable.nombre)}"</button>
+        <button type="button" class="link-btn" id="btn-plan-ir-periodos">Ver períodos</button>
+      </div>
+    </div>`;
+  if(f.proximo) return `
+    <div class="card plan-sin-periodo" id="plan-sin-periodo">
+      <h3>Tu período empieza el ${esc(fmtFecha(f.proximo.fecha_inicio))}</h3>
+      <p class="hint">"${esc(f.proximo.nombre)}" se activa solo ese día. ${porQue} Para planificar desde hoy, adelanta su fecha de inicio.</p>
+      <div class="plan-sin-periodo-acciones">
+        <button type="button" class="btn btn-primary" id="btn-plan-ir-periodos">Ir a Períodos</button>
+      </div>
+    </div>`;
+  return `
+    <div class="card plan-sin-periodo" id="plan-sin-periodo">
+      <h3>Antes de planificar, crea el período</h3>
+      <p class="hint">${porQue} Un período es una toma de inventario: un trimestre, un cierre de año.</p>
+      ${formCrear}
+    </div>`;
+}
+
 function renderPlanificacion(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
@@ -15566,6 +15674,9 @@ function renderPlanificacion(){
   // no cortar la vista justo el domingo y poder ver de una el arranque de la semana próxima.
   const finSemana = sumarDias(inicio,7);
   const cicloFiltroObj = p.cicloFiltro ? (state.ciclos||[]).find(c=>c.id===p.cicloFiltro) : null;
+  // Sin período actual, "Agregar" queda oculto y en su lugar se ofrece crear o activar el período
+  // (ver estadoPeriodoParaPlanificar). El formulario sigue en el DOM para que bind() no cambie.
+  const faltaPeriodo = estadoPeriodoParaPlanificar();
   // Ventana activa: Día / Semana / Mes / Año / Período (ver ventanaPlan). Mes, Año y Período son
   // vistas resumidas: totales por entrada sin listar SKU.
   const ventana = ventanaPlan(p);
@@ -15847,7 +15958,8 @@ function renderPlanificacion(){
       </details>
     ` : ''}
 
-    <div class="card" id="plan-agregar-card">
+    ${faltaPeriodo? htmlPlanSinPeriodo(faltaPeriodo) : ''}
+    <div class="card" id="plan-agregar-card" ${faltaPeriodo? 'style="display:none"' : ''}>
       ${agregarAbierto? `
       <div class="plan-agregar-head" style="margin-bottom:10px">
         <h3>Agregar a la planificación</h3>
@@ -16312,7 +16424,7 @@ function renderCiclos(){
           </div>
           ${c.es_actual? `<span class="badge badge-ok">Actual</span>` : `<button type="button" class="btn btn-secondary" data-marcar-ciclo-actual="${esc(c.id)}" style="width:auto;padding:6px 12px;font-size:12px">Marcar como actual</button>`}
         </div>
-      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay ciclos creados. Mientras no crees uno, los conteos se guardan sin período asignado.</div>`}
+      `).join('')}</div>` : `<div class="empty" style="padding:14px 8px">Todavía no hay ciclos creados. Mientras no crees uno, los conteos y el plan se guardan sin período asignado. El primero que crees, con inicio hoy o antes, queda activo de inmediato.</div>`}
     </div>
     ${planIncluye('dashboard_ejecutivo_habilitado')? `
     <div class="section-head" style="margin-top:20px"><div><span class="eyebrow">Automático al cerrar cada ciclo</span><h2>Informes de cierre</h2></div></div>
@@ -20183,6 +20295,21 @@ function bind(){
       const sel = document.getElementById('plan-reasignar-select');
       if(sel){ if(sel.scrollIntoView) sel.scrollIntoView({block:'center'}); if(sel.focus) sel.focus(); }
     });
+    const formPlanPeriodo = document.getElementById('form-plan-crear-periodo');
+    if(formPlanPeriodo) formPlanPeriodo.addEventListener('submit', async e=>{
+      e.preventDefault();
+      const nombre = document.getElementById('plan-periodo-nombre').value.trim();
+      const inicio = document.getElementById('plan-periodo-inicio').value;
+      const btn = document.getElementById('btn-plan-crear-periodo');
+      if(btn){ btn.disabled = true; btn.textContent = 'Creando…'; }
+      await crearCiclo(nombre, inicio);
+      const btnDespues = document.getElementById('btn-plan-crear-periodo');
+      if(btnDespues){ btnDespues.disabled = false; btnDespues.textContent = 'Crear período y planificar'; }
+    });
+    const btnActivarPeriodo = document.getElementById('btn-plan-activar-periodo');
+    if(btnActivarPeriodo) btnActivarPeriodo.addEventListener('click', ()=> marcarCicloActual(btnActivarPeriodo.dataset.ciclo));
+    const btnIrPeriodos = document.getElementById('btn-plan-ir-periodos');
+    if(btnIrPeriodos) btnIrPeriodos.addEventListener('click', ()=> setState({view:'ciclos'}));
     const inputFechaPlan = document.getElementById('p-fecha');
     if(inputFechaPlan) inputFechaPlan.addEventListener('change', e=>{
       const nueva = e.target.value;

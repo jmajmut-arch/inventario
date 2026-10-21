@@ -972,6 +972,8 @@ async function loguear(page, perfil, prepararRutas){
     const page = await context.newPage();
     page.on('pageerror', err => erroresPagina.push('planificacion: '+err.message));
     await loguear(page, PERFIL_ADMIN_PRO);
+    // Con un período actual, como en toda empresa que ya planifica (sin él, Plan pide crearlo).
+    await page.evaluate(() => setState({ ciclos:[{ id:'c-e2e', nombre:'T4 2026', es_actual:true, fecha_inicio:'2026-10-01' }] }));
     const hoy = await page.evaluate(() => fechaISO(new Date()));
     const mes = hoy.slice(0,8);
     const entradas = Array.from({length:50}, (_,i) => ({
@@ -980,7 +982,10 @@ async function loguear(page, perfil, prepararRutas){
     }));
     let cuerpoPlan = null;
     await page.route('**/rest/v1/rpc/plan_ventana_pantalla**', route => {
-      cuerpoPlan = JSON.parse(route.request().postData());
+      const pedido = JSON.parse(route.request().postData());
+      // Con período actual, Plan pide aparte lo atrasado del período (sin p_desde): sin atrasos.
+      if(pedido.p_ciclo_id && !pedido.p_desde) return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({entradas:[], resumen:[]}) });
+      cuerpoPlan = pedido;
       const lista = entradas.filter(e => !cuerpoPlan.p_desde || (e.fecha>=cuerpoPlan.p_desde && e.fecha<=cuerpoPlan.p_hasta));
       const cuerpo = {entradas: lista};
       if(cuerpoPlan.p_resumido) cuerpo.resumen = lista.map(e => ({plan_id:e.id, total:12, propios:12}));
@@ -1076,6 +1081,52 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Plan sin período (Joel, 21/10/2026), a 420 px =====
+  // Una empresa nueva planificó sin ningún período actual y todo quedó fuera de período. Sin
+  // período, Plan lo dice y ofrece crearlo ahí mismo; creado con inicio hoy, queda activo al tiro,
+  // adopta lo ya planificado sin período y aparece "Agregar a la planificación".
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('plan-sin-periodo: '+err.message));
+    const pedidos = [];
+    let cicloCreado = null;
+    await loguear(page, PERFIL_ADMIN_PRO, async () => {
+      await page.route('**/rest/v1/ciclos_conteo**', route => {
+        const req = route.request();
+        if(req.method() === 'POST'){
+          const fila = req.postDataJSON()[0];
+          cicloCreado = { id:'c-nuevo', nombre:fila.nombre, es_actual:false, fecha_inicio:fila.fecha_inicio };
+          pedidos.push({ tipo:'crear', prefer:req.headers()['prefer'], fila });
+          return route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([cicloCreado]) });
+        }
+        const actual = pedidos.some(p => p.tipo==='marcar');
+        return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(cicloCreado ? [{ ...cicloCreado, es_actual:actual }] : []) });
+      });
+      await page.route('**/rest/v1/rpc/marcar_ciclo_actual**', route => { pedidos.push({ tipo:'marcar', cuerpo: route.request().postDataJSON() }); route.fulfill({ status:200, contentType:'application/json', body:'' }); });
+      await page.route(/\/rest\/v1\/plan_semanal\?/, route => {
+        if(route.request().method() !== 'PATCH') return route.fallback();
+        pedidos.push({ tipo:'adoptar', url: decodeURIComponent(route.request().url()), cuerpo: route.request().postDataJSON() });
+        route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'e1' }, { id:'e2' }]) });
+      });
+    });
+    await page.evaluate(() => setState({ view:'plan' }));
+    await page.waitForSelector('#plan-sin-periodo', { state:'visible', timeout:ESPERA });
+    const antes = await page.evaluate(() => ({ agregarVisible: !!document.getElementById('plan-agregar-card').offsetParent, desborde: document.documentElement.scrollWidth - window.innerWidth, boton: Math.round(document.getElementById('btn-plan-crear-periodo').getBoundingClientRect().height) }));
+    assert(!antes.agregarVisible && antes.desborde <= 0 && antes.boton >= 44, 'sin período, "Agregar" no se ofrece, la tarjeta cabe a 420 px y su botón mide al menos 44 px, obtuvo '+JSON.stringify(antes));
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/plan-sin-periodo-420.png', fullPage: true });
+    await page.fill('#plan-periodo-nombre', 'T4 2026');
+    await page.click('#btn-plan-crear-periodo');
+    await page.waitForSelector('#btn-toggle-agregar-plan, #form-plan', { state:'visible', timeout:ESPERA });
+    const hoy = await page.evaluate(() => fechaISO(new Date()));
+    const crear = pedidos.find(p => p.tipo==='crear'), marcar = pedidos.find(p => p.tipo==='marcar'), adoptar = pedidos.find(p => p.tipo==='adoptar');
+    assert(crear && crear.fila.nombre === 'T4 2026' && crear.fila.fecha_inicio === hoy && marcar && marcar.cuerpo.ciclo_id === 'c-nuevo', 'crea el período con inicio hoy y lo deja actual, obtuvo '+JSON.stringify(pedidos));
+    assert(adoptar && adoptar.url.includes('ciclo_id=is.null&fecha=gte.'+hoy) && adoptar.cuerpo.ciclo_id === 'c-nuevo', 'lo planificado sin período desde hoy pasa al período nuevo, obtuvo '+JSON.stringify(adoptar));
+    const despues = await page.evaluate(() => ({ tarjeta: !!document.getElementById('plan-sin-periodo'), filtro: state.plan.cicloFiltro, toast: [...document.querySelectorAll('#toast-root .toast')].map(t => t.textContent).join(' | ') }));
+    assert(!despues.tarjeta && despues.filtro === 'c-nuevo' && /creado y activo · 2 entradas del plan pasan a este período/.test(despues.toast), 'creado el período, la tarjeta se va, Plan lo muestra y el aviso dice cuántas entradas adoptó, obtuvo '+JSON.stringify(despues));
+    await context.close();
+  }
+
   // ===== Planificar por dueño (Joel, 21/10/2026), a 420 px =====
   // Con dueños activados, "Agregar a la planificación" ofrece elegir uno: la entrada se guarda con
   // ese dueño, los pendientes sin storage bin se cuentan solo para él, y la entrada dice de quién es.
@@ -1089,6 +1140,7 @@ async function loguear(page, perfil, prepararRutas){
     await loguear(page, perfilDuenos, async () => {
       await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true }, { id:'d2', codigo:'ALBA', nombre:'Alba', activo:true }]) }));
     });
+    await page.evaluate(() => setState({ ciclos:[{ id:'c-e2e', nombre:'T4 2026', es_actual:true, fecha_inicio:'2026-10-01' }] }));
     const hoy = await page.evaluate(() => fechaISO(new Date()));
     const entradas = [
       { id:'pd1', fecha:hoy, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:null, responsable_id:null, responsable_nombre:null, ciclo_nombre:null, nota:null, skus_excluidos:[], por_sku:false, dueno:'VERTICE' },
