@@ -195,7 +195,14 @@ async function loguear(page, perfil, prepararRutas){
     await page.click('#btn-ir-buscar');
     await page.click('#btn-config');
     for (const tab of ['plan','conteo','reconteo','dashboard']) await page.click(`.tabbar [data-tab="${tab}"]`);
-    assert(erroresMfa.length === 0, 'con el bloqueo por MFA, la lupa, Configuraciones y las pestañas no deben fallar, obtuvo: '+erroresMfa.join(' | '));
+    // SKU y Calendario (hoja Más): Sentry JAVASCRIPT-G (#586) fue SKU con el bloqueo, el 14/10/2026,
+    // desde una copia guardada del 18/09 que el navegador nunca reemplazó (ver PR #610).
+    for (const boton of ['#btn-ir-skus','#btn-ir-calendario']) {
+      await page.click('#tab-mas');
+      await page.waitForSelector(boton, { state:'visible', timeout:ESPERA });
+      await page.click(boton);
+    }
+    assert(erroresMfa.length === 0, 'con el bloqueo por MFA, la lupa, Configuraciones, las pestañas, SKU y Calendario no deben fallar, obtuvo: '+erroresMfa.join(' | '));
     assert(await page.isVisible('#btn-mfa-activar'), 'el bloqueo sigue en pantalla con su botón Activar');
     await context.close();
   }
