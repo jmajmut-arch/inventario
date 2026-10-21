@@ -1138,6 +1138,34 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Informe de cierre de período por dueño (Joel, 21/10/2026), a 420 px =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('informe-cierre-dueno: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    await loguear(page, perfilDuenos, async () => {
+      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }]) }));
+    });
+    const seccion = (u, c) => ({ avance_total:[{bodega:'B1', skus_universo:u, skus_contados:c, porcentaje_avance:0}], exactitud_por_bodega:[], diferencias_recientes:{sin_diferencia:0, con_diferencia:0}, ranking_responsable:[], valorizacion_diferencias:[], reconteos_sin_resolver:[] });
+    await page.route('**/rest/v1/informes_ciclo**', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+      { id:'inf-1', ciclo_nombre:'Trimestre de prueba con nombre largo', fecha_inicio:'2026-07-01', fecha_cierre:'2026-09-30T20:00:00Z', datos:{ ...seccion(100, 40), por_dueno:{ 'ENEX': seccion(30, 12), '': seccion(70, 28) } } },
+    ]) }));
+    await page.evaluate(() => setState({ view:'ciclos' }));
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('[data-informe-dueno="inf-1"] option')].some(o=>o.value==='ENEX')), 'el informe de cierre ofrece elegir el dueño');
+    await page.selectOption('[data-informe-dueno="inf-1"]', 'ENEX');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px la lista de informes con dueño no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await (await page.$('[data-informe-dueno="inf-1"]')).evaluate(el => el.closest('.card').scrollIntoView({block:'center'}));
+    if (process.env.E2E_CAPTURAS) await (await page.evaluateHandle(() => document.querySelector('[data-informe-dueno="inf-1"]').closest('.card'))).asElement().screenshot({ path: process.env.E2E_CAPTURAS + '/informe-cierre-dueno-420.png' });
+    await page.evaluate(() => { window.print = () => {}; });
+    await page.click('[data-ver-informe-ciclo="inf-1"]');
+    const impreso = await page.evaluate(() => document.getElementById('print-informe').textContent);
+    assert(impreso.includes('Dueño: Enex S.A.') && impreso.includes('12 de 30 SKU'), 'el informe impreso es el del dueño elegido, obtuvo '+impreso.slice(0, 300));
+    await context.close();
+  }
+
   // ===== Contar: marcar la foto con rayas y flechas antes de guardarla (Joel, 30/09) =====
   // Con el navegador real: se adjunta una foto blanca, "Marcar" abre el editor, se dibuja un trazo
   // con el mouse y una flecha, y al tocar Listo la foto de la entrada queda reemplazada por un JPEG

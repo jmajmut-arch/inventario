@@ -2642,6 +2642,7 @@ const CARGAS_POR_VISTA = {
   buscar: ['ubicacionesLista', 'personasBuscar', 'duenosStock'], // desplegables de ubicación (una llamada) y de "Contado por"
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables', 'duenosStock'],
   grupos: ['duenosStock'], // los grupos los carga su propia pantalla (cargarGrupos); acá, el nombre de cada dueño
+  ciclos: ['duenosStock'], // los informes de cierre por dueño muestran el nombre de cada uno
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
   salida: ['bodegaListas', 'responsables', 'reservas'],
@@ -14897,19 +14898,39 @@ function renderCuerpoInformeGuardado(datos){
   `;
 }
 
-function imprimirInformeGuardado(id){
+// Informe de cierre de una empresa con dueños (20261022_duenos_stock_informe_cierre.sql): además
+// del total, datos.por_dueno trae las mismas secciones por dueño ('' = sin dueño). Los informes
+// cerrados antes de eso no lo traen: solo se pueden ver completos.
+function duenosInformeCierre(informe){
+  const pd = informe && informe.datos && informe.datos.por_dueno;
+  return pd && typeof pd==='object' ? Object.keys(pd).sort((a,b)=> (a==='')-(b==='') || a.localeCompare(b)) : [];
+}
+// Las secciones del informe para un valor del selector ('' = todos, '__sin' = sin dueño, o un
+// código). Un dueño sin nada en ese período no tiene sección: se muestra vacío, no el total.
+function datosInformeCierre(informe, valorDueno){
+  const dueno = duenoDesdeFiltro(valorDueno);
+  if(dueno===undefined) return informe.datos;
+  const pd = (informe.datos && informe.datos.por_dueno) || {};
+  return pd[dueno] || {avance_total:[], exactitud_por_bodega:[], diferencias_recientes:{sin_diferencia:0, con_diferencia:0}, ranking_responsable:[], valorizacion_diferencias:[], reconteos_sin_resolver:[]};
+}
+function etiquetaDuenoInforme(codigo){
+  return codigo==='' ? 'Sin dueño' : (etiquetaDueno({dueno:codigo}) || codigo);
+}
+
+function imprimirInformeGuardado(id, valorDueno){
   if(!planIncluye('dashboard_ejecutivo_habilitado')) return;
   const informe = state.informesCiclo.lista.find(x=>x.id===id);
   if(!informe) return;
   const empresaNombre = (state.perfil && state.perfil.empresas && state.perfil.empresas.nombre) || '';
-  const metaPartes = [empresaNombre, informe.ciclo_nombre, `Inicio ${fmtFecha(informe.fecha_inicio)}`, `Cierre ${fmtFechaHora(informe.fecha_cierre)}`].filter(Boolean);
+  const dueno = duenoDesdeFiltro(valorDueno);
+  const metaPartes = [empresaNombre, informe.ciclo_nombre, dueno===undefined ? '' : `Dueño: ${etiquetaDuenoInforme(dueno)}`, `Inicio ${fmtFecha(informe.fecha_inicio)}`, `Cierre ${fmtFechaHora(informe.fecha_cierre)}`].filter(Boolean);
   document.getElementById('print-plan').innerHTML = '';
   document.getElementById('print-buscar').innerHTML = '';
   document.getElementById('print-informe').innerHTML = `
     ${encabezadoLogoImpresion()}
     <h1>Informe de cierre de ciclo</h1>
     <div class="print-meta">${metaPartes.map(esc).join(' · ')}</div>
-    ${renderCuerpoInformeGuardado(informe.datos)}
+    ${renderCuerpoInformeGuardado(datosInformeCierre(informe, valorDueno))}
   `;
   window.print();
 }
@@ -15716,10 +15737,15 @@ function renderCiclos(){
       <div class="hint" style="margin-bottom:10px">Cada vez que marcas un ciclo distinto como actual, el que estaba activo se cierra y su informe queda guardado acá para siempre -- con la exactitud, el avance y los reconteos que quedaron sin resolver en ese momento.</div>
       ${state.informesCiclo.cargando? `<div class="hint" style="text-align:center;padding:14px 0">Cargando…</div>` : state.informesCiclo.lista.length? state.informesCiclo.lista.map(inf=>`
         <div class="plan-item" style="padding:8px 0;align-items:center;flex-wrap:wrap;gap:8px">
-          <div style="flex:1">
+          <div style="flex:1 1 200px;min-width:0">
             <div class="plan-item-ubic" style="font-weight:500">${esc(inf.ciclo_nombre)}</div>
             <div class="hint" style="margin-top:2px">${esc(fmtFecha(inf.fecha_inicio))} → ${esc(fmtFechaHora(inf.fecha_cierre))}</div>
+            ${usaDuenosStock() && !duenosInformeCierre(inf).length? `<div class="hint" style="margin-top:2px">Cerrado antes de separar por dueño: solo el total.</div>` : ''}
           </div>
+          ${usaDuenosStock() && duenosInformeCierre(inf).length? `<select data-informe-dueno="${esc(inf.id)}" aria-label="Dueño del informe" style="width:auto;flex:none;margin:0;padding:6px 8px;font-size:12px">
+            <option value="">Todos los dueños</option>
+            ${duenosInformeCierre(inf).map(k=>`<option value="${k===''?'__sin':esc(k)}">${esc(etiquetaDuenoInforme(k))}</option>`).join('')}
+          </select>` : ''}
           <button type="button" class="btn btn-sm btn-secondary" data-ver-informe-ciclo="${esc(inf.id)}" style="width:auto;padding:6px 12px;font-size:12px">Ver informe</button>
         </div>
       `).join('') : `<div class="empty" style="padding:14px 8px">Todavía no se ha cerrado ningún ciclo.</div>`}
@@ -18470,7 +18496,10 @@ function bind(){
   if(state.view==='ciclos'){
     if(!state.informesCiclo.cargado && !state.informesCiclo.cargando && planIncluye('dashboard_ejecutivo_habilitado')) cargarInformesCiclo();
     document.querySelectorAll('[data-ver-informe-ciclo]').forEach(btn=>{
-      btn.addEventListener('click', ()=> imprimirInformeGuardado(btn.dataset.verInformeCiclo));
+      btn.addEventListener('click', ()=>{
+        const selDueno = document.querySelector(`[data-informe-dueno="${btn.dataset.verInformeCiclo}"]`);
+        imprimirInformeGuardado(btn.dataset.verInformeCiclo, selDueno ? selDueno.value : '');
+      });
     });
     const formCrearCiclo = document.getElementById('form-crear-ciclo');
     if(formCrearCiclo) formCrearCiclo.addEventListener('submit', e=>{
