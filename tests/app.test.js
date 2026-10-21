@@ -2204,6 +2204,35 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.contarPendientesSinBin('Nave Mina', 'Interior Nave', 'ENEX').catch(()=>{});
     assert(calls.length===2 && calls.every(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.ENEX')), 'los conteos del formulario filtran por el dueño elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
 
+    // Los números de las listas de lugares son los del dueño elegido (vistas *_dueno); sin dueño, las
+    // vistas y pedidos de siempre (las usan también otras pantallas).
+    calls.length = 0;
+    await ctx.opcionesEspecificas('Nave Mina', 'ENEX');
+    await ctx.opcionesBins('Nave Mina', 'Interior Nave', 'ENEX');
+    await ctx.opcionesBins('Nave Mina', '', 'ENEX');
+    await ctx.opcionesEspecificas('Nave Mina');
+    await ctx.opcionesBins('Nave Mina', 'Interior Nave');
+    const urlsListas = calls.map(c=>decodeURIComponent(c.url));
+    assert(urlsListas.slice(0,3).every(u=>/\/ubicaciones_(especificas|bins)_dueno\?/.test(u) && u.includes('&dueno=eq.ENEX')) && urlsListas.slice(3).every(u=>/\/ubicaciones_(especificas|bins)\?/.test(u) && !u.includes('dueno')), 'con dueño las listas salen de las vistas por dueño; sin él, las de siempre, obtuvo: '+JSON.stringify(urlsListas));
+    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    ctx.__appstate.plan.listasDueno = null;
+    const pPlan = ctx.__appstate.plan;
+    assert(ctx.listasPlanFormulario(pPlan).generales===pPlan.generales && !ctx.listasPlanFormulario(pPlan).delDueno, 'mientras no llegan los números del dueño se ven los de siempre, y el formulario lo dice');
+    assert(ctx.renderPlanificacion().includes('Calculando sus números'), 'avisa que está calculando los números del dueño');
+    ctx.__appstate.plan.listasDueno = {dueno:'ENEX', generales:[{bodega:'Nave Mina', dueno:'ENEX', cantidad_pendiente:3, cantidad_skus:5}], sinUbicacionCount:2};
+    const htmlListasDueno = ctx.renderPlanificacion();
+    assert(htmlListasDueno.includes('<option value="Nave Mina">Nave Mina (3/5)</option>') && htmlListasDueno.includes('SKU sin ubicación (2)') && htmlListasDueno.includes('los números de las listas son los suyos'), 'con los números del dueño, Ubicación general y "SKU sin ubicación" muestran los suyos, obtuvo: '+(htmlListasDueno.match(/<select id="p-bodega">[\s\S]*?<\/select>/)||[''])[0]);
+    ctx.__appstate.plan.duenoAgregar = 'COPEC';
+    assert(!ctx.listasPlanFormulario(ctx.__appstate.plan).delDueno, 'los números de otro dueño no se muestran para el dueño recién elegido');
+    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    calls.length = 0;
+    await ctx.cargarListasPlanDueno();
+    assert(calls.some(c=>decodeURIComponent(c.url).includes('/ubicaciones_generales_dueno?dueno=eq.ENEX')) && calls.some(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.ENEX')), 'cargarListasPlanDueno pide la ubicación general y los sin ubicación de ese dueño, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    ctx.__appstate.plan.duenoAgregar = '';
+    await ctx.cargarListasPlanDueno();
+    assert(ctx.__appstate.plan.listasDueno===null, 'con "Todos los dueños" se vuelve a las listas de siempre');
+    ctx.__appstate.plan.duenoAgregar = '__sin';
+
     // La entrada dice de qué dueño es: en Planificación, en la hoja impresa y en Contar.
     assert(ctx.etiquetaDuenoEntradaPlan({dueno:null})==='' && ctx.etiquetaDuenoEntradaPlan({dueno:'ENEX'})==='Enex S.A.' && ctx.etiquetaDuenoEntradaPlan({dueno:''})==='Sin dueño' && ctx.etiquetaDuenoEntradaPlan({dueno:'OTRO'})==='OTRO', 'el dueño de una entrada se muestra con su nombre, o su código si no está en la lista; una entrada de todos no muestra nada');
     assert(ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:'ENEX', responsable_nombre:'Ana'}).includes('Dueño: Enex S.A.') && !ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:null}).includes('Dueño'), 'la hoja impresa dice el dueño de la entrada, si tiene');
@@ -5328,6 +5357,28 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.skusFiltroDueno = '';
     await ctx.cargarSkusPagina(0);
     assert(cuerpoPagina && !('p_dueno' in cuerpoPagina), 'sin filtro, la tabla de SKU pide la página de siempre, obtuvo '+JSON.stringify(cuerpoPagina));
+    // Regresión (la destapó la prueba e2e, 21/10/2026): la página sin filtro, pedida al entrar,
+    // respondía DESPUÉS que la filtrada y la tabla quedaba con lo de todos los dueños y el filtro en
+    // ENEX. Solo se muestra la respuesta del último pedido.
+    {
+      let soltarLenta;
+      ctx.fetch = async (url, opts) => {
+        if(!String(url).includes('/rest/v1/rpc/pagina_skus')) return fetchAntesSkus(url, opts);
+        const cuerpo = JSON.parse(opts.body);
+        const filas = cuerpo.p_dueno==='ENEX' ? [{id:'s1', sku_code:'ENEX-1', dueno:'ENEX'}] : [{id:'s1', sku_code:'ENEX-1', dueno:'ENEX'}, {id:'s2', sku_code:'COPEC-1', dueno:'COPEC'}];
+        const resp = { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({total:filas.length, rows:filas}), json: async()=>({total:filas.length, rows:filas}) };
+        if(!cuerpo.p_dueno) return new Promise(r=>{ soltarLenta = ()=> r(resp); });
+        return resp;
+      };
+      ctx.__appstate.skusFiltroDueno = '';
+      const lenta = ctx.cargarSkusPagina(0);
+      ctx.__appstate.skusFiltroDueno = 'ENEX';
+      await ctx.cargarSkusPagina(0);
+      soltarLenta();
+      await lenta;
+      assert(ctx.__appstate.skusPagina.rows.length===1 && ctx.__appstate.skusPagina.rows[0].sku_code==='ENEX-1', 'una respuesta vieja sin filtro no reemplaza la página filtrada, obtuvo '+JSON.stringify(ctx.__appstate.skusPagina.rows));
+      ctx.__appstate.skusFiltroDueno = '';
+    }
     ctx.fetch = fetchAntesSkus;
     ctx.__appstate.skusPagina = {rows:[], page:0, total:0};
 

@@ -1057,6 +1057,10 @@ async function loguear(page, perfil, prepararRutas){
     await page.route('**/rest/v1/ubicaciones_generales**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', cantidad_skus:40, cantidad_pendiente:30}]) }));
     await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:40, cantidad_pendiente:30}]) }));
     await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:4}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-02', cantidad_skus:4}]) }));
+    // Las vistas por dueño (registradas después: ganan sobre las de arriba, cuyo patrón también las toma).
+    await page.route('**/rest/v1/ubicaciones_generales_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', dueno:'ENEX', cantidad_skus:9, cantidad_pendiente:7}]) }));
+    await page.route('**/rest/v1/ubicaciones_especificas_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', dueno:'ENEX', cantidad_skus:9, cantidad_pendiente:7}]) }));
+    await page.route('**/rest/v1/ubicaciones_bins_dueno**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', dueno:'ENEX', cantidad_skus:2}]) }));
     await page.route(/skus_disponibles_planificar\?.*storage_bin\.is\.null/, route => {
       const url = decodeURIComponent(route.request().url());
       urlsSinBin.push(url);
@@ -1079,10 +1083,14 @@ async function loguear(page, perfil, prepararRutas){
     await page.selectOption('#p-bodega', 'Nave Mina');
     await page.waitForFunction(() => /22 sin storage bin/.test(document.getElementById('p-bin-resumen').textContent), null, { timeout:ESPERA });
     assert(!urlsSinBin[urlsSinBin.length-1].includes('dueno='), 'con "Todos los dueños", los pendientes sin bin se cuentan como siempre, obtuvo '+urlsSinBin[urlsSinBin.length-1]);
+    const bodegaTodos = await page.$eval('#p-bodega option[value="Nave Mina"]', o => o.textContent);
+    assert(bodegaTodos === 'Nave Mina (30/40)', 'con "Todos los dueños" la ubicación general muestra los números de siempre, obtuvo '+bodegaTodos);
     await page.selectOption('#p-dueno', 'ENEX');
     await page.waitForFunction(() => /5 sin storage bin/.test(document.getElementById('p-bin-resumen').textContent), null, { timeout:ESPERA });
+    const listasDueno = await page.evaluate(() => ({ bodega: (document.querySelector('#p-bodega option[value="Nave Mina"]')||{}).textContent, ubic: [...document.querySelectorAll('#p-ubic option')].map(o=>o.textContent), bins: [...document.querySelectorAll('#p-bin option')].map(o=>o.textContent), resumen: document.getElementById('p-bin-resumen').textContent }));
+    assert(listasDueno.bodega === 'Nave Mina (7/9)' && listasDueno.ubic.join('|') === 'Todas (7/9)|Pasillo 3 (7/9)' && listasDueno.bins.join('|') === 'A-01 — 2 SKU' && listasDueno.resumen === '(1 bin / 2 SKU · 5 sin storage bin)', 'con un dueño, las tres listas muestran sus números, obtuvo '+JSON.stringify(listasDueno));
     const formDueno = await page.evaluate(() => ({ dueno: document.getElementById('p-dueno').value, bodega: document.getElementById('p-bodega').value, hint: document.getElementById('p-campos-ubicacion').textContent }));
-    assert(formDueno.dueno === 'ENEX' && formDueno.bodega === 'Nave Mina' && formDueno.hint.includes('solo los materiales de este dueño'), 'elegir el dueño no borra el resto del formulario y avisa que la entrada es solo suya, obtuvo '+JSON.stringify(formDueno));
+    assert(formDueno.dueno === 'ENEX' && formDueno.bodega === 'Nave Mina' && formDueno.hint.includes('los números de las listas son los suyos'), 'elegir el dueño no borra el resto del formulario y avisa que la entrada es solo suya, obtuvo '+JSON.stringify(formDueno));
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde <= 0, 'a 420 px Planificación con el dueño no desborda, obtuvo '+desborde);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/plan-dueno-420.png', fullPage: true });
@@ -2339,7 +2347,10 @@ async function loguear(page, perfil, prepararRutas){
     assert(!('p_dueno' in cuerposPagina[cuerposPagina.length-1]), 'sin filtro, la tabla de SKU pide lo de siempre');
     await page.selectOption('#skus-dueno', 'COPEC');
     assert(await esperarCondicion(page, () => !!document.querySelector('#skus-dueno') && document.querySelector('#skus-dueno').value === 'COPEC'), 'el filtro elegido queda marcado tras recargar la tabla');
-    assert(cuerposPagina[cuerposPagina.length-1].p_dueno === 'COPEC', 'la tabla pide la página filtrada, obtuvo '+JSON.stringify(cuerposPagina[cuerposPagina.length-1]));
+    // El pedido filtrado puede llegar un momento después de que el selector ya muestra COPEC (y antes
+    // de él, alguno de la carga inicial sin filtro): se espera a que aparezca, en vez de mirar el último.
+    for(let i=0; i<100 && !cuerposPagina.some(c=>c.p_dueno === 'COPEC'); i++) await page.waitForTimeout(50);
+    assert(cuerposPagina.some(c=>c.p_dueno === 'COPEC'), 'la tabla pide la página filtrada, obtuvo '+JSON.stringify(cuerposPagina));
     const desbordeSkus = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeSkus <= 0, 'a 420 px la tabla de SKU con filtro no desborda, obtuvo '+desbordeSkus);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/skus-filtro-dueno-420.png', fullPage: true });
