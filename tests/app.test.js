@@ -7830,6 +7830,82 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const toastsGrupoAuto = toastRootGrupoAuto.hijos.slice(toastsAntesGrupoAuto);
   assert(toastsGrupoAuto.length===1 && toastsGrupoAuto[0].textContent==='Ya existe un grupo automático de Crítico activo', 'debe avisar con un mensaje claro si ya hay un grupo automático activo, obtuvo: '+JSON.stringify(toastsGrupoAuto.map(t=>t.textContent)));
   grupoAutomaticoDuplicado = false;
+  // El índice nuevo (uno por empresa y dueño, 20261022_duenos_stock_grupos_pegar.sql) se reconoce igual.
+  assert(ctx.esIndiceGrupoAutomatico('duplicate key value violates unique constraint "idx_grupos_conteo_automatico_critico_dueno"') && ctx.esIndiceGrupoAutomatico('idx_grupos_conteo_automatico_critico_unico') && !ctx.esIndiceGrupoAutomatico('otro error'), 'el aviso de grupo automático repetido reconoce el índice de antes y el nuevo');
+
+  // ===== Grupos de conteo por dueño (Joel, 21/10/2026; 20261022_duenos_stock_grupos.sql) =====
+  {
+    assert(!('dueno' in JSON.parse(postGrupoManual.opts.body)[0]), 'sin dueño elegido, el grupo se crea igual que siempre (sin la columna)');
+    const perfilAntesGrupoDueno = ctx.__appstate.perfil;
+    const duenosAntesGrupo = ctx.__appstate.duenosStock;
+    const gruposAntesDueno = ctx.__appstate.grupos;
+    const busquedaAntesGrupo = ctx.__appstate.busqueda;
+    const fetchAntesGrupoDueno = ctx.fetch;
+    ctx.__appstate.perfil = {...perfilAntesGrupoDueno, empresas:{...(perfilAntesGrupoDueno.empresas||{}), usa_duenos_stock:true}};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    assert(ctx.duenoDesdeFiltro('')===undefined && ctx.duenoDesdeFiltro('__sin')==='' && ctx.duenoDesdeFiltro('ENEX')==='ENEX', 'el selector de dueño se traduce a: todos (sin columna), sin dueño (vacío) o el código');
+
+    ctx.__appstate.grupos = {...gruposAntesDueno, creando:true, grupoAbierto:null, lista:[{id:'g-auto', nombre:'Críticos', automatico_critico:true, activo:true, dueno:null, miembros:[{count:0}]}]};
+    const htmlFormDueno = ctx.renderGrupos();
+    assert(htmlFormDueno.includes('<select id="grupo-dueno">') && htmlFormDueno.includes('id="grupo-automatico-critico"'), 'con dueños, crear grupo ofrece el dueño y permite otro automático de críticos (uno por dueño), obtuvo: '+htmlFormDueno);
+
+    calls.length = 0;
+    await ctx.crearGrupo('IE Enex', '60', false, '2027-01-15', 'ENEX');
+    const postGrupoDueno = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/grupos_conteo'));
+    assert(postGrupoDueno && JSON.parse(postGrupoDueno.opts.body)[0].dueno==='ENEX', 'el grupo se crea con el dueño elegido, obtuvo: '+(postGrupoDueno && postGrupoDueno.opts.body));
+
+    // crearGrupo recarga la lista de grupos de fondo: se espera a que termine, si no reemplazaría la
+    // lista de esta prueba a mitad de camino.
+    await new Promise(r=>setTimeout(r, 100));
+    // Lo que el grupo mira del maestro va solo con las filas de su dueño.
+    const urlsGrupo = [];
+    ctx.fetch = async (url, opts) => {
+      urlsGrupo.push(decodeURIComponent(String(url)));
+      const cuerpo = String(url).includes('/rpc/buscar_skus_lectura')
+        ? [{sku_code:'P-3', descripcion:'Perno', bodega:'B1', dueno:'ENEX'}, {sku_code:'P-2', descripcion:'Perno', bodega:'B1', dueno:'COPEC'}]
+        : String(url).includes('/skus_grupos_conteo') ? [{id:'m1', sku_code:'P-1', bodega:'B1'}] : [];
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cuerpo), json: async()=>cuerpo };
+    };
+    const grupoEnex = {id:'g-enex', nombre:'IE Enex', automatico_critico:false, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:1}]};
+    const autoEnex = {id:'g-auto-enex', nombre:'Críticos Enex', automatico_critico:true, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:0}]};
+    // cargado:true: con la vista Grupos en pantalla, un render volvería a pedir la lista (vacía acá).
+    ctx.__appstate.grupos = {...gruposAntesDueno, cargado:true, cargando:false, creando:false, grupoAbierto:'g-enex', lista:[grupoEnex, autoEnex], miembros:[]};
+    await ctx.cargarSeguimientoGrupo('g-enex');
+    await ctx.cargarMiembrosGrupo('g-enex');
+    const consultasSkus = urlsGrupo.filter(u=>u.includes('/rest/v1/skus?'));
+    assert(consultasSkus.length===2 && consultasSkus.every(u=>u.includes('&dueno=eq.ENEX')), 'seguimiento y miembros de un grupo con dueño miran solo sus filas, obtuvo: '+JSON.stringify(consultasSkus));
+    urlsGrupo.length = 0;
+    await ctx.cargarSeguimientoGrupo('g-auto-enex');
+    assert(urlsGrupo.some(u=>u.includes('/rest/v1/skus?') && u.includes('critico=eq.true') && u.includes('&dueno=eq.ENEX')), 'el automático de críticos de un dueño son los críticos de ese dueño, obtuvo: '+JSON.stringify(urlsGrupo));
+    ctx.__appstate.grupos.candidatoTexto = 'perno';
+    await ctx.buscarCandidatosGrupo();
+    assert(ctx.__appstate.grupos.candidatos.length===1 && ctx.__appstate.grupos.candidatos[0].sku_code==='P-3', 'al agregar materiales a un grupo con dueño se ofrecen solo los de ese dueño, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.candidatos));
+    const htmlDetalleDueno = ctx.renderGrupos();
+    assert(htmlDetalleDueno.includes('Dueño: Enex S.A.'), 'la ficha del grupo dice de qué dueño es');
+    ctx.__appstate.grupos = {...ctx.__appstate.grupos, grupoAbierto:null};
+    assert(ctx.renderGrupos().includes(' · Dueño: Enex S.A.'), 'la lista de grupos dice el dueño de cada grupo');
+
+    // El plan que genera el grupo lleva su dueño en cada entrada; uno de todos, igual que siempre.
+    const diasPlan = [{fecha:'2026-10-25', materiales:1, zonas:[{bodega:'B1', ubicacion:'U1', materiales:[{sku_code:'P-1', storage_bin:'A-1'}]}]}];
+    assert(ctx.entradasParaCrearPlanGrupo(diasPlan, 'ENEX').every(e=>e.dueno==='ENEX') && ctx.entradasParaCrearPlanGrupo(diasPlan, null).every(e=>!('dueno' in e)), 'las entradas del plan de un grupo llevan su dueño, y sin dueño no llevan la columna');
+
+    // Buscar por el automático de críticos de un dueño: viaja como p_solo_criticos + p_dueno.
+    ctx.__appstate.grupos = {...ctx.__appstate.grupos, lista:[grupoEnex, autoEnex]};
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-enex', dueno:''};
+    const pAuto = ctx.construirParametrosBusquedaRpc();
+    assert(pAuto.p_solo_criticos===true && pAuto.p_dueno==='ENEX' && pAuto.p_grupo_id===null, 'el automático de un dueño busca los críticos de ese dueño, obtuvo: '+JSON.stringify(pAuto));
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-auto-enex', dueno:'COPEC'};
+    assert(!['ENEX','COPEC',''].includes(ctx.construirParametrosBusquedaRpc().p_dueno) && /^\u0001/.test(ctx.construirParametrosBusquedaRpc().p_dueno), 'el automático de un dueño filtrado por otro dueño no trae nada');
+    ctx.__appstate.busqueda = {...busquedaAntesGrupo, grupoId:'g-enex', dueno:''};
+    const pManual = ctx.construirParametrosBusquedaRpc();
+    assert(pManual.p_grupo_id==='g-enex' && !('p_dueno' in pManual), 'un grupo a mano con dueño lo filtra la base por p_grupo_id, sin p_dueno, obtuvo: '+JSON.stringify(pManual));
+
+    ctx.fetch = fetchAntesGrupoDueno;
+    ctx.__appstate.perfil = perfilAntesGrupoDueno;
+    ctx.__appstate.duenosStock = duenosAntesGrupo;
+    ctx.__appstate.grupos = gruposAntesDueno;
+    ctx.__appstate.busqueda = busquedaAntesGrupo;
+  }
 
   // Abrir un grupo automático: cargarMiembrosGrupo NO debe tocar skus_grupos_conteo (no hay nada
   // que listar ahí) y cargarSeguimientoGrupo debe leer directo de skus.critico=true.

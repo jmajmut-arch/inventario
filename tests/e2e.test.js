@@ -1092,6 +1092,44 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Grupos de conteo por dueño (Joel, 21/10/2026), a 420 px =====
+  // Con dueños activados, crear un grupo ofrece el dueño: elegirlo no borra lo ya escrito, el grupo
+  // se guarda con él y la lista dice de quién es.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('grupos-dueno: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    const cuerposGrupo = [];
+    const grupos = [{ id:'gd1', nombre:'Críticos Enex', automatico_critico:true, activo:true, dueno:'ENEX', frecuencia_dias:60, fecha_inicio:'2026-10-01', miembros:[{count:0}] }];
+    await loguear(page, perfilDuenos, async () => {
+      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    });
+    await page.route('**/rest/v1/grupos_conteo**', route => {
+      if(route.request().method() === 'POST'){ cuerposGrupo.push(route.request().postDataJSON()); return route.fulfill({ status:201, contentType:'application/json', body:'' }); }
+      return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(grupos) });
+    });
+    await page.evaluate(() => setState({ view:'grupos' }));
+    assert(await esperarVisible(page, '.plan-item:has-text("Críticos Enex") .hint:has-text("Dueño: Enex S.A.")'), 'la lista de grupos dice el dueño de cada grupo');
+    await page.click('#btn-nuevo-grupo');
+    await page.waitForSelector('#form-crear-grupo', { timeout:ESPERA });
+    await page.fill('#grupo-nombre', 'IE Copec');
+    await page.fill('#grupo-frecuencia', '90');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#grupo-dueno option')].some(o=>o.value==='COPEC')), 'crear grupo ofrece elegir el dueño');
+    await page.selectOption('#grupo-dueno', 'COPEC');
+    const campos = await page.evaluate(() => [document.getElementById('grupo-nombre').value, document.getElementById('grupo-frecuencia').value].join('|'));
+    assert(campos === 'IE Copec|90', 'elegir el dueño no borra lo ya escrito, obtuvo '+campos);
+    assert(await page.isVisible('#grupo-automatico-critico'), 'con dueños se puede crear otro automático de críticos (uno por dueño)');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px crear grupo con dueño no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/grupo-dueno-420.png', fullPage: true });
+    await page.click('#form-crear-grupo button[type="submit"]');
+    for(let i=0; i<100 && !cuerposGrupo.length; i++) await page.waitForTimeout(50);
+    assert(cuerposGrupo.length === 1 && cuerposGrupo[0][0].dueno === 'COPEC' && cuerposGrupo[0][0].nombre === 'IE Copec', 'el grupo se guarda con el dueño elegido, obtuvo '+JSON.stringify(cuerposGrupo));
+    await context.close();
+  }
+
   // ===== Contar: marcar la foto con rayas y flechas antes de guardarla (Joel, 30/09) =====
   // Con el navegador real: se adjunta una foto blanca, "Marcar" abre el editor, se dibuja un trazo
   // con el mouse y una flecha, y al tocar Listo la foto de la entrada queda reemplazada por un JPEG
