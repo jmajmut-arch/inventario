@@ -1582,6 +1582,7 @@ const xlsxEscrituras = [];
 const XLSXMock = {
   utils: {
     json_to_sheet: (filas) => filas,
+    aoa_to_sheet: (filas) => ({ aoa: filas }),
     book_new: () => ({ hojas: {} }),
     book_append_sheet: (libro, hoja, nombre) => { libro.hojas[nombre] = hoja; },
   },
@@ -4345,6 +4346,124 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   {
     const htmlSaDuenos = ctx.renderSuperAdmin();
     assert((htmlSaDuenos.match(/class="sa-empresa-duenos"/g)||[]).length===2, 'el súper admin tiene un interruptor de dueños de stock por empresa, obtuvo: '+htmlSaDuenos);
+  }
+
+  // ===== Dar de baja una empresa (Joel, 21/10/2026; Edge Function eliminar-empresa) =====
+  // Solo una empresa desactivada; muestra cuánto tiene; pide el nombre exacto y la casilla de
+  // respaldo; llama a la Edge Function por tandas hasta que termina, con el avance a la vista.
+  {
+    const saAntes = ctx.__appstate.superadmin;
+    const fetchAntesBaja = ctx.fetch;
+    ctx.__appstate.superadmin = {...saAntes, empresas:[{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-x', nombre:'Cliente Viejo', activo:false, plan_id:'plan-pro'}], baja:null};
+    const htmlLista = ctx.renderSuperAdmin();
+    assert(htmlLista.includes('data-baja-empresa-sa="emp-x"') && !htmlLista.includes('data-baja-empresa-sa="emp-1"'), 'solo una empresa desactivada ofrece "Dar de baja", obtuvo: '+htmlLista);
+
+    const llamadasEdge = [];
+    let respuestasEdge = [];
+    ctx.fetch = async (url, opts) => {
+      const u = String(url);
+      if(u.includes('/rest/v1/rpc/resumen_datos_empresa')){
+        const r = {usuarios:3, skus:1200, conteos:40, fotos_archivos:12, fotos_mb:3.5, auditoria:900, flow_eventos:0};
+        return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(r), json: async()=>r };
+      }
+      if(u.includes('/functions/v1/eliminar-empresa')){
+        llamadasEdge.push(JSON.parse(opts.body));
+        const r = respuestasEdge.shift() || {terminado:true, borradas:{}};
+        return { status: r.__status || 200, ok: !r.__status, headers:{get:()=>null}, json: async()=>r, text: async()=>JSON.stringify(r) };
+      }
+      return fetchAntesBaja(url, opts);
+    };
+    await ctx.abrirBajaEmpresa('emp-x');
+    const b = ctx.__appstate.superadmin.baja;
+    assert(b && b.resumen && b.resumen.skus===1200, 'abrir la baja trae el resumen de la empresa, obtuvo: '+JSON.stringify(b));
+    assert(ctx.textoResumenBaja(b.resumen)==='3 personas · 1.200 materiales · 40 conteos · 12 fotos (3,5 MB) · 900 filas de auditoría', 'el resumen dice cuánto se borra, sin los ceros, obtuvo: '+ctx.textoResumenBaja(b.resumen));
+    const htmlPanel = ctx.renderSuperAdmin();
+    assert(htmlPanel.includes('Dar de baja "Cliente Viejo"') && htmlPanel.includes('id="baja-nombre"') && /id="btn-ejecutar-baja"[^>]*disabled/.test(htmlPanel), 'el panel pide el nombre y parte con el botón deshabilitado, obtuvo: '+htmlPanel);
+    assert(!ctx.bajaEmpresaLista('Cliente viejo', true) && !ctx.bajaEmpresaLista('Cliente Viejo', false) && ctx.bajaEmpresaLista('  Cliente Viejo ', true), 'se habilita solo con el nombre exacto y la casilla de respaldo');
+
+    // Por tandas: tres respuestas "sigue" y una "terminado"; el avance se acumula.
+    respuestasEdge = [
+      {terminado:false, fase:'fotos', borradas:{fotos:12}},
+      {terminado:false, fase:'conteos', borradas:{conteos:40, skus:0}},
+      {terminado:false, fase:'skus', borradas:{skus:1200}},
+      {terminado:true, borradas:{usuarios:3, auditoria:900}},
+    ];
+    confirmLlamadas.length = 0; confirmRespuesta = true;
+    const ok = await ctx.ejecutarBajaEmpresa('Cliente Viejo');
+    assert(ok===true && llamadasEdge.length===4 && llamadasEdge.every(c=>c.empresaId==='emp-x' && c.nombre==='Cliente Viejo' && c.resumen && c.resumen.skus===1200), 'llama a la Edge Function hasta que termina, siempre con la empresa, el nombre y el resumen, obtuvo: '+JSON.stringify(llamadasEdge));
+    assert(confirmLlamadas.length===1 && /Cliente Viejo/.test(confirmLlamadas[0]) && /No se puede deshacer/.test(confirmLlamadas[0]), 'pregunta antes de borrar, con el nombre y que no se puede deshacer');
+    assert(ctx.__appstate.superadmin.baja===null, 'al terminar se cierra el panel');
+
+    // Al terminar se recarga la lista de empresas (acá, la del mock, vacía): se espera y se vuelve
+    // a poner la de la prueba.
+    await new Promise(r=>setTimeout(r, 50));
+    ctx.__appstate.superadmin.empresas = [{id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'plan-pro'}, {id:'emp-x', nombre:'Cliente Viejo', activo:false, plan_id:'plan-pro'}];
+    // Un error a mitad de camino se ve, con lo ya borrado, y se puede seguir.
+    await ctx.abrirBajaEmpresa('emp-x');
+    respuestasEdge = [{terminado:false, fase:'conteos', borradas:{conteos:200}}, {__status:500, error:'conteos: canceling statement due to statement timeout', borradas:{}}];
+    llamadasEdge.length = 0;
+    const ok2 = await ctx.ejecutarBajaEmpresa('Cliente Viejo');
+    const b2 = ctx.__appstate.superadmin.baja;
+    assert(ok2===false && b2 && /statement timeout/.test(b2.error) && b2.progreso && b2.progreso.borradas.conteos===200 && !b2.ejecutando, 'un error se muestra con lo ya borrado y deja reintentar, obtuvo: '+JSON.stringify(b2));
+    const htmlError = ctx.renderSuperAdmin();
+    assert(htmlError.includes('Seguir con la baja') && htmlError.includes('Lo ya borrado quedó borrado'), 'el panel ofrece seguir donde quedó, obtuvo: '+htmlError);
+    assert(ctx.textoProgresoBaja(b2.progreso).startsWith('Borrando… 200 filas'), 'el avance cuenta lo borrado, obtuvo: '+ctx.textoProgresoBaja(b2.progreso));
+
+    // Si se cancela la pregunta, no se llama a nada.
+    llamadasEdge.length = 0; confirmRespuesta = false;
+    await ctx.ejecutarBajaEmpresa('Cliente Viejo');
+    assert(llamadasEdge.length===0, 'cancelando la confirmación no se borra nada');
+    confirmRespuesta = true;
+    // Con el nombre mal escrito, tampoco.
+    await ctx.ejecutarBajaEmpresa('Cliente');
+    assert(llamadasEdge.length===0, 'con el nombre mal escrito no se borra nada');
+
+    ctx.fetch = fetchAntesBaja;
+    ctx.__appstate.superadmin = saAntes;
+  }
+
+  // ===== Descargar todos los datos de la empresa (administrador) =====
+  {
+    const hojas = ctx.hojasExportacionEmpresa('emp-1');
+    assert(hojas.length===29 && hojas.every(h=>h.hoja.length<=31) && new Set(hojas.map(h=>h.hoja)).size===hojas.length, 'una hoja por tabla, con nombres válidos para Excel y sin repetir, obtuvo: '+JSON.stringify(hojas.map(h=>h.hoja)));
+    assert(hojas.filter(h=>!/^\/(conteo_fotos|plan_semanal_skus)\?/.test(h.ruta)).every(h=>h.ruta.includes('emp-1')), 'cada consulta con empresa filtra por la empresa propia (el súper admin ve personas de todas)');
+    assert(hojas.filter(h=>!h.ruta.startsWith('/empresas?')).every(h=>h.ruta.includes('order=id.asc')), 'todas se piden ordenadas: sin orden, la paginación puede repetir o saltarse filas');
+    const largo = 'x'.repeat(70000);
+    const filas = ctx.filasHojaExportacion([{id:1, datos:{a:1}, texto:largo, vacio:null}]);
+    assert(filas[0].datos==='{"a":1}' && filas[0].vacio==='' && filas[0].texto.length===32000 && filas[0]['texto (2)'].length===32000 && filas[0]['texto (3)'].length===6000, 'objetos a JSON y texto largo repartido en columnas, sin cortar nada, obtuvo: '+JSON.stringify(Object.keys(filas[0])));
+
+    const perfilAntesExp = ctx.__appstate.perfil;
+    const fetchAntesExp = ctx.fetch;
+    ctx.__appstate.perfil = {id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Ñandú'}};
+    const pedidosExp = [];
+    ctx.fetch = async (url, opts) => {
+      const u = decodeURIComponent(String(url));
+      pedidosExp.push(u);
+      const filasResp = u.includes('/skus?') ? [{id:'s1', sku_code:'A-1'}] : [];
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filasResp), json: async()=>filasResp };
+    };
+    xlsxEscrituras.length = 0;
+    await ctx.exportarDatosEmpresa();
+    const esc = xlsxEscrituras[0];
+    assert(esc && /^inventia-minera-nandu-\d{4}-\d{2}-\d{2}\.xlsx$/.test(esc.nombreArchivo), 'descarga un Excel con el nombre de la empresa, obtuvo: '+(esc && esc.nombreArchivo));
+    assert(esc && esc.libro.hojas['Léeme'] && esc.libro.hojas['Materiales'][0].sku_code==='A-1' && esc.libro.hojas['Conteos'].aoa, 'trae el Léeme y una hoja por tabla, obtuvo: '+JSON.stringify(Object.keys((esc||{libro:{hojas:{}}}).libro.hojas)));
+    assert(pedidosExp.length===29, 'pide cada tabla una vez (de a 1.000 filas), obtuvo: '+pedidosExp.length);
+    // Un error en una tabla no entrega un archivo a medias.
+    ctx.fetch = async (url, opts) => String(url).includes('/auditoria?')
+      ? { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'se cayó'}), json: async()=>({message:'se cayó'}) }
+      : fetchAntesExp(url, opts);
+    xlsxEscrituras.length = 0;
+    const toastsAntesExp = elements['toast-root'].hijos.length;
+    await ctx.exportarDatosEmpresa();
+    const toastsExp = elements['toast-root'].hijos.slice(toastsAntesExp).map(t=>t.textContent);
+    assert(xlsxEscrituras.length===0 && toastsExp.some(t=>/No se pudo descargar todo: Auditoría/.test(t)), 'si una tabla falla, no se descarga nada y se dice cuál, obtuvo: '+JSON.stringify(toastsExp));
+    // Un operador no descarga.
+    ctx.__appstate.perfil = {...ctx.__appstate.perfil, rol:'operador'};
+    xlsxEscrituras.length = 0;
+    await ctx.exportarDatosEmpresa();
+    assert(xlsxEscrituras.length===0, 'un operador no puede descargar los datos de la empresa');
+    ctx.fetch = fetchAntesExp;
+    ctx.__appstate.perfil = perfilAntesExp;
   }
   assert(await ctx.cargarEmpresasSuperAdmin()===true, 'cargarEmpresasSuperAdmin debe devolver true cuando el pedido funciona');
   const fetchOriginalSuperAdmin = ctx.fetch;
