@@ -3925,6 +3925,39 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(printInformeEl.innerHTML.includes('Ninguno'), 'sin reconteos pendientes al cerrar, debe decirlo explícitamente, obtuvo: '+printInformeEl.innerHTML);
   ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
 
+  // Informe de cierre por dueño (Joel, 21/10/2026; 20261022_duenos_stock_informe_cierre.sql): con
+  // dueños activados se puede ver solo lo de un dueño. Sin dueños, nada nuevo.
+  {
+    const perfilAntesInforme = ctx.__appstate.perfil;
+    const duenosAntesInforme = ctx.__appstate.duenosStock;
+    const base = informesCicloFixture[0];
+    const seccion = (universo, contados, sku) => ({avance_total:[{bodega:'B1', skus_universo:universo, skus_contados:contados, porcentaje_avance:0}], exactitud_por_bodega:[], diferencias_recientes:{sin_diferencia:0, con_diferencia:0}, ranking_responsable:[], valorizacion_diferencias:[], reconteos_sin_resolver: sku? [{sku_code:sku, descripcion:'', ultima_diferencia:-1, causa_probable:null, ultimo_conteo_fecha:'2027-03-01'}] : []});
+    const conDuenos = {...base, id:'inf-d', datos:{...base.datos, por_dueno:{'ENEX': seccion(40, 10, 'ENEX-PEND'), '': seccion(60, 30, null)}}};
+    const viejo = {...base, id:'inf-v'};
+    ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista:[conDuenos, viejo]};
+    assert(!ctx.renderCiclos().includes('data-informe-dueno'), 'sin dueños activados no hay selector de dueño en los informes');
+    ctx.__appstate.perfil = {...perfilAntesInforme, empresas:{...perfilAntesInforme.empresas, usa_duenos_stock:true}};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    const htmlInformesDueno = ctx.renderCiclos();
+    assert(htmlInformesDueno.includes('data-informe-dueno="inf-d"') && htmlInformesDueno.includes('<option value="ENEX">Enex S.A.</option>') && htmlInformesDueno.includes('<option value="__sin">Sin dueño</option>'), 'un informe con dueños ofrece elegir el dueño, obtuvo: '+htmlInformesDueno);
+    assert(!htmlInformesDueno.includes('data-informe-dueno="inf-v"') && htmlInformesDueno.includes('Cerrado antes de separar por dueño'), 'un informe cerrado antes no ofrece dueños y lo dice');
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', 'ENEX');
+    assert(printInformeEl.innerHTML.includes('Dueño: Enex S.A.') && printInformeEl.innerHTML.includes('10 de 40 SKU') && printInformeEl.innerHTML.includes('ENEX-PEND') && !printInformeEl.innerHTML.includes('SKU-PEND'), 'el informe de un dueño muestra solo sus números y sus reconteos, obtuvo: '+printInformeEl.innerHTML);
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', '__sin');
+    assert(printInformeEl.innerHTML.includes('Dueño: Sin dueño') && printInformeEl.innerHTML.includes('30 de 60 SKU'), 'también se puede ver lo que no tiene dueño');
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', 'COPEC');
+    assert(printInformeEl.innerHTML.includes('0 de 0 SKU') && !printInformeEl.innerHTML.includes('SKU-PEND'), 'un dueño sin nada en el período se ve vacío, nunca con el total');
+    printInformeEl.innerHTML = '';
+    ctx.imprimirInformeGuardado('inf-d', '');
+    assert(printInformeEl.innerHTML.includes('SKU-PEND') && !printInformeEl.innerHTML.includes('Dueño:'), 'con "Todos los dueños" es el informe completo de siempre');
+    ctx.__appstate.perfil = perfilAntesInforme;
+    ctx.__appstate.duenosStock = duenosAntesInforme;
+    ctx.__appstate.informesCiclo = {cargado:true, cargando:false, lista: informesCicloFixture};
+  }
+
   // Plan básico: imprimirInformeGuardado tampoco debe hacer nada (mismo gate).
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'basico', etiqueta:'Básico', dashboard_ejecutivo_habilitado:false}} };
   printInformeEl.innerHTML = '';
