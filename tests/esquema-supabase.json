@@ -865,10 +865,30 @@
       "activo",
       "created_at"
     ],
+    "ubicaciones_bins_dueno": [
+      "bodega",
+      "cantidad_skus",
+      "dueno",
+      "storage_bin",
+      "ubicacion"
+    ],
+    "ubicaciones_especificas_dueno": [
+      "bodega",
+      "cantidad_pendiente",
+      "cantidad_skus",
+      "dueno",
+      "ubicacion"
+    ],
     "ubicaciones_generales": [
       "bodega",
       "cantidad_pendiente",
       "cantidad_skus"
+    ],
+    "ubicaciones_generales_dueno": [
+      "bodega",
+      "cantidad_pendiente",
+      "cantidad_skus",
+      "dueno"
     ],
     "ubicaciones_historial": [
       "id",

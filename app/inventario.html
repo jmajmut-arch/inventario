@@ -2887,11 +2887,18 @@ async function fetchSkusPagina(page){
   return { data: d.rows||[], total: Number(d.total)||0 };
 }
 
+// Solo la respuesta del último pedido se muestra: con la carga de la pantalla todavía en camino,
+// cambiar el filtro de dueño (o de página) lanza otro pedido, y si el primero respondía después,
+// la tabla quedaba con lo de todos los dueños y el filtro marcado (lo destapó la prueba e2e).
+let cargarSkusPaginaSecuencia = 0;
 async function cargarSkusPagina(page=0){
+  const miSecuencia = ++cargarSkusPaginaSecuencia;
   try{
     const { data, total } = await fetchSkusPagina(page);
+    if(miSecuencia !== cargarSkusPaginaSecuencia) return;
     setState({skusPagina: { rows: data, page, total, error:null }, skusSeleccionados: []});
   }catch(e){
+    if(miSecuencia !== cargarSkusPaginaSecuencia) return;
     // Se muestra en la tabla, no como "Aún no hay SKU cargados" (Joel, 19/10/2026: sin señal, la
     // pantalla decía "SKU activos (0)").
     setState({skusPagina: {...state.skusPagina, error: e.message || 'Error desconocido', sinSenal: pareceFalloDeRed(e)}});
@@ -6040,7 +6047,36 @@ function actualizarSelectUbicacionEspecificaBuscar(){
 // "pendiente" en Ubicación general y en "SKU sin ubicación" — sin este refresco, esos números
 // se quedaban con el valor de cuando se cargó la página hasta el próximo F5.
 async function refrescarOpcionesUbicacion(){
-  await Promise.all([cargarOpcionesGenerales(true), cargarConteoSinUbicacion(true)]);
+  await Promise.all([cargarOpcionesGenerales(true), cargarConteoSinUbicacion(true), cargarListasPlanDueno()]);
+}
+
+// Con un dueño elegido en "Agregar a la planificación", Ubicación general y "SKU sin ubicación"
+// muestran los números de ese dueño. Van aparte de state.plan.generales y sinUbicacionCount, que
+// usan también otras pantallas (la ficha de SKU) y la caché de siempre; cada uno recuerda de qué
+// dueño es, para no mostrar los de otro mientras llega la respuesta.
+async function cargarListasPlanDueno(){
+  const dueno = duenoAgregarPlan();
+  if(dueno===undefined){
+    if(state.plan.listasDueno) setState({plan:{...state.plan, listasDueno:null}});
+    return;
+  }
+  try{
+    const [generales, sinUbicacion] = await Promise.all([
+      rest(`/ubicaciones_generales_dueno?dueno=eq.${encodeURIComponent(dueno)}&order=bodega.asc`),
+      contarUniversoUbicacion({soloSinUbicacion:true, excluirYaPlanificados:true, dueno}),
+    ]);
+    if(duenoAgregarPlan()!==dueno) return; // se eligió otro dueño mientras tanto
+    setState({plan:{...state.plan, listasDueno:{dueno, generales: generales||[], sinUbicacionCount: sinUbicacion}}});
+  }catch(e){
+    // Se ven los números de todos los dueños (el aviso del formulario lo dice), pero no en silencio.
+    toast(`No se pudo calcular los números de ese dueño: ${e.message}`, 'warn');
+  }
+}
+// Las listas que muestra el formulario: las del dueño elegido si ya llegaron, si no las de siempre.
+function listasPlanFormulario(p){
+  const d = duenoAgregarPlan();
+  const propias = d!==undefined && p.listasDueno && p.listasDueno.dueno===d ? p.listasDueno : null;
+  return { generales: propias ? propias.generales : p.generales, sinUbicacionCount: propias ? propias.sinUbicacionCount : p.sinUbicacionCount, delDueno: !!propias };
 }
 
 // SKU cargados sin ubicación general ni específica (ej. desde "Cargar SKU" a mano, sin
@@ -6128,10 +6164,12 @@ function filtroBodegaOpciones(bodega){
   return bodega===BODEGA_VACIA ? 'bodega=is.null' : `bodega=eq.${encodeURIComponent(bodega)}`;
 }
 
-async function opcionesEspecificas(bodega){
+// dueno (opcional, solo desde Planificación con un dueño elegido): los números de ese dueño, de las
+// vistas *_dueno (20261022_duenos_stock_listas_plan.sql). Sin él, la vista y el pedido de siempre.
+async function opcionesEspecificas(bodega, dueno){
   if(!bodega) return [];
   try{
-    return await rest(`/ubicaciones_especificas?${filtroBodegaOpciones(bodega)}&order=ubicacion.asc`) || [];
+    return await rest(`/ubicaciones_especificas${dueno==null ? '' : '_dueno'}?${filtroBodegaOpciones(bodega)}${filtroDuenoPlan(dueno)}&order=ubicacion.asc`) || [];
   }catch(e){ return []; }
 }
 
@@ -6140,18 +6178,19 @@ async function opcionesEspecificas(bodega){
 // para un <select> haría lenta la pantalla en el celular. Se marca como `truncada` para que quien
 // la muestre no la presente como completa (ver cargarBinsPara en Planificación).
 const FILAS_POR_RESPUESTA = 1000;
-async function opcionesBins(bodega, ubicacion){
+async function opcionesBins(bodega, ubicacion, dueno){
   if(!bodega) return [];
+  const vista = `ubicaciones_bins${dueno==null ? '' : '_dueno'}`;
   try{
     if(ubicacion){
-      const filasUbic = await rest(`/ubicaciones_bins?${filtroBodegaOpciones(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}&order=storage_bin.asc`) || [];
+      const filasUbic = await rest(`/${vista}?${filtroBodegaOpciones(bodega)}&ubicacion=eq.${encodeURIComponent(ubicacion)}${filtroDuenoPlan(dueno)}&order=storage_bin.asc`) || [];
       filasUbic.truncada = filasUbic.length >= FILAS_POR_RESPUESTA;
       return filasUbic;
     }
     // "Todas" las ubicaciones específicas: el mismo storage_bin puede repetirse en más de
     // una (la vista viene agrupada por bodega+ubicacion+storage_bin), así que se suman antes
     // de listarlo — si no, un mismo bin aparecería duplicado varias veces en el <select>.
-    const filas = await rest(`/ubicaciones_bins?${filtroBodegaOpciones(bodega)}&order=storage_bin.asc`) || [];
+    const filas = await rest(`/${vista}?${filtroBodegaOpciones(bodega)}${filtroDuenoPlan(dueno)}&order=storage_bin.asc`) || [];
     const porBin = new Map();
     for(const f of filas){
       const acc = porBin.get(f.storage_bin) || {storage_bin:f.storage_bin, cantidad_skus:0};
@@ -15245,13 +15284,13 @@ function renderPlanificacion(){
           <label for="p-dueno">Dueño</label>
           <select id="p-dueno">${opcionesFiltroDueno(p.duenoAgregar||'')}</select>
           ${avisoErrorListaDuenos('margin:4px 0 0;')}
-          <div class="hint" style="margin:4px 0 0">${p.duenoAgregar? 'La entrada incluirá solo los materiales de este dueño. Los números de Ubicación general, específica y Storage bin cuentan a todos los dueños.' : 'Con "Todos los dueños", la entrada incluye lo de todos, como siempre.'}</div>
+          <div class="hint" style="margin:4px 0 0">${!p.duenoAgregar? 'Con "Todos los dueños", la entrada incluye lo de todos, como siempre.' : listasPlanFormulario(p).delDueno ? 'La entrada incluirá solo los materiales de este dueño, y los números de las listas son los suyos.' : 'La entrada incluirá solo los materiales de este dueño. Calculando sus números…'}</div>
         ` : ''}
         <label for="p-bodega">Ubicación general <span style="font-weight:400;color:var(--text-faint)">(por planificar / total SKU)</span> ${campoConInfo('En "36/44", 36 son los SKU que faltan por contar en el período y aún no están en otra entrada del plan; 44 es el total de SKU del lugar.')}</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
-          ${p.sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${p.sinUbicacionCount})</option>` : ''}
-          ${p.generales.map(o=> o.bodega===null
+          ${listasPlanFormulario(p).sinUbicacionCount? `<option value="${BODEGA_SIN_UBICACION}">SKU sin ubicación (${listasPlanFormulario(p).sinUbicacionCount})</option>` : ''}
+          ${listasPlanFormulario(p).generales.map(o=> o.bodega===null
             ? `<option value="${BODEGA_VACIA}">Sin bodega asignada (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
             : `<option value="${esc(o.bodega)}">${esc(o.bodega)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`
           ).join('')}
@@ -19635,7 +19674,7 @@ function bind(){
       // En paralelo, el conteo exacto de pendientes sin storage bin (ver contarPendientesSinBin): no
       // agrega espera, y si falla se avisa sin trabar la lista de bins.
       const [opciones, sinBinServidor] = await Promise.all([
-        opcionesBins(bodega, ubicacion),
+        opcionesBins(bodega, ubicacion, duenoAgregarPlan()),
         contarPendientesSinBin(bodega, ubicacion, duenoAgregarPlan()).catch(e=>({error: e})),
       ]);
       // Los elementos se buscan de nuevo ACÁ, después del await (y otra vez más abajo, tras el
@@ -19753,7 +19792,7 @@ function bind(){
     // ese mismo valor — compartida entre el cambio de bodega (que siempre vuelve a "Todas") y el
     // refresco tras agregar una entrada (que intenta conservar la ubicación ya elegida).
     async function cargarOpcionesEspecificasEnSelect(bodega, valorPreferido){
-      const opciones = await opcionesEspecificas(bodega);
+      const opciones = await opcionesEspecificas(bodega, duenoAgregarPlan());
       // El <select> se busca ACÁ, después del await: un render() de fondo (p.ej. el que dispara
       // cargarPlanSemanal justo tras agregar una entrada) puede reemplazar el formulario mientras
       // esperábamos la respuesta. Buscarlo antes del await escribía sobre un nodo ya desprendido
@@ -19761,7 +19800,7 @@ function bind(){
       // quedaban con el valor viejo hasta que la persona volvía a tocar el selector a mano.
       const selUbic = document.getElementById('p-ubic');
       if(!selUbic) return ''; // la vista cambió mientras esperábamos la respuesta
-      const bodegaObj = state.plan.generales.find(g => bodega===BODEGA_VACIA ? g.bodega===null : g.bodega===bodega);
+      const bodegaObj = listasPlanFormulario(state.plan).generales.find(g => bodega===BODEGA_VACIA ? g.bodega===null : g.bodega===bodega);
       selUbic.innerHTML = `<option value="">Todas${bodegaObj? ` (${bodegaObj.cantidad_pendiente}/${bodegaObj.cantidad_skus})` : ''}</option>` + opciones.map(o=>`<option value="${esc(o.ubicacion)}">${esc(o.ubicacion)} (${o.cantidad_pendiente}/${o.cantidad_skus})</option>`).join('');
       // Pendientes de cada opción ("36" de "36/44"): cargarBinsPara los usa para decir cuántos de
       // esos pendientes no tienen storage bin y por eso no aparecen en la lista de bins.
@@ -19828,13 +19867,22 @@ function bind(){
       const bodega = document.getElementById('p-bodega').value;
       await cargarBinsPara(bodega, e.target.value);
     });
-    // Cambiar de dueño no cambia las listas de lugares (cuentan a todos), pero sí los SKU sin
-    // storage bin del lugar y la lista de SKU puntuales: se vuelven a pedir para ese dueño.
+    // Cambiar de dueño cambia los números de las listas de lugares, los SKU sin storage bin y la
+    // lista de SKU puntuales: se vuelven a pedir para ese dueño, conservando el lugar elegido.
     const selDuenoPlan = document.getElementById('p-dueno');
     if(selDuenoPlan) selDuenoPlan.addEventListener('change', async e=>{
       setState({plan:{...state.plan, duenoAgregar: e.target.value}});
-      const bodega = (document.getElementById('p-bodega')||{}).value;
-      if(bodega && bodega!==BODEGA_SIN_UBICACION) await cargarBinsPara(bodega, (document.getElementById('p-ubic')||{}).value || '');
+      await cargarListasPlanDueno();
+      // Si la ubicación general elegida no tiene nada de este dueño, sale de la lista: las de abajo
+      // vuelven a quedar vacías, en vez de seguir mostrando las del lugar anterior.
+      const bodegaEl = document.getElementById('p-bodega');
+      if(bodegaEl && !bodegaEl.value){
+        resetPBin();
+        const selUbic = document.getElementById('p-ubic');
+        if(selUbic){ selUbic.innerHTML = '<option value="">Elige ubicación general primero</option>'; selUbic.disabled = true; }
+        return;
+      }
+      await refrescarCascadaTrasAgregar();
     });
     // Bug real reportado: al presionar "Agregar" (y lo mismo al quitar un SKU o borrar una
     // entrada/selección), los SKU afectados dejan de contar como pendientes, pero Ubicación
