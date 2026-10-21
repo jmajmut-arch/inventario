@@ -4840,6 +4840,237 @@ async function actualizarPersonaSuperAdmin(id, cambios){
   }catch(e){ toast(e.message,'err'); }
 }
 
+/* =======================================================================
+   DAR DE BAJA UNA EMPRESA (súper admin, Joel 21/10/2026)
+   Borra TODO lo de una empresa ya desactivada: fotos, datos y cuentas de acceso. Lo hace la Edge
+   Function eliminar-empresa por tandas (cada llamada sigue donde quedó la anterior): la app la llama
+   hasta que responde {terminado:true}, mostrando el avance. Antes muestra cuánto tiene la empresa
+   (resumen_datos_empresa: solo conteos, no datos) y pide su nombre escrito exacto.
+   Ver supabase/migrations/20261022_baja_empresa.sql.
+   ======================================================================= */
+const ETIQUETAS_RESUMEN_BAJA = {
+  usuarios:'personas', skus:'materiales', conteos:'conteos', fotos_archivos:'fotos', plan_semanal:'entradas de plan',
+  ciclos_conteo:'períodos', informes_ciclo:'informes de cierre', grupos_conteo:'grupos', skus_grupos_conteo:'materiales en grupos',
+  historial_ciclos_grupo:'historial de grupos', ubicaciones:'ubicaciones', ubicaciones_historial:'cambios de ubicación',
+  duenos_stock:'dueños', documentos_bodega:'documentos de bodega', movimientos_bodega:'movimientos de bodega',
+  movimiento_fotos:'fotos de bodega', ordenes_compra:'órdenes de compra', ordenes_compra_lineas:'líneas de OC',
+  reservas:'reservas', reservas_lineas:'líneas de reserva', proveedores:'proveedores', personas_retiro:'personas que retiran',
+  cargas_masivas:'cargas de Excel', responsables_proceso:'responsables', auditoria:'filas de auditoría',
+  flow_eventos:'cobros de Flow (se conservan, sin empresa)',
+};
+function textoResumenBaja(resumen){
+  if(!resumen) return '';
+  const partes = Object.entries(ETIQUETAS_RESUMEN_BAJA)
+    .filter(([k])=> Number(resumen[k])>0)
+    .map(([k, etiqueta])=> `${Number(resumen[k]).toLocaleString('es-CL')} ${etiqueta}${k==='fotos_archivos' && resumen.fotos_mb ? ` (${Number(resumen.fotos_mb).toLocaleString('es-CL')} MB)` : ''}`);
+  return partes.length ? partes.join(' · ') : 'No tiene datos: solo la cuenta de la empresa.';
+}
+async function abrirBajaEmpresa(empresaId){
+  const empresa = (state.superadmin.empresas||[]).find(e=>e.id===empresaId);
+  if(!empresa) return;
+  state.superadmin.baja = {empresaId, nombre: empresa.nombre, cargando:true, resumen:null, error:'', ejecutando:false, progreso:null};
+  render();
+  try{
+    const resumen = await rest('/rpc/resumen_datos_empresa', {method:'POST', body:{p_empresa: empresaId}});
+    if(!state.superadmin.baja || state.superadmin.baja.empresaId!==empresaId) return;
+    state.superadmin.baja = {...state.superadmin.baja, cargando:false, resumen};
+  }catch(e){
+    if(!state.superadmin.baja || state.superadmin.baja.empresaId!==empresaId) return;
+    // Sin el resumen no se sabe qué se va a borrar: no se ofrece seguir.
+    state.superadmin.baja = {...state.superadmin.baja, cargando:false, error: mensajeErrorCarga(e)};
+  }
+  render();
+}
+function cerrarBajaEmpresa(){
+  if(state.superadmin.baja && state.superadmin.baja.ejecutando) return;
+  state.superadmin.baja = null;
+  render();
+}
+// El botón se habilita solo con el nombre exacto y la casilla marcada. Se revisa al escribir sin
+// repintar (CLAUDE.md: no llamar a render() mientras se escribe).
+function bajaEmpresaLista(nombreEscrito, respaldoMarcado){
+  const b = state.superadmin.baja;
+  return !!(b && b.resumen && !b.ejecutando && respaldoMarcado && (nombreEscrito||'').trim()===b.nombre.trim());
+}
+async function ejecutarBajaEmpresa(nombreEscrito){
+  const b = state.superadmin.baja;
+  if(!b || !bajaEmpresaLista(nombreEscrito, true)) return;
+  if(!confirm(`Se borrará todo lo de "${b.nombre}": ${textoResumenBaja(b.resumen)}. No se puede deshacer. ¿Seguir?`)) return;
+  const acumulado = {};
+  state.superadmin.baja = {...b, ejecutando:true, error:'', progreso:{fase:'fotos', borradas:acumulado}};
+  render();
+  try{
+    for(let intento = 0; intento < 1000; intento++){
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/eliminar-empresa`, {
+        method:'POST',
+        headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':`Bearer ${state.session.access_token}`, 'Content-Type':'application/json' },
+        body: JSON.stringify({empresaId: b.empresaId, nombre: nombreEscrito.trim(), resumen: b.resumen}),
+      });
+      const data = await res.json().catch(()=>({}));
+      Object.entries(data.borradas||{}).forEach(([k, n])=>{ acumulado[k] = (acumulado[k]||0) + Number(n||0); });
+      if(!res.ok || data.error) throw new Error(data.error || `Error ${res.status}`);
+      if(data.terminado){
+        state.superadmin.baja = null;
+        toast(`"${b.nombre}" quedó dada de baja`);
+        cargarEmpresasSuperAdmin();
+        cargarResumenSuperAdmin();
+        render();
+        return true;
+      }
+      state.superadmin.baja = {...state.superadmin.baja, progreso:{fase: data.fase, borradas: acumulado}};
+      render();
+    }
+    throw new Error('El borrado no terminó tras muchas tandas: revisa la empresa antes de seguir');
+  }catch(e){
+    // Lo ya borrado queda borrado; volver a apretar sigue donde quedó.
+    state.superadmin.baja = {...state.superadmin.baja, ejecutando:false, error: e.message};
+    render();
+    return false;
+  }
+}
+function textoProgresoBaja(progreso){
+  if(!progreso) return '';
+  const total = Object.entries(progreso.borradas||{}).filter(([k])=>k!=='fotos').reduce((s,[,n])=>s+n, 0);
+  const fotos = (progreso.borradas||{}).fotos || 0;
+  return `Borrando… ${total.toLocaleString('es-CL')} filas${fotos? ` y ${fotos.toLocaleString('es-CL')} fotos` : ''} hasta ahora${progreso.fase? ` (${ETIQUETAS_RESUMEN_BAJA[progreso.fase] || progreso.fase})` : ''}`;
+}
+function htmlBajaEmpresa(e){
+  const b = state.superadmin.baja;
+  if(!b || b.empresaId!==e.id) return '';
+  return `<div class="card baja-empresa" style="margin:4px 0 10px;border-color:var(--danger)">
+    <div class="plan-item-ubic" style="font-weight:600;color:var(--danger)">Dar de baja "${esc(b.nombre)}"</div>
+    ${b.cargando? `<div class="hint" style="margin-top:6px">Calculando lo que tiene…</div>` : ''}
+    ${b.resumen? `<div class="hint" style="margin-top:6px">Se borra todo, sin vuelta atrás: ${esc(textoResumenBaja(b.resumen))}.</div>
+      <div class="hint" style="margin-top:6px">Antes, pídele a su administrador que descargue sus datos (Configuraciones → Descargar todos los datos), o ten un respaldo completo.</div>
+      <label for="baja-nombre" style="margin-top:10px">Escribe el nombre exacto de la empresa</label>
+      <input type="text" id="baja-nombre" placeholder="${esc(b.nombre)}" autocomplete="off" ${b.ejecutando?'disabled':''} value="${esc(b.nombreEscrito||'')}">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:8px"><input type="checkbox" id="baja-respaldo" ${b.ejecutando?'disabled':''} ${b.respaldoMarcado?'checked':''}>Sus datos ya están descargados o respaldados</label>` : ''}
+    ${b.progreso? `<div class="hint" style="margin-top:8px;color:var(--text)">${esc(textoProgresoBaja(b.progreso))}</div>` : ''}
+    ${b.error? `<div class="hint" style="margin-top:8px;color:var(--danger)">${esc(b.error)}${b.progreso? ' · Lo ya borrado quedó borrado; puedes volver a intentarlo y sigue donde quedó.' : ''}</div>` : ''}
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      ${b.resumen? `<button type="button" class="btn btn-danger" id="btn-ejecutar-baja" style="width:auto;padding:8px 14px" ${bajaEmpresaLista(b.nombreEscrito, b.respaldoMarcado)?'':'disabled'}>${b.ejecutando? 'Borrando…' : b.progreso? 'Seguir con la baja' : 'Dar de baja definitivamente'}</button>` : ''}
+      <button type="button" class="btn btn-secondary" id="btn-cancelar-baja" style="width:auto;padding:8px 14px" ${b.ejecutando?'disabled':''}>Cancelar</button>
+    </div>
+  </div>`;
+}
+
+/* =======================================================================
+   DESCARGAR TODOS LOS DATOS DE LA EMPRESA (administrador, Joel 21/10/2026)
+   Un Excel con una hoja por tabla: todo lo de la empresa, tal como está en la base. Lo descarga el
+   administrador de cada empresa desde su propia cuenta (RLS: cada consulta trae solo lo suyo); el
+   súper admin no puede descargar lo de otra empresa (CLAUDE.md, "Qué ve un súper admin"). Las
+   fotos no van: sus hojas traen la ruta de cada una. Sirve de respaldo propio y como paso previo a
+   dar de baja una empresa.
+   ======================================================================= */
+function hojasExportacionEmpresa(empresaId){
+  const t = (hoja, tabla)=> ({hoja, ruta:`/${tabla}?empresa_id=eq.${empresaId}&select=*&order=id.asc`});
+  return [
+    {hoja:'Empresa', ruta:`/empresas?id=eq.${empresaId}&select=id,nombre,activo,created_at,plan_id,conteo_ciego_habilitado,modulo_bodega_habilitado,bodega_funciones,plan_incluye_stock_cero,terminos_orden_compra,foto_obligatoria_conteo,mfa_obligatoria_admins,usa_duenos_stock`},
+    {hoja:'Personas', ruta:`/usuarios?empresa_id=eq.${empresaId}&select=id,nombre,rol,activo,created_at&order=id.asc`},
+    t('Materiales', 'skus'),
+    t('Conteos', 'conteos'),
+    // Sin empresa_id propia: la política solo deja ver las de los conteos de la empresa.
+    {hoja:'Fotos de conteos', ruta:`/conteo_fotos?select=id,conteo_id,foto_url,created_at&order=id.asc`},
+    t('Períodos', 'ciclos_conteo'),
+    t('Informes de cierre', 'informes_ciclo'),
+    t('Plan', 'plan_semanal'),
+    t('Plan - exclusiones', 'plan_semanal_exclusiones'),
+    t('Plan - por código', 'plan_semanal_incluidos'),
+    {hoja:'Plan - foto de SKU', ruta:`/plan_semanal_skus?select=id,plan_id,sku_code,sku_id,storage_bin_original,bodega_original,ubicacion_original&order=id.asc`},
+    t('Grupos', 'grupos_conteo'),
+    t('Grupos - materiales', 'skus_grupos_conteo'),
+    t('Grupos - historial', 'historial_ciclos_grupo'),
+    t('Dueños', 'duenos_stock'),
+    t('Ubicaciones', 'ubicaciones'),
+    t('Ubicaciones - historial', 'ubicaciones_historial'),
+    t('Bodega - documentos', 'documentos_bodega'),
+    t('Bodega - movimientos', 'movimientos_bodega'),
+    t('Bodega - fotos', 'movimiento_fotos'),
+    t('Proveedores', 'proveedores'),
+    t('Personas que retiran', 'personas_retiro'),
+    t('Órdenes de compra', 'ordenes_compra'),
+    t('OC - líneas', 'ordenes_compra_lineas'),
+    t('Reservas', 'reservas'),
+    t('Reservas - líneas', 'reservas_lineas'),
+    t('Cargas de Excel', 'cargas_masivas'),
+    t('Responsables', 'responsables_proceso'),
+    t('Auditoría', 'auditoria'),
+  ];
+}
+// Excel no admite más de 32.767 caracteres por celda (un informe de cierre guardado los pasa): el
+// texto largo sigue en columnas "campo (2)", "campo (3)"… en vez de cortarse. Lo que no es texto ni
+// número (objetos y listas) va como JSON.
+const MAX_CARACTERES_CELDA = 32000;
+function filasHojaExportacion(filas){
+  return filas.map(f=>{
+    const fila = {};
+    Object.entries(f).forEach(([k, v])=>{
+      const valor = v==null ? '' : (typeof v==='object' ? JSON.stringify(v) : v);
+      if(typeof valor==='string' && valor.length > MAX_CARACTERES_CELDA){
+        for(let i = 0, parte = 1; i < valor.length; i += MAX_CARACTERES_CELDA, parte++){
+          fila[parte===1 ? k : `${k} (${parte})`] = valor.slice(i, i + MAX_CARACTERES_CELDA);
+        }
+      }else{
+        fila[k] = valor;
+      }
+    });
+    return fila;
+  });
+}
+let exportandoEmpresa = false;
+async function exportarDatosEmpresa(){
+  if(exportandoEmpresa || !perfilCargado() || !state.perfil || state.perfil.rol!=='admin') return;
+  if(typeof XLSX==='undefined'){ toast('La herramienta de Excel todavía no carga. Intenta de nuevo en unos segundos.', 'err'); return; }
+  exportandoEmpresa = true;
+  const empresaId = state.perfil.empresa_id;
+  const empresaNombre = (state.perfil.empresas && state.perfil.empresas.nombre) || 'empresa';
+  const hojas = hojasExportacionEmpresa(empresaId);
+  // El avance se escribe en el botón sin repintar: la pantalla tiene campos que se pueden estar
+  // editando (nombre de la empresa).
+  const avisar = texto => { const b = document.getElementById('btn-exportar-empresa'); if(b){ b.textContent = texto; b.disabled = true; } };
+  try{
+    const libro = XLSX.utils.book_new();
+    const conteos = [];
+    const resultados = [];
+    for(let i = 0; i < hojas.length; i++){
+      avisar(`Descargando… ${hojas[i].hoja} (${i+1} de ${hojas.length})`);
+      let filas;
+      try{ filas = await restTodo(hojas[i].ruta); }
+      catch(e){ throw new Error(`${hojas[i].hoja}: ${e.message}`); }
+      resultados.push({hoja: hojas[i].hoja, filas});
+      conteos.push([hojas[i].hoja, filas.length]);
+    }
+    avisar('Armando el Excel…');
+    const leeme = [
+      ['InventIA · todos los datos de la empresa'],
+      ['Empresa', empresaNombre],
+      ['Descargado', new Date().toLocaleString('es-CL')],
+      ['Por', state.perfil.nombre || ''],
+      [],
+      ['Hoja', 'Filas'],
+      ...conteos,
+      [],
+      ['Las fotos no van en este archivo: las hojas "Fotos de conteos" y "Bodega - fotos" traen la ruta de cada una.'],
+      ['Cada hoja es una tabla tal como está en la base; las columnas que terminan en _id enlazan hojas entre sí (por ejemplo, conteos.sku_id con Materiales.id).'],
+    ];
+    XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet(leeme), 'Léeme');
+    resultados.forEach(r=>{
+      const hoja = r.filas.length ? XLSX.utils.json_to_sheet(filasHojaExportacion(r.filas)) : XLSX.utils.aoa_to_sheet([['Sin filas']]);
+      XLSX.utils.book_append_sheet(libro, hoja, r.hoja.slice(0, 31));
+    });
+    const nombreArchivo = `inventia-${empresaNombre.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'').toLowerCase() || 'empresa'}-${fechaISO(new Date())}.xlsx`;
+    XLSX.writeFile(libro, nombreArchivo);
+    toast(`Descargado: ${conteos.reduce((s,[,n])=>s+n, 0).toLocaleString('es-CL')} filas en ${hojas.length} hojas`);
+  }catch(e){
+    // No se entrega un archivo a medias como si estuviera completo (CLAUDE.md: los errores se ven).
+    toast(`No se pudo descargar todo: ${e.message}`, 'err');
+  }finally{
+    exportandoEmpresa = false;
+    const b = document.getElementById('btn-exportar-empresa');
+    if(b){ b.textContent = 'Descargar todos los datos'; b.disabled = false; }
+  }
+}
+
 async function cargarEquipo(){
   state.equipo.cargando = true;
   render();
@@ -15437,7 +15668,7 @@ function renderSuperAdmin(){
     ` : ''}
     <div class="section-head"><div><span class="eyebrow">Cuentas de empresa</span><h2 style="font-size:15px">Empresas</h2></div></div>
     <div class="card">
-      <div class="hint" style="margin-bottom:10px">Crea, renombra o desactiva cuentas de empresa. Desactivar le corta el acceso a todo su equipo (se puede reactivar cuando quieras).</div>
+      <div class="hint" style="margin-bottom:10px">Crea, renombra o desactiva cuentas de empresa. Desactivar le corta el acceso a todo su equipo (se puede reactivar cuando quieras). Una empresa desactivada se puede dar de baja: se borra todo lo suyo, sin vuelta atrás.</div>
       <form id="form-crear-empresa-sa">
         <label for="nueva-empresa-nombre">Nombre de la empresa</label>
         <input type="text" id="nueva-empresa-nombre" placeholder="Ej. Minera Los Andes" required>
@@ -15456,7 +15687,9 @@ function renderSuperAdmin(){
             <button type="button" class="icon-btn" data-guardar-empresa-sa="${esc(e.id)}" aria-label="Guardar nombre">${ICONS.editar}</button>
             <button type="button" class="icon-btn" data-toggle-empresa-sa="${esc(e.id)}" data-activo="${e.activo?'1':'0'}" aria-label="${e.activo?'Desactivar':'Reactivar'}" style="color:${e.activo?'var(--danger)':'var(--ok)'}">${e.activo?ICONS.papelera:ICONS.conteo}</button>
           </div>
+          ${!e.activo && !(state.superadmin.baja && state.superadmin.baja.empresaId===e.id)? `<button type="button" class="btn btn-sm btn-danger" data-baja-empresa-sa="${esc(e.id)}" style="width:auto;flex:none;padding:5px 10px;font-size:12px" title="Borra todo lo de la empresa: fotos, datos y cuentas">Dar de baja…</button>` : ''}
         </div>
+        ${htmlBajaEmpresa(e)}
         ${e.modulo_bodega_habilitado ? `<div style="display:flex;gap:12px;flex-wrap:wrap;padding:0 0 8px 2px;border-bottom:1px solid var(--line)">
           <span class="hint" style="margin:0;flex:none">Funciones de bodega:</span>
           ${Object.entries(FUNCIONES_BODEGA).map(([clave, etiqueta])=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim);margin:0"><input type="checkbox" class="sa-funcion-bodega" data-empresa-id="${esc(e.id)}" data-funcion="${clave}" ${(e.bodega_funciones && e.bodega_funciones[clave]===false)?'':'checked'} style="margin:0">${esc(etiqueta)}</label>`).join('')}
@@ -16362,6 +16595,10 @@ function renderConfiguraciones(){
             ${logoEmpresa()? `<button type="button" class="btn btn-secondary" id="btn-quitar-logo" style="width:auto;padding:6px 12px;margin-top:8px;font-size:12px" ${state.logoGuardando?'disabled':''}>Quitar logo</button>` : ''}
           </div>
         </div>
+      </div>
+      <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:14px">
+        <label>Tus datos ${campoConInfo('Un Excel con todo lo de tu empresa, tal como está guardado: materiales, conteos, plan, períodos, grupos, bodega y auditoría, una hoja por tabla. Las fotos no van en el archivo: sus hojas traen la ruta de cada una. Con muchos materiales puede tardar un par de minutos.')}</label>
+        <button type="button" class="btn btn-secondary" id="btn-exportar-empresa" style="width:auto;padding:8px 14px;margin-top:6px">Descargar todos los datos</button>
       </div>
       ` : ''}
     </div>
@@ -18356,6 +18593,8 @@ function bind(){
       if(file) guardarLogoEmpresa(file);
       e.target.value = ''; // permite volver a elegir el mismo archivo si algo falló
     });
+    const btnExportarEmpresa = document.getElementById('btn-exportar-empresa');
+    if(btnExportarEmpresa) btnExportarEmpresa.addEventListener('click', exportarDatosEmpresa);
     const btnQuitarLogo = document.getElementById('btn-quitar-logo');
     if(btnQuitarLogo) btnQuitarLogo.addEventListener('click', ()=>{
       if(!confirm('¿Quitar el logo? La app y los documentos impresos vuelven a la insignia de InventIA.')) return;
@@ -18456,6 +18695,24 @@ function bind(){
       document.querySelectorAll('.sa-empresa-duenos').forEach(chk=>{
         chk.addEventListener('change', ()=> actualizarEmpresaSuperAdmin(chk.dataset.empresaId, {usa_duenos_stock: chk.checked}));
       });
+      document.querySelectorAll('[data-baja-empresa-sa]').forEach(btn=>{
+        btn.addEventListener('click', ()=> abrirBajaEmpresa(btn.dataset.bajaEmpresaSa));
+      });
+      // Nombre y casilla de la baja: se guardan al estado y habilitan el botón sin repintar.
+      const inputBajaNombre = document.getElementById('baja-nombre');
+      const chkBajaRespaldo = document.getElementById('baja-respaldo');
+      const btnEjecutarBaja = document.getElementById('btn-ejecutar-baja');
+      const revisarBaja = ()=>{
+        if(!state.superadmin.baja) return;
+        state.superadmin.baja.nombreEscrito = inputBajaNombre ? inputBajaNombre.value : '';
+        state.superadmin.baja.respaldoMarcado = !!(chkBajaRespaldo && chkBajaRespaldo.checked);
+        if(btnEjecutarBaja) btnEjecutarBaja.disabled = !bajaEmpresaLista(state.superadmin.baja.nombreEscrito, state.superadmin.baja.respaldoMarcado);
+      };
+      if(inputBajaNombre) inputBajaNombre.addEventListener('input', revisarBaja);
+      if(chkBajaRespaldo) chkBajaRespaldo.addEventListener('change', revisarBaja);
+      if(btnEjecutarBaja) btnEjecutarBaja.addEventListener('click', ()=> ejecutarBajaEmpresa(inputBajaNombre ? inputBajaNombre.value : ''));
+      const btnCancelarBaja = document.getElementById('btn-cancelar-baja');
+      if(btnCancelarBaja) btnCancelarBaja.addEventListener('click', cerrarBajaEmpresa);
     // Cada función del módulo por separado. Se guarda el jsonb completo para no pisar las otras
     // llaves con un PATCH parcial.
     document.querySelectorAll('.sa-funcion-bodega').forEach(chk=>{

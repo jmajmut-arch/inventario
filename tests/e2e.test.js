@@ -1166,6 +1166,90 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Descargar todos los datos de la empresa (administrador), con el Excel real =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 }, acceptDownloads:true });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('exportar-empresa: '+err.message));
+    const tablasPedidas = new Set();
+    await loguear(page, PERFIL_ADMIN_PRO, async () => {
+      // Todas las tablas responden algo; materiales, con una fila y un JSON largo para el Excel real.
+      await page.route(/\/rest\/v1\/(skus|conteos|auditoria|informes_ciclo)\?.*order=id\.asc/, route => {
+        const tabla = new URL(route.request().url()).pathname.split('/').pop();
+        tablasPedidas.add(tabla);
+        const filas = tabla === 'skus' ? [{ id:'s1', sku_code:'A-1', descripcion:'Perno', stock_sistema:3 }]
+          : tabla === 'informes_ciclo' ? [{ id:'i1', ciclo_nombre:'T1', datos:{ texto:'x'.repeat(40000) } }]
+          : [];
+        route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) });
+      });
+    });
+    await page.evaluate(() => setState({ view:'config' }));
+    await page.waitForSelector('#btn-exportar-empresa', { timeout:ESPERA });
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px Configuraciones con la descarga no desborda, obtuvo '+desborde);
+    const descarga = page.waitForEvent('download', { timeout:ESPERA*3 }).catch(()=>null);
+    await page.click('#btn-exportar-empresa');
+    const archivo = await descarga;
+    assert(archivo && /^inventia-minera-andes-\d{4}-\d{2}-\d{2}\.xlsx$/.test(archivo.suggestedFilename()), 'descarga el Excel de la empresa, obtuvo '+(archivo && archivo.suggestedFilename()));
+    // El Excel se abre de verdad: Léeme, Materiales con su fila y el informe largo repartido.
+    const ruta = archivo ? await archivo.path() : null;
+    const contenido = ruta ? fs.readFileSync(ruta).toString('base64') : '';
+    const hojas = await page.evaluate(b64 => {
+      const libro = XLSX.read(b64, { type:'base64' });
+      const mat = XLSX.utils.sheet_to_json(libro.Sheets['Materiales']);
+      const inf = XLSX.utils.sheet_to_json(libro.Sheets['Informes de cierre']);
+      return { nombres: libro.SheetNames, mat, columnasInforme: Object.keys(inf[0] || {}) };
+    }, contenido);
+    assert(hojas.nombres.length === 30 && hojas.nombres[0] === 'Léeme' && hojas.mat[0] && hojas.mat[0].sku_code === 'A-1', 'el Excel trae el Léeme y una hoja por tabla, con los datos, obtuvo '+JSON.stringify(hojas.nombres));
+    assert(hojas.columnasInforme.includes('datos') && hojas.columnasInforme.includes('datos (2)'), 'un informe más largo que una celda de Excel sigue en otra columna, obtuvo '+JSON.stringify(hojas.columnasInforme));
+    const boton = await page.textContent('#btn-exportar-empresa');
+    assert(boton === 'Descargar todos los datos', 'al terminar, el botón vuelve a su texto, obtuvo '+boton);
+    await context.close();
+  }
+
+  // ===== Dar de baja una empresa (súper admin), a 420 px =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('baja-empresa: '+err.message));
+    const perfilSa = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilSa.es_super_admin = true;
+    const llamadas = [];
+    let empresas = [
+      { id:'emp-1', nombre:'Minera Andes', activo:true, plan_id:'p1', planes:{ nombre:'profesional', etiqueta:'Profesional' } },
+      { id:'emp-x', nombre:'Cliente Viejo', activo:false, plan_id:'p1', planes:{ nombre:'profesional', etiqueta:'Profesional' } },
+    ];
+    await loguear(page, perfilSa, async () => {
+      await page.route('**/rest/v1/empresas?select=**', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(empresas) }));
+      await page.route('**/rest/v1/rpc/resumen_datos_empresa', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ usuarios:2, skus:500, conteos:30, fotos_archivos:4, fotos_mb:1.2, auditoria:80 }) }));
+      await page.route('**/functions/v1/eliminar-empresa', r => {
+        llamadas.push(r.request().postDataJSON());
+        const respuesta = llamadas.length < 3 ? { terminado:false, fase:'conteos', borradas:{ conteos:15 } } : { terminado:true, borradas:{ skus:500 } };
+        if (respuesta.terminado) empresas = empresas.filter(e => e.id !== 'emp-x');
+        r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(respuesta) });
+      });
+    });
+    await page.evaluate(() => setState({ view:'config' }));
+    await page.waitForSelector('[data-baja-empresa-sa="emp-x"]', { timeout:ESPERA });
+    await page.click('[data-baja-empresa-sa="emp-x"]');
+    await page.waitForSelector('#baja-nombre', { timeout:ESPERA });
+    const resumen = await page.textContent('.baja-empresa');
+    assert(resumen.includes('500 materiales') && resumen.includes('4 fotos (1,2 MB)'), 'el panel dice cuánto tiene la empresa, obtuvo '+resumen);
+    assert(await page.isDisabled('#btn-ejecutar-baja'), 'parte deshabilitado');
+    await page.fill('#baja-nombre', 'Cliente Viejo');
+    assert(await page.isDisabled('#btn-ejecutar-baja'), 'falta la casilla de respaldo');
+    await page.check('#baja-respaldo');
+    assert(!(await page.isDisabled('#btn-ejecutar-baja')), 'con el nombre exacto y la casilla, se habilita');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px el panel de baja no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await (await page.$('.baja-empresa')).screenshot({ path: process.env.E2E_CAPTURAS + '/baja-empresa-420.png' });
+    page.once('dialog', d => d.accept());
+    await page.click('#btn-ejecutar-baja');
+    assert(await esperarCondicion(page, () => !document.querySelector('.baja-empresa') && !document.querySelector('[data-baja-empresa-sa="emp-x"]')), 'al terminar se cierra el panel y la empresa sale de la lista');
+    assert(llamadas.length === 3 && llamadas.every(c => c.empresaId === 'emp-x' && c.nombre === 'Cliente Viejo'), 'llama por tandas hasta que termina, obtuvo '+JSON.stringify(llamadas));
+    await context.close();
+  }
+
   // ===== Contar: marcar la foto con rayas y flechas antes de guardarla (Joel, 30/09) =====
   // Con el navegador real: se adjunta una foto blanca, "Marcar" abre el editor, se dibuja un trazo
   // con el mouse y una flecha, y al tocar Listo la foto de la entrada queda reemplazada por un JPEG
