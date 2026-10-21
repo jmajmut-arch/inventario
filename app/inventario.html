@@ -524,6 +524,17 @@ textarea{resize:vertical;min-height:60px;}
 .toast.err{border-color:var(--danger);color:var(--danger);background:var(--danger-bg);}
 .toast.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-bg);}
 .toast.warn{border-color:var(--warn);color:var(--warn);background:var(--warn-bg);}
+.toast-reportar{margin-left:12px;padding:4px 10px;border-radius:var(--radius-chip);border:1px solid currentColor;background:transparent;color:inherit;font:inherit;font-size:12px;font-weight:600;cursor:pointer;vertical-align:baseline;}
+.toast-reportar:focus-visible{outline:2px solid currentColor;outline-offset:2px;}
+/* Reportar un problema */
+.ticket-texto{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.ticket-error{margin-top:6px;padding:6px 8px;border-radius:var(--radius-chip);background:var(--danger-bg);color:var(--danger);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.ticket-respuesta{margin-top:8px;padding:8px 10px;border-left:3px solid var(--ok);background:var(--ok-bg);border-radius:0 var(--radius-chip) var(--radius-chip) 0;font-size:13px;color:var(--text);}
+.ticket-respuesta div{margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.ticket-enviado{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--ok);background:var(--ok-bg);color:var(--ok);border-radius:var(--radius);font-size:14px;}
+.ticket-enviado span{color:var(--text);}
+.ticket-foto-lista{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-chip);font-size:13px;}
+.ticket-foto-lista span{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 .empty{text-align:center;padding:30px 10px;color:var(--text-faint);}
 .empty .glyph{font-size:28px;margin-bottom:8px;opacity:0.6;}
@@ -1122,6 +1133,11 @@ let state = {
   exportarModal: false,
   escanerModal: null,   // null | {codigo:null, error:null} mientras escanea | {codigo, buscarAsociar, asociando} si el código no se reconoció
   equipo: { cargado: false, cargando: false, personas: [] },  // equipo de la propia empresa, visto por un admin (no super-admin)
+  // Reportar un problema (tabla tickets, ver supabase/migrations/20261022_tickets.sql): reporte es la
+  // ventana abierta (null si no); tickets guarda las tres listas: los míos, los del equipo (admin) y
+  // la bandeja de todas las empresas (súper admin).
+  reporte: null,
+  tickets: ticketsEstadoInicial(),
   ciclos: [],  // ciclos de conteo de la empresa (ej. "T1 2027"), para etiquetar/filtrar por período
   cicloEditandoId: null,  // id del ciclo cuya fecha de inicio se está editando en Períodos, o null
   informesCiclo: { cargado:false, cargando:false, lista:[] }, // informes de cierre (ver marcar_ciclo_actual/informes_ciclo): un snapshot automático por cada ciclo ya cerrado
@@ -2127,8 +2143,22 @@ function toast(msg, type='ok'){
   const el = document.createElement('div');
   el.className = `toast ${type==='err'?'err':type==='warn'?'warn':'ok'}`;
   el.textContent = msg;
+  // Un error se puede reportar desde el mismo mensaje: llega a "Reportar un problema" con el texto
+  // exacto ya puesto. Por eso ese mensaje dura más en pantalla (hay que alcanzar a tocarlo).
+  const conReporte = type==='err' && puedeReportarDesdeError();
+  if(conReporte){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toast-reportar';
+    b.textContent = 'Reportar';
+    b.addEventListener('click', ()=>{ el.remove(); abrirReporte(msg); });
+    el.appendChild(b);
+  }
   root.appendChild(el);
-  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 2600);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, conReporte ? 7000 : 2600);
+}
+function puedeReportarDesdeError(){
+  return !!(state && state.session && state.perfil && !state.reporte);
 }
 
 /* =======================================================================
@@ -2574,7 +2604,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -4994,6 +5024,7 @@ function hojasExportacionEmpresa(empresaId){
     t('Reservas - líneas', 'reservas_lineas'),
     t('Cargas de Excel', 'cargas_masivas'),
     t('Responsables', 'responsables_proceso'),
+    t('Reportes de problemas', 'tickets'),
     t('Auditoría', 'auditoria'),
   ];
 }
@@ -5069,6 +5100,239 @@ async function exportarDatosEmpresa(){
     const b = document.getElementById('btn-exportar-empresa');
     if(b){ b.textContent = 'Descargar todos los datos'; b.disabled = false; }
   }
+}
+
+/* ---- Reportar un problema (Joel, 21/10/2026) ---------------------------------------------------
+   Cualquier persona reporta un problema desde el menú (Más → Reportar), desde Configuraciones o
+   desde el botón "Reportar" de un mensaje de error, que llega con el error exacto ya puesto. Se
+   guarda en la tabla tickets (la base pone empresa, autor y estado; ver
+   supabase/migrations/20261022_tickets.sql) y avisa por correo a contacto@inventiapp.cl. Nunca va a
+   GitHub: el repo es público y un reporte puede traer datos del cliente.
+   Quién ve qué: cada persona los suyos (con la respuesta), el admin los de su empresa y el súper
+   admin los de todas, que es quien responde. */
+const ESTADOS_TICKET = {abierto:'Abierto', en_revision:'En revisión', resuelto:'Resuelto'};
+const COLUMNAS_TICKET = 'id,numero,empresa_id,creado_por_nombre,creado_por_rol,descripcion,error_mensaje,pantalla,contexto,foto_ruta,estado,respuesta,respondido_por_nombre,respondido_en,creado_en';
+function ticketsEstadoInicial(){
+  return {
+    mios: {cargado:false, cargando:false, filas:[], error:null},
+    equipo: {cargado:false, cargando:false, filas:[], error:null},
+    sa: {cargado:false, cargando:false, filas:[], error:null, filtro:'pendientes', borradores:{}, guardando:null},
+  };
+}
+function badgeEstadoTicket(estado){
+  const clase = estado==='resuelto' ? 'badge-ok' : estado==='en_revision' ? 'badge-steel' : 'badge-warn';
+  return `<span class="badge ${clase}">${esc(ESTADOS_TICKET[estado] || estado || '')}</span>`;
+}
+// Lo que se adjunta solo: sirve para reproducir el problema sin preguntarle nada más a la persona.
+// Nada de datos de la empresa: el equipo, el tamaño de pantalla, la conexión, la versión de la app
+// y el evento de Sentry si hubo uno.
+function contextoReporte(){
+  const nav = typeof navigator!=='undefined' ? navigator : {};
+  let sentry = null;
+  try{ if(typeof Sentry!=='undefined' && typeof Sentry.lastEventId==='function') sentry = Sentry.lastEventId() || null; }catch(e){ sentry = null; }
+  let pantallaPx = null;
+  try{ if(typeof window!=='undefined' && window.innerWidth) pantallaPx = `${window.innerWidth}×${window.innerHeight}`; }catch(e){ pantallaPx = null; }
+  return {
+    dispositivo: String(nav.userAgent || '').slice(0, 300) || null,
+    pantalla_px: pantallaPx,
+    en_linea: nav.onLine !== false,
+    version: versionPublicadaAlArrancar || null,
+    instalada: !!(state.instalarApp && state.instalarApp.instalada),
+    vista: state.view || null,
+    sentry_evento: sentry,
+  };
+}
+function abrirReporte(error){
+  if(!state.session || !state.perfil) return;
+  setState({reporte:{descripcion:'', error: error ? String(error).slice(0, 2000) : '', pantalla: viewTitle(state.view), foto:null, enviando:false, enviado:null, errorEnvio:null}});
+  if(!state.tickets.mios.cargado && !state.tickets.mios.cargando) cargarMisTickets();
+}
+function cerrarReporte(){ setState({reporte:null}); }
+// Lo escrito vive en el DOM mientras se teclea (sin render, CLAUDE.md); se copia al estado antes
+// de cualquier repintado para no perderlo.
+function guardarBorradorReporte(){
+  const r = state.reporte;
+  const t = document.getElementById('reporte-descripcion');
+  if(r && t) r.descripcion = t.value;
+}
+async function enviarReporte(){
+  guardarBorradorReporte();
+  const r = state.reporte;
+  if(!r || r.enviando) return;
+  const descripcion = String(r.descripcion || '').trim();
+  if(!descripcion){ setState({reporte:{...r, errorEnvio:'Cuéntanos en pocas palabras qué pasó.'}}); return; }
+  setState({reporte:{...r, enviando:true, errorEnvio:null}});
+  try{
+    let fotoRuta = null;
+    if(r.foto){
+      const foto = await comprimirFoto(r.foto);
+      fotoRuta = `${state.perfil.empresa_id}/tickets/${crypto.randomUUID()}.jpg`;
+      await storageUpload(fotoRuta, foto);
+    }
+    const filas = await rest('/tickets?select=id,numero', {method:'POST', prefer:'return=representation', body:{
+      descripcion: descripcion.slice(0, 4000),
+      error_mensaje: r.error ? r.error.slice(0, 2000) : null,
+      pantalla: (r.pantalla || '').slice(0, 100) || null,
+      contexto: contextoReporte(),
+      foto_ruta: fotoRuta,
+    }});
+    const fila = Array.isArray(filas) ? filas[0] : filas;
+    state.tickets.mios.cargado = false;
+    state.tickets.equipo.cargado = false;
+    state.tickets.sa.cargado = false;
+    setState({reporte:{...state.reporte, enviando:false, enviado: (fila && fila.numero) || true, foto:null}});
+    cargarMisTickets();
+  }catch(e){
+    // La ventana queda abierta con lo escrito: se puede reintentar sin volver a teclear.
+    setState({reporte:{...state.reporte, enviando:false, errorEnvio: e.message}});
+  }
+}
+async function cargarMisTickets(){
+  const m = state.tickets.mios;
+  m.cargando = true; m.error = null;
+  try{
+    const uid = state.session && state.session.user && state.session.user.id;
+    // Filtro explícito por autor: un admin (y el súper admin) ve más filas bajo RLS.
+    const filas = await rest(`/tickets?select=${COLUMNAS_TICKET}&creado_por=eq.${encodeURIComponent(uid)}&order=creado_en.desc&limit=20`);
+    state.tickets.mios = {cargado:true, cargando:false, filas: filas || [], error:null};
+  }catch(e){
+    state.tickets.mios = {...m, cargado:false, cargando:false, error: e.message};
+  }
+  // Con la ventana abierta se repinta solo la lista: un render() a mitad de lo que la persona está
+  // escribiendo le reemplazaría el campo y le cerraría el teclado (CLAUDE.md).
+  const cont = state.reporte && document.getElementById('reporte-mis-tickets');
+  if(cont){
+    cont.innerHTML = htmlListaTickets(state.tickets.mios, 'mio', 'Todavía no has enviado reportes.');
+    atarReintentarTickets(cont);
+  }else render();
+}
+function atarReintentarTickets(raiz){
+  (raiz || document).querySelectorAll('[data-tickets-reintentar]').forEach(b=> b.addEventListener('click', ()=>{
+    const modo = b.dataset.ticketsReintentar;
+    if(modo==='mio') cargarMisTickets();
+    else if(modo==='equipo') cargarTicketsEquipo();
+    else if(modo==='sa') cargarTicketsSuperAdmin();
+  }));
+}
+async function cargarTicketsEquipo(){
+  const q = state.tickets.equipo;
+  q.cargando = true; q.error = null;
+  try{
+    // Solo la empresa propia, aunque quien mira sea súper admin (las demás se ven en su bandeja).
+    const filas = await rest(`/tickets?select=${COLUMNAS_TICKET}&empresa_id=eq.${encodeURIComponent(state.perfil.empresa_id)}&order=creado_en.desc&limit=50`);
+    state.tickets.equipo = {cargado:true, cargando:false, filas: filas || [], error:null};
+  }catch(e){
+    state.tickets.equipo = {...q, cargado:false, cargando:false, error: e.message};
+  }
+  render();
+}
+async function cargarTicketsSuperAdmin(){
+  const sa = state.tickets.sa;
+  sa.cargando = true; sa.error = null;
+  try{
+    const filtro = sa.filtro==='pendientes' ? '&estado=neq.resuelto' : '';
+    const filas = await rest(`/tickets?select=${COLUMNAS_TICKET}${filtro}&order=creado_en.desc&limit=100`);
+    state.tickets.sa = {...state.tickets.sa, cargado:true, cargando:false, filas: filas || [], error:null};
+  }catch(e){
+    state.tickets.sa = {...state.tickets.sa, cargado:false, cargando:false, error: e.message};
+  }
+  render();
+}
+function guardarBorradoresTicketsSa(){
+  const borradores = state.tickets.sa.borradores;
+  document.querySelectorAll('[data-ticket-respuesta]').forEach(t=>{
+    const id = t.dataset.ticketRespuesta;
+    borradores[id] = {...(borradores[id]||{}), respuesta: t.value};
+  });
+  document.querySelectorAll('[data-ticket-estado]').forEach(sel=>{
+    const id = sel.dataset.ticketEstado;
+    borradores[id] = {...(borradores[id]||{}), estado: sel.value};
+  });
+}
+async function guardarTicketSuperAdmin(id){
+  guardarBorradoresTicketsSa();
+  const sa = state.tickets.sa;
+  const fila = sa.filas.find(f=>f.id===id);
+  if(!fila || sa.guardando) return;
+  const b = sa.borradores[id] || {};
+  const cambios = {};
+  if(b.estado!==undefined && b.estado!==fila.estado) cambios.estado = b.estado;
+  if(b.respuesta!==undefined && b.respuesta.trim()!==(fila.respuesta||'')) cambios.respuesta = b.respuesta.trim() || null;
+  if(!Object.keys(cambios).length){ toast('No hay cambios que guardar','warn'); return; }
+  sa.guardando = id;
+  render();
+  try{
+    const filas = await rest(`/tickets?id=eq.${encodeURIComponent(id)}&select=${COLUMNAS_TICKET}`, {method:'PATCH', prefer:'return=representation', body: cambios});
+    const nueva = Array.isArray(filas) ? filas[0] : null;
+    if(!nueva) throw new Error('No se pudo guardar: el reporte ya no está disponible');
+    state.tickets.sa.filas = state.tickets.sa.filas.map(f=> f.id===id ? nueva : f);
+    delete state.tickets.sa.borradores[id];
+    state.tickets.equipo.cargado = false;
+    state.tickets.mios.cargado = false;
+    toast(`Reporte #${nueva.numero} guardado`);
+  }catch(e){
+    toast(e.message,'err');
+  }finally{
+    state.tickets.sa.guardando = null;
+    render();
+  }
+}
+async function verFotoTicket(ruta){
+  try{
+    const url = await crearUrlFirmada(ruta);
+    setState({fotoModal:{urls:[url], labels:['Foto del reporte'], index:0}});
+  }catch(e){ toast(e.message,'err'); }
+}
+function textoContextoTicket(t){
+  const c = t.contexto && typeof t.contexto==='object' ? t.contexto : {};
+  const partes = [];
+  if(c.dispositivo) partes.push(describirDispositivo(c.dispositivo));
+  if(c.pantalla_px) partes.push(c.pantalla_px);
+  if(c.en_linea===false) partes.push('sin conexión');
+  if(c.instalada) partes.push('app instalada');
+  return partes.join(' · ');
+}
+// "iPhone · Safari", "Android · Chrome", "Windows · Edge": lo justo para saber dónde mirar.
+function describirDispositivo(ua){
+  const u = String(ua||'');
+  const so = /iPhone/.test(u) ? 'iPhone' : /iPad|Macintosh.*Mobile/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android' : /Windows/.test(u) ? 'Windows' : /Mac OS X/.test(u) ? 'Mac' : /Linux/.test(u) ? 'Linux' : 'Otro';
+  const nav = /Edg\//.test(u) ? 'Edge' : /CriOS|Chrome\//.test(u) ? 'Chrome' : /FxiOS|Firefox\//.test(u) ? 'Firefox' : /Safari\//.test(u) ? 'Safari' : 'navegador';
+  return `${so} · ${nav}`;
+}
+// Una fila de reporte. `modo`: 'mio' (lo que reporté y la respuesta), 'equipo' (admin: quién lo
+// reportó) o 'sa' (súper admin: empresa, equipo, foto y controles para responder).
+function htmlTicket(t, modo){
+  const empresa = modo==='sa' ? ((state.superadmin.empresas||[]).find(e=>e.id===t.empresa_id) || {}).nombre : null;
+  const borrador = modo==='sa' ? (state.tickets.sa.borradores[t.id] || {}) : {};
+  const guardando = modo==='sa' && state.tickets.sa.guardando===t.id;
+  const contexto = modo==='sa' ? textoContextoTicket(t) : '';
+  return `<div class="plan-item ticket-item" style="display:block;padding:10px 0">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+      <span style="font-weight:600">#${esc(t.numero)}${modo!=='mio' ? ` · ${esc(t.creado_por_nombre || 'Sin nombre')}` : ''}${empresa ? ` · ${esc(empresa)}` : ''}</span>
+      ${badgeEstadoTicket(t.estado)}
+    </div>
+    <div class="hint" style="margin:2px 0 4px">${esc(fmtFechaHora(t.creado_en))}${t.pantalla ? ` · ${esc(t.pantalla)}` : ''}${contexto ? ` · ${esc(contexto)}` : ''}</div>
+    <div class="ticket-texto">${esc(t.descripcion)}</div>
+    ${t.error_mensaje ? `<div class="ticket-error mono">${esc(t.error_mensaje)}</div>` : ''}
+    ${modo==='sa' && t.foto_ruta ? `<button type="button" class="btn btn-secondary btn-sm" data-ticket-foto="${esc(t.foto_ruta)}" style="width:auto;padding:5px 10px;font-size:12px;margin-top:6px">${ICONS.camera.replace('<svg','<svg style="width:14px;height:14px"')} Ver foto</button>` : ''}
+    ${modo!=='sa' && t.respuesta ? `<div class="ticket-respuesta"><b>Respuesta${t.respondido_por_nombre ? ` de ${esc(t.respondido_por_nombre)}` : ''}</b>${t.respondido_en ? ` · ${esc(fmtFechaHora(t.respondido_en))}` : ''}<div>${esc(t.respuesta)}</div></div>` : ''}
+    ${modo==='sa' ? `<div class="ticket-responder">
+      <label for="ticket-respuesta-${esc(t.id)}" style="margin-top:8px">Respuesta (la persona la ve en la app)</label>
+      <textarea id="ticket-respuesta-${esc(t.id)}" data-ticket-respuesta="${esc(t.id)}" rows="2" maxlength="4000" placeholder="Qué se hizo o qué necesitas saber">${esc(borrador.respuesta!==undefined ? borrador.respuesta : (t.respuesta||''))}</textarea>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <select data-ticket-estado="${esc(t.id)}" aria-label="Estado del reporte #${esc(t.numero)}" style="width:auto;margin:0">
+          ${Object.entries(ESTADOS_TICKET).map(([v,l])=>`<option value="${v}" ${(borrador.estado!==undefined ? borrador.estado : t.estado)===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-secondary btn-sm" data-ticket-guardar="${esc(t.id)}" style="width:auto;padding:6px 12px" ${guardando?'disabled':''}>${guardando?'<span class="spinner"></span> Guardando…':'Guardar'}</button>
+      </div>
+    </div>` : ''}
+  </div>`;
+}
+function htmlListaTickets(lista, modo, vacio){
+  if(lista.error) return `<div class="hint" style="color:var(--danger)">No se pudieron cargar los reportes: ${esc(lista.error)} <button type="button" class="btn btn-secondary btn-sm" data-tickets-reintentar="${modo}" style="width:auto;padding:4px 10px;margin-left:6px">Reintentar</button></div>`;
+  if(!lista.cargado) return `<div class="hint"><span class="spinner"></span> Cargando reportes…</div>`;
+  if(!lista.filas.length) return `<div class="empty" style="padding:12px 8px">${esc(vacio)}</div>`;
+  return lista.filas.map(t=>htmlTicket(t, modo)).join('');
 }
 
 async function cargarEquipo(){
@@ -11685,6 +11949,8 @@ const ICONS = {
   ciclos:'<svg viewBox="0 0 24 24"><path d="M5 21V4"/><path d="M5 4h13l-3 4 3 4H5"/></svg>',
   ordenCompra:'<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>',
   info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>',
+  // Globo de diálogo con un signo de exclamación: avisar que algo no anda.
+  reportar:'<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1121 12z"/><path d="M12.5 8v4.5"/><path d="M12.5 15.5h.01"/></svg>',
   // Flecha entre dos pines: mover un material de un sitio a otro.
   mover: '<svg viewBox="0 0 24 24"><path d="M6 21c-2 0-3-1-3-2.5S4 16 6 16h12c2 0 3 1 3 2.5S20 21 18 21z"/><path d="M9 12h6"/><path d="M13 9l3 3-3 3"/><path d="M8 3v6"/><path d="M16 3v6"/></svg>',
   grupos:'<svg viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>',
@@ -12501,6 +12767,44 @@ function renderDescartarReconteoModal(){
           <button type="button" class="btn btn-secondary" id="descartar-reconteo-cancelar" style="width:auto">Cancelar</button>
         </div>
       </form>
+    </div>
+  </div>`;
+}
+
+function renderReporteModal(){
+  const r = state.reporte;
+  if(!r) return '';
+  const mios = state.tickets.mios;
+  return `<div class="foto-modal-backdrop" id="reporte-backdrop">
+    <div class="card" style="width:min(94vw,480px);max-height:88vh;overflow-y:auto;margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h2 style="margin:0;font-size:17px">Reportar un problema</h2>
+        <button id="reporte-close" style="background:none;border:none;color:var(--text-faint)" aria-label="Cerrar">${ICONS.x}</button>
+      </div>
+      ${r.enviado ? `
+      <div class="ticket-enviado">${ICONS.conteo.replace('<svg','<svg style="width:18px;height:18px;flex:none"')}<span>Reporte ${typeof r.enviado==='number' ? `<b>#${r.enviado}</b> ` : ''}enviado. Lo revisamos y te respondemos acá mismo, en “Tus reportes”.</span></div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button type="button" class="btn btn-primary" id="reporte-listo">Listo</button>
+        <button type="button" class="btn btn-secondary" id="reporte-otro" style="width:auto">Reportar otro</button>
+      </div>` : `
+      <form id="form-reporte">
+        <div class="hint" style="margin-bottom:10px">Cuéntanos qué pasó. Se adjuntan solos la pantalla (${esc(r.pantalla || '—')}), tu equipo y la versión de la app.</div>
+        ${r.error ? `<label>Error que apareció</label><div class="ticket-error mono" style="margin-bottom:8px">${esc(r.error)}</div>` : ''}
+        <label for="reporte-descripcion">Qué pasó</label>
+        <textarea id="reporte-descripcion" rows="4" maxlength="4000" placeholder="Ej: al guardar el conteo sale este error y no avanza">${esc(r.descripcion)}</textarea>
+        <label style="margin-top:8px">Foto o captura (opcional)</label>
+        ${r.foto ? `<div class="ticket-foto-lista"><span>${ICONS.camera.replace('<svg','<svg style="width:16px;height:16px;flex:none"')} ${esc(r.foto.name || 'Foto lista')}</span><button type="button" class="btn btn-secondary btn-sm" id="reporte-quitar-foto" style="width:auto;padding:4px 10px;font-size:12px">Quitar</button></div>`
+          : `<div class="file-input" style="margin:0"><input type="file" id="reporte-foto" accept="image/*">${ICONS.camera.replace('<svg','<svg style="width:22px;height:22px;stroke:var(--text-dim);margin-bottom:4px" ')}<div>Agregar foto</div></div>`}
+        ${r.errorEnvio ? `<div class="hint" role="alert" style="color:var(--danger);margin-top:8px">${esc(r.errorEnvio)}</div>` : ''}
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button type="submit" class="btn btn-primary" id="reporte-enviar" ${r.enviando?'disabled':''}>${r.enviando?'<span class="spinner"></span> Enviando…':'Enviar reporte'}</button>
+          <button type="button" class="btn btn-secondary" id="reporte-cancelar" style="width:auto">Cancelar</button>
+        </div>
+      </form>`}
+      <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:2px">Tus reportes</div>
+        <div id="reporte-mis-tickets">${htmlListaTickets(mios, 'mio', 'Todavía no has enviado reportes.')}</div>
+      </div>
     </div>
   </div>`;
 }
@@ -15636,6 +15940,13 @@ function renderSuperAdmin(){
   return `
     <div class="section-head"><div><span class="eyebrow">Panel</span><h2>Super-admin</h2></div></div>
     <div class="hint" style="margin-bottom:14px">Administra TODAS las empresas de InventIA (distinto de "Tu empresa" más abajo, que es solo la tuya).</div>
+    <div class="section-head"><div><span class="eyebrow">Soporte</span><h2 style="font-size:15px">Reportes ${campoConInfo('Problemas reportados desde la app por cualquier persona de cualquier empresa. Cada uno avisa por correo a contacto@inventiapp.cl. La respuesta que escribas acá la ve quien lo reportó, y el administrador de su empresa. Ves los reportes de otras empresas, nada más de ellas.')}</h2></div>
+      <select id="tickets-sa-filtro" aria-label="Qué reportes mostrar" style="width:auto;margin:0">
+        <option value="pendientes" ${state.tickets.sa.filtro==='pendientes'?'selected':''}>Sin resolver</option>
+        <option value="todos" ${state.tickets.sa.filtro==='todos'?'selected':''}>Todos</option>
+      </select>
+    </div>
+    <div class="card">${htmlListaTickets(state.tickets.sa, 'sa', state.tickets.sa.filtro==='pendientes' ? 'No hay reportes sin resolver.' : 'Todavía no hay reportes.')}</div>
     ${resumen.length? `
     <div class="section-head"><div><span class="eyebrow">Todas las empresas</span><h2 style="font-size:15px">Resumen del negocio</h2></div></div>
     <div class="kpi-grid" style="grid-template-columns:1fr 1fr 1fr">
@@ -16603,6 +16914,15 @@ function renderConfiguraciones(){
       ` : ''}
     </div>
     ${renderSeccionInstalarApp()}
+    <div class="section-head"><div><span class="eyebrow">Ayuda</span><h2 style="font-size:15px">¿Algo no funciona?</h2></div></div>
+    <div class="card">
+      <div class="hint" style="margin-bottom:10px">Cuéntanos qué pasó y te respondemos acá mismo. Si te apareció un mensaje de error, también puedes tocar <b>Reportar</b> en ese mismo mensaje.</div>
+      <button type="button" class="btn btn-secondary" id="btn-reportar-config" style="width:auto;padding:8px 14px">Reportar un problema</button>
+    </div>
+    ${esAdmin? `
+    <div class="section-head"><div><span class="eyebrow">Ayuda</span><h2 style="font-size:15px">Reportes de tu equipo ${campoConInfo('Los problemas que reportó cualquier persona de tu empresa, con su estado y la respuesta de InventIA. Solo los ves tú y los demás administradores de tu empresa.')}</h2></div></div>
+    <div class="card">${htmlListaTickets(state.tickets.equipo, 'equipo', 'Nadie de tu equipo ha reportado problemas.')}</div>
+    ` : ''}
     ${esAdmin? renderUbicacionesConfig() : ''}
     ${esAdmin && usaDuenosStock() ? renderDuenosStockConfig() : ''}
     ${esAdmin && moduloBodegaActivo() ? renderListasBodegaConfig() : ''}
@@ -17829,6 +18149,7 @@ function renderShell(){
         ${botonHojaMas('btn-ir-skus', ICONS.skus, 'SKU', state.view==='skus')}
         ${botonHojaMas('btn-ir-calendario', ICONS.calendario, 'Calendario', state.view==='calendario')}
         ${botonHojaMas('btn-exportar-conteos-modal', ICONS.download, 'Exportar', false)}
+        ${botonHojaMas('btn-reportar-problema', ICONS.reportar, 'Reportar', false)}
         ${botonHojaMas('btn-logout', ICONS.logout, 'Salir', false)}
       </div>
     </div>
@@ -17927,7 +18248,7 @@ function renderDom(){
   const snapshotPlan = state.view==='plan' ? capturarFormularioPlan() : null;
   const snapshotConteo = capturarFormularioConteo();
   const root = document.getElementById('app');
-  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderEditorFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCerrarLoteErpModal() + renderDescartarLoteModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal();
+  root.innerHTML = (state.mfaDesafio ? renderMfaDesafio() : state.debeCrearPassword ? renderCrearPassword() : (state.session && state.empresaBloqueada) ? renderCuentaBloqueada() : state.session ? renderShell() : state.registroPlan ? renderRegistroAutoservicio() : renderLogin()) + renderFotoModal() + renderEditorFotoModal() + renderOfflineModal() + renderExportarModal() + renderEscanerModal() + renderDescartarReconteoModal() + renderCerrarAjusteErpModal() + renderCerrarLoteErpModal() + renderDescartarLoteModal() + renderCorregirConteoModal() + renderAjusteBodegaModal() + renderKardexModal() + renderUbicacionSkuModal() + renderDevolucionModal() + renderAnularOrdenModal() + renderAnularBodegaModal() + renderProveedorModal() + renderCancelarReservaModal() + renderInstalarAppModal() + renderReporteModal();
   bind();
   restaurarFormularioPlan(snapshotPlan);
   restaurarFormularioConteo(snapshotConteo);
@@ -18043,6 +18364,27 @@ function bind(){
       setState({fotoModal:{urls, labels, index:(index+1)%urls.length}});
     });
   }
+  if(state.reporte){
+    const cerrar = ()=>{ guardarBorradorReporte(); cerrarReporte(); };
+    ['reporte-close','reporte-cancelar','reporte-listo'].forEach(id=>{ const b = document.getElementById(id); if(b) b.addEventListener('click', cerrar); });
+    const formReporte = document.getElementById('form-reporte');
+    if(formReporte) formReporte.addEventListener('submit', e=>{ e.preventDefault(); enviarReporte(); });
+    const textoReporte = document.getElementById('reporte-descripcion');
+    if(textoReporte) textoReporte.addEventListener('input', guardarBorradorReporte);
+    const fotoReporte = document.getElementById('reporte-foto');
+    if(fotoReporte) fotoReporte.addEventListener('change', ()=>{
+      guardarBorradorReporte();
+      const f = fotoReporte.files && fotoReporte.files[0];
+      setState({reporte:{...state.reporte, foto: f || null}});
+    });
+    const quitarFoto = document.getElementById('reporte-quitar-foto');
+    if(quitarFoto) quitarFoto.addEventListener('click', ()=>{ guardarBorradorReporte(); setState({reporte:{...state.reporte, foto:null}}); });
+    const otro = document.getElementById('reporte-otro');
+    if(otro) otro.addEventListener('click', ()=> abrirReporte(''));
+  }
+  atarReintentarTickets();
+  const btnReportar = document.getElementById('btn-reportar-problema');
+  if(btnReportar) btnReportar.addEventListener('click', ()=> abrirReporte(''));
   if(state.offlineModal){
     document.getElementById('offline-modal-close').addEventListener('click', ()=> setState({offlineModal:false}));
     document.getElementById('offline-modal-backdrop').addEventListener('click', e=>{
@@ -18513,6 +18855,19 @@ function bind(){
   }
 
   if(state.view==='config'){
+    const btnReportarConfig = document.getElementById('btn-reportar-config');
+    if(btnReportarConfig) btnReportarConfig.addEventListener('click', ()=> abrirReporte(''));
+    if(state.perfil && state.perfil.rol==='admin' && !state.tickets.equipo.cargado && !state.tickets.equipo.cargando && !state.tickets.equipo.error) cargarTicketsEquipo();
+    if(state.perfil && state.perfil.es_super_admin){
+      const sa = state.tickets.sa;
+      if(!sa.cargado && !sa.cargando && !sa.error) cargarTicketsSuperAdmin();
+      const filtro = document.getElementById('tickets-sa-filtro');
+      if(filtro) filtro.addEventListener('change', ()=>{ guardarBorradoresTicketsSa(); state.tickets.sa.filtro = filtro.value; state.tickets.sa.cargado = false; cargarTicketsSuperAdmin(); });
+      document.querySelectorAll('[data-ticket-respuesta]').forEach(t=> t.addEventListener('input', guardarBorradoresTicketsSa));
+      document.querySelectorAll('[data-ticket-estado]').forEach(sel=> sel.addEventListener('change', guardarBorradoresTicketsSa));
+      document.querySelectorAll('[data-ticket-guardar]').forEach(b=> b.addEventListener('click', ()=> guardarTicketSuperAdmin(b.dataset.ticketGuardar)));
+      document.querySelectorAll('[data-ticket-foto]').forEach(b=> b.addEventListener('click', ()=> verFotoTicket(b.dataset.ticketFoto)));
+    }
     const formDueno = document.getElementById('form-nuevo-dueno');
     if(formDueno) formDueno.addEventListener('submit', async e=>{
       e.preventDefault();

@@ -4425,7 +4425,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   // ===== Descargar todos los datos de la empresa (administrador) =====
   {
     const hojas = ctx.hojasExportacionEmpresa('emp-1');
-    assert(hojas.length===29 && hojas.every(h=>h.hoja.length<=31) && new Set(hojas.map(h=>h.hoja)).size===hojas.length, 'una hoja por tabla, con nombres válidos para Excel y sin repetir, obtuvo: '+JSON.stringify(hojas.map(h=>h.hoja)));
+    assert(hojas.length===30 && hojas.every(h=>h.hoja.length<=31) && new Set(hojas.map(h=>h.hoja)).size===hojas.length, 'una hoja por tabla, con nombres válidos para Excel y sin repetir, obtuvo: '+JSON.stringify(hojas.map(h=>h.hoja)));
     assert(hojas.filter(h=>!/^\/(conteo_fotos|plan_semanal_skus)\?/.test(h.ruta)).every(h=>h.ruta.includes('emp-1')), 'cada consulta con empresa filtra por la empresa propia (el súper admin ve personas de todas)');
     assert(hojas.filter(h=>!h.ruta.startsWith('/empresas?')).every(h=>h.ruta.includes('order=id.asc')), 'todas se piden ordenadas: sin orden, la paginación puede repetir o saltarse filas');
     const largo = 'x'.repeat(70000);
@@ -4447,7 +4447,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const esc = xlsxEscrituras[0];
     assert(esc && /^inventia-minera-nandu-\d{4}-\d{2}-\d{2}\.xlsx$/.test(esc.nombreArchivo), 'descarga un Excel con el nombre de la empresa, obtuvo: '+(esc && esc.nombreArchivo));
     assert(esc && esc.libro.hojas['Léeme'] && esc.libro.hojas['Materiales'][0].sku_code==='A-1' && esc.libro.hojas['Conteos'].aoa, 'trae el Léeme y una hoja por tabla, obtuvo: '+JSON.stringify(Object.keys((esc||{libro:{hojas:{}}}).libro.hojas)));
-    assert(pedidosExp.length===29, 'pide cada tabla una vez (de a 1.000 filas), obtuvo: '+pedidosExp.length);
+    assert(pedidosExp.length===30, 'pide cada tabla una vez (de a 1.000 filas), obtuvo: '+pedidosExp.length);
     // Un error en una tabla no entrega un archivo a medias.
     ctx.fetch = async (url, opts) => String(url).includes('/auditoria?')
       ? { status:500, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'se cayó'}), json: async()=>({message:'se cayó'}) }
@@ -4464,6 +4464,121 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(xlsxEscrituras.length===0, 'un operador no puede descargar los datos de la empresa');
     ctx.fetch = fetchAntesExp;
     ctx.__appstate.perfil = perfilAntesExp;
+  }
+  // ===== Reportar un problema (Joel, 21/10/2026; tabla tickets) =====
+  {
+    const st = ctx.__appstate;
+    const perfilAntesT = st.perfil, sesionAntesT = st.session, viewAntesT = st.view, fetchAntesT = ctx.fetch;
+    st.session = {access_token:'tok', user:{id:'auth-ana'}};
+    st.perfil = {id:1, nombre:'Ana', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Ñandú'}};
+    st.view = 'conteo';
+    const pedidosT = [];
+    let respuestaT = () => [];
+    ctx.fetch = async (url, opts) => {
+      const u = decodeURIComponent(String(url));
+      pedidosT.push({u, metodo:(opts&&opts.method)||'GET', body: opts && typeof opts.body==='string' ? JSON.parse(opts.body) : (opts && opts.body)});
+      const r = respuestaT(u, opts);
+      if(r && r.__error) return { status:r.__error, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:r.mensaje}), json: async()=>({message:r.mensaje}) };
+      return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(r), json: async()=>r };
+    };
+    // Un mensaje de error trae el botón "Reportar", que abre la ventana con el error ya puesto.
+    const raizT = elements['toast-root'];
+    let antes = raizT.hijos.length;
+    ctx.toast('No se pudo guardar el conteo: la cantidad contada es inválida', 'err');
+    const toastErr = raizT.hijos[antes];
+    const botonT = toastErr.hijos[0];
+    assert(toastErr.textContent==='No se pudo guardar el conteo: la cantidad contada es inválida' && botonT && botonT.textContent==='Reportar', 'el error muestra su mensaje tal cual y un botón Reportar, obtuvo: '+JSON.stringify(toastErr.hijos.map(h=>h.textContent)));
+    ctx.toast('Conteo guardado');
+    assert(raizT.hijos[raizT.hijos.length-1].hijos.length===0, 'un aviso que no es error no lleva botón Reportar');
+    botonT.listeners.click[0]();
+    await new Promise(r=>setTimeout(r, 20));
+    assert(st.reporte && st.reporte.error==='No se pudo guardar el conteo: la cantidad contada es inválida' && st.reporte.pantalla==='Contar', 'Reportar abre la ventana con el error y la pantalla, obtuvo: '+JSON.stringify(st.reporte));
+    assert(pedidosT.some(p=>p.u.startsWith('/rest/v1/tickets?') && p.u.includes('creado_por=eq.auth-ana')) || pedidosT.some(p=>p.u.includes('/tickets?') && p.u.includes('creado_por=eq.auth-ana')), 'al abrir carga "Tus reportes", solo los propios (un admin ve más bajo RLS), obtuvo: '+JSON.stringify(pedidosT.map(p=>p.u)));
+    antes = raizT.hijos.length;
+    ctx.toast('Otro error', 'err');
+    assert(raizT.hijos[antes].hijos.length===0, 'con la ventana ya abierta, un error nuevo no ofrece otro Reportar');
+    // Sin texto no se envía y se dice por qué.
+    elements['reporte-descripcion'] = undefined; delete elements['reporte-descripcion'];
+    makeEl('reporte-descripcion').value = '   ';
+    pedidosT.length = 0;
+    await ctx.enviarReporte();
+    assert(st.reporte.errorEnvio && /qué pasó/.test(st.reporte.errorEnvio) && !pedidosT.some(p=>p.metodo==='POST'), 'sin descripción no envía nada y lo dice, obtuvo: '+st.reporte.errorEnvio);
+    // Si el servidor falla, la ventana sigue abierta con lo escrito y el error a la vista.
+    makeEl('reporte-descripcion').value = 'No avanza al guardar';
+    respuestaT = (u, o) => (o && o.method==='POST') ? {__error:400, mensaje:'Ya enviaste 10 reportes en la última hora.'} : [];
+    await ctx.enviarReporte();
+    assert(st.reporte && !st.reporte.enviando && !st.reporte.enviado && st.reporte.descripcion==='No avanza al guardar' && /10 reportes/.test(st.reporte.errorEnvio), 'un error del servidor se ve en la ventana y no se pierde lo escrito, obtuvo: '+JSON.stringify(st.reporte));
+    // Envío correcto: la empresa, el autor y el estado los pone la base, no el navegador.
+    pedidosT.length = 0;
+    respuestaT = (u, o) => (o && o.method==='POST') ? [{id:'t-1', numero:17}] : [];
+    await ctx.enviarReporte();
+    const postT = pedidosT.find(p=>p.metodo==='POST');
+    assert(postT && postT.u.startsWith(ctx.SUPABASE_URL ? ctx.SUPABASE_URL : '') && postT.u.includes('/tickets?select=id,numero'), 'inserta en tickets, obtuvo: '+JSON.stringify(pedidosT.map(p=>p.u)));
+    assert(postT.body.descripcion==='No avanza al guardar' && postT.body.error_mensaje==='No se pudo guardar el conteo: la cantidad contada es inválida' && postT.body.pantalla==='Contar' && postT.body.foto_ruta===null, 'manda lo escrito, el error y la pantalla, obtuvo: '+JSON.stringify(postT.body));
+    assert(!('empresa_id' in postT.body) && !('creado_por' in postT.body) && !('estado' in postT.body), 'no manda empresa, autor ni estado: los pone la base');
+    assert(postT.body.contexto && 'dispositivo' in postT.body.contexto && 'version' in postT.body.contexto && postT.body.contexto.vista==='conteo' && 'sentry_evento' in postT.body.contexto, 'adjunta equipo, versión, pantalla y evento de Sentry, obtuvo: '+JSON.stringify(postT.body.contexto));
+    assert(st.reporte.enviado===17 && !st.reporte.errorEnvio, 'confirma con el número del reporte, obtuvo: '+JSON.stringify(st.reporte));
+    // Con foto: se sube a <empresa>/tickets/ y la ruta va en el reporte.
+    ctx.abrirReporte('');
+    await new Promise(r=>setTimeout(r, 20));
+    makeEl('reporte-descripcion').value = 'Mira la pantalla';
+    st.reporte.foto = {name:'captura.png', type:'image/png', size:1000};
+    pedidosT.length = 0;
+    await ctx.enviarReporte();
+    const subidaT = pedidosT.find(p=>p.u.includes('/storage/v1/object/fotos-inventario/'));
+    const postFotoT = pedidosT.find(p=>p.metodo==='POST' && p.u.includes('/tickets?'));
+    assert(subidaT && /\/storage\/v1\/object\/fotos-inventario\/emp-1\/tickets\/[0-9a-f-]{36}\.jpg$/.test(subidaT.u) && postFotoT && postFotoT.body.foto_ruta===subidaT.u.split('/fotos-inventario/')[1], 'la foto va a la carpeta tickets de la empresa y su ruta queda en el reporte, obtuvo: '+JSON.stringify(pedidosT.map(p=>p.u)));
+    ctx.cerrarReporte();
+    assert(st.reporte===null, 'Cerrar quita la ventana');
+    // Listas: los del equipo, solo de la empresa propia; la bandeja del súper admin, sin resolver.
+    pedidosT.length = 0;
+    await ctx.cargarTicketsEquipo();
+    assert(pedidosT.some(p=>p.u.includes('/tickets?') && p.u.includes('empresa_id=eq.emp-1')), 'los reportes del equipo filtran por la empresa propia (un súper admin ve todas bajo RLS)');
+    await ctx.cargarTicketsSuperAdmin();
+    assert(pedidosT.some(p=>p.u.includes('/tickets?') && p.u.includes('estado=neq.resuelto')), 'la bandeja del súper admin muestra por omisión los sin resolver');
+    st.tickets.sa.filtro = 'todos';
+    pedidosT.length = 0;
+    await ctx.cargarTicketsSuperAdmin();
+    assert(pedidosT.some(p=>p.u.includes('/tickets?') && !p.u.includes('estado=')), 'con "Todos" no filtra por estado');
+    // Un error al cargar se ve como error, no como lista vacía.
+    respuestaT = () => ({__error:500, mensaje:'se cayó'});
+    await ctx.cargarTicketsEquipo();
+    const htmlErrorT = ctx.htmlListaTickets(st.tickets.equipo, 'equipo', 'Nadie reportó nada');
+    assert(/No se pudieron cargar los reportes: se cayó/.test(htmlErrorT) && /data-tickets-reintentar="equipo"/.test(htmlErrorT) && !/Nadie reportó nada/.test(htmlErrorT), 'un fallo al cargar se muestra con su mensaje y Reintentar, obtuvo: '+htmlErrorT);
+    // Cómo se ve cada reporte.
+    st.superadmin.empresas = [{id:'emp-2', nombre:'Cliente <Dos>'}];
+    const tk = {id:'t-9', numero:9, empresa_id:'emp-2', creado_por_nombre:'Luis', descripcion:'No <carga>', error_mensaje:'Error 400', pantalla:'Contar', contexto:{dispositivo:'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Version/17.0 Mobile/15E148 Safari/604.1', pantalla_px:'390×844', en_linea:false}, foto_ruta:'emp-2/tickets/a.jpg', estado:'en_revision', respuesta:'Ya está arreglado', respondido_por_nombre:'Joel', respondido_en:'2026-10-21T15:00:00Z', creado_en:'2026-10-21T14:00:00Z'};
+    const htmlMio = ctx.htmlTicket(tk, 'mio');
+    assert(/#9/.test(htmlMio) && /En revisión/.test(htmlMio) && /Ya está arreglado/.test(htmlMio) && /Respuesta de Joel/.test(htmlMio) && /No &lt;carga&gt;/.test(htmlMio) && !/data-ticket-guardar/.test(htmlMio) && !/Luis/.test(htmlMio), 'el propio muestra estado y respuesta, escapado y sin controles, obtuvo: '+htmlMio);
+    const htmlSa = ctx.htmlTicket(tk, 'sa');
+    assert(/Cliente &lt;Dos&gt;/.test(htmlSa) && /Luis/.test(htmlSa) && /iPhone · Safari/.test(htmlSa) && /sin conexión/.test(htmlSa) && /data-ticket-foto="emp-2\/tickets\/a.jpg"/.test(htmlSa) && /data-ticket-guardar="t-9"/.test(htmlSa) && /data-ticket-respuesta="t-9"/.test(htmlSa), 'la bandeja muestra empresa, persona, equipo, foto y los controles para responder, obtuvo: '+htmlSa);
+    assert(ctx.describirDispositivo('Mozilla/5.0 (Linux; Android 14) AppleWebKit Chrome/129 Mobile Safari/537.36')==='Android · Chrome' && ctx.describirDispositivo('Mozilla/5.0 (Windows NT 10.0) Chrome/129 Safari/537.36 Edg/129')==='Windows · Edge', 'describe el equipo en pocas palabras');
+    // Responder: solo viaja lo que cambió; sin cambios no se llama a la base.
+    st.tickets.sa.filas = [tk];
+    st.tickets.sa.borradores = {};
+    pedidosT.length = 0;
+    await ctx.guardarTicketSuperAdmin('t-9');
+    assert(!pedidosT.some(p=>p.metodo==='PATCH'), 'sin cambios no guarda nada');
+    st.tickets.sa.borradores = {'t-9': {estado:'resuelto', respuesta:'Ya está arreglado'}};
+    respuestaT = (u, o) => (o && o.method==='PATCH') ? [{...tk, estado:'resuelto'}] : [];
+    await ctx.guardarTicketSuperAdmin('t-9');
+    const patchT = pedidosT.find(p=>p.metodo==='PATCH');
+    assert(patchT && patchT.u.includes('/tickets?id=eq.t-9') && JSON.stringify(patchT.body)==='{"estado":"resuelto"}', 'solo manda el estado si la respuesta no cambió, obtuvo: '+JSON.stringify(patchT));
+    assert(st.tickets.sa.filas[0].estado==='resuelto' && !st.tickets.sa.borradores['t-9'] && st.tickets.sa.guardando===null, 'la fila queda con lo guardado y se limpia el borrador');
+    // Dónde se ofrece: la hoja Más y Configuraciones (para todos); "Reportes de tu equipo", solo admin.
+    st.view = 'config';
+    st.tickets.equipo = {cargado:true, cargando:false, filas:[], error:null};
+    const htmlConfigOp = ctx.renderConfiguraciones();
+    assert(/id="btn-reportar-config"/.test(htmlConfigOp) && !/Reportes de tu equipo/.test(htmlConfigOp), 'un operador ve Reportar un problema pero no los reportes del equipo');
+    st.perfil = {...st.perfil, rol:'admin'};
+    assert(/Reportes de tu equipo/.test(ctx.renderConfiguraciones()), 'el admin ve los reportes de su equipo');
+    st.view = 'dashboard';
+    assert(/id="btn-reportar-problema"/.test(ctx.renderShell()), 'la hoja Más ofrece Reportar');
+    st.tickets = ctx.ticketsEstadoInicial();
+    st.reporte = null;
+    ctx.fetch = fetchAntesT;
+    st.perfil = perfilAntesT; st.session = sesionAntesT; st.view = viewAntesT;
+    await new Promise(r=>setTimeout(r, 30));
   }
   assert(await ctx.cargarEmpresasSuperAdmin()===true, 'cargarEmpresasSuperAdmin debe devolver true cuando el pedido funciona');
   const fetchOriginalSuperAdmin = ctx.fetch;

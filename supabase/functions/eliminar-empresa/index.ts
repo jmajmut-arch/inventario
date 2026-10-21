@@ -49,6 +49,7 @@ const TABLAS = [
   'ciclos_conteo',
   'cargas_masivas',
   'responsables_proceso',
+  'tickets',
   'ubicaciones_historial',
   'ubicaciones',
   'skus',
