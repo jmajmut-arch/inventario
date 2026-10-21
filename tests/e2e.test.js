@@ -1200,7 +1200,7 @@ async function loguear(page, perfil, prepararRutas){
       const inf = XLSX.utils.sheet_to_json(libro.Sheets['Informes de cierre']);
       return { nombres: libro.SheetNames, mat, columnasInforme: Object.keys(inf[0] || {}) };
     }, contenido);
-    assert(hojas.nombres.length === 30 && hojas.nombres[0] === 'Léeme' && hojas.mat[0] && hojas.mat[0].sku_code === 'A-1', 'el Excel trae el Léeme y una hoja por tabla, con los datos, obtuvo '+JSON.stringify(hojas.nombres));
+    assert(hojas.nombres.length === 31 && hojas.nombres[0] === 'Léeme' && hojas.mat[0] && hojas.mat[0].sku_code === 'A-1', 'el Excel trae el Léeme y una hoja por tabla, con los datos, obtuvo '+JSON.stringify(hojas.nombres));
     assert(hojas.columnasInforme.includes('datos') && hojas.columnasInforme.includes('datos (2)'), 'un informe más largo que una celda de Excel sigue en otra columna, obtuvo '+JSON.stringify(hojas.columnasInforme));
     const boton = await page.textContent('#btn-exportar-empresa');
     assert(boton === 'Descargar todos los datos', 'al terminar, el botón vuelve a su texto, obtuvo '+boton);
@@ -1247,6 +1247,86 @@ async function loguear(page, perfil, prepararRutas){
     await page.click('#btn-ejecutar-baja');
     assert(await esperarCondicion(page, () => !document.querySelector('.baja-empresa') && !document.querySelector('[data-baja-empresa-sa="emp-x"]')), 'al terminar se cierra el panel y la empresa sale de la lista');
     assert(llamadas.length === 3 && llamadas.every(c => c.empresaId === 'emp-x' && c.nombre === 'Cliente Viejo'), 'llama por tandas hasta que termina, obtuvo '+JSON.stringify(llamadas));
+    await context.close();
+  }
+
+  // ===== Reportar un problema desde un mensaje de error, a 420 px (Joel, 21/10/2026) =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('reportar: '+err.message));
+    const enviados = [];
+    let mios = [{ id:'t-1', numero:3, descripcion:'El Excel no cargaba', estado:'resuelto', respuesta:'Corregido: vuelve a intentarlo.', respondido_por_nombre:'Soporte InventIA', respondido_en:'2026-10-20T15:00:00Z', creado_en:'2026-10-20T14:00:00Z', pantalla:'Carga' }];
+    await loguear(page, PERFIL_ADMIN_PRO, async () => {
+      await page.route('**/rest/v1/tickets**', route => {
+        const req = route.request();
+        if (req.method() === 'POST') {
+          enviados.push(req.postDataJSON());
+          mios = [{ id:'t-2', numero:4, descripcion: enviados[0].descripcion, error_mensaje: enviados[0].error_mensaje, estado:'abierto', creado_en:new Date().toISOString(), pantalla: enviados[0].pantalla }, ...mios];
+          return route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'t-2', numero:4 }]) });
+        }
+        route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(mios) });
+      });
+    });
+    await page.evaluate(() => toast('No se pudo guardar el conteo: la cantidad contada es inválida', 'err'));
+    await page.click('.toast .toast-reportar');
+    await page.waitForSelector('#form-reporte', { timeout:ESPERA });
+    // "Tus reportes" se carga después de abrir: se espera la lista antes de leerla.
+    await esperarCondicion(page, () => document.querySelectorAll('#reporte-mis-tickets .ticket-item').length === 1);
+    const ventana = await page.textContent('#reporte-backdrop');
+    assert(ventana.includes('la cantidad contada es inválida') && ventana.includes('Corregido: vuelve a intentarlo.'), 'la ventana trae el error y "Tus reportes" con la respuesta, obtuvo '+ventana);
+    await page.fill('#reporte-descripcion', 'Puse 12 y no guarda');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px la ventana de reporte no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await (await page.$('#reporte-backdrop .card')).screenshot({ path: process.env.E2E_CAPTURAS + '/reportar-420.png' });
+    await page.click('#reporte-enviar');
+    await page.waitForSelector('.ticket-enviado', { timeout:ESPERA });
+    assert((await page.textContent('.ticket-enviado')).includes('#4'), 'confirma con el número del reporte');
+    assert(enviados.length === 1 && enviados[0].descripcion === 'Puse 12 y no guarda' && enviados[0].error_mensaje.includes('cantidad contada es inválida') && enviados[0].contexto && enviados[0].contexto.pantalla_px === '420×900' && !('empresa_id' in enviados[0]), 'manda lo escrito, el error y el contexto; la empresa la pone la base, obtuvo '+JSON.stringify(enviados));
+    assert(await esperarCondicion(page, () => document.querySelectorAll('#reporte-mis-tickets .ticket-item').length === 2), 'el reporte nuevo aparece en "Tus reportes"');
+    await page.click('#reporte-listo');
+    assert(await esperarCondicion(page, () => !document.getElementById('reporte-backdrop')), 'Listo cierra la ventana');
+    // También desde la hoja Más.
+    await page.click('#tab-mas');
+    await page.waitForSelector('#tab-mas-hoja', { state:'visible', timeout:ESPERA });
+    await page.click('#btn-reportar-problema');
+    await page.waitForSelector('#form-reporte', { timeout:ESPERA });
+    await context.close();
+  }
+
+  // ===== Súper admin: responder un reporte =====
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('responder-reporte: '+err.message));
+    const perfilSa = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilSa.es_super_admin = true;
+    const cambios = [];
+    const ticket = { id:'t-7', numero:7, empresa_id:'emp-x', creado_por_nombre:'Luis', creado_por_rol:'operador', descripcion:'La foto no sube', error_mensaje:'No se pudo subir la foto', pantalla:'Contar', contexto:{ dispositivo:'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Version/17.0 Mobile/15E148 Safari/604.1', pantalla_px:'390×844', en_linea:true }, foto_ruta:null, estado:'abierto', respuesta:null, creado_en:'2026-10-21T14:00:00Z' };
+    await loguear(page, perfilSa, async () => {
+      await page.route('**/rest/v1/empresas?select=**', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'emp-1', nombre:'Minera Andes', activo:true }, { id:'emp-x', nombre:'Cliente Norte', activo:true }]) }));
+      await page.route('**/rest/v1/tickets**', route => {
+        const req = route.request();
+        if (req.method() === 'PATCH') {
+          cambios.push(req.postDataJSON());
+          return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ ...ticket, ...req.postDataJSON(), respondido_por_nombre:'Ana', respondido_en:new Date().toISOString() }]) });
+        }
+        const url = decodeURIComponent(req.url());
+        route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(url.includes('estado=neq.resuelto') ? [ticket] : []) });
+      });
+    });
+    await page.evaluate(() => setState({ view:'config' }));
+    await page.waitForSelector('[data-ticket-guardar="t-7"]', { timeout:ESPERA });
+    const fila = await page.textContent('.ticket-item');
+    assert(fila.includes('Cliente Norte') && fila.includes('Luis') && fila.includes('iPhone · Safari') && fila.includes('No se pudo subir la foto'), 'la bandeja muestra empresa, persona, equipo y error, obtuvo '+fila);
+    await page.fill('[data-ticket-respuesta="t-7"]', 'Revisa la señal y vuelve a intentarlo');
+    await page.selectOption('[data-ticket-estado="t-7"]', 'resuelto');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px la bandeja de reportes no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await (await page.$('.ticket-item')).screenshot({ path: process.env.E2E_CAPTURAS + '/responder-reporte-420.png' });
+    await page.click('[data-ticket-guardar="t-7"]');
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('Reporte #7 guardado'))), 'confirma que se guardó');
+    assert(cambios.length === 1 && cambios[0].estado === 'resuelto' && cambios[0].respuesta === 'Revisa la señal y vuelve a intentarlo', 'guarda el estado y la respuesta, obtuvo '+JSON.stringify(cambios));
     await context.close();
   }
 

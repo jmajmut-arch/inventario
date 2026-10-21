@@ -857,6 +857,27 @@
       "unidad_medida",
       "valor"
     ],
+    "tickets": [
+      "actualizado_en",
+      "contexto",
+      "creado_en",
+      "creado_por",
+      "creado_por_nombre",
+      "creado_por_rol",
+      "descripcion",
+      "empresa_id",
+      "error_mensaje",
+      "estado",
+      "foto_ruta",
+      "id",
+      "notificado_en",
+      "numero",
+      "pantalla",
+      "respondido_en",
+      "respondido_por_nombre",
+      "respuesta",
+      "usuario_id"
+    ],
     "ubicaciones": [
       "id",
       "empresa_id",

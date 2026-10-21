@@ -26,6 +26,7 @@ Code* en el dashboard).
 | `flow-tarea-unica` | sí | Nadie: **inerte** (responde 410). Se usó una vez el 05-10-2026 para cancelar la suscripción de prueba de $500 de Minera Test y leer la forma real del cobro de Flow. Se puede borrar desde el dashboard | `FLOW_API_KEY`, `FLOW_SECRET_KEY`, `FLOW_ENV` |
 | `seguimiento-lead` | sí (basta el anon key) | Cron `seguimiento-leads-horario` de la base (`enviar_seguimientos_leads`, por pg_net): correo de seguimiento al lead de demo a las 24 h (paso 1) y 3 días después (paso 2), con copia oculta a contacto@inventiapp.cl | `BREVO_API_KEY` |
 | `eliminar-empresa` | sí | Frontend (súper admin, Administración → Dar de baja). Borra por tandas fotos, datos y cuentas de una empresa **desactivada**, con su nombre escrito exacto; nunca la propia ni una con súper admin. Deja constancia en `empresas_eliminadas` y conserva sus cobros de Flow sin empresa. Base en `supabase/migrations/20261022_baja_empresa.sql` | — |
+| `notificar-ticket` | sí (basta el anon key) | Trigger `trg_notificar_ticket` de la base, por pg_net, al reportarse un problema desde la app (tabla `tickets`). Un único correo por reporte (`notificado_en`). Base en `supabase/migrations/20261022_tickets.sql` | `BREVO_API_KEY`; opcional `NOTIFICAR_TICKETS_A` (destino, por omisión contacto@inventiapp.cl) |
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` las inyecta Supabase sola.
 `BREVO_API_KEY` es una API key de la misma cuenta de Brevo que manda las invitaciones de Auth
@@ -51,6 +52,7 @@ supabase functions deploy invite-user --project-ref ncvwgsbcvklhbyvurxzz
 supabase functions deploy notificar-lead --project-ref ncvwgsbcvklhbyvurxzz
 supabase functions deploy seguimiento-lead --project-ref ncvwgsbcvklhbyvurxzz
 supabase functions deploy eliminar-empresa --project-ref ncvwgsbcvklhbyvurxzz
+supabase functions deploy notificar-ticket --project-ref ncvwgsbcvklhbyvurxzz
 # Las tres que reciben llamadas sin sesión (landing y Flow) van sin verificación:
 supabase functions deploy crear-empresa-autoservicio --project-ref ncvwgsbcvklhbyvurxzz --no-verify-jwt
 supabase functions deploy flow-registro-callback    --project-ref ncvwgsbcvklhbyvurxzz --no-verify-jwt
