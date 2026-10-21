@@ -1479,6 +1479,7 @@ function bodegaEstadoInicial(){
     valorizacion: null, // {valor_total, skus_con_costo, skus_sin_costo, skus_con_stock, bajo_minimo, sin_apertura}
     aperturaProgreso: null, // {hechos, total} mientras corre la apertura por lotes
     stockSoloBajoMinimo: false,
+    stockDueno: '', // con dueños de stock: '' = todos, '__sin' = sin dueño, o el código de uno
     reportes: reportesBodegaVacios(),
     stock: [], stockTexto: '', stockCargado: false, stockPagina: 0, stockTotal: 0, stockTotalConocido: false,
     guardando: false, ultimoDocumento: null,
@@ -2633,23 +2634,26 @@ async function cargarTodo(){
 const CARGAS_POR_VISTA = {
   dashboard: ['dashboard'], // una sola llamada: trae el panel, el estado del maestro y las tarjetas de bodega
   // Dos llamadas: la página, y los cinco catálogos juntos (ver cargarCatalogosPantallaSkus).
-  skus: ['skusPagina', 'skusCatalogos'],
-  reconteo: ['reconteos'],
-  buscar: ['ubicacionesLista', 'personasBuscar'], // desplegables de ubicación (una llamada) y de "Contado por"
+  skus: ['skusPagina', 'skusCatalogos', 'duenosStock'],
+  reconteo: ['reconteos', 'duenosStock'],
+  buscar: ['ubicacionesLista', 'personasBuscar', 'duenosStock'], // desplegables de ubicación (una llamada) y de "Contado por"
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
   salida: ['bodegaListas', 'responsables', 'reservas'],
   movimientos: ['bodegaMovimientos', 'bodegaPendientes', 'bodegaValorizacion'],
-  stock: ['bodegaStock', 'bodegaValorizacion'],
+  stock: ['bodegaStock', 'bodegaValorizacion', 'duenosStock'],
   reportes: ['bodegaReportes'],
   ordenes: ['bodegaListas', 'ordenes'],
   reservas: ['bodegaListas', 'reservas'],
   // Mover material necesita el catálogo: sin él, el desplegable de Ubicación general solo podía
   // ofrecer la bodega donde el material ya estaba, y una bodega recién creada no aparecía.
-  mover: ['ubicaciones'],
+  mover: ['ubicaciones', 'duenosStock'],
   config: ['bodegaListas', 'ubicaciones', 'duenosStock'],
   carga: ['duenosStock'],
+  // Contar carga su plan por su cuenta (cargarPlanDelDia); la lista de dueños es para mostrar el
+  // nombre del dueño en la ficha y en los resultados. Sin dueños activados no hace ninguna llamada.
+  conteo: ['duenosStock'],
 };
 const CARGADORES = {
   dashboard: ()=> cargarDashboard(), // trae también el resumen del maestro, en la misma respuesta
@@ -5229,7 +5233,7 @@ async function refrescarContarTrasSenal(){
 // funciona igual. Sin `fotos`: verlas necesita señal, y son lo más pesado (en Escondida, 541
 // pendientes eran ~0,9 MB con ellas).
 const RECONTEOS_CACHE_KEY = 'reconteos_cache';
-const CAMPOS_RECONTEO_SIN_SENAL = 'id,sku_code,descripcion,categoria,unidad_medida,ubicacion,bodega,stock_sistema,ultima_cantidad_contada,ultima_diferencia,ultimo_conteo_fecha,diferencia_abs,ubicacion_contada,bodega_contada,ubicacion_distinta,diferencia_recurrente,veces_con_diferencia,causa_probable,costo_unitario,valor_diferencia_linea,storage_bin,batch,critico,clase_abc,stock_sistema_anterior,stock_sistema_actualizado_en,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,conteo_id,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,ciclos_con_diferencia,reincidente,contado_por_id,capturado_en,observacion,cantidad_original,corregido_en,motivo_correccion,stock_consignado,total_consignado,stock_en_proveedor,total_en_proveedor';
+const CAMPOS_RECONTEO_SIN_SENAL = 'id,sku_code,descripcion,categoria,unidad_medida,ubicacion,bodega,stock_sistema,ultima_cantidad_contada,ultima_diferencia,ultimo_conteo_fecha,diferencia_abs,ubicacion_contada,bodega_contada,ubicacion_distinta,diferencia_recurrente,veces_con_diferencia,causa_probable,costo_unitario,valor_diferencia_linea,storage_bin,batch,critico,clase_abc,stock_sistema_anterior,stock_sistema_actualizado_en,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,conteo_id,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,ciclos_con_diferencia,reincidente,contado_por_id,capturado_en,observacion,cantidad_original,corregido_en,motivo_correccion,stock_consignado,total_consignado,stock_en_proveedor,total_en_proveedor,dueno';
 const MINUTOS_REFRESCO_RECONTEOS_CACHE = 15;
 function leerReconteosCache(usuarioId){
   try{ return (JSON.parse(localStorage.getItem(RECONTEOS_CACHE_KEY)||'{}'))[usuarioId] || null; }catch(e){ return null; }
@@ -7458,6 +7462,23 @@ async function actualizarDuenoStock(id, cambios){
     await cargarDuenosStock();
   }catch(e){ toast(e.message,'err'); }
 }
+// El dueño de una fila de stock, para mostrarlo: solo en una empresa con dueños y si la fila
+// tiene uno (en las demás no aparece nada nuevo). Va el nombre de la lista y, si no tiene nombre
+// o la lista no cargó, el código: nunca se esconde de quién es lo que se cuenta.
+function etiquetaDueno(fila){
+  if(!usaDuenosStock() || !fila || !fila.dueno) return '';
+  const d = (state.duenosStock.lista||[]).find(x=>x.codigo===fila.dueno);
+  return (d && d.nombre) || fila.dueno;
+}
+function chipDueno(fila){
+  const e = etiquetaDueno(fila);
+  return e ? `<span class="badge badge-steel chip-dueno" title="Dueño del stock">${esc(e)}</span>` : '';
+}
+// Debajo del código, como la marca de Crítico.
+function chipDuenoBajoCodigo(fila){
+  const c = chipDueno(fila);
+  return c ? `<div style="margin-top:3px">${c}</div>` : '';
+}
 
 async function alternarActivoUbicacion(id, activo){
   try{
@@ -7556,7 +7577,7 @@ async function cargarStockBodega(pagina){
     const filtro = t ? `&or=(sku_code.ilike.*${encodeURIComponent(t)}*,descripcion.ilike.*${encodeURIComponent(t)}*,storage_bin.ilike.*${encodeURIComponent(t)}*)` : '';
     const soloBajo = state.bodega.stockSoloBajoMinimo ? '&bajo_minimo=is.true' : '';
     const desde = p*STOCK_POR_PAGINA;
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/stock_actual?select=*&order=sku_code.asc${filtro}${soloBajo}`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/stock_actual?select=*&order=sku_code.asc${filtro}${soloBajo}${filtroDuenoStock()}`, {
       headers:{
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': `Bearer ${state.session ? state.session.access_token : SUPABASE_ANON_KEY}`,
@@ -8686,23 +8707,44 @@ function comprobanteDocumentoBodegaHTML(cab, filas, fotos){
     <div class="print-meta" style="margin-top:16px">Generado ${new Date().toLocaleString('es-CL')} · InventIA</div>`;
 }
 
+// Filtro por dueño del Stock de bodega (y su Excel): un operador logístico entrega a cada cliente
+// lo suyo. Sin dueños activados no filtra nada.
+function filtroDuenoStock(){
+  const d = state.bodega.stockDueno;
+  if(!usaDuenosStock() || !d) return '';
+  return `&dueno=eq.${d==='__sin' ? '' : encodeURIComponent(d)}`;
+}
+function selectorDuenoStock(){
+  if(!usaDuenosStock()) return '';
+  const d = state.bodega.stockDueno;
+  const lista = state.duenosStock.lista||[];
+  return `<label for="stock-dueno" style="font-size:13px;margin:0 0 4px">Dueño del stock</label>
+    <select id="stock-dueno" style="margin:0 0 10px">
+      <option value="" ${d===''?'selected':''}>Todos los dueños</option>
+      ${lista.map(x=>`<option value="${esc(x.codigo)}" ${d===x.codigo?'selected':''}>${esc(x.nombre ? `${x.nombre} (${x.codigo})` : x.codigo)}${x.activo?'':' · inactivo'}</option>`).join('')}
+      <option value="__sin" ${d==='__sin'?'selected':''}>Sin dueño</option>
+    </select>
+    ${state.duenosStock.error? `<div class="hint" style="margin:-6px 0 10px;color:var(--danger)">No se pudo cargar la lista de dueños: ${esc(state.duenosStock.error)}</div>` : ''}`;
+}
 // Excel del stock actual completo (no solo los 300 de pantalla): pagina por limit/offset.
 async function exportarStockExcel(){
   if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
   const TAM = 1000, MAX = 20000; let filas = [];
   try{
     for(let offset=0; offset<MAX; offset+=TAM){
-      const pagina = await rest(`/stock_actual?select=*&order=sku_code.asc&limit=${TAM}&offset=${offset}`) || [];
+      const pagina = await rest(`/stock_actual?select=*&order=sku_code.asc&limit=${TAM}&offset=${offset}${filtroDuenoStock()}`) || [];
       filas = filas.concat(pagina);
       if(pagina.length<TAM) break;
     }
   }catch(e){ toast(e.message,'err'); return; }
-  const rows = filas.map(r=>({'SKU': r.sku_code, 'Descripción': r.descripcion, 'Batch': r.batch||'', 'Bin': r.storage_bin||'', 'Stock': Number(r.stock), 'Unidad': r.unidad_medida||'', 'Tipo': r.tipo_material||'', 'Mínimo': r.stock_minimo!=null?Number(r.stock_minimo):'', 'Costo unitario': r.costo_unitario!=null?Number(r.costo_unitario):'', 'Valor': r.valor!=null?Number(r.valor):''}));
+  const conDueno = usaDuenosStock();
+  const rows = filas.map(r=>({'SKU': r.sku_code, 'Descripción': r.descripcion, ...(conDueno ? {'Dueño': r.dueno||''} : {}), 'Batch': r.batch||'', 'Bin': r.storage_bin||'', 'Stock': Number(r.stock), 'Unidad': r.unidad_medida||'', 'Tipo': r.tipo_material||'', 'Mínimo': r.stock_minimo!=null?Number(r.stock_minimo):'', 'Costo unitario': r.costo_unitario!=null?Number(r.costo_unitario):'', 'Valor': r.valor!=null?Number(r.valor):''}));
   if(!rows.length){ toast('No hay stock para exportar','err'); return; }
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock');
-  XLSX.writeFile(wb, `stock-bodega-${fechaISO(new Date())}.xlsx`);
+  const sufijoDueno = conDueno && state.bodega.stockDueno ? `-${state.bodega.stockDueno==='__sin' ? 'sin-dueno' : state.bodega.stockDueno.replace(/[^A-Za-z0-9_-]+/g,'-')}` : '';
+  XLSX.writeFile(wb, `stock-bodega${sufijoDueno}-${fechaISO(new Date())}.xlsx`);
 }
 
 async function guardarListaBodega(tabla, fila){
@@ -10522,7 +10564,7 @@ function alternarDanoConteo(campo, marcado){
 // lo que la persona ya tipeó en los otros campos del formulario (descripción, categoría, etc.).
 // Bodega, ubicación y bin no están acá: son desplegables que se pintan desde state.skuForm.
 function conservandoCamposSku(fn){
-  const ids = ['s-code', 's-desc', 's-cat', 's-batch', 's-um', 's-stock', 's-costo'];
+  const ids = ['s-code', 's-desc', 's-cat', 's-batch', 's-um', 's-stock', 's-costo', 's-dueno'];
   const valores = {};
   ids.forEach(id=>{ const el = document.getElementById(id); if(el) valores[id] = el.value; });
   const critico = document.getElementById('s-critico');
@@ -10607,7 +10649,7 @@ async function revisarCodigoSkuExistente(codigoTecleado){
   conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, existente:{codigo, cargando:true, filas:[], error:null}}}));
   revisionCodigoSkuPromesa = (async ()=>{
     try{
-      const filas = await rest(`/skus?activo=eq.true&sku_code=eq.${encodeURIComponent(codigo)}&select=id,sku_code,descripcion,unidad_medida,categoria,costo_unitario,critico,bodega,ubicacion,storage_bin,batch&order=bodega.asc.nullsfirst,ubicacion.asc.nullsfirst,storage_bin.asc.nullsfirst&limit=50`) || [];
+      const filas = await rest(`/skus?activo=eq.true&sku_code=eq.${encodeURIComponent(codigo)}&select=id,sku_code,descripcion,unidad_medida,categoria,costo_unitario,critico,bodega,ubicacion,storage_bin,batch,dueno&order=bodega.asc.nullsfirst,ubicacion.asc.nullsfirst,storage_bin.asc.nullsfirst&limit=50`) || [];
       if(miPeticion !== revisionCodigoSkuPeticionId) return state.skuForm.existente;
       const existente = {codigo, cargando:false, filas, error:null};
       conservandoCamposSku(()=> setState({skuForm:{...state.skuForm, existente}}));
@@ -10635,10 +10677,26 @@ function completarDatosMaterialSku(filas){
 }
 // La misma posición (código + bodega + batch + ubicación + bin) ya existe: guardar chocaría con la
 // identidad única del maestro. Se compara igual que la base (null y vacío son lo mismo).
+// Dueño del material nuevo (solo con dueños activados). Se elige de la lista de la empresa: el
+// trigger de la base rechaza un código que no esté en ella. Los dueños desactivados no se ofrecen.
+function campoDuenoSku(){
+  if(!usaDuenosStock()) return '';
+  const ds = state.duenosStock;
+  const activos = (ds.lista||[]).filter(d=>d.activo);
+  return `<label for="s-dueno">Dueño del stock</label>
+    <select id="s-dueno">
+      <option value="">Sin dueño</option>
+      ${activos.map(d=>`<option value="${esc(d.codigo)}">${esc(d.nombre ? `${d.nombre} (${d.codigo})` : d.codigo)}</option>`).join('')}
+    </select>
+    ${ds.error? `<div class="hint" style="margin-top:4px;color:var(--danger)">No se pudo cargar la lista de dueños: ${esc(ds.error)}</div>` :
+      ds.cargando && !ds.cargado? `<div class="hint" style="margin-top:4px">Cargando dueños…</div>` :
+      ds.cargado && !activos.length? `<div class="hint" style="margin-top:4px">Todavía no hay dueños en la lista: se agregan en Configuración o al cargar un Excel con la columna de dueño.</div>` : ''}`;
+}
 function posicionSkuRepetida(filas, payload){
   const k = v => (v===null || v===undefined) ? '' : String(v);
   return (filas||[]).find(f=> k(f.bodega)===k(payload.bodega) && k(f.batch)===k(payload.batch)
-    && k(f.ubicacion)===k(payload.ubicacion) && k(f.storage_bin)===k(payload.storage_bin)) || null;
+    && k(f.ubicacion)===k(payload.ubicacion) && k(f.storage_bin)===k(payload.storage_bin)
+    && k(f.dueno)===k(payload.dueno)) || null;
 }
 function renderRevisionCodigoSku(){
   const x = state.skuForm.existente;
@@ -10654,7 +10712,7 @@ function renderRevisionCodigoSku(){
   return `<div class="card" id="sku-codigo-existente" style="margin:8px 0 0;padding:10px 12px;background:var(--surface-2)">
     <div style="font-size:12.5px;font-weight:600">Este material ya existe en ${n} ${n===1?'posición':'posiciones'}:</div>
     <ul style="margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--text-dim)">
-      ${x.filas.slice(0,8).map(f=>`<li>${esc(describirUbicacion(f))}${f.batch?` · Batch ${esc(f.batch)}`:''}</li>`).join('')}
+      ${x.filas.slice(0,8).map(f=>`<li>${esc(describirUbicacion(f))}${f.batch?` · Batch ${esc(f.batch)}`:''}${etiquetaDueno(f)?` · ${esc(etiquetaDueno(f))}`:''}</li>`).join('')}
       ${n>8?`<li>y ${n-8} más</li>`:''}
     </ul>
     <div class="hint" style="margin-top:6px">Se completaron descripción, unidad, categoría, costo y crítico con los datos del material. Indica dónde está la nueva posición.</div>
@@ -10860,7 +10918,7 @@ function resolverSkusPorCodigo(skus, codigo){
 // de barras asociado: una consulta por igualdad que usa los dos índices únicos (12 ms medidos en
 // Escondida con RLS). Lo que vuelve se filtra con resolverSkusPorCodigo, que mantiene la regla de
 // siempre: primero el código del SKU, después el código de barras.
-const CAMPOS_SKU_ESCANEO = 'id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,codigo_barras,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor';
+const CAMPOS_SKU_ESCANEO = 'id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,codigo_barras,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor,dueno';
 async function buscarSkusPorCodigoEscaneado(codigo){
   const vs = variantesCodigoEscaneado(codigo);
   if(!vs.length) return [];
@@ -13080,6 +13138,7 @@ function renderSkus(){
         ${renderRevisionCodigoSku()}
         <label for="s-desc">Descripción</label>
         <input type="text" id="s-desc" placeholder="Ej. Filtro hidraulico 3 pulgadas">
+        ${campoDuenoSku()}
         <div class="row2">
           <div>${campoSitioSku('s-bodega','Ubicación general', state.skuForm.bodega, bodegasFormSku(), state.skuForm.nuevaBodega, '__nueva', 'Nombre de la bodega nueva')}</div>
           <div>${campoSitioSku('s-ubic','Ubicación específica', state.skuForm.ubicacion, opcionesConActual(state.skuFormOpciones.ubicaciones.map(u=>u.ubicacion), state.skuForm.nuevaUbicacion ? '' : state.skuForm.ubicacion), state.skuForm.nuevaUbicacion, '__nueva', 'Nombre de la ubicación nueva')}</div>
@@ -13196,7 +13255,7 @@ function renderTablaSkus(){
           return `<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-sku" data-sku-id="${esc(s.id)}" ${seleccionados.includes(s.id)?'checked':''}></td>`:''}
           <td>${iconoUltimoConteo(s.ultimoEstado, s.ultimaDiferencia)}</td>
-          <td class="mono">${esc(s.sku_code)}${s.critico?`<div style="margin-top:3px">${criticoBadge()}</div>`:''}</td>
+          <td class="mono">${esc(s.sku_code)}${s.critico?`<div style="margin-top:3px">${criticoBadge()}</div>`:''}${chipDuenoBajoCodigo(s)}</td>
           <td>${esc(s.descripcion||'—')}</td>
           <td>${esc(s.bodega||'—')}</td>
           <td>${esc(s.ubicacion||'—')}</td>
@@ -13607,7 +13666,7 @@ function renderPlanDelDia(){
         <li>
           <button type="button" class="list-item" data-pick-plan="${esc(s.id)}">
             <div>
-              <span class="code">${esc(s.sku_code)}</span>
+              <span class="code">${esc(s.sku_code)}</span>${chipDueno(s)}
               <span class="desc">${esc(s.descripcion||'Sin descripción')}</span>
               ${[s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).length? `
                 <span class="desc lugar">${esc([s.bodega, s.ubicacion, s.storage_bin, s.batch? `Batch ${s.batch}` : null].filter(Boolean).join(' · '))}</span>
@@ -13710,14 +13769,14 @@ function renderResultadosBuscadorLibre(){
   // dispositivo y van primero, con o sin señal (ver skusPendientesQueCoinciden).
   const locales = skusPendientesQueCoinciden(q).map(s=>`
       <div class="sku-pick" data-pick-local="${esc(s.sku_local_id)}">
-        <div><span class="code">${esc(s.sku_code)}</span> <span class="badge badge-warn">Sin enviar</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+        <div><span class="code">${esc(s.sku_code)}</span> <span class="badge badge-warn">Sin enviar</span> ${chipDueno(s)}<span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
         <button data-pick-local-btn="${esc(s.sku_local_id)}">Elegir</button>
       </div>`).join('');
   const delMaestro = state.buscadorLibre.buscando? `<div class="hint">Buscando…</div>` :
     state.buscadorLibre.error? `<div class="hint" style="color:var(--danger)">No se pudo buscar en el maestro: ${esc(state.buscadorLibre.error)}</div>` :
     resultados.length? resultados.map(s=>`
       <div class="sku-pick" data-pick="${s.id}">
-        <div><span class="code">${esc(s.sku_code)}</span><span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
+        <div><span class="code">${esc(s.sku_code)}</span>${chipDueno(s)? ` ${chipDueno(s)}` : ''}<span class="desc">${esc(s.descripcion||'Sin descripción')} · ${esc(s.bodega||'—')}${s.ubicacion? ` · ${esc(s.ubicacion)}` : ''}${s.storage_bin? ` · Bin ${esc(s.storage_bin)}` : ''}${s.batch? ` · Batch ${esc(s.batch)}` : ''}</span></div>
         <button data-pick-btn="${s.id}">Elegir</button>
       </div>`).join('') :
     (locales ? '' : `<div class="hint">No se encontraron coincidencias.</div>`);
@@ -13788,7 +13847,7 @@ function renderConteo(){
       <div class="selected-sku conteo-ficha">
         <div class="conteo-ficha-cab">
           <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
-          <div class="conteo-ficha-chips">${claseAbcBadge(state.skuSeleccionado.clase_abc)}${state.skuSeleccionado.critico?criticoBadge():''}</div>
+          <div class="conteo-ficha-chips">${chipDueno(state.skuSeleccionado)}${claseAbcBadge(state.skuSeleccionado.clase_abc)}${state.skuSeleccionado.critico?criticoBadge():''}</div>
         </div>
         <div class="conteo-ficha-desc">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
         <div class="conteo-ficha-meta">
@@ -13977,7 +14036,7 @@ function renderReconteo(){
         <thead><tr>${esAdmin?`<th style="width:1%"><input type="checkbox" id="chk-reconteo-todos" aria-label="Seleccionar todos" ${todosSeleccionados?'checked':''}></th>`:''}<th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-reconteo-fila" data-conteo-id="${esc(r.conteo_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${seleccionados.includes(r.conteo_id)?'checked':''}></td>`:''}
-          <td class="mono">${esc(r.sku_code)}<div style="font-size:12px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div></td>
+          <td class="mono">${esc(r.sku_code)}<div style="font-size:12px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div>${chipDuenoBajoCodigo(r)}</td>
           ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}${r.stock_sistema_anterior!=null?`<div class="hint" style="font-size:12px;margin-top:2px;white-space:nowrap">antes: ${r.stock_sistema_anterior}${r.stock_sistema_actualizado_en?` · ${fmtFechaHora(r.stock_sistema_actualizado_en)}`:''}</div>`:''}${infoStockPorTipo(r)}</td>`}
           <td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>
           <td class="num">${ocultarSistema
@@ -14297,7 +14356,7 @@ function renderBuscar(){
           const contado = !!r.conteo_id;
           return `<tr>
             <td><input type="checkbox" class="chk-buscar-fila" data-sku-id="${esc(r.sku_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${(b.seleccionados||[]).includes(r.sku_id)?'checked':''}></td>
-            <td class="mono">${esc(r.sku_code)}${r.critico?`<div style="margin-top:3px">${criticoBadge()}</div>`:''}</td>
+            <td class="mono">${esc(r.sku_code)}${r.critico?`<div style="margin-top:3px">${criticoBadge()}</div>`:''}${chipDuenoBajoCodigo(r)}</td>
             <td class="mono">${esc(r.batch||'—')}</td>
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
@@ -16808,10 +16867,11 @@ function renderStockBodega(){
         <button type="submit" class="btn btn-primary" style="width:auto;padding:0 14px;height:40px">Buscar</button>
         <button type="button" class="btn btn-secondary" id="btn-exportar-stock" style="width:auto;padding:0 12px;height:40px">Excel</button>
       </form>
+      ${selectorDuenoStock()}
       <label style="display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:13px;cursor:pointer"><input type="checkbox" id="stock-bajo-minimo" ${b.stockSoloBajoMinimo?'checked':''} style="width:auto;margin:0">Solo bajo el mínimo${b.valorizacion && b.valorizacion.bajo_minimo ? ` <span class="badge badge-warn">${b.valorizacion.bajo_minimo}</span>` : ''}</label>
       ${rows.length ? `<div class="hint" style="margin-bottom:6px">${b.stockTotalConocido ? `${b.stockTotal.toLocaleString('es-CL')} SKU` : `${rows.length} SKU en esta página`}${totalValor?` · valor de esta página $${Math.round(totalValor).toLocaleString('es-CL')}`:''}</div><div class="table-wrap"><table>
         <thead><tr><th>SKU</th><th>Bin</th><th>Tipo</th><th class="num">Stock</th>${funcionBodegaActiva('reservas')?'<th class="num">Disponible</th>':''}<th class="num">Mínimo</th><th class="num">Costo</th><th class="num">Valor</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:12px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div></td><td class="mono" style="font-size:12px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:12px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button>`:''}</td></tr>`).join('')}</tbody></table></div>
+        <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}<div style="font-size:12px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div>${chipDuenoBajoCodigo(r)}</td><td class="mono" style="font-size:12px">${esc(r.storage_bin||'—')}</td><td>${esAdminBodega?`<select class="stock-tipo" data-tipo-sku="${esc(r.sku_id)}" style="width:auto;min-width:104px;margin:0;font-size:12px"><option value="">Sin clasificar</option>${TIPOS_MATERIAL.map(t=>`<option value="${esc(t)}" ${r.tipo_material===t?'selected':''}>${esc(t)}</option>`).join('')}${r.tipo_material && !TIPOS_MATERIAL.includes(r.tipo_material)?`<option value="${esc(r.tipo_material)}" selected>${esc(r.tipo_material)}</option>`:''}</select>`:esc(r.tipo_material||'—')}</td><td class="num">${r.stock} ${esc(r.unidad_medida||'')}${r.bajo_minimo?'<div><span class="badge badge-warn">Bajo mínimo</span></div>':''}</td>${funcionBodegaActiva('reservas')?`<td class="num">${r.disponible!=null?r.disponible:r.stock}${Number(r.reservado)>0?`<div style="font-size:12px;color:var(--text-faint)">${r.reservado} reservado${Number(r.reservado)===1?'':'s'}</div>`:''}</td>`:''}<td class="num">${esAdminBodega?`<input type="number" class="stock-minimo" data-min-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.stock_minimo!=null?r.stock_minimo:''}" placeholder="—" style="width:70px;margin:0;text-align:right">`:(r.stock_minimo!=null?r.stock_minimo:'—')}</td><td class="num">${esAdminBodega?`<input type="number" class="stock-costo" data-costo-sku="${esc(r.sku_id)}" min="0" step="any" value="${r.costo_unitario!=null?r.costo_unitario:''}" placeholder="—" style="width:88px;margin:0;text-align:right">`:(r.costo_unitario!=null?'$'+Math.round(r.costo_unitario).toLocaleString('es-CL'):'—')}</td><td class="num">${r.valor?'$'+Math.round(r.valor).toLocaleString('es-CL'):'—'}</td><td class="num" style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-kardex-sku="${esc(r.sku_id)}" data-kardex-codigo="${esc(r.sku_code)}" style="width:auto;padding:5px 10px;font-size:12px">Kardex</button> <button type="button" class="btn btn-secondary" data-ajustar-sku="${esc(r.sku_id)}" data-ajustar-codigo="${esc(r.sku_code)}" data-ajustar-stock="${r.stock}" style="width:auto;padding:5px 10px;font-size:12px">${esAdminBodega?'Ajustar':'Proponer ajuste'}</button>${funcionBodegaActiva('transferencias') && Number(r.stock)>0?` <button type="button" class="btn btn-secondary" data-transferir-sku="${esc(r.sku_id)}" data-transferir-codigo="${esc(r.sku_code)}" data-transferir-desc="${esc(r.descripcion||'')}" data-transferir-stock="${r.stock}" data-transferir-unidad="${esc(r.unidad_medida||'')}" data-transferir-bodega="${esc(r.bodega||'')}" data-transferir-ubicacion="${esc(r.ubicacion||'')}" data-transferir-bin="${esc(r.storage_bin||'')}" style="width:auto;padding:5px 10px;font-size:12px">Ubicación</button>`:''}</td></tr>`).join('')}</tbody></table></div>
         ${(b.stockPagina > 0 || rows.length >= STOCK_POR_PAGINA) ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px">
           <button type="button" class="btn btn-secondary" id="stock-pag-prev" style="width:auto;flex:none;padding:8px 14px" ${b.stockPagina<=0?'disabled':''}>Anterior</button>
           <span class="hint" style="margin:0">${(b.stockPagina*STOCK_POR_PAGINA+1).toLocaleString('es-CL')}–${(b.stockPagina*STOCK_POR_PAGINA+rows.length).toLocaleString('es-CL')}${b.stockTotalConocido?` de ${b.stockTotal.toLocaleString('es-CL')}`:''}</span>
@@ -16914,7 +16974,7 @@ function renderMover(){
       ${!m.buscando && !m.error && m.resultados.length ? `<div style="margin-top:12px">${m.resultados.map(r=>`
         <div class="plan-item" style="padding:10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <div style="flex:1;min-width:180px">
-            <div class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}</div>
+            <div class="mono">${esc(r.sku_code)}${r.batch?` <span class="hint" style="display:inline">· ${esc(r.batch)}</span>`:''}${chipDueno(r)? ` ${chipDueno(r)}` : ''}</div>
             <div class="hint" style="margin:2px 0 0">${esc(r.descripcion||'Sin descripción')}</div>
             <div class="hint" style="margin:2px 0 0">Hoy en <strong>${esc(describirUbicacion({bodega:r.bodega, ubicacion:r.ubicacion, storage_bin:r.storage_bin}))}</strong></div>
           </div>
@@ -17889,6 +17949,8 @@ function bind(){
     if(btnExcel) btnExcel.addEventListener('click', exportarStockExcel);
     const chkBajo = document.getElementById('stock-bajo-minimo');
     if(chkBajo) chkBajo.addEventListener('change', ()=>{ state.bodega.stockSoloBajoMinimo = chkBajo.checked; cargarStockBodega(0); });
+    const selDuenoStock = document.getElementById('stock-dueno');
+    if(selDuenoStock) selDuenoStock.addEventListener('change', ()=>{ state.bodega.stockDueno = selDuenoStock.value; cargarStockBodega(0); });
     document.querySelectorAll('.stock-tipo').forEach(sel=> sel.addEventListener('change', ()=> guardarTipoMaterial(sel.dataset.tipoSku, sel.value)));
     document.querySelectorAll('.stock-minimo').forEach(inp=>{
       inp.addEventListener('change', ()=> guardarStockMinimo(inp.dataset.minSku, inp.value));
@@ -18396,6 +18458,12 @@ function bind(){
         costo_unitario: document.getElementById('s-costo').value !== '' ? Number(document.getElementById('s-costo').value) : null,
         critico: document.getElementById('s-critico').checked,
       };
+      // El dueño viaja solo en una empresa con dueños: en las demás el material se crea igual que
+      // siempre (dueño '' por defecto en la base).
+      if(usaDuenosStock()){
+        const duenoEl = document.getElementById('s-dueno');
+        payload.dueno = duenoEl ? duenoEl.value : '';
+      }
       if(!payload.sku_code){ toast('El código SKU es obligatorio','err'); return; }
       // Una bodega o ubicación "nueva" que es la misma que una existente con otras mayúsculas o
       // espacios: se ofrece usar la existente en vez de crear un duplicado.
@@ -18737,7 +18805,7 @@ function bind(){
         if(!r) return;
         setState({
           view:'conteo',
-          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc, stock_bloqueado:r.stock_bloqueado, stock_transito_1:r.stock_transito_1, stock_transito_2:r.stock_transito_2, stock_transferencia:r.stock_transferencia, total_bloqueado:r.total_bloqueado, total_transito_1:r.total_transito_1, total_transito_2:r.total_transito_2, total_transferencia:r.total_transferencia, stock_consignado:r.stock_consignado, total_consignado:r.total_consignado, stock_en_proveedor:r.stock_en_proveedor, total_en_proveedor:r.total_en_proveedor },
+          skuSeleccionado:{ id:r.id, sku_code:r.sku_code, descripcion:r.descripcion, categoria:r.categoria, unidad_medida:r.unidad_medida, ubicacion:r.ubicacion, bodega:r.bodega, storage_bin:r.storage_bin, batch:r.batch, stock_sistema:r.stock_sistema, critico:r.critico, clase_abc:r.clase_abc, stock_bloqueado:r.stock_bloqueado, stock_transito_1:r.stock_transito_1, stock_transito_2:r.stock_transito_2, stock_transferencia:r.stock_transferencia, total_bloqueado:r.total_bloqueado, total_transito_1:r.total_transito_1, total_transito_2:r.total_transito_2, total_transferencia:r.total_transferencia, stock_consignado:r.stock_consignado, total_consignado:r.total_consignado, stock_en_proveedor:r.stock_en_proveedor, total_en_proveedor:r.total_en_proveedor, dueno:r.dueno||'' },
           // conteoOrigenPlan:true (no false): recontar una diferencia es trabajo pedido por la
           // propia app, no un conteo libre por fuera de lo asignado — bug real reportado (Joel,
           // ciclo Q1-MEL1/Escondida): un SKU recontado desde acá aparecía como "Fuera de plan" en
