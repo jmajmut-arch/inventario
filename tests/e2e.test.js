@@ -1035,6 +1035,63 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Planificar por dueño (Joel, 21/10/2026), a 420 px =====
+  // Con dueños activados, "Agregar a la planificación" ofrece elegir uno: la entrada se guarda con
+  // ese dueño, los pendientes sin storage bin se cuentan solo para él, y la entrada dice de quién es.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('plan-dueno: '+err.message));
+    const perfilDuenos = JSON.parse(JSON.stringify(PERFIL_ADMIN_PRO));
+    perfilDuenos.empresas.usa_duenos_stock = true;
+    const urlsSinBin = [], cuerposPlan = [];
+    await loguear(page, perfilDuenos, async () => {
+      await page.route('**/rest/v1/duenos_stock**', r=> r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{ id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true }, { id:'d2', codigo:'COPEC', nombre:'Copec', activo:true }]) }));
+    });
+    const hoy = await page.evaluate(() => fechaISO(new Date()));
+    const entradas = [
+      { id:'pd1', fecha:hoy, bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:null, responsable_id:null, responsable_nombre:null, ciclo_nombre:null, nota:null, skus_excluidos:[], por_sku:false, dueno:'ENEX' },
+      { id:'pd2', fecha:hoy, bodega:'Nave Mina', ubicacion:'Pasillo 4', storage_bin:null, responsable_id:null, responsable_nombre:null, ciclo_nombre:null, nota:null, skus_excluidos:[], por_sku:false, dueno:null },
+    ];
+    await page.route('**/rest/v1/rpc/plan_ventana_pantalla**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ entradas, universo:{} }) }));
+    await page.route('**/rest/v1/ubicaciones_generales**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', cantidad_skus:40, cantidad_pendiente:30}]) }));
+    await page.route('**/rest/v1/ubicaciones_especificas**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', cantidad_skus:40, cantidad_pendiente:30}]) }));
+    await page.route('**/rest/v1/ubicaciones_bins**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([{bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-01', cantidad_skus:4}, {bodega:'Nave Mina', ubicacion:'Pasillo 3', storage_bin:'A-02', cantidad_skus:4}]) }));
+    await page.route(/skus_disponibles_planificar\?.*storage_bin\.is\.null/, route => {
+      const url = decodeURIComponent(route.request().url());
+      urlsSinBin.push(url);
+      const n = url.includes('dueno=eq.ENEX') ? 5 : 22;
+      route.fulfill({ status:200, contentType:'application/json', headers:{'content-range':`0-0/${n}`, 'access-control-expose-headers':'content-range', 'access-control-allow-origin':'*'}, body:'[]' });
+    });
+    await page.route(/\/rest\/v1\/plan_semanal(\?|$)/, route => {
+      if(route.request().method() !== 'POST') return route.fallback();
+      const filas = route.request().postDataJSON();
+      cuerposPlan.push(filas);
+      route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify(filas.map((f,i)=>({ ...f, id:'nuevo-'+i }))) });
+    });
+    await page.evaluate(() => setState({ view:'plan' }));
+    assert(await esperarVisible(page, '.plan-item:has-text("Pasillo 3") .plan-item-responsable:has-text("Dueño: Enex S.A.")'), 'la entrada de un dueño dice de quién es');
+    assert(!(await page.isVisible('.plan-item:has-text("Pasillo 4") .plan-item-responsable:has-text("Dueño")')), 'una entrada de todos los dueños no muestra dueño');
+
+    await page.click('#btn-toggle-agregar-plan');
+    await page.waitForSelector('#form-plan', { state:'visible', timeout:ESPERA });
+    assert(await esperarCondicion(page, () => [...document.querySelectorAll('#p-dueno option')].some(o=>o.value==='ENEX')), 'el formulario ofrece elegir el dueño');
+    await page.selectOption('#p-bodega', 'Nave Mina');
+    await page.waitForFunction(() => /22 sin storage bin/.test(document.getElementById('p-bin-resumen').textContent), null, { timeout:ESPERA });
+    assert(!urlsSinBin[urlsSinBin.length-1].includes('dueno='), 'con "Todos los dueños", los pendientes sin bin se cuentan como siempre, obtuvo '+urlsSinBin[urlsSinBin.length-1]);
+    await page.selectOption('#p-dueno', 'ENEX');
+    await page.waitForFunction(() => /5 sin storage bin/.test(document.getElementById('p-bin-resumen').textContent), null, { timeout:ESPERA });
+    const formDueno = await page.evaluate(() => ({ dueno: document.getElementById('p-dueno').value, bodega: document.getElementById('p-bodega').value, hint: document.getElementById('p-campos-ubicacion').textContent }));
+    assert(formDueno.dueno === 'ENEX' && formDueno.bodega === 'Nave Mina' && formDueno.hint.includes('solo los materiales de este dueño'), 'elegir el dueño no borra el resto del formulario y avisa que la entrada es solo suya, obtuvo '+JSON.stringify(formDueno));
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px Planificación con el dueño no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/plan-dueno-420.png', fullPage: true });
+    await page.click('#form-plan button[type="submit"]');
+    for(let i=0; i<100 && !cuerposPlan.length; i++) await page.waitForTimeout(50);
+    assert(cuerposPlan.length === 1 && cuerposPlan[0].length === 1 && cuerposPlan[0][0].dueno === 'ENEX' && cuerposPlan[0][0].bodega === 'Nave Mina', 'la entrada se guarda con el dueño elegido, obtuvo '+JSON.stringify(cuerposPlan));
+    await context.close();
+  }
+
   // ===== Contar: marcar la foto con rayas y flechas antes de guardarla (Joel, 30/09) =====
   // Con el navegador real: se adjunta una foto blanca, "Marcar" abre el editor, se dibuja un trazo
   // con el mouse y una flecha, y al tocar Listo la foto de la entrada queda reemplazada por un JPEG

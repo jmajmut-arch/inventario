@@ -2640,7 +2640,7 @@ const CARGAS_POR_VISTA = {
   skus: ['skusPagina', 'skusCatalogos', 'duenosStock'],
   reconteo: ['reconteos', 'duenosStock'],
   buscar: ['ubicacionesLista', 'personasBuscar', 'duenosStock'], // desplegables de ubicación (una llamada) y de "Contado por"
-  plan: ['plan', 'generales', 'sinUbicacion', 'responsables'],
+  plan: ['plan', 'generales', 'sinUbicacion', 'responsables', 'duenosStock'],
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
   salida: ['bodegaListas', 'responsables', 'reservas'],
@@ -3023,7 +3023,8 @@ const BINS_POR_CONSULTA = 80;
 // URL, bajo el límite medido (~24.000, ver restEnTandas), en pocas idas y vueltas.
 const CODIGOS_POR_CONSULTA = 500;
 
-async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados}){
+// dueno (opcional, ver duenoAgregarPlan): solo los materiales de ese dueño; sin él, de todos.
+async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados, dueno}){
   let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
@@ -3037,7 +3038,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
     else if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
     filtro += filtroBin(storage_bin);
   }
-  filtro += filtroExclusion(excluidos);
+  filtro += filtroExclusion(excluidos) + filtroDuenoPlan(dueno);
   const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1${filtro}`, {
     headers:{
       'apikey': SUPABASE_ANON_KEY,
@@ -3065,7 +3066,7 @@ async function contarUniversoUbicacion({bodega, ubicacion, storage_bin, excluido
 // hacen falta códigos/ids (exclusiones, fotos del plan, listar SKU) se pide lo mínimo -- con
 // ubicaciones de decenas de miles de SKU la diferencia de bytes es grande. maxFilas: deja de
 // paginar al llegar a ese tope (quien llama solo quiere saber si hay "más de N").
-async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados, campos, maxFilas}){
+async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloSinUbicacion, ubicacionEsNula, excluirYaPlanificados, campos, maxFilas, dueno}){
   let filtro = `/${excluirYaPlanificados ? 'skus_disponibles_planificar' : 'skus_planificables'}?activo=eq.true&select=${campos || CAMPOS_UNIVERSO_SKU}&order=storage_bin.asc,sku_code.asc`;
   if(soloSinUbicacion){
     filtro += filtroSoloSinUbicacion(true);
@@ -3076,7 +3077,7 @@ async function skusDeUbicacion({bodega, ubicacion, storage_bin, excluidos, soloS
     else if(ubicacion) filtro += `&ubicacion=eq.${encodeURIComponent(ubicacion)}`;
     filtro += filtroBin(storage_bin);
   }
-  filtro += filtroExclusion(excluidos);
+  filtro += filtroExclusion(excluidos) + filtroDuenoPlan(dueno);
   const TAM_PAGINA = maxFilas ? Math.min(1000, maxFilas) : 1000;
   let desde = 0, total = Infinity, filas = [];
   while(desde < total){
@@ -5358,7 +5359,9 @@ async function elegirCascadaContar(cambios){
 // (plan_semanal_incluidos), sin cascada de bins, exclusiones ni foto de universo.
 // universoConocido (opcional): filas {id, sku_code, storage_bin} del universo de los bins de esta
 // entrada, si quien llama ya las pidió (generador de Grupos): evita volver a pedirlas para la foto.
-async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, ubicacionEsNula, cicloId, silencioso, skusIncluidos, universoConocido}){
+// dueno (opcional, ver duenoAgregarPlan): la entrada cubre solo los materiales de ese dueño. Sin
+// él, la fila se manda igual que siempre (sin la columna) y cubre a todos.
+async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcluidos, responsableId, nota, soloSinUbicacion, ubicacionEsNula, cicloId, silencioso, skusIncluidos, universoConocido, dueno}){
   if(!fecha){ if(!silencioso) toast('Elige una fecha','err'); return; }
   if(!perfilCargado()) return;
   // "SKU sin ubicación" es una sola entrada (no tiene bodega/ubicación/bin que cascadear). Lo
@@ -5385,6 +5388,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
       ciclo_id: cicloId||null,
       responsable_id: responsableId||null, nota: nota||null, usuario_id: state.perfil ? state.perfil.id : null,
       empresa_id: state.perfil.empresa_id,
+      ...(dueno==null ? {} : {dueno}),
     })), prefer:'return=representation', timeoutMs: UMBRAL_ABORTAR_GUARDADO_MS});
     // Sin storage bin cargado, Storage bin ofrece elegir SKU puntuales en vez de bins (ver
     // cargarBinsPara) — elegir algunos ahí significa "solo estos", así que el resto se manda
@@ -5411,7 +5415,7 @@ async function crearPlanEntrada({fecha, bodega, ubicacion, storageBins, skusExcl
           porBin = new Map();
           for(const s of universoConocido){ if(!porBin.has(s.storage_bin)) porBin.set(s.storage_bin, []); porBin.get(s.storage_bin).push(s); }
         }else{
-          porBin = await skusDeUbicacionPorBins({bodega:conBin[0].bodega, ubicacion:conBin[0].ubicacion, excluidos:[], soloSinUbicacion:false}, conBin.map(f=>f.storage_bin));
+          porBin = await skusDeUbicacionPorBins({bodega:conBin[0].bodega, ubicacion:conBin[0].ubicacion, excluidos:[], soloSinUbicacion:false, dueno}, conBin.map(f=>f.storage_bin));
         }
         // Una fila por código y entrada: plan_semanal_skus es único por (plan_id, sku_code), y un
         // mismo código puede estar dos veces en el bin (un batch NEW y otro REPAIRED, ver el
@@ -5639,6 +5643,24 @@ function zonaEntradaPlan(e){
 function etiquetaUbicacionEntradaPlan(e){
   const zona = zonaEntradaPlan(e);
   return e.por_sku ? `Por código · ${zona}` : zona;
+}
+
+// Dueño de una entrada del plan (plan_semanal.dueno, 20261021_duenos_stock_plan.sql): null = todos
+// los dueños del lugar, lo de siempre y lo único que existe en una empresa sin dueños; '' = solo lo
+// que no tiene dueño; un código = solo lo de ese dueño. Sin dueño elegido no se muestra nada nuevo.
+function etiquetaDuenoEntradaPlan(e){
+  if(!usaDuenosStock() || !e || e.dueno==null) return '';
+  return e.dueno==='' ? 'Sin dueño' : etiquetaDueno(e);
+}
+// El dueño elegido en "Agregar a la planificación" (state.plan.duenoAgregar, con los valores del
+// filtro de dueño: '' = todos, '__sin' = sin dueño, o un código), tal como va a plan_semanal.dueno y
+// a los filtros de skus_planificables: undefined = todos (la entrada y las consultas de siempre).
+function duenoAgregarPlan(){
+  const v = usaDuenosStock() ? (state.plan.duenoAgregar||'') : '';
+  return v==='' ? undefined : v==='__sin' ? '' : v;
+}
+function filtroDuenoPlan(dueno){
+  return dueno==null ? '' : `&dueno=eq.${encodeURIComponent(dueno)}`;
 }
 
 async function actualizarPlanEntrada(id, {fecha, responsableId, nota}){
@@ -6118,8 +6140,8 @@ async function opcionesBins(bodega, ubicacion){
 // en el servidor (Range 0-0 + count=exact, sin bajar filas). No se puede deducir restando lo que
 // suman los bins de la lista, porque esa lista viene cortada en 1.000 filas: reportado por Joel,
 // B521 "Todas" decía "1929 sin storage bin" cuando eran 147.
-async function contarPendientesSinBin(bodega, ubicacion){
-  const filtro = `/skus_disponibles_planificar?activo=eq.true&${filtroBodegaOpciones(bodega)}${ubicacion? `&ubicacion=eq.${encodeURIComponent(ubicacion)}` : ''}&or=(storage_bin.is.null,storage_bin.eq.)&select=id`;
+async function contarPendientesSinBin(bodega, ubicacion, dueno){
+  const filtro = `/skus_disponibles_planificar?activo=eq.true&${filtroBodegaOpciones(bodega)}${ubicacion? `&ubicacion=eq.${encodeURIComponent(ubicacion)}` : ''}&or=(storage_bin.is.null,storage_bin.eq.)&select=id${filtroDuenoPlan(dueno)}`;
   const res = await fetchConTimeout(`${SUPABASE_URL}/rest/v1${filtro}`, {
     headers:{
       'apikey': SUPABASE_ANON_KEY,
@@ -13772,6 +13794,10 @@ function renderPlanDelDia(){
     if(bins.length) partes.push(`${bins.length} bin${bins.length===1?'':'s'}: ${bins.slice(0,4).join(', ')}${bins.length>4?` +${bins.length-4}`:''}`);
     if(porCodigo) partes.push(`${porCodigo} SKU por código`);
     if(!partes.length) partes.push(l.bodega===BODEGA_SIN_UBICACION ? 'Materiales sin bodega ni ubicación' : 'Sin bin específico');
+    // Si todas las entradas del lugar son de un dueño (o de algunos), se dice de cuáles: así se
+    // sabe que lo de los demás dueños de ese mismo lugar no está en el plan del día.
+    const duenos = l.entradas.some(e=>e.dueno==null) ? [] : Array.from(new Set(l.entradas.map(etiquetaDuenoEntradaPlan).filter(Boolean)));
+    if(duenos.length) partes.push(`Dueño: ${duenos.join(', ')}`);
     const responsables = Array.from(new Set(l.entradas.map(e=>e.responsable_nombre).filter(Boolean)));
     const sinResponsable = l.entradas.some(e=>!e.responsable_id);
     partes.push(sinResponsable ? (responsables.length ? `${responsables.join(', ')} · parte sin responsable` : 'Sin responsable · puede contar cualquiera') : responsables.join(', '));
@@ -14531,6 +14557,7 @@ function renderBuscar(){
 function encabezadoEntradaPlan(e){
   const ubic = etiquetaUbicacionEntradaPlan(e);
   const partes = [`Responsable: ${esc(e.responsable_nombre || 'Sin asignar')}`];
+  if(etiquetaDuenoEntradaPlan(e)) partes.push(`Dueño: ${esc(etiquetaDuenoEntradaPlan(e))}`);
   if(e.nota) partes.push(`Nota: ${esc(e.nota)}`);
   return `<h3>${esc(ubic)}</h3><div class="print-entrada-meta">${partes.join(' · ')}</div>`;
 }
@@ -15003,6 +15030,7 @@ function renderPlanificacion(){
               <div class="plan-item-meta">
                 <span class="plan-item-universo">${p.universos[e.id]!==undefined? `${p.universos[e.id]} SKU ${e.por_sku? 'elegidos por código' : 'en esta ubicación'}${resumido && propios[e.id]!==undefined && propios[e.id]<p.universos[e.id]? ` · ${p.universos[e.id]-propios[e.id]} ya en otra entrada anterior` : ''}` : 'Calculando…'}</span>
                 <span class="plan-item-responsable">Responsable: ${e.responsable_id? esc(e.responsable_nombre || '') : '<span class="plan-sin-resp">Sin asignar</span>'}</span>
+                ${etiquetaDuenoEntradaPlan(e)? `<span class="plan-item-responsable">Dueño: ${esc(etiquetaDuenoEntradaPlan(e))}</span>` : ''}
                 ${modo==='periodo' && e.ciclo_id===p.cicloFiltro? '' : `<span class="plan-item-responsable">Período: ${esc(e.ciclo_nombre || 'Sin período asignado')}</span>`}
               </div>
               ${e.nota? `<div class="plan-item-nota">${esc(e.nota)}</div>` : ''}
@@ -15175,6 +15203,12 @@ function renderPlanificacion(){
           ` : `<div class="hint" style="margin:10px 0 0">Aún no has elegido ningún SKU.</div>`}
         </div>
         <div id="p-campos-ubicacion" ${p.modoAgregar==='sku'? 'style="display:none"' : ''}>
+        ${usaDuenosStock()? `
+          <label for="p-dueno">Dueño</label>
+          <select id="p-dueno">${opcionesFiltroDueno(p.duenoAgregar||'')}</select>
+          ${avisoErrorListaDuenos('margin:4px 0 0;')}
+          <div class="hint" style="margin:4px 0 0">${p.duenoAgregar? 'La entrada incluirá solo los materiales de este dueño. Los números de Ubicación general, específica y Storage bin cuentan a todos los dueños.' : 'Con "Todos los dueños", la entrada incluye lo de todos, como siempre.'}</div>
+        ` : ''}
         <label for="p-bodega">Ubicación general <span style="font-weight:400;color:var(--text-faint)">(por planificar / total SKU)</span> ${campoConInfo('En "36/44", 36 son los SKU que faltan por contar en el período y aún no están en otra entrada del plan; 44 es el total de SKU del lugar.')}</label>
         <select id="p-bodega">
           <option value="">Selecciona (opcional)</option>
@@ -19428,6 +19462,7 @@ function bind(){
         storageBins = seleccionBin;
       }
       const ubicacionElegida = document.getElementById('p-ubic').value.trim();
+      const dueno = duenoAgregarPlan();
       // Aviso de solape (a pedido de Joel): si parte de lo que se va a agregar YA está cubierto
       // por otra entrada del plan de este período, avisar antes de crear la entrada -- con datos
       // reales, 3 entradas de ubicación completa solaparon 136 SKU con bins ya planificados en
@@ -19439,7 +19474,7 @@ function bind(){
       // conteo falla, no bloquea agregar.
       if(selBinEl.dataset.modo!=='skus'){
         try{
-          const base = {bodega: soloSinUbicacion ? '' : bodegaParaEnviar, ubicacion: ubicacionElegida, excluidos:[], soloSinUbicacion};
+          const base = {bodega: soloSinUbicacion ? '' : bodegaParaEnviar, ubicacion: ubicacionElegida, excluidos:[], soloSinUbicacion, dueno};
           // Una consulta para todos los bins elegidos (in.(...)), no una por bin: con decenas de
           // bins marcados a mano eran cientos de viajes al servidor antes de poder agregar.
           const [total, disponibles] = await Promise.all([
@@ -19463,6 +19498,7 @@ function bind(){
         cicloId: '',
         responsableId: document.getElementById('p-responsable').value,
         nota: document.getElementById('p-nota').value.trim(),
+        dueno,
       });
       await refrescarCascadaTrasAgregar();
     });
@@ -19552,7 +19588,7 @@ function bind(){
       // agrega espera, y si falla se avisa sin trabar la lista de bins.
       const [opciones, sinBinServidor] = await Promise.all([
         opcionesBins(bodega, ubicacion),
-        contarPendientesSinBin(bodega, ubicacion).catch(e=>({error: e})),
+        contarPendientesSinBin(bodega, ubicacion, duenoAgregarPlan()).catch(e=>({error: e})),
       ]);
       // Los elementos se buscan de nuevo ACÁ, después del await (y otra vez más abajo, tras el
       // segundo await): un render() de fondo puede haber reemplazado el formulario mientras
@@ -19622,9 +19658,10 @@ function bind(){
         // pueden listar (MAX_SKU_SIN_BIN_LISTABLES), no se sigue paginando ni se pide el universo
         // completo -- con datos reales una ubicación sin bins puede tener 32.000 SKU (66 páginas
         // que se bajaban enteras para terminar mostrando "puedes agregar igual").
-        const skus = await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true, campos:'id,sku_code,descripcion', maxFilas: MAX_SKU_SIN_BIN_LISTABLES+1});
+        const dueno = duenoAgregarPlan();
+        const skus = await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true, campos:'id,sku_code,descripcion', maxFilas: MAX_SKU_SIN_BIN_LISTABLES+1, dueno});
         const skusUniversoCompleto = (skus.length && skus.length<=MAX_SKU_SIN_BIN_LISTABLES)
-          ? await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, campos:'sku_code'})
+          ? await skusDeUbicacion({bodega:bodegaReal, ubicacion, storage_bin:'', excluidos:[], soloSinUbicacion:false, campos:'sku_code', dueno})
           : [];
         // Elementos frescos otra vez, tras este segundo await.
         selBin = document.getElementById('p-bin');
@@ -19742,6 +19779,14 @@ function bind(){
     document.getElementById('p-ubic').addEventListener('change', async e=>{
       const bodega = document.getElementById('p-bodega').value;
       await cargarBinsPara(bodega, e.target.value);
+    });
+    // Cambiar de dueño no cambia las listas de lugares (cuentan a todos), pero sí los SKU sin
+    // storage bin del lugar y la lista de SKU puntuales: se vuelven a pedir para ese dueño.
+    const selDuenoPlan = document.getElementById('p-dueno');
+    if(selDuenoPlan) selDuenoPlan.addEventListener('change', async e=>{
+      setState({plan:{...state.plan, duenoAgregar: e.target.value}});
+      const bodega = (document.getElementById('p-bodega')||{}).value;
+      if(bodega && bodega!==BODEGA_SIN_UBICACION) await cargarBinsPara(bodega, (document.getElementById('p-ubic')||{}).value || '');
     });
     // Bug real reportado: al presionar "Agregar" (y lo mismo al quitar un SKU o borrar una
     // entrada/selección), los SKU afectados dejan de contar como pendientes, pero Ubicación

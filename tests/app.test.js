@@ -2166,6 +2166,52 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!calls.some(c=>c.url.includes('/skus_planificables?')), 'con universoConocido no debe volver a pedir el universo para la foto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   const fotoConocida = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_skus'));
   assert(!!fotoConocida && JSON.parse(fotoConocida.opts.body).some(f=>f.sku_code==='SKU-001' && f.sku_id==='id-001' && f.storage_bin_original==='A-01'), 'la foto debe salir del universo conocido, obtuvo: '+JSON.stringify(fotoConocida && fotoConocida.opts.body));
+
+  // Planificar por dueño (Joel, 21/10/2026; 20261021_duenos_stock_plan.sql). Sin dueños activados
+  // no cambia nada: ni el formulario ni la fila que se manda ni las consultas del universo.
+  assert(!('dueno' in filasMulti[0]) && !('dueno' in filasMulti[1]), 'sin dueño elegido, la fila de plan_semanal va igual que siempre (sin la columna), obtuvo: '+JSON.stringify(filasMulti));
+  assert(!fotosUniverso[0].url.includes('dueno='), 'sin dueño elegido, la foto no filtra por dueño, obtuvo: '+fotosUniverso[0].url);
+  {
+    const perfilAntesPlanDueno = ctx.__appstate.perfil;
+    const listaAntesPlanDueno = ctx.__appstate.duenosStock;
+    ctx.__appstate.plan.duenoAgregar = 'ENEX'; // quedó de una sesión con dueños: sin el interruptor no vale
+    assert(ctx.duenoAgregarPlan()===undefined && !ctx.renderPlanificacion().includes('id="p-dueno"'), 'sin el interruptor no hay selector de dueño ni dueño que mandar');
+    ctx.__appstate.perfil = {...perfilAntesPlanDueno, empresas:{...perfilAntesPlanDueno.empresas, usa_duenos_stock:true}};
+    ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'ENEX', nombre:'Enex S.A.', activo:true}]};
+    ctx.__appstate.plan.duenoAgregar = '';
+    const htmlTodos = ctx.renderPlanificacion();
+    assert(htmlTodos.includes('<select id="p-dueno">') && htmlTodos.includes('<option value="" selected>Todos los dueños</option>') && htmlTodos.includes('Enex S.A. (ENEX)') && htmlTodos.includes('incluye lo de todos, como siempre'), 'con dueños, el formulario ofrece elegir uno y parte en "Todos los dueños", obtuvo: '+(htmlTodos.match(/<select id="p-dueno">[\s\S]*?<\/select>/)||[''])[0]);
+    assert(ctx.duenoAgregarPlan()===undefined, '"Todos los dueños" es la entrada de siempre');
+    ctx.__appstate.plan.duenoAgregar = 'ENEX';
+    assert(ctx.duenoAgregarPlan()==='ENEX' && ctx.renderPlanificacion().includes('incluirá solo los materiales de este dueño'), 'con un dueño elegido, se avisa que la entrada es solo suya');
+    ctx.__appstate.plan.duenoAgregar = '__sin';
+    assert(ctx.duenoAgregarPlan()==='', '"Sin dueño" va como texto vacío (lo que no tiene dueño), no como "todos"');
+
+    calls.length = 0;
+    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01','A-02'], responsableId:'', nota:'', dueno:'ENEX'});
+    const postDueno = calls.find(c=>c.opts && c.opts.method==='POST' && /\/plan_semanal(\?|$)/.test(c.url));
+    const filasDueno = postDueno ? JSON.parse(postDueno.opts.body) : [];
+    assert(filasDueno.length===2 && filasDueno.every(f=>f.dueno==='ENEX'), 'cada fila de la entrada lleva el dueño elegido, obtuvo: '+JSON.stringify(filasDueno));
+    const fotoDueno = calls.filter(c=>c.url.includes('/skus_planificables?'));
+    assert(fotoDueno.length===1 && fotoDueno[0].url.includes('&dueno=eq.ENEX'), 'la foto de la entrada guarda solo los materiales de ese dueño, obtuvo: '+JSON.stringify(fotoDueno.map(c=>c.url)));
+    calls.length = 0;
+    await ctx.crearPlanEntrada({fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:'', dueno:''});
+    const postSinDueno = calls.find(c=>c.opts && c.opts.method==='POST' && /\/plan_semanal(\?|$)/.test(c.url));
+    assert(postSinDueno && JSON.parse(postSinDueno.opts.body)[0].dueno==='' && calls.some(c=>c.url.includes('/skus_planificables?') && /&dueno=eq\.(&|$)/.test(c.url)), '"Sin dueño" se guarda y se filtra como texto vacío, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // El aviso de solape y los pendientes sin storage bin cuentan solo a ese dueño.
+    calls.length = 0;
+    await ctx.contarUniversoUbicacion({bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'', excluidos:[], soloSinUbicacion:false, excluirYaPlanificados:true, dueno:'ENEX'});
+    await ctx.contarPendientesSinBin('Nave Mina', 'Interior Nave', 'ENEX').catch(()=>{});
+    assert(calls.length===2 && calls.every(c=>c.url.includes('/skus_disponibles_planificar?') && c.url.includes('dueno=eq.ENEX')), 'los conteos del formulario filtran por el dueño elegido, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+    // La entrada dice de qué dueño es: en Planificación, en la hoja impresa y en Contar.
+    assert(ctx.etiquetaDuenoEntradaPlan({dueno:null})==='' && ctx.etiquetaDuenoEntradaPlan({dueno:'ENEX'})==='Enex S.A.' && ctx.etiquetaDuenoEntradaPlan({dueno:''})==='Sin dueño' && ctx.etiquetaDuenoEntradaPlan({dueno:'OTRO'})==='OTRO', 'el dueño de una entrada se muestra con su nombre, o su código si no está en la lista; una entrada de todos no muestra nada');
+    assert(ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:'ENEX', responsable_nombre:'Ana'}).includes('Dueño: Enex S.A.') && !ctx.encabezadoEntradaPlan({bodega:'Nave Mina', ubicacion:'Interior Nave', dueno:null}).includes('Dueño'), 'la hoja impresa dice el dueño de la entrada, si tiene');
+    ctx.__appstate.perfil = perfilAntesPlanDueno;
+    assert(ctx.etiquetaDuenoEntradaPlan({dueno:'ENEX'})==='', 'sin el interruptor, una entrada no muestra dueño');
+    ctx.__appstate.duenosStock = listaAntesPlanDueno;
+    ctx.__appstate.plan.duenoAgregar = '';
+  }
   // filtroBin: un bin -> eq., varios -> in.(...) con comillas (bins con coma o espacio no rompen
   // la sintaxis de PostgREST), lista vacía -> sin filtro.
   assert(ctx.filtroBin('A-01')==='&storage_bin=eq.A-01' && ctx.filtroBin(['A-01'])==='&storage_bin=eq.A-01', 'un solo bin debe ir como eq., obtuvo: '+ctx.filtroBin(['A-01']));
