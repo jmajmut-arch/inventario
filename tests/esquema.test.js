@@ -430,3 +430,19 @@ test('la demo pública se restablece con costo en sus materiales y su clase ABC'
   assert.match(sql, /perform privado\.recalcular_abc_empresa\(v_empresa_id\)/, 'el reset recalcula la clase ABC de la demo');
   assert.match(sql, /raise exception/, 'si la función no tiene el texto esperado, la migración falla sin cambiar nada');
 });
+
+test('ubicaciones tiene una sola regla de lectura y conteos.corregido_por tiene índice', () => {
+  // Advisor de rendimiento, 22/10/2026: admin_write_ubicaciones era FOR ALL y también contaba como
+  // lectura (dos reglas por cada SELECT), y la llave foránea conteos.corregido_por no tenía índice.
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  const todo = fs.readdirSync(dirMig).sort().map(a => fs.readFileSync(path.join(dirMig, a), 'utf8').replace(/--[^\n]*/g, '')).join('\n');
+  assert.match(todo, /drop\s+policy\s+(if\s+exists\s+)?admin_write_ubicaciones\s+on\s+public\.ubicaciones/i, 'la regla FOR ALL de ubicaciones se reemplaza');
+  for (const accion of ['insert', 'update', 'delete']) {
+    const re = new RegExp(`create\\s+policy\\s+admin_${accion}_ubicaciones\\s+on\\s+public\\.ubicaciones\\s+for\\s+${accion}\\b[^;]*es_admin_actual\\(\\)`, 'i');
+    assert.match(todo, re, `ubicaciones: ${accion} sigue siendo solo de administrador`);
+  }
+  const ultimaAll = [...todo.matchAll(/create\s+policy\s+"?(\w+)"?\s+on\s+public\.ubicaciones\s+for\s+all\b/gi)].map(m => m[1]);
+  const borradas = new Set([...todo.matchAll(/drop\s+policy\s+(?:if\s+exists\s+)?"?(\w+)"?\s+on\s+public\.ubicaciones/gi)].map(m => m[1]));
+  assert.deepEqual(ultimaAll.filter(n => !borradas.has(n)), [], 'ninguna regla FOR ALL en ubicaciones (cuenta también como lectura)');
+  assert.match(todo, /create\s+index\s+(if\s+not\s+exists\s+)?conteos_corregido_por_idx\s+on\s+public\.conteos\s*\(\s*corregido_por\s*\)/i, 'conteos.corregido_por lleva índice');
+});

@@ -94,6 +94,21 @@ async function mockearSupabaseApp(page, perfil){
   await page.route('**/rest/v1/usuarios**', route => {
     route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([perfil]) });
   });
+  // Tras la contraseña la app pide /auth/v1/user para saber si la cuenta tiene segundo factor
+  // (continuarSiHaceFaltaMfa). Sin este mock esa consulta salía a la base de producción con el
+  // token falso: ~2.700 rechazos 403 al día en sus registros (revisión del 22/10/2026).
+  await page.route('**/auth/v1/user**', route => {
+    route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
+      id:'auth-user-1', email:'ana@minera-andes.cl', factors:[],
+    }) });
+  });
+  // Con la suscripción "activa", la app reconcilia con Flow en segundo plano al entrar
+  // (sincronizarSuscripcionFlow). Se responde el mismo estado, para que nada cambie.
+  await page.route('**/functions/v1/flow-sincronizar-suscripcion', route => {
+    route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
+      estado: (perfil && perfil.empresas && perfil.empresas.flow_subscription_status) || null,
+    }) });
+  });
   await page.route('**/auth/v1/token**', route => {
     route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({
       access_token:'fake-token', refresh_token:'fake-refresh', user:{ id:'auth-user-1', email:'ana@minera-andes.cl' },
@@ -117,6 +132,20 @@ async function loguear(page, perfil, prepararRutas){
 (async () => {
   const server = await iniciarServidor();
   const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined });
+  // Red de seguridad: ninguna prueba puede llegar al Supabase de producción. Cada contexto lleva una
+  // ruta que corta y anota lo que vaya a ese dominio; las rutas de página (los mocks de cada prueba)
+  // tienen precedencia sobre las de contexto, así que acá solo cae lo que ninguna prueba simuló.
+  const pedidosAProduccion = [];
+  const nuevoContexto = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => {
+    const ctx = await nuevoContexto(...args);
+    await ctx.route('https://ncvwgsbcvklhbyvurxzz.supabase.co/**', route => {
+      const req = route.request();
+      pedidosAProduccion.push(req.method() + ' ' + new URL(req.url()).pathname);
+      route.abort();
+    });
+    return ctx;
+  };
   const erroresPagina = [];
 
   // ===== App: login real, con clicks reales y render real =====
@@ -3157,6 +3186,7 @@ async function loguear(page, perfil, prepararRutas){
   }
 
   assert(erroresPagina.length===0, 'no debe haber errores de JS no capturados en ninguna página, obtuvo: '+JSON.stringify(erroresPagina));
+  assert(pedidosAProduccion.length===0, 'ninguna prueba debe llegar al Supabase de producción (falta simularlo), obtuvo: '+JSON.stringify([...new Set(pedidosAProduccion)]));
 
   await browser.close();
   server.close();
