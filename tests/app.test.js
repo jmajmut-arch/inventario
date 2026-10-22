@@ -5237,6 +5237,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!ctx.__appstate.session, 'un código inválido para ambos tipos no debe armar ninguna sesión, obtuvo: '+JSON.stringify(ctx.__appstate.session));
   const nuevosToastsOtp = toastRootOtp.hijos.slice(toastsAntesOtp);
   assert(nuevosToastsOtp.some(t=>t.className.includes('err')), 'un código inválido debe mostrar un error, obtuvo: '+JSON.stringify(nuevosToastsOtp.map(t=>t.textContent)));
+  assert(nuevosToastsOtp.some(t=>/último correo/.test(t.textContent)), 'el código inválido recuerda usar el del último correo (cada correo nuevo anula el anterior), obtuvo: '+JSON.stringify(nuevosToastsOtp.map(t=>t.textContent)));
+
+  // Supabase responde en inglés: al que falla la contraseña se le recuerda el camino del código
+  // (operadores invitados que nunca crearon contraseña probaron con una, Escondida 22/10/2026).
+  assert(/Correo o contraseña incorrectos/.test(ctx.mensajeErrorIngreso('Invalid login credentials')) && /código de invitación/.test(ctx.mensajeErrorIngreso('Invalid login credentials')), 'la contraseña incorrecta se explica en castellano y ofrece el código');
+  assert(/espera 42 segundos/.test(ctx.mensajeErrorIngreso('For security purposes, you can only request this after 42 seconds.')), 'el límite de correos se explica en castellano');
+  assert(ctx.mensajeErrorIngreso('Otro error')==='Otro error', 'los demás mensajes pasan tal cual');
+  ctx.__appstate.otpAcceso = {email:'x@test.com'};
+  assert(/usa el del último/.test(ctx.renderIngresarCodigo()), 'la pantalla del código avisa que vale el del último correo');
+  ctx.__appstate.otpAcceso = null;
 
   // actualizarNombreEmpresa: PATCH a /empresas y actualización optimista del estado local.
   ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', empresa_id:'emp-1', empresas:{nombre:'Minera Andes', codigo_invitacion:'ZZ998877'} };
@@ -11375,6 +11385,30 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(confirmLlamadas.length===0, 'si falla la verificación del servidor, no debe bloquear con una confirmación, obtuvo: '+JSON.stringify(confirmLlamadas));
   ctx.fetch = fetchOriginalParaFalla;
   verificarConteoAtipicoRespuesta = false;
+
+  // Sin conteo ciego (la persona ve el stock): aviso solo ante 10 veces más o menos, con la pista de
+  // la coma cuando es exactamente 10, 100 o 1.000 veces. Pasó de verdad: un cable de 1.968,51 FT
+  // contado como 196.851 dejó un sobrante falso de $517.689 en Reconteo (Escondida, 15/10/2026).
+  const avisoCable = ctx.avisoCantidadFueraDeEscala(196851, 1968.51, 'FT');
+  assert(avisoCable && avisoCable.includes('exactamente 100 veces más') && avisoCable.includes('coma decimal') && avisoCable.includes('1.968,51 FT'), 'el error de coma se explica y sugiere la cantidad, obtuvo: '+avisoCable);
+  assert(ctx.avisoCantidadFueraDeEscala(1, 10, 'EA').includes('exactamente 10 veces menos'), '1 contra 10 se pregunta por la coma y la unidad');
+  assert(ctx.avisoCantidadFueraDeEscala(500, 20, 'UN').includes('más de 10 veces más'), '25 veces más se avisa sin sugerir coma');
+  assert(ctx.avisoCantidadFueraDeEscala(40, 100, 'UN')===null, 'una diferencia grande pero menor a 10 veces no interrumpe');
+  assert(ctx.avisoCantidadFueraDeEscala(3, 0.2, 'KG')===null, 'diferencias de 5 unidades o menos no interrumpen');
+  assert(ctx.avisoCantidadFueraDeEscala(0, 50, 'UN')===null, 'contar 0 no se pregunta: no hay coma que revisar');
+  assert(ctx.avisoCantidadFueraDeEscala(50, 0, 'UN')===null && ctx.avisoCantidadFueraDeEscala(50, null, 'UN')===null, 'sin stock en el sistema no hay contra qué comparar');
+
+  ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:false} };
+  ctx.__appstate.skuSeleccionado = {id:'sku-cable', sku_code:'10435914', descripcion:'Cable', bodega:'Nave Mina', ubicacion:'Interior Nave', stock_sistema:1968.51, unidad_medida:'FT'};
+  confirmRespuesta = false; confirmLlamadas.length = 0; calls.length = 0;
+  await ctx.guardarConteo({cantidad:'196851', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+  assert(confirmLlamadas.length===1 && confirmLlamadas[0].includes('coma decimal'), 'viendo el stock, 100 veces más pregunta por la coma, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(!calls.some(c=>c.url.includes('/rpc/verificar_conteo_atipico')), 'sin conteo ciego no hace falta preguntarle al servidor');
+  assert(!calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'si cancela, el conteo no se guarda, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+  confirmRespuesta = true; confirmLlamadas.length = 0; calls.length = 0;
+  await ctx.guardarConteo({cantidad:'1968.51', ubicacion:'Interior Nave', bodega:'Nave Mina', observacion:''});
+  assert(confirmLlamadas.length===0, 'la cantidad corregida se guarda sin preguntar, obtuvo: '+JSON.stringify(confirmLlamadas));
+  assert(calls.some(c=>c.opts && c.opts.method==='POST' && c.url.includes('/conteos') && !c.url.includes('fotos')), 'la cantidad corregida se guarda');
 
   // ===== "Ya contado este período": avisar en la tarjeta del SKU elegido en Contar si ya tiene
   // conteos en el período (ciclo) actual, y cuántos -- para no duplicar trabajo si dos personas

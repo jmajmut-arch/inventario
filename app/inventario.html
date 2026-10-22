@@ -2276,6 +2276,18 @@ function planIncluye(campo){
   return !!plan[campo];
 }
 
+// Supabase responde en inglés. Al que falla la contraseña se le recuerda el camino del código: pasó
+// de verdad que operadores invitados el día anterior, que nunca habían creado contraseña, probaron
+// varias veces con una antes de pedir el código (Escondida, 22/10/2026).
+function mensajeErrorIngreso(mensaje){
+  const m = String(mensaje||'');
+  if(/invalid login credentials/i.test(m)) return 'Correo o contraseña incorrectos. Si te invitaron y nunca creaste tu contraseña, entra con "¿Tienes un código de invitación o recuperación?".';
+  if(/email not confirmed/i.test(m)) return 'Tu correo todavía no está confirmado. Entra con el código del correo de invitación.';
+  const espera = /after (\d+) seconds?/i.exec(m);
+  if(espera) return `Por seguridad, espera ${espera[1]} segundos antes de pedir otro correo. Mientras, revisa si ya te llegó el anterior.`;
+  return m;
+}
+
 async function handleLogin(email, password){
   try{
     setState({loading:true});
@@ -2285,7 +2297,7 @@ async function handleLogin(email, password){
     await continuarSiHaceFaltaMfa();
   }catch(e){
     setState({loading:false});
-    toast(e.message,'err');
+    toast(mensajeErrorIngreso(e.message),'err');
   }
 }
 
@@ -2575,13 +2587,13 @@ async function solicitarRecuperacion(email){
     });
     if(!res.ok){
       const data = await res.json().catch(()=>({}));
-      throw new Error(data.error_description || data.msg || data.error || 'No se pudo enviar el correo');
+      throw new Error(mensajeErrorIngreso(data.error_description || data.msg || data.error || 'No se pudo enviar el correo'));
     }
     // Pasa directo a "Ingresa tu código" (con el correo ya escrito) en vez de solo volver al
     // login -- ver ingresarConCodigo: escribir el código a mano no depende de que el link del
     // correo sobreviva un escáner de seguridad corporativo.
     setState({loading:false, authRecuperar:false, otpAcceso:{email}});
-    toast('Si el correo existe, te llegará un código para ingresar');
+    toast('Si el correo existe, te llegará un código. Usa el de este correo: los que pediste antes dejan de servir.');
   }catch(e){
     setState({loading:false});
     toast(e.message,'err');
@@ -2615,7 +2627,7 @@ async function ingresarConCodigo(email, codigo){
   try{
     const sesion = (await verificarOtpIntento(email, codigo, 'invite'))
       || (await verificarOtpIntento(email, codigo, 'recovery'));
-    if(!sesion) throw new Error('El código no es válido o ya venció. Pide que te reenvíen la invitación o el correo de recuperación.');
+    if(!sesion) throw new Error('El código no es válido o ya venció. Revisa que sea el del último correo que te llegó: cada correo nuevo anula el código del anterior. Si no, pide uno nuevo con "¿Olvidaste tu contraseña?".');
     state.session = sesion;
     setState({loading:false, otpAcceso:null, debeCrearPassword:true});
   }catch(e){
@@ -4812,6 +4824,34 @@ async function actualizarStockCeroEnPlan(activo){
 // guardarConteo. Antes se calculaba acá mismo contra stock_sistema, pero ese valor ya no le
 // llega al cliente cuando el operador tiene conteo ciego activo (ver skus_lectura/
 // skus_planificables y debe_ocultar_stock_operador()).
+
+// Para quien sí ve el stock (sin conteo ciego) no había ningún aviso, y un error de coma decimal
+// pasaba entero: pasó de verdad, un cable de 1.968,51 FT contado como 196.851 dejó un sobrante falso
+// de $517.689 en Reconteo (Escondida, 15/10/2026). La regla del conteo ciego, aplicada acá, habría
+// saltado en el 10% de los conteos del período (213 de 2.165): viendo el stock, se aprende a aceptarla
+// sin leer. Por eso se avisa solo cuando lo contado es 10 veces más (o menos) que el sistema: el 2%
+// (43 de 2.165). Si es exactamente 10, 100 o 1.000 veces, casi siempre es la coma. Devuelve el texto
+// del aviso, o null si no hay que avisar.
+function avisoCantidadFueraDeEscala(cantidad, stock, unidad){
+  if(stock===null || stock===undefined || stock==='') return null;
+  const q = Number(cantidad), s = Number(stock);
+  if(!isFinite(q) || !isFinite(s) || q===0 || s===0 || Math.abs(q - s) <= 5) return null;
+  const veces = Math.abs(q / s);
+  if(veces < 10 && veces > 0.1) return null;
+  const num = n => Number(n).toLocaleString('es-CL', {maximumFractionDigits:3});
+  const u = unidad ? ` ${unidad}` : '';
+  const inicio = `Contaste ${num(q)}${u} y el sistema tiene ${num(s)}${u}`;
+  const cierre = '\n\nAcepta para guardar igual, o cancela para corregir.';
+  for(const f of [10, 100, 1000]){
+    if(Math.abs(veces - f) <= f * 0.005){
+      return `${inicio}: es exactamente ${num(f)} veces más. ¿Revisaste la coma decimal? (¿${num(q / f)}${u}?)${cierre}`;
+    }
+    if(Math.abs(1 / veces - f) <= f * 0.005){
+      return `${inicio}: es exactamente ${num(f)} veces menos. ¿Revisaste la coma decimal y la unidad${u ? ` (${unidad})` : ''}?${cierre}`;
+    }
+  }
+  return `${inicio}: ${veces >= 10 ? 'más de 10 veces más' : 'menos de la décima parte'}. ¿Confirmas la cantidad?${cierre}`;
+}
 
 /* =======================================================================
    ACCIONES — Super-admin (empresas y personas de cualquier empresa)
@@ -11610,8 +11650,13 @@ async function guardarConteo({cantidad, ubicacion, bodega, observacion, ubicacio
     catch(e){ /* si falla la verificación, no se bloquea el guardado -- sigue como si no fuera atípico */ }
     if(atipico){
       const unidad = state.skuSeleccionado.unidad_medida||'';
-      if(!confirm(`¿Confirmas ${cantidad} ${unidad}? Este valor es bastante distinto de lo habitual para este material.`)) return;
+      if(!confirm(`¿Confirmas ${cantidad} ${unidad}? Este valor es bastante distinto de lo habitual para este material. Revisa que la coma decimal esté donde corresponde.`)) return;
     }
+  }
+  // Viendo el stock: aviso solo ante 10 veces más o menos (ver avisoCantidadFueraDeEscala).
+  if(!ocultarStockOperador() && !skuSinEnviar){
+    const aviso = avisoCantidadFueraDeEscala(cantidad, state.skuSeleccionado.stock_sistema, state.skuSeleccionado.unidad_medida);
+    if(aviso && !confirm(aviso)) return;
   }
   // Momento real en que la persona capturó el conteo (no cuándo termina de guardarse) —
   // fundamental para auditoría cuando se guarda sin conexión y se sincroniza horas después.
@@ -12162,7 +12207,7 @@ function renderIngresarCodigo(){
     <div class="login-card">
       <div class="login-logo">IA</div>
       <h1 class="login-title">Ingresa tu código</h1>
-      <div class="login-sub">Escribe el código que te llegó por correo (de invitación o de recuperar contraseña)</div>
+      <div class="login-sub">Escribe el código que te llegó por correo (de invitación o de recuperar contraseña). Si pediste más de uno, usa el del último: cada correo nuevo anula el código del anterior.</div>
       <form id="otp-acceso-form">
         <label for="f-otp-email">Correo</label>
         <input type="email" id="f-otp-email" placeholder="nombre@empresa.cl" value="${esc(o.email||'')}" required>
