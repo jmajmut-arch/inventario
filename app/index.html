@@ -1139,7 +1139,7 @@ let state = {
   // Grupos de conteo (ej. "IE", "5S"): listas curadas de materiales, armadas a mano por el
   // admin con filtros -- NO por carga masiva -- cada una con su propia frecuencia futura. Ver
   // conversación con Joel: "Crítico" queda totalmente aparte, sin relación con esto.
-  grupos: { cargado:false, cargando:false, lista:[], pausados:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorDia:2, ritmoPorHora:15, diasSemanaPlan:[true,true,true,true,true,true,true], desdePlan:'', vistaPreviaCalculando:false, vistaPreviaDias:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, generandoPlan:false, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
+  grupos: { cargado:false, cargando:false, lista:[], pausados:[], grupoAbierto:null, miembros:[], cargandoMiembros:false, creando:false, nombreNuevo:'', frecuenciaNuevaDias:'', fechaInicioNueva:'', automaticoCriticoNuevo:false, candidatoTexto:'', candidatoBodega:'', candidatos:[], buscandoCandidatos:false, personasDisponibles:1, horasPorDia:2, ritmoPorHora:15, diasSemanaPlan:[true,true,true,true,true,true,true], desdePlan:'', vistaPreviaCalculando:false, vistaPreviaDias:null, vistaPreviaTotalPendientes:0, vistaPreviaCupoUsado:0, vistaPreviaReparto:null, responsablesPlan:[], descontarPlanificado:true, generandoPlan:false, seguimiento:null, seguimientoCargando:false, historial:[], historialCargando:false, historialAbierto:null, historialDetalle:[], historialDetalleCargando:false, editandoFechaInicioId:null },
   // Calendario mensual (planificado/contado/recontado/pendiente por día, ver resumen_calendario_mes):
   // mes es el primer día del mes mostrado; diaSeleccionado (fecha ISO) controla qué día se ve en
   // detalle debajo de la grilla.
@@ -2644,7 +2644,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', reconteoOrden:'fecha', reconteoSoloCalzan:false, reconteosYaCalzan:0, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], ciclosCargados:false, cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', reconteoOrden:'fecha', reconteoSoloCalzan:false, reconteosYaCalzan:0, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,vistaPreviaReparto:null,responsablesPlan:[],descontarPlanificado:true,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], ciclosCargados:false, cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -2711,7 +2711,7 @@ const CARGAS_POR_VISTA = {
   reconteo: ['reconteos', 'duenosStock'],
   buscar: ['ubicacionesLista', 'personasBuscar', 'duenosStock'], // desplegables de ubicación (una llamada) y de "Contado por"
   plan: ['plan', 'generales', 'sinUbicacion', 'responsables', 'duenosStock'],
-  grupos: ['duenosStock'], // los grupos los carga su propia pantalla (cargarGrupos); acá, el nombre de cada dueño
+  grupos: ['duenosStock', 'responsables'], // los grupos los carga su propia pantalla (cargarGrupos); acá, el nombre de cada dueño y las personas para repartir su plan
   ciclos: ['duenosStock'], // los informes de cierre por dueño muestran el nombre de cada uno
   inicio: ['bodegaPendientes'],
   ingreso: ['bodegaListas', 'responsables', 'ordenes'],
@@ -4507,9 +4507,24 @@ async function calcularVistaPreviaPlanGrupo(){
     // disponibles × horas que cuenta cada una al día × ritmo estimado de conteo (materiales por
     // hora). Si algún campo queda vacío/inválido, cae a 20 en vez de trabar el cálculo.
     const cupoDiario = cupoDiarioPlanGrupo(state.grupos);
-    const bloques = armarVistaPreviaSemanasGrupo(filasVencidas, cupoDiario);
-    const dias = asignarFechasPlanGrupo(bloques, state.grupos.desdePlan, state.grupos.diasSemanaPlan);
-    setState({grupos: {...state.grupos, vistaPreviaCalculando:false, vistaPreviaDias:dias, vistaPreviaTotalPendientes:filasVencidas.length, vistaPreviaCupoUsado:cupoDiario}});
+    let dias;
+    if(state.grupos.descontarPlanificado!==false && filasVencidas.length){
+      // Lo que ya hay planificado esos días (a mano u otros grupos) ocupa al mismo equipo: el cupo
+      // de cada día es lo que le queda. Si no se puede saber, se avisa y no se calcula a ciegas.
+      const desde = desdePlanGrupo(state.grupos.desdePlan);
+      const ocupado = await ocupadoPlanPorDia(desde, notaPlanGrupo(grupo));
+      const disponibles = diasConCupoPlanGrupo(desde, state.grupos.diasSemanaPlan, cupoDiario, ocupado, filasVencidas.length);
+      const bloques = armarVistaPreviaSemanasGrupo(filasVencidas, i=> (disponibles[i] || {cupo: cupoDiario}).cupo);
+      if(bloques.length > disponibles.length) throw new Error('No quedan días con cupo libre para repartir este plan: baja lo planificado a mano o sube la capacidad');
+      dias = bloques.map((b,i)=>({fecha: disponibles[i].fecha, materiales: b.materiales, zonas: b.zonas, ocupado: disponibles[i].ocupado}));
+    }else{
+      const bloques = armarVistaPreviaSemanasGrupo(filasVencidas, cupoDiario);
+      dias = asignarFechasPlanGrupo(bloques, state.grupos.desdePlan, state.grupos.diasSemanaPlan);
+    }
+    const reparto = (state.grupos.responsablesPlan||[]).length
+      ? resumenRepartoPlanGrupo(repartirResponsablesPlanGrupo(entradasParaCrearPlanGrupo(dias, grupo.dueno), state.grupos.responsablesPlan))
+      : null;
+    setState({grupos: {...state.grupos, vistaPreviaCalculando:false, vistaPreviaDias:dias, vistaPreviaReparto:reparto, vistaPreviaTotalPendientes:filasVencidas.length, vistaPreviaCupoUsado:cupoDiario}});
   }catch(e){
     setState({grupos: {...state.grupos, vistaPreviaCalculando:false}});
     toast(e.message,'err');
@@ -4521,7 +4536,8 @@ async function calcularVistaPreviaPlanGrupo(){
 // Joel ahora se reparte día a día (ver asignarFechasPlanGrupo), así "Mi plan del día" de Contar
 // tiene trabajo todos los días y el atraso se mide por día real.
 function cupoDiarioPlanGrupo(g){
-  const capacidad = Math.round((Number(g.personasDisponibles)||0) * (Number(g.horasPorDia)||0) * (Number(g.ritmoPorHora)||0));
+  const personas = Array.isArray(g.responsablesPlan) && g.responsablesPlan.length ? g.responsablesPlan.length : (Number(g.personasDisponibles)||0);
+  const capacidad = Math.round(personas * (Number(g.horasPorDia)||0) * (Number(g.ritmoPorHora)||0));
   return capacidad > 0 ? capacidad : 20;
 }
 // Índices (0=lunes … 6=domingo) de los días marcados en las casillas L M M J V S D.
@@ -4547,6 +4563,80 @@ function asignarFechasPlanGrupo(bloques, desde, diasSemana){
     d = sumarDias(d, 1);
   });
   return dias;
+}
+// Días en que se puede repartir el plan, con el cupo que les queda (22/10/2026). En Escondida el
+// grupo "Criticos" repartía su cupo sin mirar lo que ya había ese día (barridos a mano, otros
+// grupos), y de lo vencido se contó el 3%. ocupado: {fecha: materiales ya planificados}. Un día
+// que ya llegó a su cupo se salta; uno a medio llenar recibe solo lo que falta. Devuelve hasta
+// "maximo" días [{fecha, cupo, ocupado}] en orden, saltando los días de la semana no marcados.
+function diasConCupoPlanGrupo(desde, diasSemana, cupoDiario, ocupado, maximo){
+  const permitidos = new Set(diasMarcadosPlanGrupo(diasSemana));
+  const dias = [];
+  if(!permitidos.size) return dias;
+  let d = new Date(desdePlanGrupo(desde)+'T00:00:00');
+  // Tope de vueltas: con todo el año ocupado no hay que quedarse buscando para siempre.
+  for(let vueltas=0; dias.length<maximo && vueltas<maximo*7+400; vueltas++, d = sumarDias(d, 1)){
+    if(!permitidos.has((d.getDay()+6)%7)) continue;
+    const fecha = fechaISO(d);
+    const yaHay = Number((ocupado||{})[fecha])||0;
+    const cupo = cupoDiario - yaHay;
+    if(cupo > 0) dias.push({fecha, cupo, ocupado: yaHay});
+  }
+  return dias;
+}
+// Reparte las entradas de cada día entre los responsables elegidos, en el orden del recorrido
+// (bodega, ubicación, storage bin): cada persona recibe un tramo seguido, para no cruzarse en la
+// bodega, de un tamaño parecido al de las demás. El primero de la lista rota cada día, para que el
+// sobrante de la división no le toque siempre al mismo. responsables: [id]; entradas: las de
+// entradasParaCrearPlanGrupo. Devuelve las mismas entradas con responsable_id.
+function repartirResponsablesPlanGrupo(entradas, responsables){
+  if(!Array.isArray(responsables) || !responsables.length) return entradas;
+  const porFecha = new Map();
+  entradas.forEach(e=>{ if(!porFecha.has(e.fecha)) porFecha.set(e.fecha, []); porFecha.get(e.fecha).push(e); });
+  const salida = new Map();
+  Array.from(porFecha.keys()).sort().forEach((fecha, nDia)=>{
+    const delDia = porFecha.get(fecha);
+    const n = responsables.length;
+    const orden = responsables.map((_,i)=> responsables[(i+nDia)%n]);
+    const total = delDia.reduce((t,e)=> t+(e.sku_codes||[]).length, 0);
+    const meta = total / n;
+    let persona = 0, carga = 0, acumulado = 0;
+    delDia.forEach(e=>{
+      const m = (e.sku_codes||[]).length;
+      // Pasa a la siguiente persona cuando esta ya tiene su parte (o la tendría pasada por más de
+      // la mitad de esta entrada), salvo que sea la última.
+      if(persona < n-1 && carga > 0 && acumulado + m/2 > meta*(persona+1)){ persona++; carga = 0; }
+      salida.set(e, {...e, responsable_id: orden[persona]});
+      carga += m; acumulado += m;
+    });
+  });
+  return entradas.map(e=> salida.get(e) || e);
+}
+// Materiales por responsable en cada día, para mostrarlo en la vista previa: {fecha: [{id, materiales}]}.
+function resumenRepartoPlanGrupo(entradas){
+  const r = {};
+  entradas.forEach(e=>{
+    if(!e.responsable_id) return;
+    const dia = r[e.fecha] || (r[e.fecha] = []);
+    let f = dia.find(x=>x.id===e.responsable_id);
+    if(!f){ f = {id:e.responsable_id, materiales:0}; dia.push(f); }
+    f.materiales += (e.sku_codes||[]).length;
+  });
+  return r;
+}
+// Materiales ya planificados por día desde "desde" (otras entradas del plan, de cualquier origen),
+// sin las del propio grupo, que se reemplazan al generar. Una sola llamada a plan_ventana_pantalla
+// resumida por 180 días; más allá se toman como libres.
+async function ocupadoPlanPorDia(desde, notaPropia){
+  const hasta = fechaISO(sumarDias(new Date(desde+'T00:00:00'), 180));
+  const datos = await planVentanaPantalla({modo:'rango', desde, hasta}, true);
+  const porPlan = new Map((datos.resumen||[]).map(f=>[f.plan_id, Number(f.total)||0]));
+  const ocupado = {};
+  datos.entradas.forEach(e=>{
+    if(notaPropia && e.nota===notaPropia) return;
+    ocupado[e.fecha] = (ocupado[e.fecha]||0) + (porPlan.get(e.id)||0);
+  });
+  return ocupado;
 }
 // "Jue", "Vie": día de la semana abreviado con inicial mayúscula (es-CL lo da en minúscula y sin
 // punto final en Chromium, con punto en Safari: se quita).
@@ -4582,6 +4672,9 @@ function semanasVistaPreviaGrupo(dias){
 // zona (y de cada fragmento, si se parte), ordenados por storage bin -- ahí sigue el orden físico
 // real de la bodega, según confirmó Joel, así que sirve como orden de recorrido sin inventar nada.
 function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
+  // cupoSemanal: un número (el mismo para todos los bloques) o una función (n.º de bloque) -> cupo,
+  // para los días que ya tienen algo planificado (ver diasConCupoPlanGrupo).
+  const cupoDe = typeof cupoSemanal==='function' ? cupoSemanal : ()=> cupoSemanal;
   const zonas = new Map();
   filasVencidas.forEach(f=>{
     const clave = `${f.bodega||''}::${f.ubicacion||''}`;
@@ -4597,13 +4690,13 @@ function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
   zonasOrdenadas.forEach(z=>{
     let restante = z.materiales;
     while(restante.length){
-      if(!semanaActual || semanaActual.materiales >= cupoSemanal){
-        semanaActual = { materiales:0, zonas:[] };
+      if(!semanaActual || semanaActual.materiales >= semanaActual.cupo){
+        semanaActual = { materiales:0, zonas:[], cupo: cupoDe(semanas.length) };
         semanas.push(semanaActual);
       }
       // Al menos 1: si el cupo es más chico que un solo material (no debería pasar, pero por las
       // dudas) igual hay que avanzar, en vez de quedar en un loop infinito.
-      const espacio = Math.max(1, cupoSemanal - semanaActual.materiales);
+      const espacio = Math.max(1, semanaActual.cupo - semanaActual.materiales);
       const fragmento = restante.slice(0, espacio);
       restante = restante.slice(espacio);
       semanaActual.zonas.push({ bodega:z.bodega, ubicacion:z.ubicacion, materiales:fragmento });
@@ -4613,6 +4706,7 @@ function armarVistaPreviaSemanasGrupo(filasVencidas, cupoSemanal){
       if(restante.length) semanaActual = null;
     }
   });
+  semanas.forEach(x=>{ delete x.cupo; });
   return semanas;
 }
 
@@ -4662,6 +4756,14 @@ function entradasParaCrearPlanGrupo(dias, dueno){
   return entradas;
 }
 
+// Nota con la que se marcan las entradas de un grupo: identifica cuáles reemplazar al regenerar y
+// cuáles no contar como "ya planificado" al calcular (son las que se reemplazan).
+function notaPlanGrupo(grupo){ return `Generado automáticamente por el grupo "${grupo.nombre}"`; }
+function nombresResponsablesPlanGrupo(ids){
+  const lista = (state.plan && state.plan.responsables) || [];
+  const nombres = ids.map(id=>{ const u = lista.find(x=>x.id===id); return u ? u.nombre : 'otra persona'; });
+  return nombres.length > 1 ? nombres.slice(0,-1).join(', ')+' y '+nombres[nombres.length-1] : nombres.join('');
+}
 async function confirmarVistaPreviaComoPlan(){
   const g = state.grupos;
   const grupo = g.lista.find(x=>x.id===g.grupoAbierto);
@@ -4670,9 +4772,10 @@ async function confirmarVistaPreviaComoPlan(){
   const faltaPeriodo = estadoPeriodoParaPlanificar();
   if(faltaPeriodo){ toast(mensajeFaltaPeriodo(faltaPeriodo),'err'); return; }
 
-  const entradas = entradasParaCrearPlanGrupo(g.vistaPreviaDias, grupo.dueno);
+  const responsables = g.responsablesPlan || [];
+  const entradas = repartirResponsablesPlanGrupo(entradasParaCrearPlanGrupo(g.vistaPreviaDias, grupo.dueno), responsables);
   const totalMateriales = g.vistaPreviaDias.reduce((n,s)=>n+s.materiales, 0);
-  const nota = `Generado automáticamente por el grupo "${grupo.nombre}"`;
+  const nota = notaPlanGrupo(grupo);
   // Si ya existen entradas de una generación anterior de este mismo grupo, avisar y ofrecer
   // reemplazarlas antes de crear las nuevas. Bug real reportado por Joel: regenerar el plan de un
   // grupo (ej. "Críticos") sin borrar antes las entradas de la generación previa las deja
@@ -4687,7 +4790,7 @@ async function confirmarVistaPreviaComoPlan(){
   const avisoPrevias = previas
     ? ` Ya existen ${previas} entrada${previas===1?'':'s'} de una generación anterior de este grupo -- se eliminarán antes de crear las nuevas, para no duplicar el SKU a contar.`
     : '';
-  if(!confirm(`¿Crear ${entradas.length} entrada${entradas.length===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})? Quedan sin responsable asignado -- lo repartes tú después.${avisoPrevias}`)) return;
+  if(!confirm(`¿Crear ${entradas.length} entrada${entradas.length===1?'':'s'} de planificación para "${grupo.nombre}" (${totalMateriales} material${totalMateriales===1?'':'es'})? ${responsables.length ? `Se reparten entre ${nombresResponsablesPlanGrupo(responsables)}.` : 'Quedan sin responsable asignado -- lo repartes tú después.'}${avisoPrevias}`)) return;
 
   setState({grupos: {...state.grupos, generandoPlan:true}});
   try{
@@ -4699,7 +4802,7 @@ async function confirmarVistaPreviaComoPlan(){
     if(creadas){ cargarPlanSemanal(); refrescarOpcionesUbicacion(); invalidarCalendario(); }
     const avisoOmitidos = materialesOmitidos ? ` -- ${materialesOmitidos} material${materialesOmitidos===1?'':'es'} no se pudo${materialesOmitidos===1?'':'ieron'} planificar (ubicación demasiado grande sin storage bin: cárgaselo y probá de nuevo)` : '';
     toast(`Plan generado: ${creadas} entrada${creadas===1?'':'s'} creada${creadas===1?'':'s'}${avisoOmitidos}`, materialesOmitidos ? 'warn' : undefined);
-    setState({grupos: {...state.grupos, generandoPlan:false, vistaPreviaDias:null, vistaPreviaTotalPendientes:0}});
+    setState({grupos: {...state.grupos, generandoPlan:false, vistaPreviaDias:null, vistaPreviaReparto:null, vistaPreviaTotalPendientes:0}});
   }catch(e){
     // Transacción única: si falló, no quedó nada a medias (ni borradas las anteriores).
     setState({grupos: {...state.grupos, generandoPlan:false}});
@@ -6445,13 +6548,17 @@ async function cargarAtrasoPlan(forzar){
 // Reprogramar el atraso (pedido de Joel, 30/09): elegir qué días atrasados mover y a qué fecha,
 // para no cargar todo en un solo día (el 09-sept de Escondida solo tenía 1.789 SKU). dias: lista de
 // fechas atrasadas a mover; fecha: destino (hoy o después).
-async function reprogramarAtraso(dias, fecha){
+// tope (22/10/2026): máximo de SKU por día. Con él, el atraso no cae entero en un día (en Escondida
+// eran 3.007 materiales vencidos del grupo "Criticos"): se reparte desde "fecha" en los días
+// siguientes, contando lo que esos días ya tienen planificado (ver repartirAtrasoEnDias).
+async function reprogramarAtraso(dias, fecha, tope){
   const a = state.plan.atraso;
   if(!a || !a.entradas.length || !dias.length || !fecha) return;
   const hoy = fechaISO(new Date());
   if(fecha < hoy){ toast('Elige hoy o una fecha posterior','err'); return; }
   const elegidas = a.entradas.filter(e=> dias.includes(e.fecha));
   if(!elegidas.length) return;
+  if(Number(tope) > 0) return repartirAtraso(elegidas, fecha, Math.floor(Number(tope)));
   const ids = elegidas.map(e=>e.id);
   const skus = elegidas.reduce((s,e)=> s+(e.skus||0), 0);
   const nDias = new Set(elegidas.map(e=>e.fecha)).size;
@@ -6467,6 +6574,53 @@ async function reprogramarAtraso(dias, fecha){
     cargarPlanSemanal();
     invalidarCalendario();
   }catch(e){ toast(e.message,'err'); cargarPlanSemanal(); }
+}
+// Reparte entradas atrasadas en días seguidos desde "desde", sin pasar de "tope" SKU por día
+// contando lo que cada día ya tiene (ocupado: {fecha: SKU}). Una entrada nunca se parte; si sola
+// supera el tope, va sola en un día libre. Conserva el orden (día atrasado y, dentro, el de la
+// lista). Devuelve [{id, fecha}].
+function repartirAtrasoEnDias(entradas, desde, tope, ocupado){
+  const orden = entradas.map((e,i)=>({e,i})).sort((x,y)=> x.e.fecha<y.e.fecha?-1 : x.e.fecha>y.e.fecha?1 : x.i-y.i).map(x=>x.e);
+  const salida = [];
+  let d = new Date(desde+'T00:00:00');
+  let usado = Number((ocupado||{})[desde])||0;
+  orden.forEach(e=>{
+    const n = Number(e.skus)||0;
+    for(let vueltas=0; vueltas<3660 && usado>0 && usado+n>tope; vueltas++){
+      d = sumarDias(d, 1);
+      usado = Number((ocupado||{})[fechaISO(d)])||0;
+    }
+    salida.push({id:e.id, fecha:fechaISO(d)});
+    usado += n;
+  });
+  return salida;
+}
+async function repartirAtraso(elegidas, fecha, tope){
+  let reparto;
+  try{
+    reparto = repartirAtrasoEnDias(elegidas, fecha, tope, await ocupadoPlanPorDia(fecha, null));
+  }catch(e){ toast('No se pudo revisar lo ya planificado: '+e.message,'err'); return; }
+  const porFecha = new Map();
+  reparto.forEach(r=>{ if(!porFecha.has(r.fecha)) porFecha.set(r.fecha, []); porFecha.get(r.fecha).push(r.id); });
+  const fechas = Array.from(porFecha.keys()).sort();
+  const skus = elegidas.reduce((s,e)=> s+(e.skus||0), 0);
+  const rango = fechas.length===1 ? `el ${fmtDiaCorto(fechas[0])}` : `${fechas.length} días, del ${fmtDiaCorto(fechas[0])} al ${fmtDiaCorto(fechas[fechas.length-1])}`;
+  if(!confirm(`¿Repartir ${elegidas.length} entrada${elegidas.length===1?'':'s'} atrasada${elegidas.length===1?'':'s'} (${skus.toLocaleString('es-CL')} SKU sin contar) en ${rango}, hasta ${tope.toLocaleString('es-CL')} SKU por día contando lo que ya tienen planificado? Conservan su responsable y su nota.`)) return;
+  let movidas = 0;
+  try{
+    for(const f of fechas){
+      await escribirPlanEnTandas(porFecha.get(f), {method:'PATCH', body:{fecha:f}, prefer:'return=minimal'});
+      movidas += porFecha.get(f).length;
+    }
+    toast(`${movidas} entrada${movidas===1?' quedó':'s quedaron'} repartida${movidas===1?'':'s'} en ${rango}`);
+  }catch(e){
+    // Se escribe día por día: si falla a mitad, se dice cuántas alcanzaron a moverse.
+    toast(`${movidas ? `Se movieron ${movidas} de ${elegidas.length} entradas y luego falló: ` : ''}${e.message}`,'err');
+  }
+  atrasoPlanCargadoEn = 0;
+  setState({plan:{...state.plan, atrasoPanel:null}});
+  cargarPlanSemanal();
+  invalidarCalendario();
 }
 // Todo el atraso a hoy (atajo; el botón de la tarjeta abre el panel para elegir días y fecha).
 async function pasarAtrasoAHoy(){
@@ -15700,6 +15854,11 @@ function imprimirInformeGuardado(id, valorDueno){
 /* =======================================================================
    RENDER — Planificación semanal (por bodega, ubicación específica y storage bin)
    ======================================================================= */
+// Texto del botón del panel de atraso; se actualiza al escribir el máximo sin repintar (iOS).
+function textoBotonMoverAtraso(nEntradas, nSkus, destino, tope){
+  const cuantas = `${nEntradas} entrada${nEntradas===1?'':'s'} (${Number(nSkus).toLocaleString('es-CL')} SKU)`;
+  return Number(tope) > 0 ? `Repartir ${cuantas} desde ${esc(destino)}` : `Mover ${cuantas} a ${esc(destino)}`;
+}
 // Tarjeta "Atrasado" de Planificación (ver cargarAtrasoPlan): cuántas entradas de días pasados
 // siguen con SKU sin contar, de qué días, y el botón para pasarlas a hoy.
 function htmlAtrasoPlan(p){
@@ -15723,8 +15882,13 @@ function htmlAtrasoPlan(p){
     const destino = panel.fecha===hoy ? `hoy (${fmtDiaCorto(hoy)})` : fmtDiaCorto(panel.fecha);
     return `
       <div id="plan-atraso-panel" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-        <label for="atraso-fecha">Pasar a la fecha</label>
-        <input type="date" id="atraso-fecha" value="${esc(panel.fecha)}" min="${hoy}">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div><label for="atraso-fecha">Pasar a la fecha</label>
+          <input type="date" id="atraso-fecha" value="${esc(panel.fecha)}" min="${hoy}"></div>
+          <div><label for="atraso-tope">Máximo de SKU por día</label>
+          <input type="number" id="atraso-tope" min="1" inputmode="numeric" placeholder="Sin máximo" value="${esc(panel.tope||'')}" style="width:140px"></div>
+        </div>
+        <div class="hint" style="margin:6px 0 0">Con un máximo, se reparte desde esa fecha en los días siguientes, contando lo que ya tienen planificado.</div>
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
           <span class="hint" style="margin:0">Días atrasados que se mueven:</span>
           <span style="display:flex;gap:10px;font-size:12.5px"><button type="button" class="link-btn" data-atraso-todos="1">Todos</button><button type="button" class="link-btn" data-atraso-todos="0">Ninguno</button></span>
@@ -15733,7 +15897,7 @@ function htmlAtrasoPlan(p){
           ${dias.map(([f,n])=>`<label style="display:flex;align-items:center;gap:8px;margin:0;font-size:13.5px;cursor:pointer"><input type="checkbox" data-atraso-dia="${esc(f)}" ${panel.dias[f]!==false?'checked':''} style="margin:0"> ${esc(fmtDiaCorto(f))} <span class="hint" style="margin:0">(${n.toLocaleString('es-CL')} SKU)</span></label>`).join('')}
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-          <button type="button" class="btn btn-primary" id="btn-atraso-mover" style="width:auto;padding:8px 14px" ${marcados.length && panel.fecha>=hoy ? '' : 'disabled'}>Mover ${nEntradas} entrada${nEntradas===1?'':'s'} (${nSkus.toLocaleString('es-CL')} SKU) a ${esc(destino)}</button>
+          <button type="button" class="btn btn-primary" id="btn-atraso-mover" style="width:auto;padding:8px 14px" ${marcados.length && panel.fecha>=hoy ? '' : 'disabled'} data-n-entradas="${nEntradas}" data-n-skus="${nSkus}" data-destino="${esc(destino)}">${textoBotonMoverAtraso(nEntradas, nSkus, destino, panel.tope)}</button>
           <button type="button" class="btn btn-secondary" id="btn-atraso-cancelar" style="width:auto;padding:8px 14px">Cancelar</button>
         </div>
       </div>`;
@@ -16779,7 +16943,7 @@ function renderDetalleGrupo(){
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
         <div>
           <label for="grupo-personas">Personas</label>
-          <input type="number" id="grupo-personas" min="1" value="${esc(g.personasDisponibles||1)}" style="width:90px">
+          <input type="number" id="grupo-personas" min="1" value="${esc((g.responsablesPlan||[]).length || g.personasDisponibles||1)}" style="width:90px" ${(g.responsablesPlan||[]).length ? 'disabled title="Son las personas elegidas abajo"' : ''}>
         </div>
         <div>
           <label for="grupo-horas">Horas c/u por día</label>
@@ -16802,6 +16966,8 @@ function renderDetalleGrupo(){
           <input type="date" id="grupo-desde" value="${esc(desdePlanGrupo(g.desdePlan))}" style="width:150px">
         </div>
       </div>
+      ${htmlResponsablesPlanGrupo(g)}
+      <label for="grupo-descontar" style="display:flex;align-items:flex-start;gap:8px;margin:10px 0 0;font-size:13.5px;cursor:pointer"><input type="checkbox" id="grupo-descontar" ${g.descontarPlanificado!==false?'checked':''} style="margin:2px 0 0;flex:none"> <span>Descontar lo que ya está planificado esos días (a mano u otros grupos)</span></label>
       <div class="hint" id="grupo-cupo-hint" style="margin:8px 0">${textoCupoPlanGrupo(g)}</div>
       <button type="button" id="btn-calcular-vista-previa" class="btn btn-secondary" style="width:auto;padding:8px 14px">Calcular vista previa</button>
       ${g.vistaPreviaCalculando? `<div class="hint" style="text-align:center;padding:16px 0">Calculando…</div>` : g.vistaPreviaDias? (
@@ -16811,7 +16977,7 @@ function renderDetalleGrupo(){
           <div class="plan-item grupo-semana-previa" style="padding:8px 0;align-items:flex-start;gap:4px;flex-direction:column">
             <div style="font-weight:500">Semana ${i+1} · ${fmtDiaCorto(semana.inicio)} – ${fmtDiaCorto(semana.fin)} — ${semana.materiales} material${semana.materiales===1?'':'es'}</div>
             ${semana.dias.map(dia=>`
-              <div class="hint grupo-dia-previa" data-fecha="${dia.fecha}" style="padding-left:10px"><strong>${esc(nombreDiaCorto(dia.fecha))} ${fmtDiaCorto(dia.fecha)}</strong> — ${dia.materiales}: ${dia.zonas.map(z=>`${esc(z.bodega||'Sin bodega')} · ${esc(z.ubicacion||'Sin ubicación')} (${z.materiales.length})`).join(', ')}</div>
+              <div class="hint grupo-dia-previa" data-fecha="${dia.fecha}" style="padding-left:10px"><strong>${esc(nombreDiaCorto(dia.fecha))} ${fmtDiaCorto(dia.fecha)}</strong> — ${dia.materiales}${dia.ocupado ? ` <span class="grupo-dia-ocupado">(+${dia.ocupado.toLocaleString('es-CL')} ya planificados)</span>` : ''}: ${dia.zonas.map(z=>`${esc(z.bodega||'Sin bodega')} · ${esc(z.ubicacion||'Sin ubicación')} (${z.materiales.length})`).join(', ')}${g.vistaPreviaReparto && g.vistaPreviaReparto[dia.fecha] ? `<div class="grupo-dia-reparto">${g.vistaPreviaReparto[dia.fecha].map(r=>`${esc(nombresResponsablesPlanGrupo([r.id]))}: ${r.materiales}`).join(' · ')}</div>` : ''}</div>
             `).join('')}
           </div>
         `).join('')}
@@ -16819,12 +16985,28 @@ function renderDetalleGrupo(){
           <button type="button" id="btn-confirmar-plan-grupo" class="btn btn-primary" style="width:auto;padding:8px 14px" ${g.generandoPlan?'disabled':''}>${g.generandoPlan? 'Creando…' : 'Confirmar y crear plan'}</button>
         </div>
         ${g.generandoPlan ? `<div class="hint" style="margin-top:8px">Creando el plan en el servidor (todas las entradas de una vez, unos segundos)…</div>` : ''}
-        <div class="hint" style="margin-top:8px;font-style:italic">Se crean sin responsable asignado -- lo repartes tú después en Planificación.</div>
+        <div class="hint" style="margin-top:8px;font-style:italic">${(g.responsablesPlan||[]).length ? `Cada entrada queda asignada a una de estas personas (${esc(nombresResponsablesPlanGrupo(g.responsablesPlan))}), según el reparto de arriba: cada una la ve en su plan del día en Contar.` : 'Se crean sin responsable asignado -- lo repartes tú después en Planificación, o elige arriba entre quiénes repartirlo.'}</div>
         ` : `<div class="empty" style="padding:10px 8px">No hay materiales pendientes de contar en este grupo -- todos están dentro de la frecuencia definida.</div>`
       ) : `<div class="hint" style="margin-top:10px;font-style:italic">Calcula la vista previa primero -- no se crea nada en Planificación hasta que la confirmes.</div>`}
       `}
     </div>
   `;
+}
+
+// "Repartir entre": las personas del equipo (las mismas de Responsable en Planificación). Sin nadie
+// marcado, el plan se crea sin responsable, como antes; con personas marcadas, el cupo se calcula
+// con cuántas son y cada entrada queda asignada a una (ver repartirResponsablesPlanGrupo).
+function htmlResponsablesPlanGrupo(g){
+  const lista = (state.plan && state.plan.responsables) || [];
+  if(!lista.length) return '';
+  const elegidos = new Set(g.responsablesPlan||[]);
+  return `
+      <div style="margin-top:10px">
+        <label>Repartir entre <span class="hint" style="margin:0;font-weight:400">(opcional)</span></label>
+        <div id="grupo-responsables" style="display:flex;gap:6px;flex-wrap:wrap">
+          ${lista.map(u=>`<label for="grupo-resp-${esc(u.id)}" style="display:flex;align-items:center;gap:6px;margin:0;padding:6px 10px;border:1px solid ${elegidos.has(u.id)?'var(--accent)':'var(--line)'};border-radius:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="grupo-resp-${esc(u.id)}" data-grupo-responsable="${esc(u.id)}" ${elegidos.has(u.id)?'checked':''} style="margin:0">${esc(u.nombre||'Sin nombre')}</label>`).join('')}
+        </div>
+      </div>`;
 }
 
 // Calendario mensual: planificado/contado/recontado/pendiente por día (ver resumen_calendario_mes
@@ -19480,10 +19662,26 @@ function bind(){
         ['grupo-personas','grupo-horas','grupo-ritmo','grupo-dia-0','grupo-dia-1','grupo-dia-2','grupo-dia-3','grupo-dia-4','grupo-dia-5','grupo-dia-6'].forEach(id=>{
           document.getElementById(id).addEventListener('input', ()=>{ const h = document.getElementById('grupo-cupo-hint'); if(h) h.innerHTML = textoCupoPlanGrupo(leerCapacidadGrupo()); });
         });
+        // Con personas elegidas en "Repartir entre", el campo Personas muestra cuántas son: no se
+        // guarda como si fuera la cifra escrita.
+        const capacidadSinPersonasElegidas = () => { const c = leerCapacidadGrupo(); if((state.grupos.responsablesPlan||[]).length) c.personasDisponibles = state.grupos.personasDisponibles; return c; };
         btnCalcularVistaPrevia.addEventListener('click', ()=>{
-          setState({grupos:{...state.grupos, ...leerCapacidadGrupo()}});
+          setState({grupos:{...state.grupos, ...capacidadSinPersonasElegidas()}});
           calcularVistaPreviaPlanGrupo();
         });
+        // Cambiar entre quiénes se reparte o si se descuenta lo planificado deja vieja la vista
+        // previa: se borra, para no confirmar un reparto distinto del que se ve.
+        document.querySelectorAll('[data-grupo-responsable]').forEach(chk=>{
+          chk.addEventListener('change', ()=>{
+            const id = chk.dataset.grupoResponsable;
+            const actuales = (state.grupos.responsablesPlan||[]).filter(x=>x!==id);
+            const lista = (state.plan.responsables||[]).map(u=>u.id);
+            const nuevos = chk.checked ? lista.filter(x=> x===id || actuales.includes(x)) : actuales;
+            setState({grupos:{...state.grupos, ...capacidadSinPersonasElegidas(), responsablesPlan: nuevos, vistaPreviaDias:null, vistaPreviaReparto:null}});
+          });
+        });
+        const chkDescontar = document.getElementById('grupo-descontar');
+        if(chkDescontar) chkDescontar.addEventListener('change', ()=> setState({grupos:{...state.grupos, ...capacidadSinPersonasElegidas(), descontarPlanificado: chkDescontar.checked, vistaPreviaDias:null, vistaPreviaReparto:null}}));
       }
       const btnConfirmarPlanGrupo = document.getElementById('btn-confirmar-plan-grupo');
       if(btnConfirmarPlanGrupo) btnConfirmarPlanGrupo.addEventListener('click', confirmarVistaPreviaComoPlan);
@@ -20381,6 +20579,14 @@ function bind(){
     if(btnAtrasoReprogramar) btnAtrasoReprogramar.addEventListener('click', ()=> setState({plan:{...state.plan, atrasoPanel:{fecha: fechaISO(new Date()), dias:{}}}}));
     const btnAtrasoCancelar = document.getElementById('btn-atraso-cancelar');
     if(btnAtrasoCancelar) btnAtrasoCancelar.addEventListener('click', ()=> setState({plan:{...state.plan, atrasoPanel:null}}));
+    // El máximo se guarda al estado sin repintar (repintar reemplaza el input y en iOS reinicia el
+    // teclado); solo cambia el texto del botón. Al elegir otra fecha sí se repinta, conservándolo.
+    const inputAtrasoTope = document.getElementById('atraso-tope');
+    if(inputAtrasoTope) inputAtrasoTope.addEventListener('input', e=>{
+      if(state.plan.atrasoPanel) state.plan.atrasoPanel = {...state.plan.atrasoPanel, tope: e.target.value};
+      const b = document.getElementById('btn-atraso-mover');
+      if(b) b.innerHTML = textoBotonMoverAtraso(Number(b.dataset.nEntradas), Number(b.dataset.nSkus), b.dataset.destino, e.target.value);
+    });
     const inputAtrasoFecha = document.getElementById('atraso-fecha');
     if(inputAtrasoFecha) inputAtrasoFecha.addEventListener('change', e=>{ if(state.plan.atrasoPanel && e.target.value) setState({plan:{...state.plan, atrasoPanel:{...state.plan.atrasoPanel, fecha: e.target.value}}}); });
     document.querySelectorAll('[data-atraso-dia]').forEach(chk=>{
@@ -20402,7 +20608,8 @@ function bind(){
       const panel = state.plan.atrasoPanel; const a = state.plan.atraso;
       if(!panel || !a) return;
       const dias = Array.from(new Set(a.entradas.map(e=>e.fecha))).filter(f=> panel.dias[f]!==false);
-      reprogramarAtraso(dias, panel.fecha);
+      const tope = document.getElementById('atraso-tope');
+      reprogramarAtraso(dias, panel.fecha, tope ? tope.value : panel.tope);
     });
     const btnReintentarUniverso = document.getElementById('btn-reintentar-universo');
     if(btnReintentarUniverso) btnReintentarUniverso.addEventListener('click', ()=>{ cargarPlanSemanal(); });

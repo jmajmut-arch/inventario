@@ -2911,6 +2911,83 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Grupos: repartir entre personas y descontar lo ya planificado (22/10/2026) =====
+  // A 420 px: "Repartir entre" ofrece al equipo; la vista previa salta el día lleno, dice cuánto
+  // ya había y cuánto le toca a cada persona; al confirmar, cada entrada lleva su responsable.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('grupos-reparto: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const J = (route, x) => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(x) });
+    const isoLocal = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const manana = isoLocal(new Date(Date.now()+86400000));
+    const ayer = isoLocal(new Date(Date.now()-86400000));
+    await page.route('**/rest/v1/ciclos_conteo?**', r => J(r, [{ id:'c1', nombre:'Q1', es_actual:true, fecha_inicio:'2026-10-01', fecha_fin:null }]));
+    await page.route('**/rest/v1/grupos_conteo?**', r => J(r, [{ id:'g1', nombre:'Criticos', frecuencia_dias:30, activo:true, automatico_critico:false, miembros:[{count:3}] }]));
+    await page.route('**/rest/v1/skus_grupos_conteo?**', r => J(r, [{id:'m1', sku_code:'10475828', bodega:'B501'}, {id:'m2', sku_code:'11172553', bodega:'B501'}, {id:'m3', sku_code:'10418772', bodega:'B501'}]));
+    await page.route('**/rest/v1/skus?**', r => J(r, [
+      {sku_code:'10475828', bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', ultimo_conteo_fecha:null},
+      {sku_code:'11172553', bodega:'B501', ubicacion:'0100', storage_bin:'3029-B', ultimo_conteo_fecha:null},
+      {sku_code:'10418772', bodega:'B501', ubicacion:'0100', storage_bin:'3030-A', ultimo_conteo_fecha:null},
+    ]));
+    let cuerpoCrear = null;
+    await page.route('**/rest/v1/rpc/**', r => {
+      const u = r.request().url();
+      if(u.includes('/rpc/plan_ventana_pantalla')){
+        const b = r.request().postDataJSON();
+        // Sin "desde": es Plan (el período, o el atraso hasta ayer), con una entrada atrasada de 3 SKU.
+        // Con "desde": lo ya planificado que mira Grupos.
+        if(!b.p_desde){
+          const entradas = [{id:'at1', fecha:ayer, nota:null, bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', solo_sin_ubicacion:false, por_sku:false, skus_excluidos:[], skus_incluidos:[]}];
+          const skus = ['10475828','11172553','10418772'].map((c,i)=>({id:'s'+i, sku_code:c, descripcion:'MATERIAL '+c}));
+          return J(r, b.p_resumido ? { entradas, resumen:[{plan_id:'at1', total:3, propios:3}] } : { entradas, universo:{ at1: skus } });
+        }
+        return J(r, { entradas:[{id:'o1', fecha: b.p_desde, nota:'Conteo Barrido P6'}], resumen:[{plan_id:'o1', total:500, propios:500}] });
+      }
+      if(u.includes('/rpc/crear_plan_grupo')){ cuerpoCrear = r.request().postDataJSON(); return J(r, {creadas:3, omitidas:0, omitidos_materiales:0, eliminadas:0}); }
+      return J(r, []);
+    });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('#tab-mas');
+    await page.waitForSelector('[data-tab="grupos"]', { state:'visible', timeout:ESPERA });
+    await page.click('[data-tab="grupos"]');
+    await page.waitForSelector('[data-ver-grupo="g1"]', { timeout:ESPERA });
+    await page.click('[data-ver-grupo="g1"]');
+    assert(await esperarVisible(page, '#grupo-resp-perfil-1'), 'Grupos ofrece repartir el plan entre las personas del equipo');
+    await page.check('#grupo-resp-perfil-1');
+    assert(await page.isDisabled('#grupo-personas') && (await page.inputValue('#grupo-personas'))==='1', 'con personas elegidas, Personas toma cuántas son');
+    await page.click('#btn-calcular-vista-previa');
+    assert(await esperarVisible(page, '.grupo-dia-reparto'), 'la vista previa dice cuánto le toca a cada persona');
+    const previa = await page.$$eval('.grupo-dia-previa', els => els.map(e => ({ fecha: e.dataset.fecha, texto: e.textContent })));
+    assert(previa.length===1 && previa[0].fecha!==manana && /Ana Torres: 3/.test(previa[0].texto), 'el día con 500 ya planificados (mañana) se salta y el reparto se ve, obtuvo: '+JSON.stringify(previa));
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px Grupos con el reparto no desborda, obtuvo: '+desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/grupos-reparto-420.png', fullPage: true });
+    page.once('dialog', d => d.accept());
+    await page.click('#btn-confirmar-plan-grupo');
+    for(let i=0; i<40 && !cuerpoCrear; i++) await page.waitForTimeout(100);
+    assert(cuerpoCrear && cuerpoCrear.p_entradas.length===3 && cuerpoCrear.p_entradas.every(e => e.responsable_id==='perfil-1'), 'al confirmar, cada entrada viaja con su responsable, obtuvo: '+JSON.stringify(cuerpoCrear));
+    // Plan: el atraso se puede repartir con un máximo de SKU por día; escribirlo no repinta.
+    await page.click('.tabbar [data-tab="plan"]');
+    assert(await esperarVisible(page, '#btn-atraso-reprogramar'), 'Plan muestra el atraso con Reprogramar');
+    await page.click('#btn-atraso-reprogramar');
+    await page.waitForSelector('#atraso-tope', { state:'visible', timeout:ESPERA });
+    await page.focus('#atraso-tope');
+    await page.evaluate(() => { window.__topeAntes = document.getElementById('atraso-tope'); });
+    await page.keyboard.type('25');
+    const tope = await page.evaluate(() => ({ mismo: window.__topeAntes === document.getElementById('atraso-tope'), boton: document.getElementById('btn-atraso-mover').textContent.trim() }));
+    assert(tope.mismo && /^Repartir 1 entrada \(3 SKU\) desde /.test(tope.boton), 'al escribir el máximo, el campo no se reemplaza y el botón pasa a "Repartir", obtuvo: '+JSON.stringify(tope));
+    const desbordePlan = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordePlan <= 0, 'a 420 px el panel de atraso no desborda, obtuvo: '+desbordePlan);
+    if (process.env.E2E_CAPTURAS) await (await page.$('#plan-atraso')).screenshot({ path: process.env.E2E_CAPTURAS + '/plan-atraso-tope-420.png' });
+    await context.close();
+  }
+
   // ===== Calendario (Fase 5 del rediseño): estados por día en el navegador =====
   // Un día pasado con pendientes se marca atrasado, uno sin pendientes cumplido, uno por venir
   // futuro; el resumen de cumplimiento aparece; tocar un día abre su detalle con el estado.

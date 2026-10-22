@@ -8029,6 +8029,77 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctx.__appstate.grupos.generandoPlan===false && ctx.__appstate.grupos.vistaPreviaDias!==null, 'tras el error debe soltar "Creando…" y conservar la vista previa para reintentar, obtuvo: '+JSON.stringify({generando:ctx.__appstate.grupos.generandoPlan, previa:!!ctx.__appstate.grupos.vistaPreviaDias}));
   }
 
+  // ===== Grupos: descontar lo ya planificado y repartir entre responsables (22/10/2026) =====
+  // En Escondida el grupo "Criticos" repartía su cupo sin mirar lo planificado a mano esos días y
+  // sin responsable: de lo vencido se contó el 3%.
+  {
+    const d = ctx.diasConCupoPlanGrupo('2026-10-05', [true,true,true,true,true,false,false], 10, {'2026-10-05':10, '2026-10-06':4}, 3);
+    assert(JSON.stringify(d.map(x=>[x.fecha,x.cupo,x.ocupado]))==='[["2026-10-06",6,4],["2026-10-07",10,0],["2026-10-08",10,0]]', 'diasConCupoPlanGrupo salta el día lleno y al día a medias le deja lo que falta, obtuvo: '+JSON.stringify(d));
+    const sabado = ctx.diasConCupoPlanGrupo('2026-10-09', [true,true,true,true,true,false,false], 10, {}, 2);
+    assert(sabado.map(x=>x.fecha).join(',')==='2026-10-09,2026-10-12', 'y salta los días de la semana no marcados, obtuvo: '+JSON.stringify(sabado));
+    const bloquesVar = ctx.armarVistaPreviaSemanasGrupo(Array.from({length:9}, (_,i)=>({sku_code:'C-'+i, bodega:'B1', ubicacion:'U1', storage_bin:'A-'+i})), i=>[2,4,10][i]);
+    assert(bloquesVar.map(b=>b.materiales).join(',')==='2,4,3' && bloquesVar.every(b=>!('cupo' in b)), 'armarVistaPreviaSemanasGrupo acepta un cupo distinto por bloque, obtuvo: '+JSON.stringify(bloquesVar.map(b=>b.materiales)));
+    assert(ctx.cupoDiarioPlanGrupo({responsablesPlan:['a','b','c'], personasDisponibles:1, horasPorDia:1, ritmoPorHora:10})===30, 'con personas elegidas, el cupo se calcula con cuántas son');
+    const entradasRep = [ {fecha:'2026-10-06', sku_codes:['a','b','c']}, {fecha:'2026-10-06', sku_codes:['d']}, {fecha:'2026-10-06', sku_codes:['e','f']}, {fecha:'2026-10-06', sku_codes:['g','h']}, {fecha:'2026-10-07', sku_codes:['i']}, {fecha:'2026-10-07', sku_codes:['j']} ];
+    const repartidas = ctx.repartirResponsablesPlanGrupo(entradasRep, ['u1','u2']);
+    assert(repartidas.map(e=>e.responsable_id).join(',')==='u1,u1,u2,u2,u2,u1', 'repartirResponsablesPlanGrupo da tramos seguidos y parejos, y el primero rota cada día, obtuvo: '+repartidas.map(e=>e.responsable_id).join(','));
+    assert(ctx.repartirResponsablesPlanGrupo(entradasRep, []) === entradasRep && !('responsable_id' in entradasRep[0]), 'sin personas elegidas, las entradas quedan como estaban');
+    assert(JSON.stringify(ctx.resumenRepartoPlanGrupo(repartidas))==='{"2026-10-06":[{"id":"u1","materiales":4},{"id":"u2","materiales":4}],"2026-10-07":[{"id":"u2","materiales":1},{"id":"u1","materiales":1}]}', 'resumenRepartoPlanGrupo cuenta materiales por persona y día, obtuvo: '+JSON.stringify(ctx.resumenRepartoPlanGrupo(repartidas)));
+
+    // De punta a punta: el día 05 ya está lleno con un barrido a mano (20 = cupo), el 06 tiene 17
+    // de otra entrada y 50 del propio grupo (esas se reemplazan, no cuentan).
+    const fetchAntesOcupado = ctx.fetch;
+    let cuerpoVentana = null;
+    const notaPropia = 'Generado automáticamente por el grupo "Grupo Plan Real"';
+    ctx.fetch = async (url, opts)=>{
+      if(String(url).includes('/rpc/plan_ventana_pantalla')){
+        cuerpoVentana = JSON.parse(opts.body);
+        const cuerpo = {entradas:[{id:'o1', fecha:'2026-10-05', nota:'Conteo Barrido P6'}, {id:'o2', fecha:'2026-10-06', nota:null}, {id:'o3', fecha:'2026-10-06', nota:notaPropia}], resumen:[{plan_id:'o1', total:20, propios:20}, {plan_id:'o2', total:17, propios:17}, {plan_id:'o3', total:50, propios:50}]};
+        return {status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cuerpo), json: async()=>cuerpo};
+      }
+      return fetchAntesOcupado(url, opts);
+    };
+    Object.assign(ctx.__appstate.grupos, {desdePlan:'2026-10-05', diasSemanaPlan:[true,true,true,true,true,true,true], personasDisponibles:1, horasPorDia:1, ritmoPorHora:20, responsablesPlan:[], descontarPlanificado:true});
+    await ctx.calcularVistaPreviaPlanGrupo();
+    const diasOcupado = ctx.__appstate.grupos.vistaPreviaDias;
+    assert(JSON.stringify(diasOcupado.map(x=>[x.fecha, x.materiales, x.ocupado]))==='[["2026-10-06",3,17],["2026-10-07",1,0]]', 'la vista previa salta el día lleno y al 06 le da solo lo que le queda, sin contar las entradas del propio grupo, obtuvo: '+JSON.stringify(diasOcupado && diasOcupado.map(x=>[x.fecha, x.materiales, x.ocupado])));
+    assert(cuerpoVentana && cuerpoVentana.p_desde==='2026-10-05' && cuerpoVentana.p_hasta==='2027-04-03' && cuerpoVentana.p_resumido===true, 'pide lo planificado en UNA llamada resumida de 180 días desde "Desde", obtuvo: '+JSON.stringify(cuerpoVentana));
+    assert(ctx.renderGrupos().includes('(+17 ya planificados)') && ctx.renderGrupos().includes('id="grupo-descontar" checked'), 'la vista previa muestra lo que ya había ese día y la casilla de descontar marcada');
+
+    // Repartir entre dos personas: el cupo pasa a 2×1×20 = 40 (el 05 queda con 20 libres).
+    ctx.__appstate.plan.responsables = [{id:'u-ana', nombre:'Ana'}, {id:'u-luis', nombre:'Luis'}];
+    ctx.__appstate.grupos.responsablesPlan = ['u-ana','u-luis'];
+    await ctx.calcularVistaPreviaPlanGrupo();
+    const reparto = ctx.__appstate.grupos.vistaPreviaReparto;
+    assert(ctx.__appstate.grupos.vistaPreviaDias.length===1 && ctx.__appstate.grupos.vistaPreviaDias[0].fecha==='2026-10-05' && reparto && reparto['2026-10-05'].length===2 && reparto['2026-10-05'].reduce((t,r)=>t+r.materiales,0)===3, 'con dos personas cabe todo el 05 y se reparte entre las dos, obtuvo: '+JSON.stringify({dias: ctx.__appstate.grupos.vistaPreviaDias, reparto}));
+    const htmlReparto = ctx.renderGrupos();
+    assert(htmlReparto.includes('id="grupo-resp-u-ana" data-grupo-responsable="u-ana" checked') && /id="grupo-personas"[^>]*value="2"[^>]*disabled/.test(htmlReparto) && /class="grupo-dia-reparto">Ana: \d · Luis: \d|class="grupo-dia-reparto">Luis: \d · Ana: \d/.test(htmlReparto) && htmlReparto.includes('Cada entrada queda asignada a una de estas personas (Ana y Luis)'), 'la pantalla muestra a quiénes se reparte, cuánto a cada uno, y Personas toma la cantidad elegida, obtuvo: '+(htmlReparto.match(/Repartir entre[\s\S]{0,600}/)||[''])[0]);
+    confirmRespuesta = true; confirmLlamadas.length = 0; calls.length = 0;
+    crearPlanGrupoRespuesta = {creadas:3, omitidas:0, omitidos_materiales:0, eliminadas:0};
+    await ctx.confirmarVistaPreviaComoPlan();
+    const entradasConResp = cuerpoCrearPlan().p_entradas;
+    assert(/Se reparten entre Ana y Luis/.test(confirmLlamadas[0]) && entradasConResp.every(e=>['u-ana','u-luis'].includes(e.responsable_id)) && new Set(entradasConResp.map(e=>e.responsable_id)).size===2, 'al confirmar, cada entrada viaja con su responsable, obtuvo: '+JSON.stringify({confirm:confirmLlamadas, entradas:entradasConResp}));
+
+    // Sin descontar: no pide lo planificado y parte el mismo "Desde".
+    ctx.__appstate.grupos.responsablesPlan = [];
+    ctx.__appstate.grupos.descontarPlanificado = false;
+    cuerpoVentana = null;
+    await ctx.calcularVistaPreviaPlanGrupo();
+    assert(cuerpoVentana===null && ctx.__appstate.grupos.vistaPreviaDias[0].fecha==='2026-10-05', 'sin descontar, reparte como antes sin pedir lo planificado, obtuvo: '+JSON.stringify(ctx.__appstate.grupos.vistaPreviaDias));
+    ctx.fetch = fetchAntesOcupado;
+    ctx.__appstate.grupos.descontarPlanificado = true;
+
+    // Si no se puede saber lo planificado, es un error visible: no reparte a ciegas.
+    planVentanaPantallaFalla = 'canceling statement due to statement timeout';
+    const toastsAntesOcupado = elements['toast-root'].hijos.length;
+    ctx.__appstate.grupos.vistaPreviaDias = null;
+    await ctx.calcularVistaPreviaPlanGrupo();
+    planVentanaPantallaFalla = null;
+    const toastsOcupado = elements['toast-root'].hijos.slice(toastsAntesOcupado);
+    assert(toastsOcupado.length===1 && toastsOcupado[0].className==='toast err' && /statement timeout/.test(toastsOcupado[0].textContent) && ctx.__appstate.grupos.vistaPreviaDias===null && ctx.__appstate.grupos.vistaPreviaCalculando===false, 'si falla la consulta de lo planificado, se ve el error y no hay vista previa, obtuvo: '+JSON.stringify(toastsOcupado.map(t=>t.textContent)));
+    Object.assign(ctx.__appstate.grupos, {desdePlan:'', responsablesPlan:[]});
+  }
+
   // entradasParaCrearPlanGrupo: la zona sin bodega asignada pero con ubicación (skus.bodega IS
   // NULL) viaja con bodega '' -- convención de la app para distinguirla del comodín "cualquier
   // bodega" (ver filtroBodega); el servidor la traduce a bodega IS NULL.
@@ -14894,6 +14965,31 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     const patchAtraso = calls.find(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.(a1,a2)'));
     assert(confirmLlamadas.length===1 && confirmLlamadas[0].includes('2 entradas atrasadas de 2 días (7 SKU sin contar)') && !!patchAtraso && JSON.parse(patchAtraso.opts.body).fecha===hoyA, 'Pasar a hoy debe confirmar y actualizar la fecha de esas entradas a hoy, obtuvo: '+JSON.stringify({confirm:confirmLlamadas, patch: patchAtraso && [patchAtraso.url, patchAtraso.opts.body]}));
     await new Promise(r=>setTimeout(r, 20));
+    // Repartir el atraso con un máximo por día (22/10/2026): días seguidos desde la fecha, contando
+    // lo que ya tienen; una entrada nunca se parte y, si sola pasa el máximo, va sola en un día.
+    {
+      const r = ctx.repartirAtrasoEnDias([{id:'x1', fecha:'2026-10-02', skus:30}, {id:'x2', fecha:'2026-10-01', skus:25}, {id:'x3', fecha:'2026-10-02', skus:10}, {id:'x4', fecha:'2026-10-02', skus:80}], '2026-10-23', 40, {'2026-10-23':40, '2026-10-24':10});
+      assert(JSON.stringify(r)==='[{"id":"x2","fecha":"2026-10-24"},{"id":"x1","fecha":"2026-10-25"},{"id":"x3","fecha":"2026-10-25"},{"id":"x4","fecha":"2026-10-26"}]', 'repartirAtrasoEnDias respeta el máximo con lo ya planificado y el orden de los días atrasados, obtuvo: '+JSON.stringify(r));
+      const mananaR = ctx.fechaISO(new Date(Date.now()+86400000));
+      const masDias = n => ctx.fechaISO(new Date(new Date(mananaR+'T00:00:00').getTime()+n*86400000));
+      ctx.__appstate.plan = {...ctx.__appstate.plan, atraso:{entradas:[{id:'a1', fecha:anteayerA, skus:5},{id:'a2', fecha:ayerA, skus:2}], error:null}, atrasoPanel:{fecha: mananaR, dias:{}, tope:'5'}};
+      assert(/Repartir 2 entradas \(7 SKU\) desde /.test(ctx.renderPlanificacion()) && ctx.renderPlanificacion().includes('id="atraso-tope" min="1" inputmode="numeric" placeholder="Sin máximo" value="5"'), 'con máximo, el panel ofrece repartir desde la fecha');
+      const fetchAntesAtraso = ctx.fetch;
+      ctx.fetch = async (url, opts)=>{
+        if(String(url).includes('/rpc/plan_ventana_pantalla')){
+          const cuerpo = {entradas:[{id:'f1', fecha:mananaR, nota:null}], resumen:[{plan_id:'f1', total:4, propios:4}]};
+          return {status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(cuerpo), json: async()=>cuerpo};
+        }
+        return fetchAntesAtraso(url, opts);
+      };
+      confirmRespuesta = true; confirmLlamadas.length = 0; calls.length = 0;
+      await ctx.reprogramarAtraso([anteayerA, ayerA], mananaR, '5');
+      ctx.fetch = fetchAntesAtraso;
+      const patches = calls.filter(c=>c.opts && c.opts.method==='PATCH' && c.url.includes('/plan_semanal?id=in.')).map(c=>[c.url.match(/in\.\(([^)]*)\)/)[1], JSON.parse(c.opts.body).fecha]);
+      assert(confirmLlamadas.length===1 && /hasta 5 SKU por día/.test(confirmLlamadas[0]) && JSON.stringify(patches)===JSON.stringify([['a1', masDias(1)], ['a2', masDias(2)]]), 'con máximo, cada entrada va al primer día con espacio (mañana ya tiene 4), obtuvo: '+JSON.stringify({confirm:confirmLlamadas, patches}));
+      await new Promise(r=>setTimeout(r, 20));
+      ctx.__appstate.plan = {...ctx.__appstate.plan, atraso:{entradas:[{id:'a1', fecha:anteayerA, skus:5},{id:'a2', fecha:ayerA, skus:2}], error:null}, atrasoPanel:null};
+    }
     // Otras vistas: UNA consulta al período actual hasta ayer (plan_ventana_pantalla resumido).
     ctx.__appstate.plan = {...basePlan, rango:'semana', mesInicio:null, cicloFiltro:'', semanaInicio:'2026-08-10', atraso:null};
     calls.length = 0;
