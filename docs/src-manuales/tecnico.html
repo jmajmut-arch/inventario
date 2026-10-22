@@ -251,7 +251,7 @@
       <li>Un SKU cubierto por dos entradas se cuenta una vez en los totales (gana la entrada más temprana, igual en cliente y servidor)</li>
       <li>Aviso de solapamiento antes de agregar: cuántos SKU de la entrada nueva ya están planificados en el período (<code>skus_planificables</code> vs <code>skus_disponibles_planificar</code>)</li>
       <li>Exclusiones puntuales por entrada (<code>plan_semanal_exclusiones</code>) resueltas en el servidor: nunca viajan por la URL</li>
-      <li>Entradas por código de SKU (<code>por_sku</code> + lista exacta en <code>plan_semanal_incluidos</code>), agrupadas por bodega y ubicación; las resuelven las mismas funciones que el resto (universo, calendario, disponibles)</li>
+      <li>Entradas por código de SKU (<code>por_sku</code> + lista exacta en <code>plan_semanal_incluidos</code>), creadas en una transacción por <code>crear_plan_por_codigos</code>; una lista pegada (hasta 5.000) la clasifica <code>revisar_codigos_plan</code>. Por storage bin: <code>buscar_bins_plan</code> (trigramas, empresa explícita). Filtros de planta, storage location y dueño</li>
       <li>Exportar PDF de la ventana en una llamada (<code>universo_entradas_plan_hoja</code>); bloque Atrasado reprogramable por días o repartido con un máximo de SKU por día (descuenta lo ya planificado); la selección dice SKU y bins distintos</li>
     </ul>
     <ul class="checks no">
@@ -444,7 +444,7 @@
       <li>CAPTCHA en el login: pendiente (el rate limit ya frena fuerza bruta)</li>
     </ul>
   </div>
-  <div class="box"><div class="tag">Estado del advisor de seguridad de Supabase</div>Al 22 de octubre reporta solo dos tipos de aviso, ambos conocidos e intencionales: la extensión <code>pg_net</code> en el esquema <code>public</code>, y las funciones <code>SECURITY DEFINER</code> que los usuarios con sesión necesitan invocar (26 entradas, contando sobrecargas). Ningún aviso de RLS ausente ni de vistas expuestas.</div>
+  <div class="box"><div class="tag">Estado del advisor de seguridad de Supabase</div>Al 22 de octubre reporta solo dos tipos de aviso, ambos conocidos e intencionales: la extensión <code>pg_net</code> en el esquema <code>public</code>, y las funciones <code>SECURITY DEFINER</code> que los usuarios con sesión necesitan invocar (27 entradas, contando sobrecargas). Ningún aviso de RLS ausente ni de vistas expuestas.</div>
 </section>
 
 <!-- 14 -->
