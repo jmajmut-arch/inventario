@@ -726,7 +726,6 @@ main.plan-ancho{max-width:1600px;}
 .plan-bin-opcion{display:flex;align-items:center;gap:10px;min-height:var(--tap-sm);margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);cursor:pointer;font-weight:400;}
 .plan-bin-opcion.elegido{border-color:var(--amber);background:var(--surface-2);}
 .plan-bin-opcion input{width:20px;height:20px;margin:0;flex:none;accent-color:var(--amber);}
-.plan-bin-opcion.no-elegible{cursor:default;opacity:.65;}
 .plan-bin-textos{flex:1;min-width:0;display:flex;flex-direction:column;}
 .plan-bin-textos .mono{font-weight:600;overflow-wrap:anywhere;}
 .plan-bin-lugar{font-size:12px;color:var(--text-dim);}
@@ -2683,6 +2682,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
+  olvidarBusquedasPlan();
   return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', reconteoOrden:'fecha', reconteoSoloCalzan:false, reconteosYaCalzan:0, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,vistaPreviaReparto:null,responsablesPlan:[],descontarPlanificado:true,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], conteoRecienGuardado:null, superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], ciclosCargados:false, cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
@@ -6317,12 +6317,14 @@ async function buscarSkuParaPlan(texto){
   planSkuBusqueda.buscando = true;
   dibujarResultadosSkuPlan();
   try{
-    const t = encodeURIComponent(texto);
+    // El texto va en el cuerpo, saneado como en los demás buscadores. Antes iba con
+    // encodeURIComponent: "filtro aire" se buscaba como "filtro%20aire" y no encontraba nada.
+    const t = sanearTextoFiltro(texto);
     // skus_planificables por buscar_skus_lectura (p_planificables), para que use los índices de trigramas.
-    // Con planta o storage location elegidas (ver filtrosPlanAgregar), solo esas posiciones.
+    // Con planta, storage location o dueño elegidos (ver filtrosPlanAgregar), solo esas posiciones.
     const f = filtrosPlanAgregar();
-    const filas = (await rest('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin', {method:'POST', body:{p_texto: t, p_limite: PLAN_SKU_BUSQUEDA_LIMITE, p_planificables: true, ...(f.bodega ? {p_bodega: f.bodega} : {})}}) || [])
-      .filter(x=> (!f.bodega || x.bodega===f.bodega) && (!f.ubicacion || x.ubicacion===f.ubicacion));
+    const filas = (await rest(`/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin${f.dueno==null ? '' : ',dueno'}`, {method:'POST', body:{p_texto: t, p_limite: PLAN_SKU_BUSQUEDA_LIMITE, p_planificables: true, ...(f.bodega ? {p_bodega: f.bodega} : {})}}) || [])
+      .filter(x=> (!f.bodega || x.bodega===f.bodega) && (!f.ubicacion || x.ubicacion===f.ubicacion) && (f.dueno==null || x.dueno===f.dueno));
     if(seq!==planSkuBusqueda.secuencia) return;
     let disponibles = [];
     if(filas.length){
@@ -6444,9 +6446,28 @@ let planBinBusqueda = { texto:'', resultados:[], buscando:false, error:'', secue
 let planBinBusquedaTimer = null;
 let planCodigos = { texto:'', revisando:false, resultado:null, agregados:[] };
 
+// dueno: el de "Agregar a la planificación" (duenoAgregarPlan: undefined = todos), el mismo del
+// modo por ubicación, para que las empresas con dueños de stock planifiquen igual en los tres modos.
 function filtrosPlanAgregar(){
   const p = state.plan;
-  return { bodega: p.filtroPlanta || null, ubicacion: (p.filtroPlanta && p.filtroSloc) || null };
+  const dueno = duenoAgregarPlan();
+  return { bodega: p.filtroPlanta || null, ubicacion: (p.filtroPlanta && p.filtroSloc) || null, dueno: dueno===undefined ? null : dueno };
+}
+// Dueño elegido en los filtros de "Por storage bin" / "Por código": el mismo valor que el selector
+// del modo por ubicación (sus listas se recalculan para cuando se vuelva a ese modo).
+function elegirFiltroDuenoPlan(valor){
+  // Un bin elegido con otro dueño sería otra entrada (la entrada lleva el dueño): se eligen de nuevo.
+  planBinBusqueda = {...planBinBusqueda, elegidos:new Map()};
+  setState({plan:{...state.plan, duenoAgregar: valor||''}});
+  refrescarBusquedasPorFiltro();
+  cargarListasPlanDueno();
+}
+// Al cerrar sesión: lo buscado, elegido o pegado en Plan no puede quedar para la siguiente
+// persona (otra empresa, en un equipo compartido). Viven fuera de state, así que van a mano.
+function olvidarBusquedasPlan(){
+  planSkuBusqueda = { texto:'', resultados:[], yaPlanificados:new Set(), buscando:false, secuencia: planSkuBusqueda.secuencia+1 };
+  planBinBusqueda = { texto:'', resultados:[], buscando:false, error:'', secuencia: planBinBusqueda.secuencia+1, elegidos:new Map() };
+  planCodigos = { texto:'', revisando:false, resultado:null, agregados:[] };
 }
 // Va en un data-atributo: sin caracteres de control (el HTML cambia un NUL por "�" y la clave no calzaría).
 function clavePlanBin(b){ return [b.bodega, b.ubicacion, b.storage_bin].map(x=> encodeURIComponent(x==null?'':x)).join('|'); }
@@ -6504,7 +6525,7 @@ async function buscarBinsParaPlan(texto){
   dibujarResultadosBinsPlan();
   try{
     const f = filtrosPlanAgregar();
-    const filas = await rest('/rpc/buscar_bins_plan', {method:'POST', body:{p_texto: texto, p_bodega: f.bodega, p_ubicacion: f.ubicacion, p_limite: 30}}) || [];
+    const filas = await rest('/rpc/buscar_bins_plan', {method:'POST', body:{p_texto: texto, p_bodega: f.bodega, p_ubicacion: f.ubicacion, p_dueno: f.dueno, p_limite: 30}}) || [];
     if(seq!==planBinBusqueda.secuencia) return;
     planBinBusqueda.resultados = filas;
   }catch(e){
@@ -6526,13 +6547,12 @@ function htmlResultadosBinsPlan(){
     const clave = clavePlanBin(r);
     const elegido = b.elegidos.has(clave);
     const lugar = [r.bodega||'Sin bodega', r.ubicacion||'sin ubicación específica'].join(' · ');
-    // Una entrada del plan con bin necesita la ubicación específica: sin ella cubriría ese bin en
-    // todas las ubicaciones de la planta. Esos pocos (1 de 62.113 en Escondida) van por código.
-    const elegible = binPlanElegible(r);
+    // Un bin sin planta o sin ubicación específica se agrega por código (ver agregarPlanPorBins).
+    const porCodigo = !binPlanConZona(r);
     return `
-      <label class="plan-bin-opcion${elegido?' elegido':''}${elegible?'':' no-elegible'}">
-        <input type="checkbox" data-elegir-bin-plan="${esc(clave)}" ${elegido?'checked':''} ${elegible?'':'disabled'}>
-        <span class="plan-bin-textos"><span class="mono">${esc(r.storage_bin)}</span><span class="plan-bin-lugar">${esc(lugar)}${elegible?'':' · planifícalo por código'}</span></span>
+      <label class="plan-bin-opcion${elegido?' elegido':''}">
+        <input type="checkbox" data-elegir-bin-plan="${esc(clave)}" ${elegido?'checked':''}>
+        <span class="plan-bin-textos"><span class="mono">${esc(r.storage_bin)}</span><span class="plan-bin-lugar">${esc(lugar)}${porCodigo?' · se agrega por código':''}</span></span>
         <span class="plan-bin-n${r.por_planificar? '' : ' cero'}" title="Por planificar / total de SKU del bin">${Number(r.por_planificar).toLocaleString('es-CL')}/${Number(r.total).toLocaleString('es-CL')} SKU</span>
       </label>`;
   }).join('') + (b.resultados.length>=30? '<div class="hint" style="margin-top:4px">Mostrando los primeros 30. Escribe más o usa los filtros para acotar.</div>' : '');
@@ -6550,17 +6570,21 @@ function dibujarResultadosBinsPlan(){
   const e = document.getElementById('p-bin-elegidos');
   if(e) e.innerHTML = htmlBinsElegidosPlan();
 }
-function binPlanElegible(b){ return !!(b && b.storage_bin && b.ubicacion); }
+// Una entrada con bin necesita planta y ubicación específica: con ubicación nula, la entrada por
+// ubicación no lleva bin (cubriría toda la planta) y sin planta no hay cascada que la contenga.
+function binPlanConZona(b){ return !!(b && b.storage_bin && b.bodega && b.ubicacion); }
 function alternarBinPlan(clave, marcar){
   const r = planBinBusqueda.resultados.find(x=> clavePlanBin(x)===clave) || planBinBusqueda.elegidos.get(clave);
-  if(!r || (marcar && !binPlanElegible(r))) return;
+  if(!r) return;
   if(marcar) planBinBusqueda.elegidos.set(clave, r); else planBinBusqueda.elegidos.delete(clave);
   dibujarResultadosBinsPlan();
 }
 
 // Una entrada por bin, por el mismo camino que el formulario por ubicación (crearPlanEntrada con
-// storageBins): exclusiones, foto del universo y reglas de siempre. Se agrupan por bodega +
-// ubicación porque crearPlanEntrada trabaja de a una zona.
+// storageBins): exclusiones, foto del universo, dueño y reglas de siempre. Se agrupan por bodega +
+// ubicación porque crearPlanEntrada trabaja de a una zona. Los bins sin planta o sin ubicación
+// específica (empresas que no usan alguno de esos niveles) van como entrada por código con sus
+// materiales pendientes: exacta, y la entienden Contar, el Calendario y los informes.
 async function agregarPlanPorBins({fecha, responsableId, nota}){
   const elegidos = [...planBinBusqueda.elegidos.values()];
   if(!elegidos.length){ toast('Busca y elige al menos un storage bin','err'); return; }
@@ -6568,19 +6592,35 @@ async function agregarPlanPorBins({fecha, responsableId, nota}){
   if(!perfilCargado()) return;
   const faltaPeriodo = estadoPeriodoParaPlanificar();
   if(faltaPeriodo){ toast(mensajeFaltaPeriodo(faltaPeriodo),'err'); return; }
-  const zonas = new Map();
+  const dueno = duenoAgregarPlan();
+  const zonas = new Map(), sueltos = [];
   elegidos.forEach(b=>{
-    const k = `${b.bodega==null?'':b.bodega}\u0000${b.ubicacion==null?'':b.ubicacion}`;
+    if(!binPlanConZona(b)){ sueltos.push(b); return; }
+    const k = `${b.bodega}\u0000${b.ubicacion}`;
     if(!zonas.has(k)) zonas.set(k, {bodega:b.bodega, ubicacion:b.ubicacion, bins:[]});
     zonas.get(k).bins.push(b.storage_bin);
   });
   let creadas = 0, fallidas = 0, ultimoError = '';
   for(const z of zonas.values()){
     try{
-      await crearPlanEntrada({fecha, bodega: z.bodega==null ? '' : z.bodega, ubicacion: z.ubicacion==null ? '' : z.ubicacion,
-        storageBins: z.bins, skusExcluidos:[], soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId, nota, silencioso:true});
+      await crearPlanEntrada({fecha, bodega: z.bodega, ubicacion: z.ubicacion,
+        storageBins: z.bins, skusExcluidos:[], soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId, nota, silencioso:true, dueno});
       creadas += z.bins.length;
     }catch(e){ fallidas += z.bins.length; ultimoError = e.message; }
+  }
+  if(sueltos.length){
+    try{
+      const ids = [];
+      for(const b of sueltos){
+        const igual = (col, v) => `${col}=${v==null ? 'is.null' : 'eq.'+encodeURIComponent(v)}`;
+        const filas = await rest(`/skus_disponibles_planificar?select=id&${igual('bodega', b.bodega)}&${igual('ubicacion', b.ubicacion)}&${igual('storage_bin', b.storage_bin)}${filtroDuenoPlan(dueno)}`) || [];
+        ids.push(...filas.map(f=>f.id));
+      }
+      if(ids.length){
+        await rest('/rpc/crear_plan_por_codigos', {method:'POST', body:{p_fecha: fecha, p_responsable_id: responsableId||null, p_nota: nota||null, p_sku_ids: ids}, timeoutMs: TIMEOUT_CREAR_PLAN_GRUPO_MS});
+      }
+      creadas += sueltos.length;
+    }catch(e){ fallidas += sueltos.length; ultimoError = e.message; }
   }
   if(creadas){
     toast(`Agregado a la planificación: ${creadas} storage bin${creadas===1?'':'s'}`);
@@ -6609,7 +6649,7 @@ async function revisarCodigosPegadosPlan(){
   dibujarResumenCodigosPlan();
   try{
     const f = filtrosPlanAgregar();
-    const r = await rest('/rpc/revisar_codigos_plan', {method:'POST', body:{p_codigos: codigos, p_bodega: f.bodega, p_ubicacion: f.ubicacion}, timeoutMs: TIMEOUT_CREAR_PLAN_GRUPO_MS});
+    const r = await rest('/rpc/revisar_codigos_plan', {method:'POST', body:{p_codigos: codigos, p_bodega: f.bodega, p_ubicacion: f.ubicacion, p_dueno: f.dueno}, timeoutMs: TIMEOUT_CREAR_PLAN_GRUPO_MS});
     const posiciones = (r && r.posiciones) || [];
     const nuevos = posiciones.filter(x=> !x.en_plan);
     const base = quitarAgregadosPorListaPlan();
@@ -6624,7 +6664,7 @@ async function revisarCodigosPegadosPlan(){
     setState({plan:{...state.plan, skusElegidos:[...base, ...agregar]}});
     // Si cambiaron el filtro mientras se revisaba, la respuesta es del filtro anterior: otra vuelta.
     const g = filtrosPlanAgregar();
-    if(g.bodega!==f.bodega || g.ubicacion!==f.ubicacion) revisarCodigosPegadosPlan();
+    if(g.bodega!==f.bodega || g.ubicacion!==f.ubicacion || g.dueno!==f.dueno) revisarCodigosPegadosPlan();
   }catch(e){
     planCodigos = {...planCodigos, revisando:false, resultado:{error: e.message}};
     dibujarResumenCodigosPlan();
@@ -6642,7 +6682,7 @@ function htmlResumenCodigosPlan(){
     ${lista('Ya en otra entrada del plan (no se agregan)', r.enPlan, 'aviso')}
     ${lista('Ya contados en el período', r.contados, '')}
     ${lista('Sin stock (el plan no los incluye)', r.sinStock, '')}
-    ${lista('Sin posición en la planta o storage location elegida', r.fueraFiltro, 'aviso')}
+    ${lista(usaDuenosStock() ? 'Sin posición en la planta, storage location o dueño elegido' : 'Sin posición en la planta o storage location elegida', r.fueraFiltro, 'aviso')}
     ${lista('No existen en el maestro', r.noExisten, 'error')}
   </div>`;
 }
@@ -16581,6 +16621,11 @@ function renderPlanificacion(){
           <button type="button" class="segmented-btn${p.modoAgregar==='bin'?' active':''}" id="p-modo-bin" aria-pressed="${p.modoAgregar==='bin'}">Por storage bin</button>
           <button type="button" class="segmented-btn${p.modoAgregar==='sku'?' active':''}" id="p-modo-sku" aria-pressed="${p.modoAgregar==='sku'}">Por código de SKU</button>
         </div>
+        ${usaDuenosStock()? `<div id="p-filtro-dueno-fila" ${p.modoAgregar==='sku'||p.modoAgregar==='bin'? '' : 'style="display:none"'}>
+          <label for="p-filtro-dueno">Dueño</label>
+          <select id="p-filtro-dueno">${opcionesFiltroDueno(p.duenoAgregar||'')}</select>
+          ${avisoErrorListaDuenos('margin:4px 0 0;')}
+        </div>` : ''}
         <div id="p-filtros" class="row2 plan-filtros" ${p.modoAgregar==='sku'||p.modoAgregar==='bin'? '' : 'style="display:none"'}>
           <div><label for="p-filtro-planta">Planta <span style="font-weight:400;color:var(--text-faint)">(ubicación general)</span></label>
             <select id="p-filtro-planta">
@@ -21337,6 +21382,8 @@ function bind(){
     document.getElementById('p-modo-bin').addEventListener('click', ()=> cambiarModoAgregarPlan('bin'));
     document.getElementById('p-filtro-planta').addEventListener('change', e=> elegirFiltroPlantaPlan(e.target.value));
     document.getElementById('p-filtro-sloc').addEventListener('change', e=> elegirFiltroSlocPlan(e.target.value));
+    const selFiltroDuenoPlan = document.getElementById('p-filtro-dueno');
+    if(selFiltroDuenoPlan) selFiltroDuenoPlan.addEventListener('change', e=> elegirFiltroDuenoPlan(e.target.value));
     // Buscar bin: al escribir no se repinta la pantalla (iOS reiniciaría el teclado), solo los resultados.
     const inputBinPlan = document.getElementById('p-bin-buscar');
     inputBinPlan.addEventListener('input', e=>{

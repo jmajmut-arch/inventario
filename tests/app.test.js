@@ -328,6 +328,7 @@ const fakeFetchImpl = async (url, opts) => {
       {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', total:5, por_planificar:0},
       {bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'A-01', total:3, por_planificar:3},
       {bodega:'Bodega Sur', ubicacion:'Rack 1', storage_bin:'B-10', total:4, por_planificar:4},
+      {bodega:'Nave Mina', ubicacion:null, storage_bin:'Z-9', total:2, por_planificar:2},
     ].filter(x=> x.storage_bin.toLowerCase().includes(t) && (!b.p_bodega || x.bodega===b.p_bodega) && (!b.p_ubicacion || x.ubicacion===b.p_ubicacion));
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(bins) };
   }
@@ -377,6 +378,10 @@ const fakeFetchImpl = async (url, opts) => {
     const ubi = decodeURIComponent((path.match(/ubicacion=eq\.([^&]*)/)||[])[1]||'');
     const n = sinBinFixture[`${bod}|${ubi}`];
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' && n!==undefined ? `0-0/${n}` : null}, text: async()=>'[]' };
+  }
+  // Pendientes de un bin sin planta o sin ubicación específica (agregarPlanPorBins: va por código).
+  if(path.startsWith('/rest/v1/skus_disponibles_planificar?select=id&bodega=')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(path.includes('storage_bin=eq.Z-9') ? [{id:'z9a'},{id:'z9b'}] : []) };
   }
   if(path.startsWith('/rest/v1/skus_disponibles_planificar?select=id&id=in.(')){
     const ids = decodeURIComponent((path.match(/id=in\.\(([^)]*)\)/)||[])[1]||'').split(',').filter(Boolean);
@@ -15320,7 +15325,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(!calls.some(c=>c.url.includes('/rpc/buscar_bins_plan')) && /mínimo 3 caracteres/.test(ctx.htmlResultadosBinsPlan()), 'con menos de 3 caracteres no debe consultar el servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     await ctx.buscarBinsParaPlan('a-0');
     const llamadaBins = calls.find(c=>c.url.endsWith('/rest/v1/rpc/buscar_bins_plan'));
-    assert(llamadaBins && JSON.parse(llamadaBins.opts.body).p_texto==='a-0' && JSON.parse(llamadaBins.opts.body).p_bodega===null && JSON.parse(llamadaBins.opts.body).p_ubicacion===null, 'debe buscar los bins por RPC con el texto en el cuerpo y sin filtros, obtuvo: '+JSON.stringify(llamadaBins && llamadaBins.opts));
+    assert(llamadaBins && JSON.parse(llamadaBins.opts.body).p_texto==='a-0' && JSON.parse(llamadaBins.opts.body).p_bodega===null && JSON.parse(llamadaBins.opts.body).p_ubicacion===null && JSON.parse(llamadaBins.opts.body).p_dueno===null, 'debe buscar los bins por RPC con el texto en el cuerpo y sin filtros, obtuvo: '+JSON.stringify(llamadaBins && llamadaBins.opts));
     let htmlRes = ctx.htmlResultadosBinsPlan();
     assert((htmlRes.match(/data-elegir-bin-plan=/g)||[]).length===3 && htmlRes.includes('7/12 SKU') && htmlRes.includes('Nave Mina · Patio'), 'debe listar cada bin con su lugar y "por planificar/total", obtuvo: '+htmlRes);
     assert(/plan-bin-n cero[^>]*>0\/5 SKU/.test(htmlRes), 'un bin sin pendientes se ve atenuado (0/5), obtuvo: '+htmlRes);
@@ -15336,7 +15341,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.alternarBinPlan(claveA01Patio, false);
     assert(ctx.htmlBinsElegidosPlan().includes('1 storage bin elegido '), 'desmarcar un bin debe sacarlo de los elegidos, obtuvo: '+ctx.htmlBinsElegidosPlan());
     // Un bin sin ubicación específica no se puede elegir: la entrada cubriría ese bin en toda la planta.
-    assert(!ctx.binPlanElegible({bodega:'Nave Mina', ubicacion:null, storage_bin:'X-1'}) && ctx.binPlanElegible({bodega:null, ubicacion:'Patio', storage_bin:'X-1'}), 'solo se eligen bins con ubicación específica');
+    assert(!ctx.binPlanConZona({bodega:'Nave Mina', ubicacion:null, storage_bin:'X-1'}) && !ctx.binPlanConZona({bodega:null, ubicacion:'Patio', storage_bin:'X-1'}) && ctx.binPlanConZona({bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'X-1'}), 'una entrada con bin necesita planta y ubicación específica; sin alguna, el bin va por código');
 
     // Filtro de planta: carga sus storage location y vuelve a buscar con el filtro.
     calls.length = 0;
@@ -15402,6 +15407,85 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(/No se pudieron revisar los códigos: .*statement timeout/.test(ctx.htmlResumenCodigosPlan()), 'un error del servidor debe verse como error, obtuvo: '+ctx.htmlResumenCodigosPlan());
     await ctx.elegirFiltroPlantaPlan('');
     ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'ubicacion', skuEntrada:'buscar', skusElegidos:[]};
+
+    // Buscar uno: el texto va tal cual en el cuerpo (antes iba con encodeURIComponent y "rodamiento
+    // suelto" se buscaba como "rodamiento%20suelto", sin resultados).
+    calls.length = 0;
+    await ctx.buscarSkuParaPlan('Rodamiento suelto');
+    const cuerpoBuscarUno = JSON.parse((calls.find(c=>c.url.includes('/rpc/buscar_skus_lectura'))||{opts:{body:'{}'}}).opts.body);
+    assert(cuerpoBuscarUno.p_texto==='Rodamiento suelto', 'el texto con espacios va sin codificar en el cuerpo, obtuvo: '+JSON.stringify(cuerpoBuscarUno));
+    assert(/data-elegir-sku-plan="rod-3"/.test(ctx.htmlResultadosSkuPlan()), 'buscar por una descripción con espacio debe encontrarla, obtuvo: '+ctx.htmlResultadosSkuPlan());
+
+    // Un bin sin ubicación específica se puede elegir y se agrega por código con sus pendientes
+    // exactos (sirve a empresas que no usan alguno de esos niveles); uno con planta y ubicación va
+    // como entrada por bin, igual que siempre.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'bin'};
+    await ctx.buscarBinsParaPlan('Z-9');
+    assert(/se agrega por código/.test(ctx.htmlResultadosBinsPlan()) && !/disabled/.test(ctx.htmlResultadosBinsPlan()), 'un bin sin ubicación específica se puede elegir y avisa que va por código, obtuvo: '+ctx.htmlResultadosBinsPlan());
+    ctx.alternarBinPlan('Nave%20Mina||Z-9', true);
+    await ctx.buscarBinsParaPlan('A-01');
+    ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+    calls.length = 0;
+    await ctx.agregarPlanPorBins({fecha:'2026-08-14', responsableId:'u1', nota:''});
+    const filasBinNormal = calls.filter(c=>c.opts && c.opts.method==='POST' && /\/rest\/v1\/plan_semanal(\?|$)/.test(c.url)).map(c=>JSON.parse(c.opts.body)).flat();
+    assert(filasBinNormal.length===1 && filasBinNormal[0].storage_bin==='A-01' && filasBinNormal[0].ubicacion==='Patio' && filasBinNormal[0].ubicacion_nula===false, 'el bin con planta y ubicación va como entrada por bin, obtuvo: '+JSON.stringify(filasBinNormal));
+    const pedidoSuelto = calls.find(c=>c.url.includes('/skus_disponibles_planificar?select=id&bodega='));
+    assert(pedidoSuelto && pedidoSuelto.url.includes('bodega=eq.Nave%20Mina') && pedidoSuelto.url.includes('ubicacion=is.null') && pedidoSuelto.url.includes('storage_bin=eq.Z-9'), 'el bin sin ubicación pide sus pendientes exactos (ubicación nula), obtuvo: '+JSON.stringify(pedidoSuelto && pedidoSuelto.url));
+    const crearSuelto = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/crear_plan_por_codigos')).map(c=>JSON.parse(c.opts.body));
+    assert(crearSuelto.length===1 && crearSuelto[0].p_sku_ids.join(',')==='z9a,z9b' && crearSuelto[0].p_responsable_id==='u1', 'y se agrega por código con esos materiales, obtuvo: '+JSON.stringify(crearSuelto));
+
+    // Empresas con dueños de stock: el filtro Dueño de los modos nuevos es el mismo del modo por
+    // ubicación y llega a la búsqueda de bins, a la revisión de la lista y a la entrada por bin.
+    {
+      const perfilAntesDuenoBins = ctx.__appstate.perfil;
+      const listaAntesDuenoBins = ctx.__appstate.duenosStock;
+      ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'bin', duenoAgregar:''};
+      assert(!ctx.renderPlanificacion().includes('id="p-filtro-dueno"'), 'sin dueños de stock no aparece el filtro Dueño');
+      ctx.__appstate.perfil = {...perfilAntesDuenoBins, empresas:{...perfilAntesDuenoBins.empresas, usa_duenos_stock:true}};
+      ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}]};
+      const htmlDuenoBin = ctx.renderPlanificacion();
+      assert(htmlDuenoBin.includes('<select id="p-filtro-dueno">') && htmlDuenoBin.includes('Vertice S.A. (VERTICE)') && !/id="p-filtro-dueno-fila" style="display:none"/.test(htmlDuenoBin), 'con dueños de stock, el modo bin muestra el filtro Dueño, obtuvo: '+htmlDuenoBin.slice(htmlDuenoBin.indexOf('p-filtro-dueno-fila')-20, htmlDuenoBin.indexOf('p-filtro-dueno-fila')+300));
+      await ctx.buscarBinsParaPlan('A-01');
+      ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+      calls.length = 0;
+      ctx.elegirFiltroDuenoPlan('VERTICE');
+      await new Promise(r=>setTimeout(r,10));
+      const binsDueno = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/buscar_bins_plan')).map(c=>JSON.parse(c.opts.body));
+      assert(ctx.__appstate.plan.duenoAgregar==='VERTICE' && binsDueno.length===1 && binsDueno[0].p_dueno==='VERTICE', 'elegir un dueño vuelve a buscar los bins con ese dueño, obtuvo: '+JSON.stringify(binsDueno));
+      assert(ctx.htmlBinsElegidosPlan().includes('Aún no has elegido ningún storage bin'), 'cambiar de dueño vacía los bins elegidos (la entrada sería de otro dueño)');
+      ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+      calls.length = 0;
+      await ctx.agregarPlanPorBins({fecha:'2026-08-15', responsableId:'', nota:''});
+      const filaDueno = calls.filter(c=>c.opts && c.opts.method==='POST' && /\/rest\/v1\/plan_semanal(\?|$)/.test(c.url)).map(c=>JSON.parse(c.opts.body)).flat();
+      assert(filaDueno.length===1 && filaDueno[0].dueno==='VERTICE' && filaDueno[0].storage_bin==='A-01', 'la entrada por bin se guarda con el dueño elegido, obtuvo: '+JSON.stringify(filaDueno));
+      calls.length = 0;
+      await ctx.buscarSkuParaPlan('rod');
+      assert(calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,dueno')) && !/data-elegir-sku-plan/.test(ctx.htmlResultadosSkuPlan()), '"Buscar uno" con dueño pide el dueño de cada posición y muestra solo las de ese dueño (el simulado no trae dueño)');
+      ctx.elegirFiltroDuenoPlan('__sin');
+      calls.length = 0;
+      elements['p-codigos-pegar'].dispatch('input', {target:{value:'ROD-1'}});
+      await ctx.revisarCodigosPegadosPlan();
+      const revisarSinDueno = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/revisar_codigos_plan')).map(c=>JSON.parse(c.opts.body));
+      assert(revisarSinDueno.length===1 && revisarSinDueno[0].p_dueno==='', '"Sin dueño" revisa la lista con p_dueno vacío (lo que no tiene dueño), obtuvo: '+JSON.stringify(revisarSinDueno));
+      assert(/Sin posición en la planta, storage location o dueño elegido|<b>1<\/b> de 1/.test(ctx.htmlResumenCodigosPlan()), 'el resumen nombra el dueño entre los filtros');
+      ctx.elegirFiltroDuenoPlan('');
+      ctx.__appstate.perfil = perfilAntesDuenoBins;
+      ctx.__appstate.duenosStock = listaAntesDuenoBins;
+      ctx.__appstate.plan = {...ctx.__appstate.plan, skusElegidos:[]};
+    }
+
+    // Al cerrar sesión no queda nada buscado, elegido ni pegado para la persona siguiente (puede
+    // ser de otra empresa, en un equipo compartido).
+    await ctx.buscarBinsParaPlan('A-01');
+    ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+    elements['p-codigos-pegar'].dispatch('input', {target:{value:'ROD-1'}});
+    await ctx.revisarCodigosPegadosPlan();
+    await ctx.buscarSkuParaPlan('rod');
+    assert(ctx.htmlBinsElegidosPlan().includes('1 storage bin elegido') && ctx.htmlResumenCodigosPlan()!=='', 'antes de cerrar sesión hay bins elegidos y una lista revisada');
+    ctx.olvidarBusquedasPlan();
+    assert(ctx.htmlBinsElegidosPlan().includes('Aún no has elegido ningún storage bin') && ctx.htmlResultadosBinsPlan().includes('Escribe parte del storage bin') && ctx.htmlResumenCodigosPlan()==='' && !/data-elegir-sku-plan/.test(ctx.htmlResultadosSkuPlan()), 'olvidarBusquedasPlan deja vacío lo buscado, elegido y pegado');
+    assert(/function estadoTrasCerrarSesion\(\)\{\s*olvidarCargasPorVista\(\);\s*olvidarBusquedasPlan\(\);/.test(html), 'cerrar sesión (y sesión vencida) debe olvidar lo buscado en Plan');
+    ctx.__appstate.plan = {...ctx.__appstate.plan, skusElegidos:[]};
 
     // Etiqueta y universo de una entrada por código en la lista de Planificación.
     ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'ubicacion', entradas:[{id:'pc1', fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:null, por_sku:true, skus_incluidos:['ROD-1'], responsable_nombre:'Ana', ciclo_nombre:null, skus_excluidos:[]}], universos:{pc1:1}, propios:{pc1:1}, detalle:{pc1:[{id:'rod-1', sku_code:'ROD-1', descripcion:'Rodamiento 6205'}]}};

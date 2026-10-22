@@ -1270,6 +1270,18 @@ async function loguear(page, perfil, prepararRutas){
     await page.click('#form-plan button[type="submit"]');
     for(let i=0; i<100 && !cuerposPlan.length; i++) await page.waitForTimeout(50);
     assert(cuerposPlan.length === 1 && cuerposPlan[0].length === 1 && cuerposPlan[0][0].dueno === 'VERTICE' && cuerposPlan[0][0].bodega === 'Nave Mina', 'la entrada se guarda con el dueño elegido, obtuvo '+JSON.stringify(cuerposPlan));
+    // Por storage bin y Por código usan el mismo dueño (un solo valor para los tres modos).
+    if(await page.getAttribute('#btn-toggle-agregar-plan', 'aria-expanded') !== 'true') await page.click('#btn-toggle-agregar-plan');
+    await page.waitForSelector('#p-modo-bin', { state:'visible', timeout:ESPERA });
+    await page.selectOption('#p-dueno', 'VERTICE').catch(()=>{});
+    await page.click('#p-modo-bin');
+    await page.waitForSelector('#p-filtro-dueno', { state:'visible', timeout:ESPERA });
+    assert(await page.inputValue('#p-filtro-dueno') === 'VERTICE', 'en "Por storage bin" el filtro Dueño trae el elegido en el modo por ubicación, obtuvo '+await page.inputValue('#p-filtro-dueno'));
+    const desbordeDuenoBin = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeDuenoBin <= 0, 'a 420 px el modo bin con dueño no desborda, obtuvo '+desbordeDuenoBin);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/plan-bins-dueno-420.png', fullPage: true });
+    await page.click('#p-modo-ubicacion');
+    assert(await page.isHidden('#p-filtro-dueno'), 'en "Por ubicación" el dueño se elige en su propio selector, no en los filtros');
     await context.close();
   }
 
@@ -1334,7 +1346,7 @@ async function loguear(page, perfil, prepararRutas){
     assert(await page.evaluate(() => window.__inputBin === document.getElementById('p-bin-buscar') && document.activeElement === window.__inputBin), 'al buscar bins el input es el mismo y conserva el foco');
     assert(cuerposBins.length >= 1 && cuerposBins.every(b => b.p_texto.length >= 3), 'no busca con menos de 3 caracteres, obtuvo '+JSON.stringify(cuerposBins));
     const opciones = await page.$$eval('#p-bin-resultados .plan-bin-opcion', ls => ls.map(l => ({ t:l.textContent.replace(/\s+/g,' ').trim(), off: l.querySelector('input').disabled })));
-    assert(opciones.length === 3 && opciones[0].t.includes('7/12 SKU') && opciones[2].off && opciones[2].t.includes('planifícalo por código'), 'cada bin dice sus SKU; el que no tiene ubicación específica no se puede elegir, obtuvo '+JSON.stringify(opciones));
+    assert(opciones.length === 3 && opciones[0].t.includes('7/12 SKU') && !opciones[2].off && opciones[2].t.includes('se agrega por código'), 'cada bin dice sus SKU; el que no tiene ubicación específica se puede elegir y avisa que va por código, obtuvo '+JSON.stringify(opciones));
     await page.check('#p-bin-resultados .plan-bin-opcion >> nth=0');
     await page.check('#p-bin-resultados .plan-bin-opcion >> nth=1');
     assert(await esperarCondicion(page, () => /2 storage bins elegidos · 10 SKU por planificar/.test(document.getElementById('p-bin-elegidos').textContent)), 'los bins marcados se listan con sus SKU por planificar');
