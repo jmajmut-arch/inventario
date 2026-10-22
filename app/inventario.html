@@ -8122,6 +8122,11 @@ async function cargarUbicaciones(){
 async function crearUbicacion(bodega, ubicacion, {silencioso=false}={}){
   const b = (bodega||'').trim(), u = (ubicacion||'').trim() || null;
   if(!b){ toast('Indica el nombre de la bodega','err'); return false; }
+  // El maestro de ubicaciones lo escribe solo un administrador (regla admin_insert_ubicaciones).
+  // Cuando se agrega de pasada (mover un material o crear uno en un sitio nuevo), un operador no
+  // puede: el material igual queda guardado ahí, y mostrarle el error de permisos de la base solo
+  // lo confunde (pasaba en Bodega > Ubicación y al crear un SKU, 22/10/2026).
+  if(silencioso && !esAdminActual()) return false;
   try{
     await rest('/ubicaciones', {method:'POST', body:[{empresa_id: state.perfil.empresa_id, bodega:b, ubicacion:u}], prefer:'return=minimal'});
     await cargarUbicaciones();
@@ -19595,7 +19600,10 @@ function bind(){
       }
       if(!ubicacionConocida(payload.bodega, payload.ubicacion)){
         const sitio = [payload.bodega, payload.ubicacion].filter(Boolean).join(' · ');
-        if(!confirm(`"${sitio}" no está en tus ubicaciones.\n\n¿Agregarla al maestro y guardar el material ahí? Si fue un error de tipeo, cancela y elige una de la lista.`)) return;
+        const pregunta = esAdminActual()
+          ? '¿Agregarla al maestro y guardar el material ahí?'
+          : '¿Guardar el material ahí igual?';
+        if(!confirm(`"${sitio}" no está en tus ubicaciones.\n\n${pregunta} Si fue un error de tipeo, cancela y elige una de la lista.`)) return;
         await crearUbicacion(payload.bodega, payload.ubicacion, {silencioso:true});
       }
       if(payload.stock_sistema !== null && payload.stock_sistema < 0){ toast('El stock según sistema no puede ser negativo','err'); return; }

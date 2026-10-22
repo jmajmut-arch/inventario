@@ -2,10 +2,11 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 // Correo de seguimiento a quien pidió la demo del sitio (pedido de Joel, 01/10/2026): escrito
 // para abrir conversación y entender su necesidad, no para insistir con la demo. Dos pasos:
-//   1: 24 horas después de pedir la demo — una sola pregunta sobre su bodega.
+//   1: 10 minutos después de pedir la demo, mientras todavía la tiene abierta (Joel, 22/10/2026;
+//      antes 24 horas) — una sola pregunta sobre su bodega.
 //   2: 3 días después del paso 1 — ofrece 15 minutos para ver su caso, última vez.
-// El paso 1 dice "pediste acceso", no "entraste": no sabemos si entró, y de noche no sale nada,
-// así que puede llegar dos días después (03/10/2026). El paso 2 ofrece solo la llamada de 15
+// El paso 1 dice "pediste acceso", no "entraste": no sabemos si entró. De noche no sale nada:
+// quien pide la demo de madrugada lo recibe a las 08:00. El paso 2 ofrece solo la llamada de 15
 // minutos, no cargar su catálogo (decisión de Joel, 03/10/2026).
 // La llama el cron de la base (enviar_seguimientos_leads, ver supabase/migrations) con el id y
 // el paso. Igual que notificar-lead: verify_jwt con el anon key (público), así que NO se confía
@@ -46,7 +47,7 @@ function correo(paso: number, nombre: string) {
     return {
       asunto: 'Una pregunta sobre tu bodega',
       parrafos: [
-        `${saludo} soy Joel, de InventIA. Vi que pediste acceso a la demo.`,
+        `${saludo} soy Joel, de InventIA. Gracias por pedir acceso a la demo.`,
         'Antes de contarte nada más, me interesa entender tu caso: ¿qué es lo que hoy más te cuesta con el inventario? ¿Las diferencias entre lo contado y el sistema, el tiempo que se va en contar, o saber qué se contó y qué no?',
         'Con una línea de respuesta me basta para decirte si InventIA te sirve o no.',
       ],

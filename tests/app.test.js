@@ -6683,6 +6683,19 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   const postUbic = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/ubicaciones'));
   assert(postUbic && JSON.parse(postUbic.opts.body)[0].bodega==='Bodega Nueva' && JSON.parse(postUbic.opts.body)[0].ubicacion===null, 'la bodega se crea sin ubicación específica, obtuvo: '+(postUbic&&postUbic.opts.body));
 
+  // Un operador no escribe el maestro de ubicaciones: cuando la app lo agrega de pasada (mover un
+  // material, crear uno en un sitio nuevo) no lo intenta, y así no le muestra un error de permisos.
+  const perfilAntesUbic = ctx.__appstate.perfil;
+  ctx.__appstate.perfil = {...perfilAntesUbic, rol:'operador', es_super_admin:false};
+  calls.length = 0;
+  elements['toast-root'].hijos.length = 0;
+  assert((await ctx.crearUbicacion('Bodega Operador', null, {silencioso:true}))===false, 'de pasada, un operador no crea ubicaciones');
+  assert(!calls.some(c=>c.url.includes('/rest/v1/ubicaciones') && c.opts && c.opts.method==='POST'), 'un operador no intenta escribir el maestro de ubicaciones');
+  assert(elements['toast-root'].hijos.length===0, 'y no ve ningún error, obtuvo: '+JSON.stringify(elements['toast-root'].hijos));
+  ctx.__appstate.perfil = perfilAntesUbic;
+  calls.length = 0;
+  assert((await ctx.crearUbicacion('Bodega De Pasada', null, {silencioso:true}))===true, 'un admin sí la agrega de pasada');
+
   // Un sitio repetido se explica, no se muestra el error crudo del índice.
   elements['toast-root'].hijos.length = 0;
   assert((await ctx.crearUbicacion('REPETIDA', null))===false, 'un sitio repetido no se crea');
