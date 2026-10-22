@@ -6565,6 +6565,33 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
     assert(calls.some(c=>c.url.includes('/conteos?on_conflict=idempotency_key')) && calls.some(c=>c.url.includes('/conteo_fotos')), 'con foto obligatoria y una foto adjunta, debe guardar el conteo y su foto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    // "Agregar foto" al conteo recién guardado (22/10/2026): en Escondida se repetían conteos solo
+    // para sumar una foto. Tras guardar, Contar ofrece agregarla a ESE conteo, sin contar de nuevo.
+    {
+      const recien = ctx.__appstate.conteoRecienGuardado;
+      assert(recien && recien.conteo_id==='conteo-nuevo-1' && recien.sku_code==='SKU-999' && recien.fotos===1 && recien.idempotency_key, 'al guardar con señal, queda recordado el conteo recién guardado, obtuvo: '+JSON.stringify(recien));
+      const htmlRecien = ctx.renderConteo();
+      assert(htmlRecien.includes('id="conteo-recien-guardado"') && htmlRecien.includes('id="c-foto-recien"') && htmlRecien.includes('1 foto') && /Agregar foto/.test(htmlRecien), 'Contar muestra el conteo guardado con "Agregar foto", obtuvo: '+(htmlRecien.match(/id="conteo-recien-guardado"[\s\S]{0,700}/)||[''])[0]);
+      calls.length = 0;
+      await ctx.agregarFotosConteoRecien([{ name:'nueva.jpg', type:'image/jpeg' }, { name:'otra.jpg', type:'image/jpeg' }]);
+      const subidas = calls.filter(c=>c.url.includes('/storage/v1/object/fotos-inventario/')).map(c=>c.url.split('/fotos-inventario/')[1]);
+      const enlace = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteo_fotos'));
+      assert(JSON.stringify(subidas)===JSON.stringify([`emp-1/SKU-999/${recien.idempotency_key}-1.jpg`, `emp-1/SKU-999/${recien.idempotency_key}-2.jpg`]), 'las fotos nuevas siguen la numeración del conteo, sin pisar la que ya tenía, obtuvo: '+JSON.stringify(subidas));
+      assert(enlace && JSON.parse(enlace.opts.body).every(f=>f.conteo_id==='conteo-nuevo-1') && JSON.parse(enlace.opts.body).length===2 && !calls.some(c=>c.url.includes('/conteos?on_conflict')), 'se enlazan al MISMO conteo y no se crea otro, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+      assert(ctx.__appstate.conteoRecienGuardado.fotos===3 && !ctx.__appstate.conteoRecienGuardado.subiendo && /2 fotos agregadas al conteo de SKU-999/.test(ultimoToast()), 'el aviso cuenta las fotos y lo confirma, obtuvo: '+JSON.stringify({r:ctx.__appstate.conteoRecienGuardado, t:ultimoToast()}));
+      // Si la subida falla, se ve el error y el aviso sigue ahí para reintentar.
+      const fetchAntesRecien = ctx.fetch;
+      ctx.fetch = async (url, opts)=> String(url).includes('/storage/v1/object/fotos-inventario/') ? { status:413, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'Payload too large'}), json: async()=>({message:'Payload too large'}) } : fetchAntesRecien(url, opts);
+      await ctx.agregarFotosConteoRecien([{ name:'grande.jpg', type:'image/jpeg' }]);
+      ctx.fetch = fetchAntesRecien;
+      assert(/No se pudo agregar la foto/.test(ultimoToast()) && ctx.__appstate.conteoRecienGuardado.fotos===3 && !ctx.__appstate.conteoRecienGuardado.subiendo, 'un error al subir se muestra y no cambia la cuenta de fotos, obtuvo: '+JSON.stringify({t:ultimoToast(), r:ctx.__appstate.conteoRecienGuardado}));
+      // Pasados 15 minutos ya no se ofrece; "Listo" lo oculta.
+      ctx.__appstate.conteoRecienGuardado = {...ctx.__appstate.conteoRecienGuardado, en: Date.now() - 16*60*1000};
+      const skuAntes = ctx.__appstate.skuSeleccionado; ctx.__appstate.skuSeleccionado = null;
+      assert(!ctx.renderConteo().includes('id="conteo-recien-guardado"'), 'pasada la ventana, Contar ya no lo ofrece');
+      ctx.__appstate.skuSeleccionado = skuAntes;
+      ctx.__appstate.conteoRecienGuardado = null;
+    }
     // Interruptor apagado (el default): sin foto se guarda, como siempre.
     ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = false;
     ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };

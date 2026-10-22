@@ -433,6 +433,9 @@ async function loguear(page, perfil, prepararRutas){
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-danos-420.png', fullPage: true });
     // Pedido de Joel (09/10): más de 1 sin foto avisa antes de guardar, sin bloquear. El primer
     // toque de Guardar no manda nada; "Guardar sin foto" sí guarda.
+    // El servidor devuelve el conteo creado (para "Agregar foto" de más abajo).
+    await page.route('**/rest/v1/conteos?on_conflict=idempotency_key**', r => r.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'c-e2e-recien' }]) }));
+    await page.route('**/storage/v1/object/fotos-inventario/**', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ Key:'ok' }) }));
     const postsConteo = [];
     const cuerposConteo = [];
     page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteos')) { postsConteo.push(req.url()); try { cuerposConteo.push(JSON.parse(req.postData())[0]); } catch(e) {} } });
@@ -452,6 +455,24 @@ async function loguear(page, perfil, prepararRutas){
     assert(postsConteo.length >= 1, '"Guardar sin foto" debe guardar el conteo');
     const cuerpo = cuerposConteo.find(c => c && c.cantidad_contada === 5);
     assert(cuerpo && cuerpo.packing_danado === true && cuerpo.material_danado === true && cuerpo.cantidad_danada === 2, 'el conteo viaja con las marcas de daño y las unidades dañadas, obtuvo '+JSON.stringify(cuerpo));
+    // "Agregar foto" al conteo recién guardado (22/10/2026): sin contar de nuevo, la foto se enlaza
+    // al mismo conteo.
+    assert(await esperarVisible(page, '#conteo-recien-guardado'), 'tras guardar, Contar ofrece agregar una foto a ese conteo');
+    // Tras guardar, la lista de pendientes se vuelve a pedir: se espera a que esté antes de medir.
+    await esperarVisible(page, '.contar-lista-cab');
+    const recienSobreLista = await page.evaluate(() => { const r = document.getElementById('conteo-recien-guardado'), l = document.querySelector('.contar-lista-cab'); return { ok: !!(r && l && r.getBoundingClientRect().bottom <= l.getBoundingClientRect().top && document.querySelectorAll('#conteo-recien-guardado').length === 1), aviso: r && Math.round(r.getBoundingClientRect().bottom), lista: l && Math.round(l.getBoundingClientRect().top), avisos: document.querySelectorAll('#conteo-recien-guardado').length }; });
+    assert(recienSobreLista.ok, 'el aviso va una sola vez, justo sobre la lista de pendientes del lugar, obtuvo '+JSON.stringify(recienSobreLista));
+    const enlaces = [];
+    page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteo_fotos')) { try { enlaces.push(...JSON.parse(req.postData())); } catch(e) {} } });
+    const nConteosAntes = postsConteo.length;
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    await page.setInputFiles('#c-foto-recien', { name:'foto.png', mimeType:'image/png', buffer: png });
+    for (let i = 0; i < 40 && !enlaces.length; i++) await page.waitForTimeout(100);
+    assert(enlaces.length === 1 && enlaces[0].conteo_id === 'c-e2e-recien' && postsConteo.length === nConteosAntes, 'la foto se enlaza al conteo guardado, sin crear otro conteo, obtuvo '+JSON.stringify({enlaces, conteos: postsConteo.length - nConteosAntes}));
+    assert(await esperarVisible(page, '#conteo-recien-guardado >> text=1 foto'), 'el aviso cuenta la foto agregada');
+    const desbordeRecien = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeRecien <= 0, 'a 420 px el aviso del conteo guardado no desborda, obtuvo '+desbordeRecien);
+    if (process.env.E2E_CAPTURAS) await (await page.$('#conteo-recien-guardado')).screenshot({ path: process.env.E2E_CAPTURAS + '/contar-agregar-foto-420.png' });
     await context.close();
   }
 
