@@ -926,6 +926,8 @@ details.plegable>summary .plegable-cta{font-size:13px;font-weight:700;color:var(
   #print-plan th,#print-plan td{border:1px solid #999;padding:3px 6px;text-align:left;}
   #print-plan th{background:#eee;}
   #print-plan td.print-blank{min-width:60px;}
+  /* Un código como "VT-10851" se partía en el guion ("VT-" arriba, "10851" abajo). */
+  #print-plan td.print-sku{white-space:nowrap;}
   #print-plan .print-vacio{font-size:11px;color:#555;}
 
   /* Informe de ciclo: reusa los mismos componentes del dashboard (.card, .kpi-grid, etc.),
@@ -15306,15 +15308,21 @@ function tablaSkusEntradaPlan(skus){
   // ABC y Crítico ayudan a priorizar en terreno (qué contar con más cuidado) sin revelar
   // ningún número de stock -- por eso van acá, a diferencia de bloqueado/tránsito/transferencia,
   // que sí son cantidades del sistema y no corresponde mostrarlas en una hoja de conteo ciego.
+  // Batch (Joel, 21/10/2026, con el PDF real de Agunsa): un mismo código en dos lotes del mismo bin
+  // salía en dos filas idénticas y en terreno no había cómo saber en cuál anotar cada lote. Pasa
+  // también en Escondida (661 código+bin con más de un lote). La columna aparece solo si algún
+  // material de la tabla tiene lote: las hojas sin lotes quedan como siempre.
+  const conBatch = skus.some(s=>s.batch);
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Descripción</th><th>Storage bin</th><th>Unidad</th><th>ABC</th><th>Crítico</th><th>Cantidad contada</th><th>Observación</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Descripción</th><th>Storage bin</th>${conBatch? '<th>Batch</th>' : ''}<th>Unidad</th><th>ABC</th><th>Crítico</th><th>Cantidad contada</th><th>Observación</th></tr></thead>
       <tbody>
         ${skus.map(s=>`
           <tr>
-            <td>${esc(s.sku_code)}</td>
+            <td class="print-sku">${esc(s.sku_code)}</td>
             <td>${esc(s.descripcion||'')}</td>
             <td>${esc(s.storage_bin||'—')}</td>
+            ${conBatch? `<td class="print-sku">${esc(s.batch||'—')}</td>` : ''}
             <td>${esc(s.unidad_medida||'—')}</td>
             <td>${esc(s.clase_abc||'—')}</td>
             <td${s.critico?' style="color:var(--danger);font-weight:600"':''}>${s.critico?'★':'—'}</td>

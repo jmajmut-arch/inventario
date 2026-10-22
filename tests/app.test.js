@@ -717,7 +717,7 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/rpc/universo_entradas_plan_hoja')){
     const planIds = opts && opts.body ? JSON.parse(opts.body).p_plan_ids : [];
     const hoja = {};
-    planIds.forEach(id=>{ if((universoEntradaPlanFixture[id]||[]).length) hoja[id] = universoEntradaPlanFixture[id].map(f=>({sku_code:f.sku_code, descripcion:f.descripcion, storage_bin:f.storage_bin, unidad_medida:f.unidad_medida, clase_abc:f.clase_abc, critico:f.critico})); });
+    planIds.forEach(id=>{ if((universoEntradaPlanFixture[id]||[]).length) hoja[id] = universoEntradaPlanFixture[id].map(f=>({sku_code:f.sku_code, descripcion:f.descripcion, storage_bin:f.storage_bin, batch:f.batch, unidad_medida:f.unidad_medida, clase_abc:f.clase_abc, critico:f.critico})); });
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(hoja) };
   }
   // resumen_entradas_plan (vistas Mes/Año/Período): por entrada, total de SKU y cuántos NO están
@@ -3054,6 +3054,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(hojaBins.includes('<th>Storage bin</th>'), 'la hoja de conteo debe traer la columna Storage bin, obtuvo: '+hojaBins);
   assert(hojaBins.includes('<td>N1E-608-B3</td>'), 'la hoja de conteo debe imprimir el storage bin del material, obtuvo: '+hojaBins);
   assert((hojaBins.match(/<td>—<\/td>/g)||[]).length>=1, 'un material sin storage bin en el maestro debe salir como "—", no en blanco, obtuvo: '+hojaBins);
+  assert(!hojaBins.includes('<th>Batch</th>'), 'sin lotes en la tabla, la hoja queda como siempre (sin columna Batch), obtuvo: '+hojaBins);
+  // Batch (Joel, 21/10/2026, PDF real de Agunsa): el mismo código en dos lotes del mismo bin salía
+  // en dos filas idénticas. Con lote, la columna aparece y cada fila dice el suyo.
+  const hojaLotes = ctx.tablaSkusEntradaPlan([
+    {sku_code:'VT-10555', descripcion:'FILTRO P100 TIPO F', storage_bin:'CLSCLCDQL1MZ13190502', batch:'L2546J', unidad_medida:'UNIDAD', clase_abc:'B', critico:false},
+    {sku_code:'VT-10555', descripcion:'FILTRO P100 TIPO F', storage_bin:'CLSCLCDQL1MZ13190502', batch:'L2601A', unidad_medida:'UNIDAD', clase_abc:'A', critico:false},
+    {sku_code:'VT-10560', descripcion:'FILTRO', storage_bin:'CLSCLCDQL1MZ13190502', batch:null, unidad_medida:'UNIDAD', clase_abc:'C', critico:false},
+  ]);
+  assert(/<th>Storage bin<\/th><th>Batch<\/th><th>Unidad<\/th>/.test(hojaLotes), 'con lotes, la hoja trae la columna Batch después de Storage bin, obtuvo: '+hojaLotes);
+  assert(hojaLotes.includes('<td class="print-sku">L2546J</td>') && hojaLotes.includes('<td class="print-sku">L2601A</td>'), 'cada fila dice su lote, obtuvo: '+hojaLotes);
+  assert(/<td>CLSCLCDQL1MZ13190502<\/td>\s*<td class="print-sku">—<\/td>/.test(hojaLotes), 'un material sin lote en una tabla con lotes sale con "—", obtuvo: '+hojaLotes);
+  assert(hojaLotes.includes('<td class="print-sku">VT-10555</td>'), 'el código del SKU no se parte en el guion (print-sku), obtuvo: '+hojaLotes);
 
   // actualizarPlanEntrada debe hacer PATCH con fecha, responsable_id y nota, y limpiar el estado de edición.
   ctx.__appstate.plan.editando = 'e1';
