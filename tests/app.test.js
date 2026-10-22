@@ -15588,6 +15588,21 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     Object.assign(ctx.__appstate, {ciclos: antes.ciclos, ciclosCargados: antes.cargados, view: antes.view, plan: antes.plan, perfil: antes.perfil});
   }
 
+  // ===== Contar dice de quién es el material (Joel, 22/10/2026) =====
+  {
+    const antes = {perfil: ctx.__appstate.perfil, duenos: ctx.__appstate.duenosStock};
+    ctx.__appstate.perfil = { ...ctx.__appstate.perfil, empresas:{ ...(ctx.__appstate.perfil && ctx.__appstate.perfil.empresas || {}), usa_duenos_stock:true } };
+    ctx.__appstate.duenosStock = { cargado:true, cargando:false, error:'', lista:[{codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}] };
+    const conNombre = ctx.htmlDuenoFichaConteo({sku_code:'P-1', dueno:'VERTICE'});
+    assert(conNombre.includes('Dueño del stock') && conNombre.includes('<b>Vertice S.A.</b>') && conNombre.includes('>VERTICE<'), 'la ficha dice el nombre del dueño y su código, obtuvo '+conNombre);
+    const soloCodigo = ctx.htmlDuenoFichaConteo({sku_code:'P-1', dueno:'ALBA'});
+    assert(soloCodigo.includes('<b>ALBA</b>') && !soloCodigo.includes('class="mono"'), 'sin nombre en la lista, va el código (una sola vez), obtuvo '+soloCodigo);
+    assert(ctx.htmlDuenoFichaConteo({sku_code:'P-1'})==='', 'un material sin dueño no muestra el bloque');
+    ctx.__appstate.perfil = { ...ctx.__appstate.perfil, empresas:{ ...ctx.__appstate.perfil.empresas, usa_duenos_stock:false } };
+    assert(ctx.htmlDuenoFichaConteo({sku_code:'P-1', dueno:'VERTICE'})==='', 'en una empresa sin dueños no aparece nada nuevo');
+    Object.assign(ctx.__appstate, {perfil: antes.perfil, duenosStock: antes.duenos});
+  }
+
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);
     process.exit(1);

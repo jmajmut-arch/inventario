@@ -835,6 +835,10 @@ details.plegable>summary .plegable-cta{font-size:13px;font-weight:700;color:var(
 .conteo-ficha-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
 .conteo-ficha .code{font-size:24px;line-height:1.1;overflow-wrap:anywhere;}
 .conteo-ficha-chips{display:flex;gap:6px;flex-wrap:wrap;}
+.conteo-ficha-dueno{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:8px 0 2px;padding:8px 10px;border:1px solid var(--line-strong);border-left:4px solid var(--steel);border-radius:var(--radius);}
+.conteo-ficha-dueno span:first-child{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);flex-basis:100%;}
+.conteo-ficha-dueno b{font-size:17px;overflow-wrap:anywhere;}
+.conteo-ficha-dueno .mono{font-size:13px;color:var(--text-faint);}
 .conteo-ficha-desc{font-size:14px;color:var(--text);margin-top:4px;line-height:1.35;overflow-wrap:anywhere;}
 .conteo-ficha-meta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:13px;color:var(--text-dim);}
 .conteo-ficha-meta .hint{margin:0;width:100%;}
@@ -2864,7 +2868,7 @@ async function buscarSkusLibre(texto){
     // buscar_skus_lectura (ver migración): misma búsqueda por código o descripción sobre skus_lectura,
     // ordenada por código y recortada a 8, pero por una función que sí usa los índices de
     // trigramas -- bajo RLS, PostgREST recorría el maestro completo en cada tecleo (250 ms en Escondida).
-    const rows = t? await rest(`/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor`, {method:'POST', body:{p_texto: t, p_limite: 8}}) : [];
+    const rows = t? await rest(`/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,batch,stock_sistema,unidad_medida,critico,clase_abc,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,stock_consignado,stock_en_proveedor,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,total_consignado,total_en_proveedor,dueno`, {method:'POST', body:{p_texto: t, p_limite: 8}}) : [];
     if(miPeticion !== buscadorLibrePeticionId) return; // respuesta obsoleta: se siguió escribiendo
     state.buscadorLibre = { resultados: sinFilasNoContables(rows||[]), buscando: false };
     actualizarResultadosBuscadorLibreEnPantalla();
@@ -8173,6 +8177,14 @@ function etiquetaDueno(fila){
 function chipDueno(fila){
   const e = etiquetaDueno(fila);
   return e ? `<span class="badge badge-steel chip-dueno" title="Dueño del stock">${esc(e)}</span>` : '';
+}
+// En la ficha de Contar (Joel, 22/10/2026: "que me diga de qué empresa es ese material"): con
+// dueños, el mismo código de dos clientes puede estar en el mismo bin, así que se dice con todas
+// sus letras de quién es lo que se va a contar, no con una etiqueta suelta.
+function htmlDuenoFichaConteo(fila){
+  const e = etiquetaDueno(fila);
+  if(!e) return '';
+  return `<div class="conteo-ficha-dueno" id="conteo-ficha-dueno"><span>Dueño del stock</span><b>${esc(e)}</b>${e.toLowerCase()!==String(fila.dueno).toLowerCase()? `<span class="mono">${esc(fila.dueno)}</span>` : ''}</div>`;
 }
 // Debajo del código, como la marca de Crítico.
 function chipDuenoBajoCodigo(fila){
@@ -14722,8 +14734,9 @@ function renderConteo(){
       <div class="selected-sku conteo-ficha">
         <div class="conteo-ficha-cab">
           <div class="code">${esc(state.skuSeleccionado.sku_code)}</div>
-          <div class="conteo-ficha-chips">${chipDueno(state.skuSeleccionado)}${claseAbcBadge(state.skuSeleccionado.clase_abc)}${state.skuSeleccionado.critico?criticoBadge():''}</div>
+          <div class="conteo-ficha-chips">${claseAbcBadge(state.skuSeleccionado.clase_abc)}${state.skuSeleccionado.critico?criticoBadge():''}</div>
         </div>
+        ${htmlDuenoFichaConteo(state.skuSeleccionado)}
         <div class="conteo-ficha-desc">${esc(state.skuSeleccionado.descripcion||'Sin descripción')}</div>
         <div class="conteo-ficha-meta">
           <span>Storage bin: ${esc(state.skuSeleccionado.storage_bin||'—')}</span>
