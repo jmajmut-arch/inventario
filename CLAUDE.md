@@ -63,6 +63,12 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   `RETURN QUERY EXECUTE ... USING`, que planifica cada llamada con la lista real. Para medir una
   función así, compararla contra una copia en `pg_temp` dentro de una transacción que se revierte,
   no contra su cuerpo pegado a mano (ese sí conoce los valores y engaña).
+- **Dos llaves entre las mismas tablas hacen ambiguo el embebido.** `conteos.sku_id` apunta a
+  `skus` y `skus.ultimo_conteo_id` apunta a `conteos`: `conteos?select=...,skus(...)` responde 300
+  (PGRST201) en vez de los datos. Pasó de verdad: "Cerrados sin recontar" y el aviso de
+  "Reemplazar completo" nunca funcionaron en producción, y las pruebas con red simulada no lo
+  veían. Se escribe `skus!conteos_sku_id_fkey(...)`; `tests/esquema.test.js` lo revisa. Una llave
+  foránea nueva entre dos tablas que ya se embeben obliga a revisar los embebidos de ambas.
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
