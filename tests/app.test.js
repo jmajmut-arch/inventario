@@ -60,6 +60,8 @@ let posicionesGrupoFixture = {}; // por grupo_id: {materiales, posiciones} (RPC 
 let resumenPlanGruposFixture = {}; // por grupo_id: {entradas, desde, hasta, por_venir, skus_por_contar} (RPC resumen_plan_grupos)
 let sinBinFixture = {'Nave Mina|Interior Nave': 72, 'Nave Mina|': 18224}; // pendientes sin storage bin por "bodega|ubicación" (contarPendientesSinBin)
 let sinBinFalla = null; // mensaje de error del conteo sin bin; null = responde bien
+let crearPorCodigosFalla = null; // mensaje de error de crear_plan_por_codigos; null = responde bien
+let revisarCodigosFalla = null; // mensaje de error de revisar_codigos_plan; null = responde bien
 let sinAsignarPlanDiaFixture = []; // entradas sin responsable que se suman a "mi plan del día" (cargarPlanDeHoy)
 let avanceGruposFixture = {}; // por grupo_id: {materiales, contados_ciclo, nunca_contados} (RPC avance_por_grupo)
 let avanceGruposFalla = null; // mensaje de error de avance_por_grupo; null = responde bien
@@ -310,6 +312,49 @@ const fakeFetchImpl = async (url, opts) => {
   if(path.startsWith('/rest/v1/plan_semanal_incluidos')){
     return { status: 201, ok: true, headers: { get: () => null }, text: async () => '' };
   }
+  // Planificar por código en una sola llamada (crear_plan_por_codigos): la base agrupa por zona.
+  if(path === '/rest/v1/rpc/crear_plan_por_codigos'){
+    const b = JSON.parse(opts.body);
+    if(crearPorCodigosFalla) return { status:400, ok:false, statusText:'Bad Request', headers:{get:()=>null}, text: async()=>JSON.stringify({message: crearPorCodigosFalla}) };
+    const zonas = new Set((b.p_sku_ids||[]).map(id=>({'rod-1':'NM|IN','rod-2':'NM|P','rod-3':'|','rod-4':'NM|'})[id]||id));
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify({creadas: zonas.size, materiales: (b.p_sku_ids||[]).length}) };
+  }
+  // Por storage bin (buscar_bins_plan): bins que contienen el texto, con total y por planificar.
+  if(path === '/rest/v1/rpc/buscar_bins_plan'){
+    const b = JSON.parse(opts.body);
+    const t = String(b.p_texto||'').toLowerCase();
+    const bins = [
+      {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', total:12, por_planificar:7},
+      {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-02', total:5, por_planificar:0},
+      {bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'A-01', total:3, por_planificar:3},
+      {bodega:'Bodega Sur', ubicacion:'Rack 1', storage_bin:'B-10', total:4, por_planificar:4},
+      {bodega:'Nave Mina', ubicacion:null, storage_bin:'Z-9', total:2, por_planificar:2},
+    ].filter(x=> x.storage_bin.toLowerCase().includes(t) && (!b.p_bodega || x.bodega===b.p_bodega) && (!b.p_ubicacion || x.ubicacion===b.p_ubicacion));
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(bins) };
+  }
+  // Pegar lista (revisar_codigos_plan): clasifica cada código pegado.
+  if(path === '/rest/v1/rpc/revisar_codigos_plan'){
+    const b = JSON.parse(opts.body);
+    if(revisarCodigosFalla) return { status:500, ok:false, statusText:'Internal Server Error', headers:{get:()=>null}, text: async()=>JSON.stringify({message: revisarCodigosFalla}) };
+    const pos = {
+      'ROD-1': [{id:'rod-1', sku_code:'ROD-1', descripcion:'Rodamiento 6205', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01', en_plan:false}],
+      'ROD-2': [{id:'rod-2', sku_code:'ROD-2', descripcion:'Rodamiento 6206', bodega:'Nave Mina', ubicacion:'Patio', storage_bin:null, en_plan:true}],
+      'ROD-5': [{id:'rod-5a', sku_code:'ROD-5', descripcion:'Rodamiento doble', bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'P-1', en_plan:false},
+                {id:'rod-5b', sku_code:'ROD-5', descripcion:'Rodamiento doble', bodega:'Bodega Sur', ubicacion:'Rack 1', storage_bin:'B-10', en_plan:false}],
+    };
+    const codigos = [...new Set((b.p_codigos||[]).map(c=>String(c).trim()).filter(Boolean))];
+    const r = {posiciones:[], contados:[], sin_stock:[], fuera_filtro:[], no_existen:[], codigos: codigos.length};
+    for(const c of codigos){
+      const todas = pos[c]||[];
+      const enFiltro = todas.filter(x=>(!b.p_bodega || x.bodega===b.p_bodega) && (!b.p_ubicacion || x.ubicacion===b.p_ubicacion));
+      if(c==='ROD-9') r.contados.push(c);
+      else if(c==='ROD-8') r.sin_stock.push(c);
+      else if(!todas.length) r.no_existen.push(c);
+      else if(!enFiltro.length) r.fuera_filtro.push(c);
+      else r.posiciones.push(...enFiltro.map(x=>({...x, codigo:c})));
+    }
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(r) };
+  }
   // Planificar por código: buscador (skus_planificables con or=ilike) + marca de "ya en el plan"
   // (skus_disponibles_planificar por id). ROD-2 ya está cubierto por otra entrada.
   // Buscador por texto (ver buscar_skus_lectura): misma respuesta que daba la vista, pero la
@@ -333,6 +378,10 @@ const fakeFetchImpl = async (url, opts) => {
     const ubi = decodeURIComponent((path.match(/ubicacion=eq\.([^&]*)/)||[])[1]||'');
     const n = sinBinFixture[`${bod}|${ubi}`];
     return { status:200, ok:true, headers:{get:(h)=> h==='content-range' && n!==undefined ? `0-0/${n}` : null}, text: async()=>'[]' };
+  }
+  // Pendientes de un bin sin planta o sin ubicación específica (agregarPlanPorBins: va por código).
+  if(path.startsWith('/rest/v1/skus_disponibles_planificar?select=id&bodega=')){
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(path.includes('storage_bin=eq.Z-9') ? [{id:'z9a'},{id:'z9b'}] : []) };
   }
   if(path.startsWith('/rest/v1/skus_disponibles_planificar?select=id&id=in.(')){
     const ids = decodeURIComponent((path.match(/id=in\.\(([^)]*)\)/)||[])[1]||'').split(',').filter(Boolean);
@@ -15228,14 +15277,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     makeEl('p-responsable').value = 'u1';
     makeEl('p-nota').value = 'Urgente';
     calls.length = 0;
+    const toastsAntesCrear = elements['toast-root'] ? elements['toast-root'].hijos.length : 0;
     const formPlanSku = elements['form-plan'];
     await new Promise(resolve => { formPlanSku.dispatch('submit', {target: formPlanSku, preventDefault(){}}); setTimeout(resolve, 30); });
-    const postsPlan = calls.filter(c=>c.opts && c.opts.method==='POST' && /\/rest\/v1\/plan_semanal(\?|$)/.test(c.url)).map(c=>JSON.parse(c.opts.body)).flat();
-    assert(postsPlan.length===3 && postsPlan.every(f=>f.por_sku===true && f.fecha==='2026-08-12' && f.responsable_id==='u1' && f.nota==='Urgente' && f.storage_bin===null), 'debe crear 3 entradas por_sku con fecha, responsable y nota, sin storage_bin, obtuvo: '+JSON.stringify(postsPlan));
-    const zonas = postsPlan.map(f=>`${f.bodega}|${f.ubicacion}|${f.solo_sin_ubicacion}|${f.ubicacion_nula}`).sort();
-    assert(JSON.stringify(zonas)===JSON.stringify(['Nave Mina|Interior Nave|false|false','Nave Mina|Patio|false|false','null|null|true|false']), 'cada entrada debe llevar la zona de su grupo (y "SKU sin ubicación" para los sueltos), obtuvo: '+JSON.stringify(zonas));
-    const postsIncl = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.includes('/plan_semanal_incluidos')).map(c=>JSON.parse(c.opts.body)).flat();
-    assert(postsIncl.length===3 && postsIncl.every(r=>r.plan_id && r.sku_id && r.sku_code) && postsIncl.map(r=>r.sku_code).sort().join(',')==='ROD-1,ROD-2,ROD-3', 'debe guardar la lista exacta en plan_semanal_incluidos (plan_id, sku_id, sku_code), obtuvo: '+JSON.stringify(postsIncl));
+    // Una sola llamada (crear_plan_por_codigos): la base agrupa por bodega + ubicación y crea cada
+    // entrada con su lista exacta en una transacción. Ya no van filas a /plan_semanal desde aquí.
+    const llamadasCrear = calls.filter(c=>c.opts && c.opts.method==='POST' && c.url.endsWith('/rest/v1/rpc/crear_plan_por_codigos'));
+    assert(llamadasCrear.length===1, 'debe crear todo en una sola llamada a crear_plan_por_codigos, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const cuerpoCrear = JSON.parse(llamadasCrear[0].opts.body);
+    assert(cuerpoCrear.p_fecha==='2026-08-12' && cuerpoCrear.p_responsable_id==='u1' && cuerpoCrear.p_nota==='Urgente' && [...cuerpoCrear.p_sku_ids].sort().join(',')==='rod-1,rod-2,rod-3', 'debe mandar fecha, responsable, nota y los id exactos de los SKU elegidos, obtuvo: '+JSON.stringify(cuerpoCrear));
+    assert(!calls.some(c=>c.opts && c.opts.method==='POST' && (/\/rest\/v1\/plan_semanal(\?|$)/.test(c.url) || c.url.includes('/plan_semanal_incluidos'))), 'no debe crear entradas fila por fila desde el navegador, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const toastsCrear = (elements['toast-root'] ? elements['toast-root'].hijos.slice(toastsAntesCrear) : []).map(t=>t.textContent);
+    assert(toastsCrear.some(t=>t.includes('Agregado a la planificación: 3 SKU en 3 entradas')), 'el aviso debe decir cuántos SKU y en cuántas entradas quedó, obtuvo: '+JSON.stringify(toastsCrear));
     assert(!calls.some(c=>c.opts && c.opts.method==='POST' && (c.url.includes('/plan_semanal_exclusiones') || c.url.includes('/plan_semanal_skus'))), 'por código no debe mandar exclusiones ni foto plan_semanal_skus, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(ctx.__appstate.plan.skusElegidos.length===0, 'tras agregar, la lista de elegidos debe quedar vacía');
     assert(calls.some(c=>c.url.includes('/plan_semanal_detalle')), 'tras agregar debe recargar la planificación');
@@ -15244,6 +15297,195 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.agregarPlanPorSku({fecha:'2026-08-12', responsableId:'', nota:''});
     assert(!calls.some(c=>c.opts && c.opts.method==='POST'), 'sin SKU elegidos no debe crear entradas, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+
+    // Si la base rechaza la creación (una sola transacción), no se creó nada: se dice así y los
+    // elegidos se quedan para reintentar.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, skusElegidos:[{id:'rod-1', sku_code:'ROD-1', bodega:'Nave Mina', ubicacion:'Interior Nave'}]};
+    crearPorCodigosFalla = 'new row violates row-level security policy for table "plan_semanal"';
+    let toastsAntesFallaCrear = elements['toast-root'].hijos.length;
+    await ctx.agregarPlanPorSku({fecha:'2026-08-12', responsableId:'', nota:''});
+    crearPorCodigosFalla = null;
+    const toastsFallaCrear = elements['toast-root'].hijos.slice(toastsAntesFallaCrear).map(t=>t.textContent);
+    assert(toastsFallaCrear.some(t=>t.startsWith('No se agregó nada a la planificación: ') && t.includes('row-level security')), 'un error de la base debe verse con su mensaje y decir que no se agregó nada, obtuvo: '+JSON.stringify(toastsFallaCrear));
+    assert(ctx.__appstate.plan.skusElegidos.length===1 && !ctx.__appstate.plan.agregandoPorCodigo, 'tras el error, los elegidos se quedan y el botón vuelve a estar disponible, obtuvo: '+JSON.stringify(ctx.__appstate.plan));
+    ctx.__appstate.plan = {...ctx.__appstate.plan, skusElegidos:[]};
+
+    // ---- Por storage bin y Pegar lista, con filtros Planta / Storage location (22/10/2026) ----
+    ctx.cambiarModoAgregarPlan('bin');
+    let htmlBin = ctx.renderPlanificacion();
+    assert(ctx.__appstate.plan.modoAgregar==='bin' && htmlBin.includes('id="p-modo-bin"') && !/id="p-campos-bin" style="display:none"/.test(htmlBin) && /id="p-campos-ubicacion" style="display:none"/.test(htmlBin) && /id="p-campos-sku" style="display:none"/.test(htmlBin), 'en modo storage bin se ve su buscador y se ocultan los otros dos modos');
+    assert(!/id="p-filtros"[^>]*style="display:none"/.test(htmlBin) && htmlBin.includes('id="p-filtro-planta"') && /id="p-filtro-sloc" disabled/.test(htmlBin), 'en modo bin se ven los filtros; Storage location espera a que se elija una planta');
+    ctx.cambiarModoAgregarPlan('ubicacion');
+    assert(/id="p-filtros"[^>]*style="display:none"/.test(ctx.renderPlanificacion()), 'en modo ubicación los filtros no se muestran (la cascada ya filtra)');
+    ctx.cambiarModoAgregarPlan('bin');
+
+    // Búsqueda de bins: con menos de 3 caracteres no consulta.
+    calls.length = 0;
+    await ctx.buscarBinsParaPlan('a-');
+    assert(!calls.some(c=>c.url.includes('/rpc/buscar_bins_plan')) && /mínimo 3 caracteres/.test(ctx.htmlResultadosBinsPlan()), 'con menos de 3 caracteres no debe consultar el servidor, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    await ctx.buscarBinsParaPlan('a-0');
+    const llamadaBins = calls.find(c=>c.url.endsWith('/rest/v1/rpc/buscar_bins_plan'));
+    assert(llamadaBins && JSON.parse(llamadaBins.opts.body).p_texto==='a-0' && JSON.parse(llamadaBins.opts.body).p_bodega===null && JSON.parse(llamadaBins.opts.body).p_ubicacion===null && JSON.parse(llamadaBins.opts.body).p_dueno===null, 'debe buscar los bins por RPC con el texto en el cuerpo y sin filtros, obtuvo: '+JSON.stringify(llamadaBins && llamadaBins.opts));
+    let htmlRes = ctx.htmlResultadosBinsPlan();
+    assert((htmlRes.match(/data-elegir-bin-plan=/g)||[]).length===3 && htmlRes.includes('7/12 SKU') && htmlRes.includes('Nave Mina · Patio'), 'debe listar cada bin con su lugar y "por planificar/total", obtuvo: '+htmlRes);
+    assert(/plan-bin-n cero[^>]*>0\/5 SKU/.test(htmlRes), 'un bin sin pendientes se ve atenuado (0/5), obtuvo: '+htmlRes);
+    // El mismo nombre de bin en dos ubicaciones son dos bins distintos.
+    const claveA01Interior = 'Nave%20Mina|Interior%20Nave|A-01';
+    const claveA01Patio = 'Nave%20Mina|Patio|A-01';
+    assert(ctx.clavePlanBin({bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'A-01'})===claveA01Interior && !/[\u0000-\u001f]/.test(claveA01Interior), 'la clave de un bin va en un data-atributo: sin caracteres de control (el HTML cambia un NUL y la clave dejaría de calzar)');
+    ctx.alternarBinPlan(claveA01Interior, true);
+    ctx.alternarBinPlan(claveA01Patio, true);
+    let htmlEleg = ctx.htmlBinsElegidosPlan();
+    assert(htmlEleg.includes('2 storage bins elegidos') && htmlEleg.includes('10 SKU por planificar') && (htmlEleg.match(/data-quitar-bin-plan=/g)||[]).length===2, 'debe contar los bins elegidos y sus SKU por planificar, obtuvo: '+htmlEleg);
+    assert(/data-elegir-bin-plan="Nave%20Mina\|Interior%20Nave\|A-01" checked/.test(ctx.htmlResultadosBinsPlan()), 'el bin elegido se ve marcado en los resultados');
+    ctx.alternarBinPlan(claveA01Patio, false);
+    assert(ctx.htmlBinsElegidosPlan().includes('1 storage bin elegido '), 'desmarcar un bin debe sacarlo de los elegidos, obtuvo: '+ctx.htmlBinsElegidosPlan());
+    // Un bin sin ubicación específica no se puede elegir: la entrada cubriría ese bin en toda la planta.
+    assert(!ctx.binPlanConZona({bodega:'Nave Mina', ubicacion:null, storage_bin:'X-1'}) && !ctx.binPlanConZona({bodega:null, ubicacion:'Patio', storage_bin:'X-1'}) && ctx.binPlanConZona({bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'X-1'}), 'una entrada con bin necesita planta y ubicación específica; sin alguna, el bin va por código');
+
+    // Filtro de planta: carga sus storage location y vuelve a buscar con el filtro.
+    calls.length = 0;
+    await ctx.elegirFiltroPlantaPlan('Nave Mina');
+    await new Promise(r=>setTimeout(r,10));
+    assert(ctx.__appstate.plan.filtroPlanta==='Nave Mina' && calls.some(c=>c.url.includes('/ubicaciones_especificas?')), 'elegir planta debe pedir sus storage location, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    const binsConFiltro = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/buscar_bins_plan')).map(c=>JSON.parse(c.opts.body));
+    assert(binsConFiltro.length===1 && binsConFiltro[0].p_bodega==='Nave Mina' && binsConFiltro[0].p_ubicacion===null && binsConFiltro[0].p_texto==='a-0', 'con otra planta debe volver a buscar los bins con el filtro, obtuvo: '+JSON.stringify(binsConFiltro));
+    calls.length = 0;
+    ctx.elegirFiltroSlocPlan('Patio');
+    await new Promise(r=>setTimeout(r,10));
+    const binsConSloc = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/buscar_bins_plan')).map(c=>JSON.parse(c.opts.body));
+    assert(binsConSloc.length===1 && binsConSloc[0].p_bodega==='Nave Mina' && binsConSloc[0].p_ubicacion==='Patio', 'con storage location debe buscar con planta y storage location, obtuvo: '+JSON.stringify(binsConSloc));
+    assert((ctx.htmlResultadosBinsPlan().match(/data-elegir-bin-plan=/g)||[]).length===1, 'los resultados deben ser solo los de la planta y storage location elegidas');
+    assert(ctx.htmlBinsElegidosPlan().includes('1 storage bin elegido '), 'cambiar el filtro no debe borrar los bins ya elegidos');
+
+    // Agregar por bins: una entrada por bin con su storage_bin, por el camino de siempre.
+    ctx.alternarBinPlan(claveA01Patio, true);
+    calls.length = 0;
+    await ctx.agregarPlanPorBins({fecha:'2026-08-13', responsableId:'u1', nota:'Bins'});
+    const filasBins = calls.filter(c=>c.opts && c.opts.method==='POST' && /\/rest\/v1\/plan_semanal(\?|$)/.test(c.url)).map(c=>JSON.parse(c.opts.body)).flat();
+    const zonasBins = filasBins.map(f=>`${f.bodega}|${f.ubicacion}|${f.storage_bin}|${f.por_sku}|${f.ubicacion_nula}`).sort();
+    assert(JSON.stringify(zonasBins)===JSON.stringify(['Nave Mina|Interior Nave|A-01|false|false','Nave Mina|Patio|A-01|false|false']) && filasBins.every(f=>f.fecha==='2026-08-13' && f.responsable_id==='u1' && f.nota==='Bins'), 'debe crear una entrada por bin, cada una con su ubicación y storage bin, obtuvo: '+JSON.stringify(filasBins));
+    assert(ctx.htmlBinsElegidosPlan().includes('Aún no has elegido ningún storage bin'), 'tras agregar, los bins elegidos deben quedar vacíos');
+    calls.length = 0;
+    await ctx.agregarPlanPorBins({fecha:'2026-08-13', responsableId:'', nota:''});
+    assert(!calls.some(c=>c.opts && c.opts.method==='POST'), 'sin bins elegidos no debe crear nada');
+
+    // Pegar lista: separa por líneas, comas, punto y coma o espacios, sin repetir.
+    assert(JSON.stringify(ctx.codigosDeTextoPegado('ROD-1\nROD-2, ROD-1;  ROD-5\tX\n\n')) === JSON.stringify(['ROD-1','ROD-2','ROD-5','X']), 'debe separar los códigos pegados y quitar repetidos, obtuvo: '+JSON.stringify(ctx.codigosDeTextoPegado('ROD-1\nROD-2, ROD-1;  ROD-5\tX')));
+    await ctx.elegirFiltroPlantaPlan('');
+    ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'sku', skuEntrada:'pegar', skusElegidos:[{id:'rod-3', sku_code:'ROD-3', bodega:null, ubicacion:null}]};
+    const htmlPegar = ctx.renderPlanificacion();
+    assert(htmlPegar.includes('id="p-codigos-pegar"') && /id="p-sku-modo-buscar" style="display:none"/.test(htmlPegar) && !/id="p-sku-modo-pegar" style="display:none"/.test(htmlPegar), 'en "Pegar lista" se ve el cuadro para pegar y se oculta el buscador');
+    const viewAntesPegar = ctx.__appstate.view;
+    ctx.__appstate.view = 'plan';
+    delete elements['p-codigos-pegar']; delete elements['btn-revisar-codigos'];
+    ctx.bind();
+    ctx.__appstate.view = viewAntesPegar;
+    elements['p-codigos-pegar'].dispatch('input', {target:{value:'ROD-1\nROD-2\nROD-5\nROD-8\nROD-9\nNOEXISTE'}});
+    calls.length = 0;
+    await ctx.revisarCodigosPegadosPlan();
+    const llamadaRevisar = calls.find(c=>c.url.endsWith('/rest/v1/rpc/revisar_codigos_plan'));
+    assert(llamadaRevisar && JSON.parse(llamadaRevisar.opts.body).p_codigos.length===6 && !llamadaRevisar.url.includes('ROD-'), 'la lista va en el cuerpo de un RPC, nunca en la URL, obtuvo: '+JSON.stringify(llamadaRevisar && {url:llamadaRevisar.url, body:llamadaRevisar.opts.body}));
+    let elegidosPegar = ctx.__appstate.plan.skusElegidos.map(s=>s.id).sort();
+    assert(JSON.stringify(elegidosPegar)===JSON.stringify(['rod-1','rod-3','rod-5a','rod-5b']), 'los listos se suman a los ya elegidos; un código en dos posiciones entra con las dos y lo que ya está en otra entrada no entra, obtuvo: '+JSON.stringify(elegidosPegar));
+    let resumen = ctx.htmlResumenCodigosPlan();
+    assert(resumen.includes('<b>2</b> de 6 códigos listos para planificar (3 posiciones)'), 'el resumen debe decir cuántos códigos y posiciones quedan listos, obtuvo: '+resumen);
+    assert(/Ya en otra entrada del plan[^<]*: <b>1<\/b>/.test(resumen) && /Ya contados en el período: <b>1<\/b>/.test(resumen) && /Sin stock[^<]*: <b>1<\/b>/.test(resumen) && /No existen en el maestro: <b>1<\/b>/.test(resumen) && resumen.includes('NOEXISTE'), 'el resumen debe separar ya planificados, contados, sin stock y no existentes, obtuvo: '+resumen);
+    // Con planta elegida se revisa otra vez y reemplaza lo que había agregado la lista (no suma).
+    calls.length = 0;
+    await ctx.elegirFiltroPlantaPlan('Bodega Sur');
+    await new Promise(r=>setTimeout(r,20));
+    const revisarConFiltro = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/revisar_codigos_plan')).map(c=>JSON.parse(c.opts.body));
+    assert(revisarConFiltro.length===1 && revisarConFiltro[0].p_bodega==='Bodega Sur', 'cambiar la planta debe revisar la lista otra vez con el filtro, obtuvo: '+JSON.stringify(revisarConFiltro));
+    elegidosPegar = ctx.__appstate.plan.skusElegidos.map(s=>s.id).sort();
+    assert(JSON.stringify(elegidosPegar)===JSON.stringify(['rod-3','rod-5b']), 'con la planta elegida solo queda la posición de esa planta (y lo elegido a mano), obtuvo: '+JSON.stringify(elegidosPegar));
+    assert(/Sin posición en la planta[^<]*: <b>2<\/b>/.test(ctx.htmlResumenCodigosPlan()), 'los códigos que solo están en otra planta deben contarse aparte, obtuvo: '+ctx.htmlResumenCodigosPlan());
+    // Un error al revisar se ve con su mensaje.
+    revisarCodigosFalla = 'canceling statement due to statement timeout';
+    await ctx.revisarCodigosPegadosPlan();
+    revisarCodigosFalla = null;
+    assert(/No se pudieron revisar los códigos: .*statement timeout/.test(ctx.htmlResumenCodigosPlan()), 'un error del servidor debe verse como error, obtuvo: '+ctx.htmlResumenCodigosPlan());
+    await ctx.elegirFiltroPlantaPlan('');
+    ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'ubicacion', skuEntrada:'buscar', skusElegidos:[]};
+
+    // Buscar uno: el texto va tal cual en el cuerpo (antes iba con encodeURIComponent y "rodamiento
+    // suelto" se buscaba como "rodamiento%20suelto", sin resultados).
+    calls.length = 0;
+    await ctx.buscarSkuParaPlan('Rodamiento suelto');
+    const cuerpoBuscarUno = JSON.parse((calls.find(c=>c.url.includes('/rpc/buscar_skus_lectura'))||{opts:{body:'{}'}}).opts.body);
+    assert(cuerpoBuscarUno.p_texto==='Rodamiento suelto', 'el texto con espacios va sin codificar en el cuerpo, obtuvo: '+JSON.stringify(cuerpoBuscarUno));
+    assert(/data-elegir-sku-plan="rod-3"/.test(ctx.htmlResultadosSkuPlan()), 'buscar por una descripción con espacio debe encontrarla, obtuvo: '+ctx.htmlResultadosSkuPlan());
+
+    // Un bin sin ubicación específica se puede elegir y se agrega por código con sus pendientes
+    // exactos (sirve a empresas que no usan alguno de esos niveles); uno con planta y ubicación va
+    // como entrada por bin, igual que siempre.
+    ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'bin'};
+    await ctx.buscarBinsParaPlan('Z-9');
+    assert(/se agrega por código/.test(ctx.htmlResultadosBinsPlan()) && !/disabled/.test(ctx.htmlResultadosBinsPlan()), 'un bin sin ubicación específica se puede elegir y avisa que va por código, obtuvo: '+ctx.htmlResultadosBinsPlan());
+    ctx.alternarBinPlan('Nave%20Mina||Z-9', true);
+    await ctx.buscarBinsParaPlan('A-01');
+    ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+    calls.length = 0;
+    await ctx.agregarPlanPorBins({fecha:'2026-08-14', responsableId:'u1', nota:''});
+    const filasBinNormal = calls.filter(c=>c.opts && c.opts.method==='POST' && /\/rest\/v1\/plan_semanal(\?|$)/.test(c.url)).map(c=>JSON.parse(c.opts.body)).flat();
+    assert(filasBinNormal.length===1 && filasBinNormal[0].storage_bin==='A-01' && filasBinNormal[0].ubicacion==='Patio' && filasBinNormal[0].ubicacion_nula===false, 'el bin con planta y ubicación va como entrada por bin, obtuvo: '+JSON.stringify(filasBinNormal));
+    const pedidoSuelto = calls.find(c=>c.url.includes('/skus_disponibles_planificar?select=id&bodega='));
+    assert(pedidoSuelto && pedidoSuelto.url.includes('bodega=eq.Nave%20Mina') && pedidoSuelto.url.includes('ubicacion=is.null') && pedidoSuelto.url.includes('storage_bin=eq.Z-9'), 'el bin sin ubicación pide sus pendientes exactos (ubicación nula), obtuvo: '+JSON.stringify(pedidoSuelto && pedidoSuelto.url));
+    const crearSuelto = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/crear_plan_por_codigos')).map(c=>JSON.parse(c.opts.body));
+    assert(crearSuelto.length===1 && crearSuelto[0].p_sku_ids.join(',')==='z9a,z9b' && crearSuelto[0].p_responsable_id==='u1', 'y se agrega por código con esos materiales, obtuvo: '+JSON.stringify(crearSuelto));
+
+    // Empresas con dueños de stock: el filtro Dueño de los modos nuevos es el mismo del modo por
+    // ubicación y llega a la búsqueda de bins, a la revisión de la lista y a la entrada por bin.
+    {
+      const perfilAntesDuenoBins = ctx.__appstate.perfil;
+      const listaAntesDuenoBins = ctx.__appstate.duenosStock;
+      ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'bin', duenoAgregar:''};
+      assert(!ctx.renderPlanificacion().includes('id="p-filtro-dueno"'), 'sin dueños de stock no aparece el filtro Dueño');
+      ctx.__appstate.perfil = {...perfilAntesDuenoBins, empresas:{...perfilAntesDuenoBins.empresas, usa_duenos_stock:true}};
+      ctx.__appstate.duenosStock = {cargado:true, cargando:false, error:'', lista:[{id:'d1', codigo:'VERTICE', nombre:'Vertice S.A.', activo:true}]};
+      const htmlDuenoBin = ctx.renderPlanificacion();
+      assert(htmlDuenoBin.includes('<select id="p-filtro-dueno">') && htmlDuenoBin.includes('Vertice S.A. (VERTICE)') && !/id="p-filtro-dueno-fila" style="display:none"/.test(htmlDuenoBin), 'con dueños de stock, el modo bin muestra el filtro Dueño, obtuvo: '+htmlDuenoBin.slice(htmlDuenoBin.indexOf('p-filtro-dueno-fila')-20, htmlDuenoBin.indexOf('p-filtro-dueno-fila')+300));
+      await ctx.buscarBinsParaPlan('A-01');
+      ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+      calls.length = 0;
+      ctx.elegirFiltroDuenoPlan('VERTICE');
+      await new Promise(r=>setTimeout(r,10));
+      const binsDueno = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/buscar_bins_plan')).map(c=>JSON.parse(c.opts.body));
+      assert(ctx.__appstate.plan.duenoAgregar==='VERTICE' && binsDueno.length===1 && binsDueno[0].p_dueno==='VERTICE', 'elegir un dueño vuelve a buscar los bins con ese dueño, obtuvo: '+JSON.stringify(binsDueno));
+      assert(ctx.htmlBinsElegidosPlan().includes('Aún no has elegido ningún storage bin'), 'cambiar de dueño vacía los bins elegidos (la entrada sería de otro dueño)');
+      ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+      calls.length = 0;
+      await ctx.agregarPlanPorBins({fecha:'2026-08-15', responsableId:'', nota:''});
+      const filaDueno = calls.filter(c=>c.opts && c.opts.method==='POST' && /\/rest\/v1\/plan_semanal(\?|$)/.test(c.url)).map(c=>JSON.parse(c.opts.body)).flat();
+      assert(filaDueno.length===1 && filaDueno[0].dueno==='VERTICE' && filaDueno[0].storage_bin==='A-01', 'la entrada por bin se guarda con el dueño elegido, obtuvo: '+JSON.stringify(filaDueno));
+      calls.length = 0;
+      await ctx.buscarSkuParaPlan('rod');
+      assert(calls.some(c=>c.url.includes('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin,dueno')) && !/data-elegir-sku-plan/.test(ctx.htmlResultadosSkuPlan()), '"Buscar uno" con dueño pide el dueño de cada posición y muestra solo las de ese dueño (el simulado no trae dueño)');
+      ctx.elegirFiltroDuenoPlan('__sin');
+      calls.length = 0;
+      elements['p-codigos-pegar'].dispatch('input', {target:{value:'ROD-1'}});
+      await ctx.revisarCodigosPegadosPlan();
+      const revisarSinDueno = calls.filter(c=>c.url.endsWith('/rest/v1/rpc/revisar_codigos_plan')).map(c=>JSON.parse(c.opts.body));
+      assert(revisarSinDueno.length===1 && revisarSinDueno[0].p_dueno==='', '"Sin dueño" revisa la lista con p_dueno vacío (lo que no tiene dueño), obtuvo: '+JSON.stringify(revisarSinDueno));
+      assert(/Sin posición en la planta, storage location o dueño elegido|<b>1<\/b> de 1/.test(ctx.htmlResumenCodigosPlan()), 'el resumen nombra el dueño entre los filtros');
+      ctx.elegirFiltroDuenoPlan('');
+      ctx.__appstate.perfil = perfilAntesDuenoBins;
+      ctx.__appstate.duenosStock = listaAntesDuenoBins;
+      ctx.__appstate.plan = {...ctx.__appstate.plan, skusElegidos:[]};
+    }
+
+    // Al cerrar sesión no queda nada buscado, elegido ni pegado para la persona siguiente (puede
+    // ser de otra empresa, en un equipo compartido).
+    await ctx.buscarBinsParaPlan('A-01');
+    ctx.alternarBinPlan('Nave%20Mina|Patio|A-01', true);
+    elements['p-codigos-pegar'].dispatch('input', {target:{value:'ROD-1'}});
+    await ctx.revisarCodigosPegadosPlan();
+    await ctx.buscarSkuParaPlan('rod');
+    assert(ctx.htmlBinsElegidosPlan().includes('1 storage bin elegido') && ctx.htmlResumenCodigosPlan()!=='', 'antes de cerrar sesión hay bins elegidos y una lista revisada');
+    ctx.olvidarBusquedasPlan();
+    assert(ctx.htmlBinsElegidosPlan().includes('Aún no has elegido ningún storage bin') && ctx.htmlResultadosBinsPlan().includes('Escribe parte del storage bin') && ctx.htmlResumenCodigosPlan()==='' && !/data-elegir-sku-plan/.test(ctx.htmlResultadosSkuPlan()), 'olvidarBusquedasPlan deja vacío lo buscado, elegido y pegado');
+    assert(/function estadoTrasCerrarSesion\(\)\{\s*olvidarCargasPorVista\(\);\s*olvidarBusquedasPlan\(\);/.test(html), 'cerrar sesión (y sesión vencida) debe olvidar lo buscado en Plan');
+    ctx.__appstate.plan = {...ctx.__appstate.plan, skusElegidos:[]};
 
     // Etiqueta y universo de una entrada por código en la lista de Planificación.
     ctx.__appstate.plan = {...ctx.__appstate.plan, modoAgregar:'ubicacion', entradas:[{id:'pc1', fecha:'2026-08-12', bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:null, por_sku:true, skus_incluidos:['ROD-1'], responsable_nombre:'Ana', ciclo_nombre:null, skus_excluidos:[]}], universos:{pc1:1}, propios:{pc1:1}, detalle:{pc1:[{id:'rod-1', sku_code:'ROD-1', descripcion:'Rodamiento 6205'}]}};

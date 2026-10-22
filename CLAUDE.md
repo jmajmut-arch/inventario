@@ -69,6 +69,11 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   "Reemplazar completo" nunca funcionaron en producción, y las pruebas con red simulada no lo
   veían. Se escribe `skus!conteos_sku_id_fkey(...)`; `tests/esquema.test.js` lo revisa. Una llave
   foránea nueva entre dos tablas que ya se embeben obliga a revisar los embebidos de ambas.
+- **Agregar un parámetro a una función no la reemplaza: crea otra con el mismo nombre.**
+  `create or replace` con un parámetro más (aunque tenga default) deja las dos, y PostgREST no sabe
+  a cuál llamar si los argumentos que manda la app calzan con ambas. La versión anterior se renombra
+  (`alter function ... rename to ..._obsoleta`) y se le revoca `EXECUTE`, como en
+  `20261022_plan_bins_dueno_y_codigos_exactos.sql`.
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con

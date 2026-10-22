@@ -719,6 +719,25 @@ textarea{resize:vertical;min-height:60px;}
    a la izquierda y, al lado, resumen y Agregar fijos al bajar. Desde 1400 px la página crece y los
    días van de a dos. Solo cambia la disposición: mismos ids, mismo orden en el documento. */
 main.plan-ancho{max-width:1600px;}
+/* Agregar por storage bin y pegando códigos (22/10/2026). */
+.plan-modos .segmented-btn{white-space:normal;line-height:1.2;}
+.plan-filtros{margin-top:6px;}
+.plan-bin-resultados{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto;}
+.plan-bin-opcion{display:flex;align-items:center;gap:10px;min-height:var(--tap-sm);margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);cursor:pointer;font-weight:400;}
+.plan-bin-opcion.elegido{border-color:var(--amber);background:var(--surface-2);}
+.plan-bin-opcion input{width:20px;height:20px;margin:0;flex:none;accent-color:var(--amber);}
+.plan-bin-textos{flex:1;min-width:0;display:flex;flex-direction:column;}
+.plan-bin-textos .mono{font-weight:600;overflow-wrap:anywhere;}
+.plan-bin-lugar{font-size:12px;color:var(--text-dim);}
+.plan-bin-n{flex:none;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text);}
+.plan-bin-n.cero{color:var(--text-faint);}
+#p-codigos-pegar{width:100%;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;resize:vertical;}
+.plan-codigos-ok{font-size:13.5px;margin-bottom:6px;}
+.plan-codigos-grupo{font-size:13px;margin:4px 0;}
+.plan-codigos-grupo>summary{cursor:pointer;min-height:var(--tap-sm);display:flex;align-items:center;gap:4px;}
+.plan-codigos-grupo .mono{font-size:12px;color:var(--text-dim);padding:4px 0 6px;overflow-wrap:anywhere;}
+.plan-codigos-grupo.aviso>summary{color:var(--warn);}
+.plan-codigos-grupo.error>summary{color:var(--danger);}
 @media (min-width:1024px){
   .plan-layout.con-lista{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:0 22px;align-items:start;}
   .plan-layout.con-lista>.plan-lateral{grid-column:2;grid-row:1;position:sticky;top:72px;max-height:calc(100vh - 150px);overflow-y:auto;overscroll-behavior:contain;padding-right:2px;}
@@ -2663,6 +2682,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
+  olvidarBusquedasPlan();
   return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', reconteoOrden:'fecha', reconteoSoloCalzan:false, reconteosYaCalzan:0, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,vistaPreviaReparto:null,responsablesPlan:[],descontarPlanificado:true,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], conteoRecienGuardado:null, superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], ciclosCargados:false, cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
@@ -6277,7 +6297,7 @@ let planSkuBusqueda = { texto:'', resultados:[], yaPlanificados:new Set(), busca
 let planSkuBusquedaTimer = null;
 
 function cambiarModoAgregarPlan(modo){
-  if(modo!=='ubicacion' && modo!=='sku') return;
+  if(modo!=='ubicacion' && modo!=='sku' && modo!=='bin') return;
   setState({plan:{...state.plan, modoAgregar: modo}});
 }
 
@@ -6297,9 +6317,14 @@ async function buscarSkuParaPlan(texto){
   planSkuBusqueda.buscando = true;
   dibujarResultadosSkuPlan();
   try{
-    const t = encodeURIComponent(texto);
+    // El texto va en el cuerpo, saneado como en los demás buscadores. Antes iba con
+    // encodeURIComponent: "filtro aire" se buscaba como "filtro%20aire" y no encontraba nada.
+    const t = sanearTextoFiltro(texto);
     // skus_planificables por buscar_skus_lectura (p_planificables), para que use los índices de trigramas.
-    const filas = await rest('/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin', {method:'POST', body:{p_texto: t, p_limite: PLAN_SKU_BUSQUEDA_LIMITE, p_planificables: true}}) || [];
+    // Con planta, storage location o dueño elegidos (ver filtrosPlanAgregar), solo esas posiciones.
+    const f = filtrosPlanAgregar();
+    const filas = (await rest(`/rpc/buscar_skus_lectura?select=id,sku_code,descripcion,bodega,ubicacion,storage_bin${f.dueno==null ? '' : ',dueno'}`, {method:'POST', body:{p_texto: t, p_limite: PLAN_SKU_BUSQUEDA_LIMITE, p_planificables: true, ...(f.bodega ? {p_bodega: f.bodega} : {})}}) || [])
+      .filter(x=> (!f.bodega || x.bodega===f.bodega) && (!f.ubicacion || x.ubicacion===f.ubicacion) && (f.dueno==null || x.dueno===f.dueno));
     if(seq!==planSkuBusqueda.secuencia) return;
     let disponibles = [];
     if(filas.length){
@@ -6386,36 +6411,284 @@ async function agregarPlanPorSku({fecha, responsableId, nota}){
   if(!perfilCargado()) return;
   const faltaPeriodo = estadoPeriodoParaPlanificar();
   if(faltaPeriodo){ toast(mensajeFaltaPeriodo(faltaPeriodo),'err'); return; }
-  const grupos = agruparSkusElegidosPorZona(elegidos);
+  // Una sola llamada (crear_plan_por_codigos, 22/10/2026): la base agrupa por bodega + ubicación
+  // y crea cada entrada con su lista exacta en una transacción. Con una lista pegada de cientos de
+  // códigos, hacerlo entrada por entrada desde el navegador eran decenas de viajes y, si uno
+  // fallaba a mitad, el plan quedaba a medias. La traducción de zona es la de siempre (sin bodega
+  // ni ubicación = "SKU sin ubicación"; bodega sin ubicación = "sin ubicación específica").
+  if(state.plan.agregandoPorCodigo) return;
+  setState({plan:{...state.plan, agregandoPorCodigo:true}});
+  try{
+    const r = await rest('/rpc/crear_plan_por_codigos', {method:'POST', body:{p_fecha: fecha, p_responsable_id: responsableId||null, p_nota: nota||null, p_sku_ids: elegidos.map(s=>s.id)}, timeoutMs: TIMEOUT_CREAR_PLAN_GRUPO_MS});
+    const creadas = Number(r && r.creadas) || 0, materiales = Number(r && r.materiales) || 0;
+    toast(`Agregado a la planificación: ${materiales.toLocaleString('es-CL')} SKU en ${creadas} entrada${creadas===1?'':'s'}`);
+    planSkuBusqueda = { texto:'', resultados:[], yaPlanificados:new Set(), buscando:false, secuencia: planSkuBusqueda.secuencia+1 };
+    planCodigos = { texto:'', revisando:false, resultado:null, agregados:[] };
+    setState({plan:{...state.plan, skusElegidos:[], agregandoPorCodigo:false}});
+    moverVistaPlanAFecha(fecha);
+    cargarPlanSemanal();
+    refrescarOpcionesUbicacion();
+    invalidarCalendario();
+  }catch(e){
+    // Una sola transacción: si falló, no se creó nada.
+    setState({plan:{...state.plan, agregandoPorCodigo:false}});
+    toast('No se agregó nada a la planificación: '+e.message,'err');
+  }
+}
+
+/* ---- Planificar por storage bin, pegando una lista de códigos, y filtros (22/10/2026) ----------
+   Pedido de Joel. Escondida tiene 15.362 storage bins: bajar por bodega y ubicación hasta el bin
+   no sirve cuando se sabe el bin. Y planificar por código era de a uno. Filtros Planta (la
+   Ubicación general) y Storage location (la Ubicación específica) acotan las dos cosas: un código
+   con posiciones en varias plantas solo entra con las de la elegida. */
+const PLAN_BIN_BUSQUEDA_MIN = 3;
+let planBinBusqueda = { texto:'', resultados:[], buscando:false, error:'', secuencia:0, elegidos:new Map() };
+let planBinBusquedaTimer = null;
+let planCodigos = { texto:'', revisando:false, resultado:null, agregados:[] };
+
+// dueno: el de "Agregar a la planificación" (duenoAgregarPlan: undefined = todos), el mismo del
+// modo por ubicación, para que las empresas con dueños de stock planifiquen igual en los tres modos.
+function filtrosPlanAgregar(){
+  const p = state.plan;
+  const dueno = duenoAgregarPlan();
+  return { bodega: p.filtroPlanta || null, ubicacion: (p.filtroPlanta && p.filtroSloc) || null, dueno: dueno===undefined ? null : dueno };
+}
+// Dueño elegido en los filtros de "Por storage bin" / "Por código": el mismo valor que el selector
+// del modo por ubicación (sus listas se recalculan para cuando se vuelva a ese modo).
+function elegirFiltroDuenoPlan(valor){
+  // Un bin elegido con otro dueño sería otra entrada (la entrada lleva el dueño): se eligen de nuevo.
+  planBinBusqueda = {...planBinBusqueda, elegidos:new Map()};
+  setState({plan:{...state.plan, duenoAgregar: valor||''}});
+  refrescarBusquedasPorFiltro();
+  cargarListasPlanDueno();
+}
+// Al cerrar sesión: lo buscado, elegido o pegado en Plan no puede quedar para la siguiente
+// persona (otra empresa, en un equipo compartido). Viven fuera de state, así que van a mano.
+function olvidarBusquedasPlan(){
+  planSkuBusqueda = { texto:'', resultados:[], yaPlanificados:new Set(), buscando:false, secuencia: planSkuBusqueda.secuencia+1 };
+  planBinBusqueda = { texto:'', resultados:[], buscando:false, error:'', secuencia: planBinBusqueda.secuencia+1, elegidos:new Map() };
+  planCodigos = { texto:'', revisando:false, resultado:null, agregados:[] };
+}
+// Va en un data-atributo: sin caracteres de control (el HTML cambia un NUL por "�" y la clave no calzaría).
+function clavePlanBin(b){ return [b.bodega, b.ubicacion, b.storage_bin].map(x=> encodeURIComponent(x==null?'':x)).join('|'); }
+
+// Planta elegida: se piden sus storage location (la misma vista que el formulario por ubicación).
+// Un error se muestra; el filtro de planta sigue funcionando sin la lista.
+async function elegirFiltroPlantaPlan(bodega){
+  setState({plan:{...state.plan, filtroPlanta: bodega||'', filtroSloc:'', filtroSlocOpciones:[], filtroSlocCargando: !!bodega}});
+  refrescarBusquedasPorFiltro();
+  if(!bodega) return;
+  try{
+    const filas = await rest(`/ubicaciones_especificas?${filtroBodegaOpciones(bodega)}&order=ubicacion.asc`) || [];
+    if(state.plan.filtroPlanta!==bodega) return;
+    setState({plan:{...state.plan, filtroSlocOpciones: [...new Set(filas.map(f=>f.ubicacion).filter(Boolean))], filtroSlocCargando:false}});
+  }catch(e){
+    if(state.plan.filtroPlanta!==bodega) return;
+    setState({plan:{...state.plan, filtroSlocCargando:false}});
+    toast('No se pudieron cargar las storage location: '+e.message,'err');
+  }
+}
+function elegirFiltroSlocPlan(ubicacion){
+  setState({plan:{...state.plan, filtroSloc: ubicacion||''}});
+  refrescarBusquedasPorFiltro();
+}
+// Con otro filtro, lo ya buscado o revisado se vuelve a pedir (no se mezclan resultados de dos filtros).
+function refrescarBusquedasPorFiltro(){
+  if(planBinBusqueda.texto.length >= PLAN_BIN_BUSQUEDA_MIN) buscarBinsParaPlan(planBinBusqueda.texto);
+  if(planSkuBusqueda.texto.length >= PLAN_SKU_BUSQUEDA_MIN) buscarSkuParaPlan(planSkuBusqueda.texto);
+  // La lista pegada se revisa de nuevo con el filtro nuevo (reemplaza lo que había agregado).
+  if(planCodigos.resultado && !planCodigos.resultado.error) revisarCodigosPegadosPlan();
+}
+// Lo que agregó la última revisión de la lista pegada sale de los elegidos antes de la siguiente:
+// revisar de nuevo (con otro filtro, o la lista corregida) reemplaza, no suma. Lo elegido
+// buscando de a uno se queda.
+function quitarAgregadosPorListaPlan(){
+  const quitar = new Set(planCodigos.agregados||[]);
+  planCodigos = {...planCodigos, agregados:[]};
+  return (state.plan.skusElegidos||[]).filter(s=> !quitar.has(s.id));
+}
+
+// buscar_bins_plan (SECURITY DEFINER con la empresa explícita, para usar los trigramas de
+// storage_bin): ~1 ms si el texto no existe, ~250 ms con 30 bins encontrados en Escondida. No pasa
+// por setState: se dibuja solo su contenedor, para no reemplazar el input mientras se escribe.
+async function buscarBinsParaPlan(texto){
+  texto = (texto||'').trim();
+  planBinBusqueda.texto = texto;
+  const seq = ++planBinBusqueda.secuencia;
+  if(texto.length < PLAN_BIN_BUSQUEDA_MIN){
+    planBinBusqueda = {...planBinBusqueda, resultados:[], buscando:false, error:''};
+    dibujarResultadosBinsPlan();
+    return;
+  }
+  planBinBusqueda.buscando = true;
+  planBinBusqueda.error = '';
+  dibujarResultadosBinsPlan();
+  try{
+    const f = filtrosPlanAgregar();
+    const filas = await rest('/rpc/buscar_bins_plan', {method:'POST', body:{p_texto: texto, p_bodega: f.bodega, p_ubicacion: f.ubicacion, p_dueno: f.dueno, p_limite: 30}}) || [];
+    if(seq!==planBinBusqueda.secuencia) return;
+    planBinBusqueda.resultados = filas;
+  }catch(e){
+    if(seq!==planBinBusqueda.secuencia) return;
+    planBinBusqueda.resultados = [];
+    planBinBusqueda.error = mensajeErrorCarga(e);
+  }
+  planBinBusqueda.buscando = false;
+  dibujarResultadosBinsPlan();
+}
+function htmlResultadosBinsPlan(){
+  const b = planBinBusqueda;
+  if(!b.texto) return '<div class="hint">Escribe parte del storage bin (mínimo 3 caracteres).</div>';
+  if(b.texto.length < PLAN_BIN_BUSQUEDA_MIN) return '<div class="hint">Sigue escribiendo (mínimo 3 caracteres)…</div>';
+  if(b.buscando) return '<div class="hint">Buscando…</div>';
+  if(b.error) return `<div class="hint" style="color:var(--danger)" role="alert">No se pudo buscar: ${esc(b.error)}</div>`;
+  if(!b.resultados.length) return '<div class="hint">Ningún storage bin coincide con ese texto y los filtros.</div>';
+  return b.resultados.map(r=>{
+    const clave = clavePlanBin(r);
+    const elegido = b.elegidos.has(clave);
+    const lugar = [r.bodega||'Sin bodega', r.ubicacion||'sin ubicación específica'].join(' · ');
+    // Un bin sin planta o sin ubicación específica se agrega por código (ver agregarPlanPorBins).
+    const porCodigo = !binPlanConZona(r);
+    return `
+      <label class="plan-bin-opcion${elegido?' elegido':''}">
+        <input type="checkbox" data-elegir-bin-plan="${esc(clave)}" ${elegido?'checked':''}>
+        <span class="plan-bin-textos"><span class="mono">${esc(r.storage_bin)}</span><span class="plan-bin-lugar">${esc(lugar)}${porCodigo?' · se agrega por código':''}</span></span>
+        <span class="plan-bin-n${r.por_planificar? '' : ' cero'}" title="Por planificar / total de SKU del bin">${Number(r.por_planificar).toLocaleString('es-CL')}/${Number(r.total).toLocaleString('es-CL')} SKU</span>
+      </label>`;
+  }).join('') + (b.resultados.length>=30? '<div class="hint" style="margin-top:4px">Mostrando los primeros 30. Escribe más o usa los filtros para acotar.</div>' : '');
+}
+function htmlBinsElegidosPlan(){
+  const el = [...planBinBusqueda.elegidos.values()];
+  if(!el.length) return '<div class="hint" style="margin:10px 0 0">Aún no has elegido ningún storage bin.</div>';
+  const sku = el.reduce((t,b)=> t + (Number(b.por_planificar)||0), 0);
+  return `<div class="hint" style="margin:10px 0 0">${el.length} storage bin${el.length===1?'':'s'} elegido${el.length===1?'':'s'} · ${sku.toLocaleString('es-CL')} SKU por planificar · se crea una entrada por bin</div>
+    <div class="plan-sku-chips">${el.map(b=>`<span class="plan-sku-chip" title="${esc([b.bodega, b.ubicacion].filter(Boolean).join(' · '))}"><span class="mono">${esc(b.storage_bin)}</span><button type="button" data-quitar-bin-plan="${esc(clavePlanBin(b))}" aria-label="Quitar ${esc(b.storage_bin)}">×</button></span>`).join('')}</div>`;
+}
+function dibujarResultadosBinsPlan(){
+  const r = document.getElementById('p-bin-resultados');
+  if(r) r.innerHTML = htmlResultadosBinsPlan();
+  const e = document.getElementById('p-bin-elegidos');
+  if(e) e.innerHTML = htmlBinsElegidosPlan();
+}
+// Una entrada con bin necesita planta y ubicación específica: con ubicación nula, la entrada por
+// ubicación no lleva bin (cubriría toda la planta) y sin planta no hay cascada que la contenga.
+function binPlanConZona(b){ return !!(b && b.storage_bin && b.bodega && b.ubicacion); }
+function alternarBinPlan(clave, marcar){
+  const r = planBinBusqueda.resultados.find(x=> clavePlanBin(x)===clave) || planBinBusqueda.elegidos.get(clave);
+  if(!r) return;
+  if(marcar) planBinBusqueda.elegidos.set(clave, r); else planBinBusqueda.elegidos.delete(clave);
+  dibujarResultadosBinsPlan();
+}
+
+// Una entrada por bin, por el mismo camino que el formulario por ubicación (crearPlanEntrada con
+// storageBins): exclusiones, foto del universo, dueño y reglas de siempre. Se agrupan por bodega +
+// ubicación porque crearPlanEntrada trabaja de a una zona. Los bins sin planta o sin ubicación
+// específica (empresas que no usan alguno de esos niveles) van como entrada por código con sus
+// materiales pendientes: exacta, y la entienden Contar, el Calendario y los informes.
+async function agregarPlanPorBins({fecha, responsableId, nota}){
+  const elegidos = [...planBinBusqueda.elegidos.values()];
+  if(!elegidos.length){ toast('Busca y elige al menos un storage bin','err'); return; }
+  if(!fecha){ toast('Elige una fecha','err'); return; }
+  if(!perfilCargado()) return;
+  const faltaPeriodo = estadoPeriodoParaPlanificar();
+  if(faltaPeriodo){ toast(mensajeFaltaPeriodo(faltaPeriodo),'err'); return; }
+  const dueno = duenoAgregarPlan();
+  const zonas = new Map(), sueltos = [];
+  elegidos.forEach(b=>{
+    if(!binPlanConZona(b)){ sueltos.push(b); return; }
+    const k = `${b.bodega}\u0000${b.ubicacion}`;
+    if(!zonas.has(k)) zonas.set(k, {bodega:b.bodega, ubicacion:b.ubicacion, bins:[]});
+    zonas.get(k).bins.push(b.storage_bin);
+  });
   let creadas = 0, fallidas = 0, ultimoError = '';
-  for(const g of grupos){
-    // Misma traducción de zona que el formulario por ubicación: sin bodega ni ubicación = "SKU
-    // sin ubicación"; bodega sin ubicación = "sin ubicación específica"; ubicación sin bodega =
-    // "sin bodega asignada" (bodega '').
-    const soloSinUbicacion = g.bodega===null && g.ubicacion===null;
-    const ubicacionEsNula = g.bodega!==null && g.ubicacion===null;
+  for(const z of zonas.values()){
     try{
-      await crearPlanEntrada({
-        fecha,
-        bodega: soloSinUbicacion ? '' : (g.bodega===null ? '' : g.bodega),
-        ubicacion: g.ubicacion===null ? '' : g.ubicacion,
-        storageBins:[], skusExcluidos:[], soloSinUbicacion, ubicacionEsNula, cicloId:'',
-        responsableId, nota, silencioso:true,
-        skusIncluidos: g.skus.map(s=>({id:s.id, sku_code:s.sku_code})),
-      });
-      creadas++;
-    }catch(e){ fallidas++; ultimoError = e.message; }
+      await crearPlanEntrada({fecha, bodega: z.bodega, ubicacion: z.ubicacion,
+        storageBins: z.bins, skusExcluidos:[], soloSinUbicacion:false, ubicacionEsNula:false, cicloId:'', responsableId, nota, silencioso:true, dueno});
+      creadas += z.bins.length;
+    }catch(e){ fallidas += z.bins.length; ultimoError = e.message; }
+  }
+  if(sueltos.length){
+    try{
+      const ids = [];
+      for(const b of sueltos){
+        const igual = (col, v) => `${col}=${v==null ? 'is.null' : 'eq.'+encodeURIComponent(v)}`;
+        const filas = await rest(`/skus_disponibles_planificar?select=id&${igual('bodega', b.bodega)}&${igual('ubicacion', b.ubicacion)}&${igual('storage_bin', b.storage_bin)}${filtroDuenoPlan(dueno)}`) || [];
+        ids.push(...filas.map(f=>f.id));
+      }
+      if(ids.length){
+        await rest('/rpc/crear_plan_por_codigos', {method:'POST', body:{p_fecha: fecha, p_responsable_id: responsableId||null, p_nota: nota||null, p_sku_ids: ids}, timeoutMs: TIMEOUT_CREAR_PLAN_GRUPO_MS});
+      }
+      creadas += sueltos.length;
+    }catch(e){ fallidas += sueltos.length; ultimoError = e.message; }
   }
   if(creadas){
-    toast(`Agregado a la planificación: ${elegidos.length} SKU en ${creadas} entrada${creadas===1?'':'s'}`);
-    planSkuBusqueda = { texto:'', resultados:[], yaPlanificados:new Set(), buscando:false, secuencia: planSkuBusqueda.secuencia+1 };
-    setState({plan:{...state.plan, skusElegidos:[]}});
+    toast(`Agregado a la planificación: ${creadas} storage bin${creadas===1?'':'s'}`);
+    planBinBusqueda = { texto:'', resultados:[], buscando:false, error:'', secuencia: planBinBusqueda.secuencia+1, elegidos:new Map() };
+    render();
     moverVistaPlanAFecha(fecha);
     cargarPlanSemanal();
     refrescarOpcionesUbicacion();
     invalidarCalendario();
   }
-  if(fallidas) toast(`${fallidas} entrada${fallidas===1?'':'s'} no se pudo${fallidas===1?'':'ieron'} crear: ${ultimoError}`,'err');
+  if(fallidas) toast(`${fallidas} storage bin${fallidas===1?'':'s'} no se pudo${fallidas===1?'':'ieron'} agregar: ${ultimoError}`,'err');
+}
+
+// "Pegar lista": separa por saltos de línea, comas, punto y coma, tabulaciones o espacios; la base
+// clasifica cada código (revisar_codigos_plan) y los listos que no están en otra entrada pasan a
+// la lista de elegidos, junto a los que se hayan elegido buscando de a uno.
+function codigosDeTextoPegado(texto){
+  return [...new Set(String(texto||'').split(/[\s,;]+/).map(c=>c.trim()).filter(Boolean))];
+}
+async function revisarCodigosPegadosPlan(){
+  if(planCodigos.revisando) return;
+  const codigos = codigosDeTextoPegado(planCodigos.texto);
+  if(!codigos.length){ toast('Pega al menos un código','err'); return; }
+  if(codigos.length > 5000){ toast(`Son ${codigos.length.toLocaleString('es-CL')} códigos: el máximo es 5.000 por vez`,'err'); return; }
+  planCodigos = {...planCodigos, revisando:true, resultado:null};
+  dibujarResumenCodigosPlan();
+  try{
+    const f = filtrosPlanAgregar();
+    const r = await rest('/rpc/revisar_codigos_plan', {method:'POST', body:{p_codigos: codigos, p_bodega: f.bodega, p_ubicacion: f.ubicacion, p_dueno: f.dueno}, timeoutMs: TIMEOUT_CREAR_PLAN_GRUPO_MS});
+    const posiciones = (r && r.posiciones) || [];
+    const nuevos = posiciones.filter(x=> !x.en_plan);
+    const base = quitarAgregadosPorListaPlan();
+    const ya = new Set(base.map(s=>s.id));
+    const agregar = nuevos.filter(x=> !ya.has(x.id)).map(x=>({id:x.id, sku_code:x.sku_code, descripcion:x.descripcion, bodega:x.bodega, ubicacion:x.ubicacion, storage_bin:x.storage_bin}));
+    planCodigos = {...planCodigos, revisando:false, agregados: agregar.map(x=>x.id), resultado: {
+      codigos: Number(r && r.codigos) || codigos.length,
+      listos: new Set(nuevos.map(x=>x.codigo)).size, posiciones: nuevos.length,
+      enPlan: [...new Set(posiciones.filter(x=>x.en_plan).map(x=>x.sku_code))],
+      contados: (r && r.contados) || [], sinStock: (r && r.sin_stock) || [], fueraFiltro: (r && r.fuera_filtro) || [], noExisten: (r && r.no_existen) || [],
+    }};
+    setState({plan:{...state.plan, skusElegidos:[...base, ...agregar]}});
+    // Si cambiaron el filtro mientras se revisaba, la respuesta es del filtro anterior: otra vuelta.
+    const g = filtrosPlanAgregar();
+    if(g.bodega!==f.bodega || g.ubicacion!==f.ubicacion || g.dueno!==f.dueno) revisarCodigosPegadosPlan();
+  }catch(e){
+    planCodigos = {...planCodigos, revisando:false, resultado:{error: e.message}};
+    dibujarResumenCodigosPlan();
+  }
+}
+function htmlResumenCodigosPlan(){
+  const c = planCodigos;
+  if(c.revisando) return '<div class="hint">Revisando códigos…</div>';
+  const r = c.resultado;
+  if(!r) return '';
+  if(r.error) return `<div class="hint" style="color:var(--danger)" role="alert">No se pudieron revisar los códigos: ${esc(r.error)}</div>`;
+  const lista = (titulo, arr, clase) => arr.length ? `<details class="plan-codigos-grupo ${clase}"><summary>${titulo}: <b>${arr.length.toLocaleString('es-CL')}</b></summary><div class="mono">${arr.slice(0,200).map(esc).join(', ')}${arr.length>200? ` y ${arr.length-200} más` : ''}</div></details>` : '';
+  return `<div id="p-codigos-resumen-cuerpo">
+    <div class="plan-codigos-ok">✓ <b>${r.listos.toLocaleString('es-CL')}</b> de ${r.codigos.toLocaleString('es-CL')} código${r.codigos===1?'':'s'} listo${r.listos===1?'':'s'} para planificar (${r.posiciones.toLocaleString('es-CL')} posicion${r.posiciones===1?'':'es'})</div>
+    ${lista('Ya en otra entrada del plan (no se agregan)', r.enPlan, 'aviso')}
+    ${lista('Ya contados en el período', r.contados, '')}
+    ${lista('Sin stock (el plan no los incluye)', r.sinStock, '')}
+    ${lista(usaDuenosStock() ? 'Sin posición en la planta, storage location o dueño elegido' : 'Sin posición en la planta o storage location elegida', r.fueraFiltro, 'aviso')}
+    ${lista('No existen en el maestro', r.noExisten, 'error')}
+  </div>`;
+}
+function dibujarResumenCodigosPlan(){
+  const el = document.getElementById('p-codigos-resumen');
+  if(el) el.innerHTML = htmlResumenCodigosPlan();
 }
 
 // Zona que cubre una entrada del plan. Un solo lugar de verdad para la pantalla
@@ -16343,21 +16616,57 @@ function renderPlanificacion(){
       <form id="form-plan">
         <div class="plan-bloque">
         <div class="plan-bloque-titulo"><span class="plan-bloque-n">1</span>Qué y dónde</div>
-        <div class="segmented" style="margin:8px 0 4px" role="tablist" aria-label="Forma de agregar">
-          <button type="button" class="segmented-btn${p.modoAgregar==='sku'?'':' active'}" id="p-modo-ubicacion" aria-pressed="${p.modoAgregar!=='sku'}">Por ubicación</button>
+        <div class="segmented plan-modos" style="margin:8px 0 4px" role="tablist" aria-label="Forma de agregar">
+          <button type="button" class="segmented-btn${p.modoAgregar==='sku'||p.modoAgregar==='bin'?'':' active'}" id="p-modo-ubicacion" aria-pressed="${p.modoAgregar!=='sku' && p.modoAgregar!=='bin'}">Por ubicación</button>
+          <button type="button" class="segmented-btn${p.modoAgregar==='bin'?' active':''}" id="p-modo-bin" aria-pressed="${p.modoAgregar==='bin'}">Por storage bin</button>
           <button type="button" class="segmented-btn${p.modoAgregar==='sku'?' active':''}" id="p-modo-sku" aria-pressed="${p.modoAgregar==='sku'}">Por código de SKU</button>
         </div>
+        ${usaDuenosStock()? `<div id="p-filtro-dueno-fila" ${p.modoAgregar==='sku'||p.modoAgregar==='bin'? '' : 'style="display:none"'}>
+          <label for="p-filtro-dueno">Dueño</label>
+          <select id="p-filtro-dueno">${opcionesFiltroDueno(p.duenoAgregar||'')}</select>
+          ${avisoErrorListaDuenos('margin:4px 0 0;')}
+        </div>` : ''}
+        <div id="p-filtros" class="row2 plan-filtros" ${p.modoAgregar==='sku'||p.modoAgregar==='bin'? '' : 'style="display:none"'}>
+          <div><label for="p-filtro-planta">Planta <span style="font-weight:400;color:var(--text-faint)">(ubicación general)</span></label>
+            <select id="p-filtro-planta">
+              <option value="">Todas</option>
+              ${listasPlanFormulario(p).generales.filter(o=>o.bodega!==null).map(o=>`<option value="${esc(o.bodega)}" ${p.filtroPlanta===o.bodega?'selected':''}>${esc(o.bodega)}</option>`).join('')}
+            </select></div>
+          <div><label for="p-filtro-sloc">Storage location <span style="font-weight:400;color:var(--text-faint)">(ubicación específica)</span></label>
+            <select id="p-filtro-sloc" ${p.filtroPlanta && !p.filtroSlocCargando? '' : 'disabled'}>
+              <option value="">${!p.filtroPlanta? 'Elige planta' : p.filtroSlocCargando? 'Cargando…' : 'Todas'}</option>
+              ${(p.filtroSlocOpciones||[]).map(u=>`<option value="${esc(u)}" ${p.filtroSloc===u?'selected':''}>${esc(u)}</option>`).join('')}
+            </select></div>
+        </div>
+        <div id="p-campos-bin" ${p.modoAgregar==='bin'? '' : 'style="display:none"'}>
+          <label for="p-bin-buscar">Buscar storage bin</label>
+          <input type="text" id="p-bin-buscar" placeholder="Ej. N1E-02" autocomplete="off" autocapitalize="characters" value="${esc(planBinBusqueda.texto)}">
+          <div id="p-bin-resultados" class="plan-bin-resultados" style="margin-top:10px">${p.modoAgregar==='bin'? htmlResultadosBinsPlan() : ''}</div>
+          <div id="p-bin-elegidos">${htmlBinsElegidosPlan()}</div>
+        </div>
         <div id="p-campos-sku" ${p.modoAgregar==='sku'? '' : 'style="display:none"'}>
+          <div class="segmented segmented-sm" style="margin:10px 0 4px" role="tablist" aria-label="Cómo elegir los SKU">
+            <button type="button" class="segmented-btn${p.skuEntrada==='pegar'?'':' active'}" id="p-sku-entrada-buscar" aria-pressed="${p.skuEntrada!=='pegar'}">Buscar uno</button>
+            <button type="button" class="segmented-btn${p.skuEntrada==='pegar'?' active':''}" id="p-sku-entrada-pegar" aria-pressed="${p.skuEntrada==='pegar'}">Pegar lista</button>
+          </div>
+          <div id="p-sku-modo-buscar" ${p.skuEntrada==='pegar'? 'style="display:none"' : ''}>
           <label for="p-sku-buscar">Buscar SKU por código o descripción</label>
           <input type="text" id="p-sku-buscar" placeholder="Ej. 4400-1123 o &quot;filtro&quot;" autocomplete="off" value="${esc(planSkuBusqueda.texto)}">
           <div class="hint" style="margin:4px 0 0">Solo aparecen materiales pendientes de contar en este período. Enter elige el primero.</div>
           <div id="p-sku-resultados" style="margin-top:10px">${p.modoAgregar==='sku'? htmlResultadosSkuPlan() : ''}</div>
+          </div>
+          <div id="p-sku-modo-pegar" ${p.skuEntrada==='pegar'? '' : 'style="display:none"'}>
+          <label for="p-codigos-pegar">Pega los códigos <span style="font-weight:400;color:var(--text-faint)">(uno por línea, o separados por coma o espacio; hasta 5.000)</span></label>
+          <textarea id="p-codigos-pegar" rows="6" placeholder="10475828&#10;11172553&#10;…" spellcheck="false" autocomplete="off">${esc(planCodigos.texto)}</textarea>
+          <button type="button" class="btn btn-secondary" id="btn-revisar-codigos" style="width:auto;padding:8px 14px;margin-top:8px">Revisar códigos</button>
+          <div id="p-codigos-resumen" style="margin-top:10px">${htmlResumenCodigosPlan()}</div>
+          </div>
           ${(p.skusElegidos||[]).length? `
-            <div class="hint" style="margin:10px 0 0">${p.skusElegidos.length} SKU elegido${p.skusElegidos.length===1?'':'s'} · se crear${agruparSkusElegidosPorZona(p.skusElegidos).length===1?'á 1 entrada':'án '+agruparSkusElegidosPorZona(p.skusElegidos).length+' entradas'} (una por bodega + ubicación)</div>
-            <div class="plan-sku-chips">${p.skusElegidos.map(s=>`<span class="plan-sku-chip" title="${esc(zonaDeSku(s))}"><span class="mono">${esc(s.sku_code)}</span><button type="button" data-quitar-sku-plan="${esc(s.id)}" aria-label="Quitar ${esc(s.sku_code)}">×</button></span>`).join('')}</div>
+            <div class="hint" style="margin:10px 0 0">${p.skusElegidos.length.toLocaleString('es-CL')} SKU elegido${p.skusElegidos.length===1?'':'s'} · se crear${agruparSkusElegidosPorZona(p.skusElegidos).length===1?'á 1 entrada':'án '+agruparSkusElegidosPorZona(p.skusElegidos).length+' entradas'} (una por bodega + ubicación)${p.skusElegidos.length>1? ' · <button type="button" class="link-btn" id="btn-quitar-todos-sku-plan">Quitar todos</button>' : ''}</div>
+            <div class="plan-sku-chips">${p.skusElegidos.slice(0,40).map(s=>`<span class="plan-sku-chip" title="${esc(zonaDeSku(s))}"><span class="mono">${esc(s.sku_code)}</span><button type="button" data-quitar-sku-plan="${esc(s.id)}" aria-label="Quitar ${esc(s.sku_code)}">×</button></span>`).join('')}${p.skusElegidos.length>40? `<span class="hint" style="margin:0;align-self:center">y ${(p.skusElegidos.length-40).toLocaleString('es-CL')} más</span>` : ''}</div>
           ` : `<div class="hint" style="margin:10px 0 0">Aún no has elegido ningún SKU.</div>`}
         </div>
-        <div id="p-campos-ubicacion" ${p.modoAgregar==='sku'? 'style="display:none"' : ''}>
+        <div id="p-campos-ubicacion" ${p.modoAgregar==='sku'||p.modoAgregar==='bin'? 'style="display:none"' : ''}>
         ${usaDuenosStock()? `
           <label for="p-dueno">Dueño</label>
           <select id="p-dueno">${opcionesFiltroDueno(p.duenoAgregar||'')}</select>
@@ -16409,7 +16718,7 @@ function renderPlanificacion(){
         <input type="text" id="p-nota" placeholder="Opcional">
         </div>
         <div class="plan-form-pie">
-          <button type="submit" class="btn btn-primary">Agregar a la planificación</button>
+          ${p.agregandoPorCodigo? `<button type="submit" class="btn btn-primary" disabled>Agregando…</button>` : `<button type="submit" class="btn btn-primary">Agregar a la planificación</button>`}
         </div>
       </form>
       </div>
@@ -20763,6 +21072,14 @@ function bind(){
       // Quien está agregando suele agregar varias seguidas: el formulario queda abierto aunque
       // haya partido abierto solo porque no había nada planificado.
       state.plan.agregarAbierto = true;
+      if(state.plan.modoAgregar==='bin'){
+        await agregarPlanPorBins({
+          fecha: document.getElementById('p-fecha').value,
+          responsableId: document.getElementById('p-responsable').value,
+          nota: document.getElementById('p-nota').value.trim(),
+        });
+        return;
+      }
       if(state.plan.modoAgregar==='sku'){
         await agregarPlanPorSku({
           fecha: document.getElementById('p-fecha').value,
@@ -21062,6 +21379,35 @@ function bind(){
     }
     document.getElementById('p-modo-ubicacion').addEventListener('click', ()=> cambiarModoAgregarPlan('ubicacion'));
     document.getElementById('p-modo-sku').addEventListener('click', ()=> cambiarModoAgregarPlan('sku'));
+    document.getElementById('p-modo-bin').addEventListener('click', ()=> cambiarModoAgregarPlan('bin'));
+    document.getElementById('p-filtro-planta').addEventListener('change', e=> elegirFiltroPlantaPlan(e.target.value));
+    document.getElementById('p-filtro-sloc').addEventListener('change', e=> elegirFiltroSlocPlan(e.target.value));
+    const selFiltroDuenoPlan = document.getElementById('p-filtro-dueno');
+    if(selFiltroDuenoPlan) selFiltroDuenoPlan.addEventListener('change', e=> elegirFiltroDuenoPlan(e.target.value));
+    // Buscar bin: al escribir no se repinta la pantalla (iOS reiniciaría el teclado), solo los resultados.
+    const inputBinPlan = document.getElementById('p-bin-buscar');
+    inputBinPlan.addEventListener('input', e=>{
+      clearTimeout(planBinBusquedaTimer);
+      const texto = e.target.value;
+      planBinBusquedaTimer = setTimeout(()=> buscarBinsParaPlan(texto), 300);
+    });
+    inputBinPlan.addEventListener('keydown', e=>{ if(e.key==='Enter') e.preventDefault(); });
+    const camposBinPlan = document.getElementById('p-campos-bin');
+    camposBinPlan.addEventListener('change', e=>{
+      const chk = e.target.closest ? e.target.closest('[data-elegir-bin-plan]') : null;
+      if(chk) alternarBinPlan(chk.dataset.elegirBinPlan, chk.checked);
+    });
+    camposBinPlan.addEventListener('click', e=>{
+      const btn = e.target.closest ? e.target.closest('[data-quitar-bin-plan]') : null;
+      if(btn) alternarBinPlan(btn.dataset.quitarBinPlan, false);
+    });
+    document.getElementById('p-sku-entrada-buscar').addEventListener('click', ()=> setState({plan:{...state.plan, skuEntrada:'buscar'}}));
+    document.getElementById('p-sku-entrada-pegar').addEventListener('click', ()=> setState({plan:{...state.plan, skuEntrada:'pegar'}}));
+    // Lo pegado se guarda al escribir, sin repintar.
+    document.getElementById('p-codigos-pegar').addEventListener('input', e=>{ planCodigos.texto = e.target.value; });
+    document.getElementById('btn-revisar-codigos').addEventListener('click', revisarCodigosPegadosPlan);
+    const btnQuitarTodosSku = document.getElementById('btn-quitar-todos-sku-plan');
+    if(btnQuitarTodosSku) btnQuitarTodosSku.addEventListener('click', ()=> setState({plan:{...state.plan, skusElegidos:[]}}));
     // Resumen plegable (Fase 3): recordar si está abierto para que el próximo repintado no lo
     // cierre. Solo guarda el booleano; no repinta ni consulta nada.
     recordarPlegable('plan-resumen', abierto=>{ state.plan.resumenAbierto = abierto; });
