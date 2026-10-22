@@ -433,6 +433,9 @@ async function loguear(page, perfil, prepararRutas){
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-danos-420.png', fullPage: true });
     // Pedido de Joel (09/10): más de 1 sin foto avisa antes de guardar, sin bloquear. El primer
     // toque de Guardar no manda nada; "Guardar sin foto" sí guarda.
+    // El servidor devuelve el conteo creado (para "Agregar foto" de más abajo).
+    await page.route('**/rest/v1/conteos?on_conflict=idempotency_key**', r => r.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'c-e2e-recien' }]) }));
+    await page.route('**/storage/v1/object/fotos-inventario/**', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ Key:'ok' }) }));
     const postsConteo = [];
     const cuerposConteo = [];
     page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteos')) { postsConteo.push(req.url()); try { cuerposConteo.push(JSON.parse(req.postData())[0]); } catch(e) {} } });
@@ -452,6 +455,24 @@ async function loguear(page, perfil, prepararRutas){
     assert(postsConteo.length >= 1, '"Guardar sin foto" debe guardar el conteo');
     const cuerpo = cuerposConteo.find(c => c && c.cantidad_contada === 5);
     assert(cuerpo && cuerpo.packing_danado === true && cuerpo.material_danado === true && cuerpo.cantidad_danada === 2, 'el conteo viaja con las marcas de daño y las unidades dañadas, obtuvo '+JSON.stringify(cuerpo));
+    // "Agregar foto" al conteo recién guardado (22/10/2026): sin contar de nuevo, la foto se enlaza
+    // al mismo conteo.
+    assert(await esperarVisible(page, '#conteo-recien-guardado'), 'tras guardar, Contar ofrece agregar una foto a ese conteo');
+    // Tras guardar, la lista de pendientes se vuelve a pedir: se espera a que esté antes de medir.
+    await esperarVisible(page, '.contar-lista-cab');
+    const recienSobreLista = await page.evaluate(() => { const r = document.getElementById('conteo-recien-guardado'), l = document.querySelector('.contar-lista-cab'); return { ok: !!(r && l && r.getBoundingClientRect().bottom <= l.getBoundingClientRect().top && document.querySelectorAll('#conteo-recien-guardado').length === 1), aviso: r && Math.round(r.getBoundingClientRect().bottom), lista: l && Math.round(l.getBoundingClientRect().top), avisos: document.querySelectorAll('#conteo-recien-guardado').length }; });
+    assert(recienSobreLista.ok, 'el aviso va una sola vez, justo sobre la lista de pendientes del lugar, obtuvo '+JSON.stringify(recienSobreLista));
+    const enlaces = [];
+    page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteo_fotos')) { try { enlaces.push(...JSON.parse(req.postData())); } catch(e) {} } });
+    const nConteosAntes = postsConteo.length;
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    await page.setInputFiles('#c-foto-recien', { name:'foto.png', mimeType:'image/png', buffer: png });
+    for (let i = 0; i < 40 && !enlaces.length; i++) await page.waitForTimeout(100);
+    assert(enlaces.length === 1 && enlaces[0].conteo_id === 'c-e2e-recien' && postsConteo.length === nConteosAntes, 'la foto se enlaza al conteo guardado, sin crear otro conteo, obtuvo '+JSON.stringify({enlaces, conteos: postsConteo.length - nConteosAntes}));
+    assert(await esperarVisible(page, '#conteo-recien-guardado >> text=1 foto'), 'el aviso cuenta la foto agregada');
+    const desbordeRecien = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeRecien <= 0, 'a 420 px el aviso del conteo guardado no desborda, obtuvo '+desbordeRecien);
+    if (process.env.E2E_CAPTURAS) await (await page.$('#conteo-recien-guardado')).screenshot({ path: process.env.E2E_CAPTURAS + '/contar-agregar-foto-420.png' });
     await context.close();
   }
 
@@ -2875,6 +2896,116 @@ async function loguear(page, perfil, prepararRutas){
     fallar = false;
     await page.click('#btn-reintentar-reconteos');
     assert(await esperarVisible(page, 'text=No hay materiales con diferencias pendientes'), 'al reintentar con el servidor bien, se ve la lista real (vacía)');
+    await context.close();
+  }
+
+  // ===== Reconteo por valor y "Stock ya calza" (22/10/2026) =====
+  // A 420 px: el selector de orden y el botón de los que ya calzan caben sin empujar la página;
+  // "Mayor valor" pide la lista ordenada por valor; el botón filtra y la fila lleva su insignia.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('reconteo-valor: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const fila = (id, code, dif, valor, calza) => ({ id, conteo_id:'c-'+id, sku_code:code, descripcion:'MATERIAL '+code, bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', stock_sistema:10, ultima_cantidad_contada:10+dif, ultima_diferencia:dif, ultimo_conteo_fecha:'2026-10-20T12:00:00Z', causa_probable:'Sin patrón detectado', fotos:[], valor_diferencia_abs:valor, stock_ya_calza:calza });
+    const urls = [];
+    await page.route('**/rest/v1/reconteo_pendiente?**', route => { const u = route.request().url(); urls.push(u);
+      const filas = u.includes('stock_ya_calza=is.true') ? [ fila('r2','10418772',-3,15000,true) ] : [ fila('r1','10475828',-2,4000,false), fila('r2','10418772',-3,15000,true) ];
+      return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) }); });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('[data-tab="reconteo"]');
+    assert(await esperarVisible(page, '[data-orden-reconteo="valor"]'), 'Reconteo ofrece ordenar por "Mayor valor"');
+    assert(await esperarVisible(page, '#btn-reconteo-calzan'), 'y el botón de los que ya calzan');
+    const pedidoValor = page.waitForRequest(r => r.url().includes('/reconteo_pendiente') && r.url().includes('order=valor_diferencia_abs.desc'), { timeout:ESPERA }).then(()=>true).catch(()=>false);
+    await page.click('[data-orden-reconteo="valor"]');
+    assert(await pedidoValor, '"Mayor valor" pide la lista ordenada por valor de la diferencia');
+    await page.click('#btn-reconteo-calzan');
+    assert(await esperarVisible(page, '.badge-ok:has-text("Stock ya calza")'), 'filtrando, la fila muestra "Stock ya calza"');
+    assert(urls.some(u => u.includes('order=valor_diferencia_abs.desc') && u.includes('stock_ya_calza=is.true')), 'el filtro conserva el orden por valor');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px Reconteo con orden y filtro no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/reconteo-valor-420.png', fullPage: true });
+    await context.close();
+  }
+
+  // ===== Grupos: repartir entre personas y descontar lo ya planificado (22/10/2026) =====
+  // A 420 px: "Repartir entre" ofrece al equipo; la vista previa salta el día lleno, dice cuánto
+  // ya había y cuánto le toca a cada persona; al confirmar, cada entrada lleva su responsable.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('grupos-reparto: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const J = (route, x) => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(x) });
+    const isoLocal = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const manana = isoLocal(new Date(Date.now()+86400000));
+    const ayer = isoLocal(new Date(Date.now()-86400000));
+    await page.route('**/rest/v1/ciclos_conteo?**', r => J(r, [{ id:'c1', nombre:'Q1', es_actual:true, fecha_inicio:'2026-10-01', fecha_fin:null }]));
+    await page.route('**/rest/v1/grupos_conteo?**', r => J(r, [{ id:'g1', nombre:'Criticos', frecuencia_dias:30, activo:true, automatico_critico:false, miembros:[{count:3}] }]));
+    await page.route('**/rest/v1/skus_grupos_conteo?**', r => J(r, [{id:'m1', sku_code:'10475828', bodega:'B501'}, {id:'m2', sku_code:'11172553', bodega:'B501'}, {id:'m3', sku_code:'10418772', bodega:'B501'}]));
+    await page.route('**/rest/v1/skus?**', r => J(r, [
+      {sku_code:'10475828', bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', ultimo_conteo_fecha:null},
+      {sku_code:'11172553', bodega:'B501', ubicacion:'0100', storage_bin:'3029-B', ultimo_conteo_fecha:null},
+      {sku_code:'10418772', bodega:'B501', ubicacion:'0100', storage_bin:'3030-A', ultimo_conteo_fecha:null},
+    ]));
+    let cuerpoCrear = null;
+    await page.route('**/rest/v1/rpc/**', r => {
+      const u = r.request().url();
+      if(u.includes('/rpc/plan_ventana_pantalla')){
+        const b = r.request().postDataJSON();
+        // Sin "desde": es Plan (el período, o el atraso hasta ayer), con una entrada atrasada de 3 SKU.
+        // Con "desde": lo ya planificado que mira Grupos.
+        if(!b.p_desde){
+          const entradas = [{id:'at1', fecha:ayer, nota:null, bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', solo_sin_ubicacion:false, por_sku:false, skus_excluidos:[], skus_incluidos:[]}];
+          const skus = ['10475828','11172553','10418772'].map((c,i)=>({id:'s'+i, sku_code:c, descripcion:'MATERIAL '+c}));
+          return J(r, b.p_resumido ? { entradas, resumen:[{plan_id:'at1', total:3, propios:3}] } : { entradas, universo:{ at1: skus } });
+        }
+        return J(r, { entradas:[{id:'o1', fecha: b.p_desde, nota:'Conteo Barrido P6'}], resumen:[{plan_id:'o1', total:500, propios:500}] });
+      }
+      if(u.includes('/rpc/crear_plan_grupo')){ cuerpoCrear = r.request().postDataJSON(); return J(r, {creadas:3, omitidas:0, omitidos_materiales:0, eliminadas:0}); }
+      return J(r, []);
+    });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('#tab-mas');
+    await page.waitForSelector('[data-tab="grupos"]', { state:'visible', timeout:ESPERA });
+    await page.click('[data-tab="grupos"]');
+    await page.waitForSelector('[data-ver-grupo="g1"]', { timeout:ESPERA });
+    await page.click('[data-ver-grupo="g1"]');
+    assert(await esperarVisible(page, '#grupo-resp-perfil-1'), 'Grupos ofrece repartir el plan entre las personas del equipo');
+    await page.check('#grupo-resp-perfil-1');
+    assert(await page.isDisabled('#grupo-personas') && (await page.inputValue('#grupo-personas'))==='1', 'con personas elegidas, Personas toma cuántas son');
+    await page.click('#btn-calcular-vista-previa');
+    assert(await esperarVisible(page, '.grupo-dia-reparto'), 'la vista previa dice cuánto le toca a cada persona');
+    const previa = await page.$$eval('.grupo-dia-previa', els => els.map(e => ({ fecha: e.dataset.fecha, texto: e.textContent })));
+    assert(previa.length===1 && previa[0].fecha!==manana && /Ana Torres: 3/.test(previa[0].texto), 'el día con 500 ya planificados (mañana) se salta y el reparto se ve, obtuvo: '+JSON.stringify(previa));
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px Grupos con el reparto no desborda, obtuvo: '+desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/grupos-reparto-420.png', fullPage: true });
+    page.once('dialog', d => d.accept());
+    await page.click('#btn-confirmar-plan-grupo');
+    for(let i=0; i<40 && !cuerpoCrear; i++) await page.waitForTimeout(100);
+    assert(cuerpoCrear && cuerpoCrear.p_entradas.length===3 && cuerpoCrear.p_entradas.every(e => e.responsable_id==='perfil-1'), 'al confirmar, cada entrada viaja con su responsable, obtuvo: '+JSON.stringify(cuerpoCrear));
+    // Plan: el atraso se puede repartir con un máximo de SKU por día; escribirlo no repinta.
+    await page.click('.tabbar [data-tab="plan"]');
+    assert(await esperarVisible(page, '#btn-atraso-reprogramar'), 'Plan muestra el atraso con Reprogramar');
+    await page.click('#btn-atraso-reprogramar');
+    await page.waitForSelector('#atraso-tope', { state:'visible', timeout:ESPERA });
+    await page.focus('#atraso-tope');
+    await page.evaluate(() => { window.__topeAntes = document.getElementById('atraso-tope'); });
+    await page.keyboard.type('25');
+    const tope = await page.evaluate(() => ({ mismo: window.__topeAntes === document.getElementById('atraso-tope'), boton: document.getElementById('btn-atraso-mover').textContent.trim() }));
+    assert(tope.mismo && /^Repartir 1 entrada \(3 SKU\) desde /.test(tope.boton), 'al escribir el máximo, el campo no se reemplaza y el botón pasa a "Repartir", obtuvo: '+JSON.stringify(tope));
+    const desbordePlan = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordePlan <= 0, 'a 420 px el panel de atraso no desborda, obtuvo: '+desbordePlan);
+    if (process.env.E2E_CAPTURAS) await (await page.$('#plan-atraso')).screenshot({ path: process.env.E2E_CAPTURAS + '/plan-atraso-tope-420.png' });
     await context.close();
   }
 

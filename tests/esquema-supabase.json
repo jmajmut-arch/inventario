@@ -1,6 +1,6 @@
 {
   "_comentario": "Columnas reales de cada tabla y vista de Supabase que consulta la app. Sirve para que tests/esquema.test.js detecte un select que pide una columna inexistente: PostgREST rechaza la consulta completa con un 400 y la app lo muestra como si no hubiera resultados. Actualizar tras cada migración que agregue o quite columnas.",
-  "_actualizado": "2026-10-21",
+  "_actualizado": "2026-10-22",
   "relaciones": {
     "auditoria": [
       "accion",
@@ -561,6 +561,7 @@
       "stock_transferencia",
       "stock_transito_1",
       "stock_transito_2",
+      "stock_ya_calza",
       "storage_bin",
       "total_bloqueado",
       "total_consignado",
@@ -575,6 +576,7 @@
       "ultima_diferencia",
       "ultimo_conteo_fecha",
       "unidad_medida",
+      "valor_diferencia_abs",
       "valor_diferencia_linea",
       "veces_con_diferencia"
     ],
