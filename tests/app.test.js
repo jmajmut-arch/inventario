@@ -431,7 +431,7 @@ const fakeFetchImpl = async (url, opts) => {
   // los otros matchers de /conteos?select=, que son más genéricos.
   // Impacto de "Reemplazar completo": contados en el ciclo, con la clave del material embebida.
   // El mismo material contado dos veces (x1) cuenta una sola vez.
-  if(path.startsWith('/rest/v1/conteos?select=sku_id,skus(')){
+  if(path.startsWith('/rest/v1/conteos?select=sku_id,skus!conteos_sku_id_fkey(')){
     return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify([
       {sku_id:'x1', skus:{sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'}},
       {sku_id:'x1', skus:{sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-1'}},
@@ -7029,7 +7029,7 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     await ctx.calcularImpactoReemplazo();
     const imp = ctx.__appstate.cargaPreview.impactoReemplazo;
     assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=id,sku_code,bodega,batch,ubicacion,storage_bin')), 'debe traer los pendientes con su clave completa, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-    assert(calls.some(c=>c.url.includes('/conteos?select=sku_id,skus(') && c.url.includes('ciclo_id=eq.ciclo-1')), 'debe traer los contados del ciclo actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/conteos?select=sku_id,skus!conteos_sku_id_fkey(') && c.url.includes('ciclo_id=eq.ciclo-1')), 'debe traer los contados del ciclo actual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(!calls.some(c=>c.url.includes('/rest/v1/skus?')), 'nunca debe traer el maestro entero para esto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
     assert(imp && !imp.cargando && imp.pendientes.total===3 && imp.pendientes.noVienen===2, 'de 3 pendientes, 2 no vienen (B, y A en otro bin): la clave es código+bodega+batch+ubicación+bin, obtuvo: '+JSON.stringify(imp));
     assert(imp.contados && imp.contados.total===2 && imp.contados.noVienen===1 && imp.contados.ciclo==='Q1', 'de 2 contados distintos (x1 repetido cuenta una vez), 1 no viene, obtuvo: '+JSON.stringify(imp));

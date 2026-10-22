@@ -446,3 +446,16 @@ test('ubicaciones tiene una sola regla de lectura y conteos.corregido_por tiene 
   assert.deepEqual(ultimaAll.filter(n => !borradas.has(n)), [], 'ninguna regla FOR ALL en ubicaciones (cuenta también como lectura)');
   assert.match(todo, /create\s+index\s+(if\s+not\s+exists\s+)?conteos_corregido_por_idx\s+on\s+public\.conteos\s*\(\s*corregido_por\s*\)/i, 'conteos.corregido_por lleva índice');
 });
+
+test('al embeber skus desde conteos se nombra la relación (hay dos llaves entre ambas)', () => {
+  // conteos.sku_id apunta a skus y skus.ultimo_conteo_id apunta a conteos: para PostgREST,
+  // "conteos?select=...,skus(...)" es ambiguo y responde 300 (PGRST201) en vez de los datos. Pasó
+  // de verdad: "Cerrados sin recontar" (Reconteo) y el aviso de "Reemplazar completo" (Carga)
+  // nunca funcionaron en producción; Joel lo vio el 22/10/2026 ("Could not embed because more
+  // than one relationship was found for 'conteos' and 'skus'"). Va con skus!conteos_sku_id_fkey(...).
+  const app = fs.readFileSync(path.join(RAIZ, 'app', 'index.html'), 'utf8');
+  const ambiguos = [...app.matchAll(/\/conteos\?select=[^'`"]*?[(,]skus\(/g)].map(m => m[0].slice(0, 80));
+  const tambienSinNombre = [...app.matchAll(/\/conteos\?select=skus\(/g)].map(m => m[0]);
+  assert.deepEqual([...ambiguos, ...tambienSinNombre], [], 'cada embebido de skus desde conteos usa skus!conteos_sku_id_fkey(...)');
+  assert.ok(app.includes('skus!conteos_sku_id_fkey('), 'la app embebe skus nombrando la relación');
+});

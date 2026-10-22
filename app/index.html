@@ -8310,7 +8310,7 @@ async function descartarReconteosLote(){
 async function cargarReconteosCerrados(){
   setState({reconteosCerrados:{...state.reconteosCerrados, cargando:true, error:null}});
   try{
-    const filas = await rest('/conteos?select=id,cantidad_contada,diferencia,fecha_conteo,reconteo_descartado_en,reconteo_descartado_motivo,reconteo_cierre_tipo,ajuste_erp_referencia,skus(sku_code,descripcion,bodega,costo_unitario),cerrado_por:usuarios!conteos_reconteo_descartado_por_fkey(nombre)&reconteo_descartado_en=not.is.null&order=reconteo_descartado_en.desc&limit=50');
+    const filas = await rest('/conteos?select=id,cantidad_contada,diferencia,fecha_conteo,reconteo_descartado_en,reconteo_descartado_motivo,reconteo_cierre_tipo,ajuste_erp_referencia,skus!conteos_sku_id_fkey(sku_code,descripcion,bodega,costo_unitario),cerrado_por:usuarios!conteos_reconteo_descartado_por_fkey(nombre)&reconteo_descartado_en=not.is.null&order=reconteo_descartado_en.desc&limit=50');
     setState({reconteosCerrados:{...state.reconteosCerrados, cargado:true, cargando:false, filas: filas||[], error:null}});
   }catch(e){
     setState({reconteosCerrados:{...state.reconteosCerrados, cargado:true, cargando:false, error:e.message}});
@@ -10630,7 +10630,7 @@ async function calcularImpactoReemplazo(){
     }
     const [pendientes, contados] = await Promise.all([
       rest('/reconteo_pendiente?select=id,sku_code,bodega,batch,ubicacion,storage_bin'),
-      ciclo ? rest(`/conteos?select=sku_id,skus(sku_code,bodega,batch,ubicacion,storage_bin,dueno)&ciclo_id=eq.${ciclo.id}`) : Promise.resolve(null),
+      ciclo ? rest(`/conteos?select=sku_id,skus!conteos_sku_id_fkey(sku_code,bodega,batch,ubicacion,storage_bin,dueno)&ciclo_id=eq.${ciclo.id}`) : Promise.resolve(null),
     ]);
     if(state.cargaPreview !== p) return; // se canceló o se cargó otro archivo mientras tanto
     let pend = pendientes || [];
