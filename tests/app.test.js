@@ -15500,6 +15500,94 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     assert(ctxRecarga.__appstate.instalarApp.bannerOculto===true, 'al abrir la app, el "Ahora no" guardado debe respetarse, obtuvo: '+JSON.stringify(ctxRecarga.__appstate.instalarApp));
   }
 
+  // ===== Planificar sin período (Joel, 21/10/2026) =====
+  // Una empresa nueva planificó 8 entradas sin ningún período actual: quedaron con ciclo_id null,
+  // fuera de todo período, y 4 repetidas. Sin período actual, Plan lo dice, oculta "Agregar" y
+  // ofrece crearlo ahí mismo; crear la entrada se bloquea. El primer período creado con inicio hoy
+  // o antes queda activo de inmediato y adopta lo planificado sin período desde esa fecha.
+  {
+    const antes = {ciclos: ctx.__appstate.ciclos, cargados: ctx.__appstate.ciclosCargados, view: ctx.__appstate.view, plan: ctx.__appstate.plan, perfil: ctx.__appstate.perfil};
+    const fetchAntes = ctx.fetch;
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', planes:{nombre:'profesional', etiqueta:'Profesional', dashboard_ejecutivo_habilitado:true}} };
+    const hoy = ctx.fechaISO(new Date());
+
+    // Sin haber leído los períodos todavía, no se bloquea a ciegas.
+    ctx.__appstate.ciclos = []; ctx.__appstate.ciclosCargados = false;
+    assert(ctx.estadoPeriodoParaPlanificar()===null, 'si los períodos aún no se leyeron, no debe darse por hecho que faltan');
+
+    // Sin ningún período: tarjeta para crearlo y "Agregar" oculto.
+    ctx.__appstate.ciclosCargados = true;
+    const htmlSin = ctx.renderPlanificacion();
+    assert(htmlSin.includes('id="plan-sin-periodo"') && htmlSin.includes('id="form-plan-crear-periodo"') && htmlSin.includes(`id="plan-periodo-inicio" value="${hoy}"`), 'sin períodos, Plan debe ofrecer crear el período con inicio hoy, obtuvo: '+htmlSin.slice(0,400));
+    assert(/id="plan-agregar-card" style="display:none"/.test(htmlSin) && htmlSin.includes('id="form-plan"'), 'sin período, "Agregar" queda oculto pero su formulario sigue en la página (bind no cambia)');
+
+    // Crear la entrada se bloquea: no viaja nada a plan_semanal.
+    const pedidos = [];
+    ctx.fetch = async (url, opts) => { pedidos.push({url:String(url), opts}); return fetchAntes(url, opts); };
+    const toastsAntes = elements['toast-root'].hijos.length;
+    await ctx.crearPlanEntrada({fecha:hoy, bodega:'Nave Mina', ubicacion:'Interior Nave', storageBins:['A-01'], responsableId:'', nota:''});
+    const toastsSin = elements['toast-root'].hijos.slice(toastsAntes);
+    assert(!pedidos.some(c=>c.url.includes('/plan_semanal')) && toastsSin.some(t=>t.className==='toast err' && /Primero crea el período/.test(t.textContent)), 'sin período, agregar al plan debe avisar y no crear nada, obtuvo: '+JSON.stringify({pedidos:pedidos.map(c=>c.url), toasts:toastsSin.map(t=>t.textContent)}));
+    let error = null;
+    try{ await ctx.crearPlanEntrada({fecha:hoy, bodega:'Nave Mina', ubicacion:'', storageBins:[], responsableId:'', nota:'', silencioso:true}); }catch(e){ error = e; }
+    assert(error && /Primero crea el período/.test(error.message), 'en modo silencioso (varias entradas seguidas) el bloqueo llega como error, para contarlo como fallida');
+
+    // Hay un período ya iniciado que no está activo: se ofrece activarlo.
+    ctx.__appstate.ciclos = [{id:'c-viejo', nombre:'T3 2026', es_actual:false, fecha_inicio:'2026-07-01'}];
+    const htmlActivable = ctx.renderPlanificacion();
+    assert(htmlActivable.includes('id="btn-plan-activar-periodo" data-ciclo="c-viejo"') && !htmlActivable.includes('id="form-plan-crear-periodo"'), 'con un período iniciado sin activar, Plan ofrece activarlo, obtuvo: '+htmlActivable.slice(0,400));
+
+    // Solo un período que empieza más adelante: se dice cuándo y se lleva a Períodos.
+    ctx.__appstate.ciclos = [{id:'c-futuro', nombre:'T1 2999', es_actual:false, fecha_inicio:'2999-01-04'}];
+    const htmlFuturo = ctx.renderPlanificacion();
+    assert(htmlFuturo.includes('Tu período empieza el') && htmlFuturo.includes('id="btn-plan-ir-periodos"') && !htmlFuturo.includes('btn-plan-activar-periodo'), 'con solo un período futuro, Plan dice cuándo empieza y lleva a Períodos');
+
+    // Con período actual (Escondida, Demo): nada cambia.
+    ctx.__appstate.ciclos = [{id:'c-1', nombre:'T4 2026', es_actual:true, fecha_inicio:'2026-10-01'}];
+    const htmlCon = ctx.renderPlanificacion();
+    assert(!htmlCon.includes('id="plan-sin-periodo"') && !/id="plan-agregar-card" style="display:none"/.test(htmlCon), 'con período actual, Plan se ve como siempre');
+
+    // Crear el primer período (inicio hoy): queda activo de inmediato y adopta lo planificado sin
+    // período desde su fecha de inicio.
+    ctx.__appstate.ciclos = [];
+    ctx.__appstate.view = 'plan';
+    ctx.__appstate.plan = {...ctx.__appstate.plan, cicloFiltro:''};
+    pedidos.length = 0;
+    ctx.fetch = async (url, opts) => {
+      const u = String(url), m = (opts && opts.method) || 'GET';
+      pedidos.push({url:u, opts});
+      const ok = body => ({ status:200, ok:true, headers:{get:()=>null}, text: async()=> body });
+      if(u.endsWith('/rest/v1/ciclos_conteo') && m==='POST') return ok(JSON.stringify([{id:'c-nuevo', nombre:'T4 2026', es_actual:false, fecha_inicio:hoy}]));
+      if(u.includes('/rest/v1/rpc/marcar_ciclo_actual')) return ok('');
+      if(u.includes('/rest/v1/plan_semanal?') && m==='PATCH') return ok(JSON.stringify([{id:'e1'},{id:'e2'},{id:'e3'},{id:'e4'}]));
+      if(u.includes('/rest/v1/ciclos_conteo?') && m==='GET') return ok(JSON.stringify([{id:'c-nuevo', nombre:'T4 2026', es_actual:true, fecha_inicio:hoy}]));
+      return fetchAntes(url, opts);
+    };
+    const toastsAntesCrear = elements['toast-root'].hijos.length;
+    await ctx.crearCiclo('T4 2026', hoy);
+    const post = pedidos.find(c=>c.url.endsWith('/ciclos_conteo') && c.opts.method==='POST');
+    const rpc = pedidos.find(c=>c.url.includes('/rpc/marcar_ciclo_actual'));
+    const patch = pedidos.find(c=>c.url.includes('/plan_semanal?') && c.opts.method==='PATCH');
+    assert(post && post.opts.headers.Prefer==='return=representation' && rpc && JSON.parse(rpc.opts.body).ciclo_id==='c-nuevo', 'el primer período se crea y se marca como actual al tiro, obtuvo: '+JSON.stringify(pedidos.map(c=>c.url)));
+    assert(patch && decodeURIComponent(patch.url).includes(`ciclo_id=is.null&fecha=gte.${hoy}`) && JSON.parse(patch.opts.body).ciclo_id==='c-nuevo', 'lo planificado sin período desde su inicio pasa al período nuevo, obtuvo: '+(patch && patch.url));
+    const toastsCrear = elements['toast-root'].hijos.slice(toastsAntesCrear).map(t=>t.textContent);
+    assert(toastsCrear.some(t=>/creado y activo · 4 entradas del plan pasan a este período/.test(t)), 'el aviso dice que quedó activo y cuántas entradas adoptó, obtuvo: '+JSON.stringify(toastsCrear));
+    assert(ctx.__appstate.plan.cicloFiltro==='c-nuevo' && ctx.estadoPeriodoParaPlanificar()===null, 'Plan queda mostrando el período nuevo y ya se puede planificar');
+
+    // Con un período actual (el caso de siempre), crear otro no lo activa ni toca el plan.
+    pedidos.length = 0;
+    await ctx.crearCiclo('T1 2027', hoy);
+    assert(pedidos.some(c=>c.url.endsWith('/ciclos_conteo') && c.opts.method==='POST' && c.opts.headers.Prefer==='return=minimal') && !pedidos.some(c=>c.url.includes('marcar_ciclo_actual') || c.opts && c.opts.method==='PATCH'), 'con período actual, crear otro se comporta como antes, obtuvo: '+JSON.stringify(pedidos.map(c=>c.url)));
+    // Sin período actual pero con inicio futuro: tampoco se activa (lo hará la tarea de la noche).
+    ctx.__appstate.ciclos = [];
+    pedidos.length = 0;
+    await ctx.crearCiclo('T1 2999', '2999-01-04');
+    assert(!pedidos.some(c=>c.url.includes('marcar_ciclo_actual')), 'un período que empieza más adelante no se activa al crearlo');
+
+    ctx.fetch = fetchAntes;
+    Object.assign(ctx.__appstate, {ciclos: antes.ciclos, ciclosCargados: antes.cargados, view: antes.view, plan: antes.plan, perfil: antes.perfil});
+  }
+
   if(fallos > 0){
     console.error(`\n${fallos} aserción(es) fallaron.`);
     process.exit(1);

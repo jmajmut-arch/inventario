@@ -330,6 +330,7 @@
       <li>Ejecutivo (según plan): avance global, proyección de término al ritmo de 14 días, adherencia al plan, exactitud (sin diferencia, ubicación correcta, ranking por bodega, tendencia mensual), valorización, Top 10 de pérdidas y excedentes, ABC, ranking por responsable, pendientes por bodega; exportable a PDF</li>
       <li>Períodos con fecha de inicio: <code>marcar_ciclo_actual</code> cierra el anterior y guarda su informe en <code>informes_ciclo</code> (avance, exactitud, diferencias, ranking, valorización y reconteos sin resolver, como jsonb)</li>
       <li>Períodos programados: cron diario <code>activar_periodos_programados</code> (06:00 UTC) activa el período cuya fecha de inicio ya llegó, cerrando el anterior y generando su informe</li>
+      <li>Sin período actual, Plan no deja agregar (ni por código ni desde Grupos) y ofrece crearlo; el primero con inicio hoy o antes queda actual al crearlo y adopta las entradas de <code>plan_semanal</code> sin ciclo desde su inicio</li>
     </ul>
     <ul class="checks no">
       <li>Comparar dos períodos en una misma vista: la tendencia de exactitud compara por mes calendario</li>
