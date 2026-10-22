@@ -1273,6 +1273,112 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Planificar por storage bin y pegando una lista de códigos (Joel, 22/10/2026), a 420 px =====
+  // Tercer modo "Por storage bin" (buscar, marcar, una entrada por bin) y "Pegar lista" en "Por
+  // código de SKU" (revisar en la base, resumen, crear en una sola llamada), con filtros de planta y
+  // storage location. Escribir en el buscador de bins no reemplaza el input (teclado de iOS).
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('plan-bins: '+err.message));
+    const cuerposBins = [], cuerposRevisar = [], cuerposCrear = [], filasPlan = [];
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.evaluate(() => setState({ ciclos:[{ id:'c-e2e', nombre:'T4 2026', es_actual:true, fecha_inicio:'2026-10-01' }] }));
+    const J = (route, body) => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(body) });
+    await page.route('**/rest/v1/rpc/plan_ventana_pantalla**', r => J(r, { entradas:[], universo:{} }));
+    await page.route('**/rest/v1/ubicaciones_generales**', r => J(r, [{bodega:'Nave Mina', cantidad_skus:40, cantidad_pendiente:30}, {bodega:'Bodega Sur', cantidad_skus:10, cantidad_pendiente:10}]));
+    await page.route('**/rest/v1/ubicaciones_especificas**', r => J(r, [{bodega:'Nave Mina', ubicacion:'Interior Nave', cantidad_skus:30, cantidad_pendiente:20}, {bodega:'Nave Mina', ubicacion:'Patio', cantidad_skus:10, cantidad_pendiente:10}]));
+    await page.route('**/rest/v1/rpc/buscar_bins_plan', r => {
+      const b = r.request().postDataJSON(); cuerposBins.push(b);
+      const bins = [
+        {bodega:'Nave Mina', ubicacion:'Interior Nave', storage_bin:'N1E-02-A', total:12, por_planificar:7},
+        {bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'N1E-02-B', total:3, por_planificar:3},
+        {bodega:'Nave Mina', ubicacion:null, storage_bin:'N1E-02-Z', total:1, por_planificar:1},
+      ].filter(x => x.storage_bin.includes(String(b.p_texto).toUpperCase()) && (!b.p_ubicacion || x.ubicacion===b.p_ubicacion));
+      return J(r, bins);
+    });
+    await page.route('**/rest/v1/rpc/revisar_codigos_plan', r => {
+      cuerposRevisar.push(r.request().postDataJSON());
+      return J(r, { codigos:5, posiciones:[
+        {id:'s1', sku_code:'10475828', descripcion:'Perno', bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'P-1', codigo:'10475828', en_plan:false},
+        {id:'s2', sku_code:'10475828', descripcion:'Perno', bodega:'Bodega Sur', ubicacion:'Rack 1', storage_bin:'B-1', codigo:'10475828', en_plan:false},
+        {id:'s3', sku_code:'11172553', descripcion:'Cable', bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'P-2', codigo:'11172553', en_plan:false},
+        {id:'s4', sku_code:'12000000', descripcion:'Filtro', bodega:'Nave Mina', ubicacion:'Patio', storage_bin:'P-3', codigo:'12000000', en_plan:true},
+      ], contados:['13000000'], sin_stock:[], fuera_filtro:[], no_existen:['NOEXISTE'] });
+    });
+    await page.route('**/rest/v1/rpc/crear_plan_por_codigos', r => { const b = r.request().postDataJSON(); cuerposCrear.push(b); return J(r, { creadas:2, materiales:b.p_sku_ids.length }); });
+    await page.route(/\/rest\/v1\/plan_semanal(\?|$)/, route => {
+      if(route.request().method() !== 'POST') return route.fallback();
+      const filas = route.request().postDataJSON(); filasPlan.push(...filas);
+      route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify(filas.map((f,i)=>({ ...f, id:'nb-'+filasPlan.length+'-'+i }))) });
+    });
+    await page.evaluate(() => setState({ view:'plan' }));
+    const abrirAgregar = async () => {
+      await page.waitForSelector('#btn-toggle-agregar-plan', { timeout:ESPERA });
+      if(await page.getAttribute('#btn-toggle-agregar-plan', 'aria-expanded') !== 'true') await page.click('#btn-toggle-agregar-plan');
+      await page.waitForSelector('#form-plan', { state:'visible', timeout:ESPERA });
+    };
+    await abrirAgregar();
+
+    // Los tres modos caben a 420 px sin cortar el texto.
+    const modos = await page.$$eval('.plan-modos .segmented-btn', bs => bs.map(b => ({ t:b.textContent.trim(), corta: b.scrollWidth > b.clientWidth + 1 })));
+    assert(modos.length === 3 && modos.map(m=>m.t).join('|') === 'Por ubicación|Por storage bin|Por código de SKU' && modos.every(m => !m.corta), 'los tres modos caben sin cortarse, obtuvo '+JSON.stringify(modos));
+    await page.click('#p-modo-bin');
+    await page.waitForSelector('#p-bin-buscar', { state:'visible', timeout:ESPERA });
+    assert(await page.isVisible('#p-filtro-planta') && await page.isHidden('#p-campos-ubicacion'), 'en "Por storage bin" se ven los filtros y no la cascada por ubicación');
+
+    // Escribir no reemplaza el input (si se reemplazara, iOS reiniciaría el teclado).
+    await page.evaluate(() => { window.__inputBin = document.getElementById('p-bin-buscar'); });
+    await page.type('#p-bin-buscar', 'n1e-02', { delay:30 });
+    await page.waitForSelector('#p-bin-resultados .plan-bin-opcion', { timeout:ESPERA });
+    assert(await page.evaluate(() => window.__inputBin === document.getElementById('p-bin-buscar') && document.activeElement === window.__inputBin), 'al buscar bins el input es el mismo y conserva el foco');
+    assert(cuerposBins.length >= 1 && cuerposBins.every(b => b.p_texto.length >= 3), 'no busca con menos de 3 caracteres, obtuvo '+JSON.stringify(cuerposBins));
+    const opciones = await page.$$eval('#p-bin-resultados .plan-bin-opcion', ls => ls.map(l => ({ t:l.textContent.replace(/\s+/g,' ').trim(), off: l.querySelector('input').disabled })));
+    assert(opciones.length === 3 && opciones[0].t.includes('7/12 SKU') && opciones[2].off && opciones[2].t.includes('planifícalo por código'), 'cada bin dice sus SKU; el que no tiene ubicación específica no se puede elegir, obtuvo '+JSON.stringify(opciones));
+    await page.check('#p-bin-resultados .plan-bin-opcion >> nth=0');
+    await page.check('#p-bin-resultados .plan-bin-opcion >> nth=1');
+    assert(await esperarCondicion(page, () => /2 storage bins elegidos · 10 SKU por planificar/.test(document.getElementById('p-bin-elegidos').textContent)), 'los bins marcados se listan con sus SKU por planificar');
+    // Filtro Storage location: vuelve a buscar con el filtro y conserva lo elegido.
+    await page.selectOption('#p-filtro-planta', 'Nave Mina');
+    await page.waitForSelector('#p-filtro-sloc:not([disabled]) option[value="Patio"]', { state:'attached', timeout:ESPERA });
+    await page.selectOption('#p-filtro-sloc', 'Patio');
+    await page.waitForFunction(() => document.querySelectorAll('#p-bin-resultados .plan-bin-opcion').length === 1, null, { timeout:ESPERA });
+    const ultimoBins = cuerposBins[cuerposBins.length-1];
+    assert(ultimoBins.p_bodega === 'Nave Mina' && ultimoBins.p_ubicacion === 'Patio', 'la búsqueda va con planta y storage location, obtuvo '+JSON.stringify(ultimoBins));
+    assert(await page.isVisible('#p-bin-elegidos :text("2 storage bins elegidos")'), 'cambiar el filtro no borra los bins elegidos');
+    const desbordeBins = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordeBins <= 0, 'a 420 px el modo por storage bin no desborda, obtuvo '+desbordeBins);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/plan-bins-420.png', fullPage: true });
+    await page.click('#form-plan button[type="submit"]');
+    for(let i=0; i<100 && filasPlan.length < 2; i++) await page.waitForTimeout(50);
+    const zonasBins = filasPlan.map(f => `${f.bodega}|${f.ubicacion}|${f.storage_bin}`).sort();
+    assert(JSON.stringify(zonasBins) === JSON.stringify(['Nave Mina|Interior Nave|N1E-02-A','Nave Mina|Patio|N1E-02-B']), 'se crea una entrada por bin con su ubicación, obtuvo '+JSON.stringify(filasPlan));
+    assert(await esperarVisible(page, '.toast:has-text("Agregado a la planificación: 2 storage bins")'), 'avisa cuántos bins se agregaron');
+
+    // Pegar lista: revisar, ver el resumen y crear todo en una llamada.
+    await abrirAgregar();
+    await page.selectOption('#p-filtro-planta', '');
+    await page.click('#p-modo-sku');
+    await page.click('#p-sku-entrada-pegar');
+    await page.waitForSelector('#p-codigos-pegar', { state:'visible', timeout:ESPERA });
+    await page.fill('#p-codigos-pegar', '10475828\n11172553, 12000000\n13000000\nNOEXISTE');
+    await page.click('#btn-revisar-codigos');
+    await page.waitForSelector('#p-codigos-resumen .plan-codigos-ok', { timeout:ESPERA });
+    assert(cuerposRevisar.length === 1 && cuerposRevisar[0].p_codigos.length === 5 && cuerposRevisar[0].p_bodega === null, 'la lista va en el cuerpo del RPC, sin filtro, obtuvo '+JSON.stringify(cuerposRevisar));
+    const resumen = await page.textContent('#p-codigos-resumen');
+    assert(/2 de 5 códigos listos para planificar \(3 posiciones\)/.test(resumen) && /Ya en otra entrada del plan[^:]*: 1/.test(resumen) && /Ya contados en el período: 1/.test(resumen) && /No existen en el maestro: 1/.test(resumen), 'el resumen separa cada caso, obtuvo '+resumen);
+    assert(await page.isVisible('#p-campos-sku :text("3 SKU elegidos")') && (await page.$$('#p-campos-sku [data-quitar-sku-plan]')).length === 3, 'los listos pasan a la lista de elegidos');
+    assert(await page.inputValue('#p-codigos-pegar') === '10475828\n11172553, 12000000\n13000000\nNOEXISTE', 'lo pegado se conserva tras repintar');
+    const desbordePegar = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desbordePegar <= 0, 'a 420 px "Pegar lista" no desborda, obtuvo '+desbordePegar);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/plan-pegar-420.png', fullPage: true });
+    await page.click('#form-plan button[type="submit"]');
+    for(let i=0; i<100 && !cuerposCrear.length; i++) await page.waitForTimeout(50);
+    assert(cuerposCrear.length === 1 && cuerposCrear[0].p_sku_ids.slice().sort().join(',') === 's1,s2,s3' && !!cuerposCrear[0].p_fecha, 'crea todo en una sola llamada con los id listos, obtuvo '+JSON.stringify(cuerposCrear));
+    assert(await esperarVisible(page, '.toast:has-text("Agregado a la planificación: 3 SKU en 2 entradas")'), 'avisa cuántos SKU y en cuántas entradas');
+    await context.close();
+  }
+
   // ===== Grupos de conteo por dueño (Joel, 21/10/2026), a 420 px =====
   // Con dueños activados, crear un grupo ofrece el dueño: elegirlo no borra lo ya escrito, el grupo
   // se guarda con él y la lista dice de quién es.
