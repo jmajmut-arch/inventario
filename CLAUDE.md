@@ -55,6 +55,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   así; el 29/09/2026 se corrigieron siete funciones de lectura (ranking_responsable pasó de 185 a
   ~5 ms; el Dashboard de 0,56 a 0,41 s; resumen_plan_grupos de 224 a 121 ms). Toda función nueva
   que las use en un filtro va con `(select ...)`.
+- **Una función `LANGUAGE sql` con `SET search_path` se planifica a ciegas.** No se inlinea, y su
+  cuerpo se planifica sin conocer los parámetros: con una lista (`id = any(p_ids)`) Postgres elige un
+  plan pensado para cualquier lista. Pasó de verdad: `skus_universo_entrada_plan_lote` tardaba 2,7-3 s
+  con las ~300-400 entradas de un período de Escondida, y la misma consulta con la lista conocida,
+  130 ms; Grupos esperaba 2,9 s en cada visita. Se arregló el 22/10/2026 pasándola a plpgsql con
+  `RETURN QUERY EXECUTE ... USING`, que planifica cada llamada con la lista real. Para medir una
+  función así, compararla contra una copia en `pg_temp` dentro de una transacción que se revierte,
+  no contra su cuerpo pegado a mano (ese sí conoce los valores y engaña).
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
