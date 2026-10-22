@@ -643,10 +643,13 @@ async function loguear(page, perfil, prepararRutas){
       creados.push(fila);
       return route.fulfill({ status:201, contentType:'application/json', body: JSON.stringify([{ id:'srv-sku-88', activo:true, ...fila }]) });
     });
-    await page.route('**/rest/v1/rpc/buscar_skus_lectura**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
+    // Contar pide el dueño explícitamente (Joel, 22/10/2026): antes el buscador no lo pedía y el
+    // simulacro lo devolvía igual, así que esta prueba pasaba sin que la app real lo mostrara.
+    const selectsBuscador = [];
+    await page.route('**/rest/v1/rpc/buscar_skus_lectura**', route => (selectsBuscador.push(new URL(route.request().url()).searchParams.get('select')), route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([
       { id:'s-vertice', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:2, dueno:'VERTICE' },
       { id:'s-alba', sku_code:'P-100', descripcion:'Filtro de aire', bodega:'Nave Mina', storage_bin:'R-01-02', stock_sistema:5, dueno:'ALBA' },
-    ]) }));
+    ]) })));
 
     await page.evaluate(() => setState({view:'skus'}));
     await page.waitForSelector('#form-sku');
@@ -669,8 +672,8 @@ async function loguear(page, perfil, prepararRutas){
 
     await page.click('#btn-contar-sku-creado');
     await page.waitForSelector('#form-conteo', { timeout:ESPERA });
-    const chipFicha = await page.textContent('.conteo-ficha .chip-dueno');
-    assert(chipFicha === 'Vertice S.A.', 'la ficha de Contar muestra de quién es el material, obtuvo '+chipFicha);
+    const duenoFicha = await page.textContent('#conteo-ficha-dueno');
+    assert(duenoFicha === 'Dueño del stockVertice S.A.VERTICE', 'la ficha de Contar dice con todas sus letras de quién es el material, obtuvo '+duenoFicha);
     const desbordeFicha = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeFicha <= 0, 'a 420 px la ficha con dueño no desborda, obtuvo '+desbordeFicha);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-ficha-dueno-420.png' });
@@ -681,6 +684,12 @@ async function loguear(page, perfil, prepararRutas){
     assert(await esperarCondicion(page, () => document.querySelectorAll('#buscador-libre-resultados [data-pick] .chip-dueno').length === 2), 'el buscador muestra el dueño de cada resultado');
     const chips = await page.$$eval('#buscador-libre-resultados [data-pick] .chip-dueno', els => els.map(e => e.textContent));
     assert(chips.join('|') === 'Vertice S.A.|Alba', 'dos clientes con el mismo código se distinguen por su dueño, obtuvo '+JSON.stringify(chips));
+    assert(selectsBuscador.length && selectsBuscador.every(sel => sel.split(',').includes('dueno')), 'el buscador de Contar pide el dueño, obtuvo '+JSON.stringify(selectsBuscador));
+    await page.click('#buscador-libre-resultados [data-pick-btn="s-alba"]');
+    await page.waitForSelector('#conteo-ficha-dueno', { timeout:ESPERA });
+    const duenoElegido = await page.textContent('#conteo-ficha-dueno');
+    assert(duenoElegido === 'Dueño del stockAlba', 'al elegir un resultado del buscador, la ficha dice su dueño, obtuvo '+duenoElegido);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-ficha-dueno-alba-420.png' });
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/contar-buscador-dueno-420.png' });
     await context.close();
   }
