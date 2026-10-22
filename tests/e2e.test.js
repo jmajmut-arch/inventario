@@ -1090,6 +1090,27 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== iPad: elegir el día en Contar no vuelve a abrir el calendario (Joel, 21/10/2026) =====
+  // En el iPad, enfocar un campo de fecha abre su calendario. Elegir el día repintaba la pantalla y
+  // render() le devolvía el foco al campo nuevo: el calendario aparecía dos veces. En pantalla táctil
+  // ya no se le devuelve el foco; con mouse y teclado sigue como siempre (se puede seguir tecleando).
+  for(const tactil of [true, false]){
+    const context = await browser.newContext({ viewport:{ width:820, height:1180 }, hasTouch:tactil, isMobile:tactil });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('contar-fecha-'+(tactil?'tactil':'mouse')+': '+err.message));
+    await loguear(page, PERFIL_ADMIN_PRO);
+    await page.evaluate(() => { state.contarPlan.cambiarAbierto = true; setState({ view:'conteo' }); });
+    await page.waitForSelector('#contar-fecha', { state:'visible', timeout:ESPERA });
+    const manana = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate()+1); return fechaISO(d); });
+    await page.focus('#contar-fecha');
+    await page.evaluate(f => { const el = document.getElementById('contar-fecha'); el.value = f; el.dispatchEvent(new Event('change', { bubbles:true })); }, manana);
+    assert(await esperarCondicion(page, f => state.contarPlan.fecha === f && !state.contarPlan.cargando && document.getElementById('contar-fecha').value === f, manana), 'elegir el día carga el plan de ese día');
+    const foco = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    if(tactil) assert(foco !== 'contar-fecha', 'en pantalla táctil, el campo Día no recupera el foco tras repintar (el iPad volvería a abrir el calendario), obtuvo foco en '+foco);
+    else assert(foco === 'contar-fecha', 'con mouse y teclado, el campo Día conserva el foco como siempre, obtuvo '+foco);
+    await context.close();
+  }
+
   // ===== Plan sin período (Joel, 21/10/2026), a 420 px =====
   // Una empresa nueva planificó sin ningún período actual y todo quedó fuera de período. Sin
   // período, Plan lo dice y ofrece crearlo ahí mismo; creado con inicio hoy, queda activo al tiro,

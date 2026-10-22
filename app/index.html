@@ -431,6 +431,15 @@ input[type=text],input[type=number],input[type=password],input[type=email],input
    elemento y lo deja desbordar en vez de encogerlo. min-width:0 fuerza a que sí respete el ancho
    del contenedor como cualquier otro input. */
 input[type=date]{min-width:0;max-width:100%;}
+/* Seguía pasando en el iPad (captura de Joel, 21/10/2026: el Día de Contar sobresalía ~40 px a la
+   derecha aun con min-width:0): el control nativo de iOS no respeta box-sizing y suma su relleno al
+   100%. Sin la apariencia nativa se mide como cualquier campo; el calendario se sigue abriendo
+   igual al tocarlo. Solo en iOS (-webkit-touch-callout solo existe ahí): en el computador el campo
+   conserva su ícono de calendario. */
+@supports (-webkit-touch-callout: none){
+  input[type=date]{-webkit-appearance:none;appearance:none;display:block;box-sizing:border-box;}
+  input[type=date]::-webkit-date-and-time-value{text-align:left;}
+}
 input:focus,select:focus,textarea:focus{border-color:var(--text);box-shadow:0 0 0 2px var(--amber);}
 /* Bug real reportado por Joel ("cuesta hacer la selección" en Plan del día): Ubicación empieza
    disabled hasta elegir Bodega/patio, pero sin esta regla un <select disabled> se ve IDÉNTICO a
@@ -18372,6 +18381,10 @@ function tabBtn(view,label){
 //  * solo se le repone el foco al MISMO elemento que ya lo tenía, nunca se le roba a otro;
 //  * si durante el render algo tomó el foco a propósito (un modal, un buscador que se autoenfoca
 //    en bind()), se respeta: solo se repone cuando el foco quedó en la nada.
+function esPantallaTactil(){
+  try{ return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); }catch(e){ return false; }
+}
+
 function render(){
   // "Cambiar día o lugar" (Contar) se queda como la persona lo dejó (pedido de Joel, 13/10/2026):
   // cada elección repinta la pantalla y el <details> nuevo nacía cerrado, así que había que reabrirlo
@@ -18393,6 +18406,10 @@ function render(){
   if(activoAhora && activoAhora !== document.body) return; // alguien lo tomó a propósito
   const el = document.getElementById(idEnfocado);
   if(!el) return;                                          // el campo ya no existe: nada que reponer
+  // En el iPad, enfocar un campo de fecha abre su calendario: elegir el día en Contar repintaba la
+  // pantalla, el foco volvía al campo nuevo y el calendario aparecía otra vez (Joel, 21/10/2026).
+  // En pantallas táctiles no se le devuelve el foco; con mouse y teclado sigue como siempre.
+  if(el.type==='date' && esPantallaTactil()) return;
   el.focus();
   if(posCursor !== null && el.setSelectionRange){ try{ el.setSelectionRange(posCursor, posCursor); }catch(e){ /* idem */ } }
 }
