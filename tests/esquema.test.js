@@ -418,3 +418,15 @@ test('un operador no escribe el plan, las cargas ni los responsables, y en skus 
   assert.match(html, /rest\(`\/skus\?id=eq\.\$\{skuId\}`, \{method:'PATCH', body:\{codigo_barras: codigo\}/, 'el escáner asocia solo codigo_barras');
   assert.match(html, /const destino = \{\s*bodega:[^\n]*\n\s*ubicacion:[^\n]*\n\s*storage_bin:[^\n]*\n\s*\};/, 'cambiar de ubicación manda solo bodega, ubicacion y storage_bin');
 });
+
+test('la demo pública se restablece con costo en sus materiales y su clase ABC', () => {
+  // Joel, 22/10/2026: resetear_demo_inventia cargaba los 24 materiales sin costo, y quien probaba la
+  // demo veía el Panel sin valorización ni A/B/C.
+  const sql = fs.readFileSync(path.join(RAIZ, 'supabase', 'migrations', '20261022_demo_con_costos.sql'), 'utf8').replace(/--[^\n]*/g, '');
+  const codigos = [...sql.matchAll(/\('([A-Z]{3}-\d{4})',\s*(\d+)\)/g)];
+  assert.equal(codigos.length, 24, 'los 24 materiales de la demo llevan costo');
+  assert.ok(codigos.every(m => Number(m[2]) > 0), 'cada costo es mayor que cero');
+  assert.match(sql, /codigo_barras, costo_unitario\) values/, 'el insert de la demo incluye costo_unitario');
+  assert.match(sql, /perform privado\.recalcular_abc_empresa\(v_empresa_id\)/, 'el reset recalcula la clase ABC de la demo');
+  assert.match(sql, /raise exception/, 'si la función no tiene el texto esperado, la migración falla sin cambiar nada');
+});
