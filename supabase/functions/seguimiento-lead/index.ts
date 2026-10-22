@@ -2,11 +2,14 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 // Correo de seguimiento a quien pidió la demo del sitio (pedido de Joel, 01/10/2026): escrito
 // para abrir conversación y entender su necesidad, no para insistir con la demo. Dos pasos:
-//   1: 24 horas después de pedir la demo — una sola pregunta sobre su bodega.
-//   2: 3 días después del paso 1 — ofrece 15 minutos para ver su caso, última vez.
-// El paso 1 dice "pediste acceso", no "entraste": no sabemos si entró, y de noche no sale nada,
-// así que puede llegar dos días después (03/10/2026). El paso 2 ofrece solo la llamada de 15
-// minutos, no cargar su catálogo (decisión de Joel, 03/10/2026).
+//   1: 10 minutos después de pedir la demo, mientras todavía la tiene abierta (Joel, 22/10/2026;
+//      antes 24 horas) — ofrece una reunión de 15 minutos, y para quien no está listo para agendar,
+//      deja una pregunta que se contesta en una línea.
+//   2: 3 días después del paso 1 — un cierre breve: ¿algún horario esta semana?, última vez.
+// El paso 1 dice "pediste acceso", no "entraste": no sabemos si entró. De noche no sale nada:
+// quien pide la demo de madrugada lo recibe a las 08:00. Se ofrece solo la reunión de 15 minutos,
+// no cargar su catálogo (decisión de Joel, 03/10/2026), y sin enlace de agenda: se responde con
+// un día y una hora, o por WhatsApp.
 // La llama el cron de la base (enviar_seguimientos_leads, ver supabase/migrations) con el id y
 // el paso. Igual que notificar-lead: verify_jwt con el anon key (público), así que NO se confía
 // en el cuerpo: la fila se lee con el service role y acá se vuelve a verificar todo (tipo demo,
@@ -40,26 +43,31 @@ function primerNombre(nombre: unknown) {
   return p ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : '';
 }
 
-function correo(paso: number, nombre: string) {
+// Un párrafo del correo es texto, o una frase que termina en el enlace de WhatsApp.
+type Parrafo = string | { antesDeWhatsapp: string };
+
+function correo(paso: number, nombre: string): { asunto: string; parrafos: Parrafo[] } {
   const saludo = nombre ? `Hola ${nombre},` : 'Hola,';
   if (paso === 1) {
     return {
-      asunto: 'Una pregunta sobre tu bodega',
+      asunto: '¿15 minutos para ver tu caso?',
       parrafos: [
-        `${saludo} soy Joel, de InventIA. Vi que pediste acceso a la demo.`,
-        'Antes de contarte nada más, me interesa entender tu caso: ¿qué es lo que hoy más te cuesta con el inventario? ¿Las diferencias entre lo contado y el sistema, el tiempo que se va en contar, o saber qué se contó y qué no?',
-        'Con una línea de respuesta me basta para decirte si InventIA te sirve o no.',
+        `${saludo} soy Joel, de InventIA. Gracias por pedir acceso a la demo.`,
+        '¿Te interesa una reunión de 15 minutos? Me cuentas cómo hacen hoy el inventario y te muestro cómo quedaría en InventIA con tu operación. Puede ser por videollamada o por teléfono, cuando te acomode.',
+        { antesDeWhatsapp: 'Respóndeme con un día y una hora, o escríbeme por' },
+        'Y si prefieres partir por correo: ¿qué es lo que hoy más te cuesta con el inventario?',
       ],
-      conWhatsapp: false,
     };
   }
+  // Neutro sobre lo que dijo el paso 1: los leads de antes del 22/10/2026 recibieron otro primer
+  // correo (una pregunta, sin la reunión).
   return {
-    asunto: '¿15 minutos para ver tu caso?',
+    asunto: '¿Te sirve esta semana?',
     parrafos: [
-      `${saludo} soy Joel, de InventIA. ¿Te parece si agendamos 15 minutos? Me cuentas cómo hacen hoy el inventario y te muestro cómo quedaría en InventIA con tu operación.`,
-      'Si no es el momento, no hay problema.',
+      `${saludo} te escribí hace unos días por la demo de InventIA. ¿Te acomoda una reunión de 15 minutos esta semana para ver tu caso?`,
+      { antesDeWhatsapp: 'Respóndeme acá o escríbeme por' },
+      'Si no es el momento, no hay problema; no te escribo más.',
     ],
-    conWhatsapp: true,
   };
 }
 
@@ -92,20 +100,18 @@ Deno.serve(async (req: Request) => {
   if (paso === 1 && lead.seguimiento1_en) return json({ ok: true, repetido: true });
   if (paso === 2 && (!lead.seguimiento1_en || lead.seguimiento2_en)) return json({ ok: paso === 2 && !!lead.seguimiento2_en, repetido: !!lead.seguimiento2_en, motivo: lead.seguimiento1_en ? undefined : 'falta el paso 1' });
 
-  const { asunto, parrafos, conWhatsapp } = correo(paso, primerNombre(lead.nombre));
+  const { asunto, parrafos } = correo(paso, primerNombre(lead.nombre));
   const firma = ['Joel Majmut', 'InventIA · inventiapp.cl'];
   const enlaceWa = `<a href="${esc(WHATSAPP_URL)}" style="color:#9a6a00">WhatsApp ${esc(WHATSAPP)}</a>`;
   const bajaTexto = 'Si prefieres no recibir más correos de InventIA, responde con "no" y listo.';
   const html = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#241a10;max-width:560px">
-    ${parrafos.map((p) => `<p style="margin:0 0 14px">${esc(p)}</p>`).join('')}
-    ${conWhatsapp ? `<p style="margin:0 0 14px">Te leo acá o por ${enlaceWa}.</p>` : ''}
-    <p style="margin:22px 0 0">${firma.map(esc).join('<br>')}${conWhatsapp ? '' : `<br>${enlaceWa}`}</p>
+    ${parrafos.map((p) => `<p style="margin:0 0 14px">${typeof p === 'string' ? esc(p) : `${esc(p.antesDeWhatsapp)} ${enlaceWa}.`}</p>`).join('')}
+    <p style="margin:22px 0 0">${firma.map(esc).join('<br>')}</p>
     <p style="margin:26px 0 0;font-size:12px;color:#8a7b6a">${esc(bajaTexto)}</p>
   </div>`;
   const texto = [
-    ...parrafos,
-    ...(conWhatsapp ? [`Te leo acá o por WhatsApp: ${WHATSAPP_URL}`] : []),
-    '', ...firma, ...(conWhatsapp ? [] : [`WhatsApp ${WHATSAPP}: ${WHATSAPP_URL}`]), '', bajaTexto,
+    ...parrafos.map((p) => typeof p === 'string' ? p : `${p.antesDeWhatsapp} WhatsApp ${WHATSAPP}: ${WHATSAPP_URL}`),
+    '', ...firma, '', bajaTexto,
   ].join('\n');
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
