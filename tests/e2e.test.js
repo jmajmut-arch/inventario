@@ -2878,6 +2878,39 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Reconteo por valor y "Stock ya calza" (22/10/2026) =====
+  // A 420 px: el selector de orden y el botón de los que ya calzan caben sin empujar la página;
+  // "Mayor valor" pide la lista ordenada por valor; el botón filtra y la fila lleva su insignia.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('reconteo-valor: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const fila = (id, code, dif, valor, calza) => ({ id, conteo_id:'c-'+id, sku_code:code, descripcion:'MATERIAL '+code, bodega:'B501', ubicacion:'0100', storage_bin:'3029-A', stock_sistema:10, ultima_cantidad_contada:10+dif, ultima_diferencia:dif, ultimo_conteo_fecha:'2026-10-20T12:00:00Z', causa_probable:'Sin patrón detectado', fotos:[], valor_diferencia_abs:valor, stock_ya_calza:calza });
+    const urls = [];
+    await page.route('**/rest/v1/reconteo_pendiente?**', route => { const u = route.request().url(); urls.push(u);
+      const filas = u.includes('stock_ya_calza=is.true') ? [ fila('r2','10418772',-3,15000,true) ] : [ fila('r1','10475828',-2,4000,false), fila('r2','10418772',-3,15000,true) ];
+      return route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(filas) }); });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('[data-tab="reconteo"]');
+    assert(await esperarVisible(page, '[data-orden-reconteo="valor"]'), 'Reconteo ofrece ordenar por "Mayor valor"');
+    assert(await esperarVisible(page, '#btn-reconteo-calzan'), 'y el botón de los que ya calzan');
+    const pedidoValor = page.waitForRequest(r => r.url().includes('/reconteo_pendiente') && r.url().includes('order=valor_diferencia_abs.desc'), { timeout:ESPERA }).then(()=>true).catch(()=>false);
+    await page.click('[data-orden-reconteo="valor"]');
+    assert(await pedidoValor, '"Mayor valor" pide la lista ordenada por valor de la diferencia');
+    await page.click('#btn-reconteo-calzan');
+    assert(await esperarVisible(page, '.badge-ok:has-text("Stock ya calza")'), 'filtrando, la fila muestra "Stock ya calza"');
+    assert(urls.some(u => u.includes('order=valor_diferencia_abs.desc') && u.includes('stock_ya_calza=is.true')), 'el filtro conserva el orden por valor');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px Reconteo con orden y filtro no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/reconteo-valor-420.png', fullPage: true });
+    await context.close();
+  }
+
   // ===== Calendario (Fase 5 del rediseño): estados por día en el navegador =====
   // Un día pasado con pendientes se marca atrasado, uno sin pendientes cumplido, uno por venir
   // futuro; el resumen de cumplimiento aparece; tocar un día abre su detalle con el estado.

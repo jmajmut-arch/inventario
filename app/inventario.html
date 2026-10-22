@@ -1106,6 +1106,9 @@ let state = {
   reconteosPorSemana: [],   // [{semana:'YYYY-MM-DD' (lunes), pendientes}] -- gráfico de Reconteo por semana
   reconteoSemana: null,     // lunes (ISO) de la semana elegida en ese gráfico; null = todas
   reconteoTexto: '',        // buscador de Reconteo: código o descripción del SKU (filtra en el servidor)
+  reconteoOrden: 'fecha',   // 'fecha' (más recientes) o 'valor' (mayor valor de la diferencia), ver ordenReconteo
+  reconteoSoloCalzan: false, // solo los pendientes cuyo stock del sistema ya calza con lo contado
+  reconteosYaCalzan: 0,     // cuántos son (para el botón del filtro; solo admin)
   // Predeterminado "Negro y Ámbar" desde el 27/09/2026 (decisión de Joel). Quien ya eligió un
   // tema en su dispositivo lo conserva: solo cambia quien nunca eligió.
   tema: localStorage.getItem('tema_app') || 'industrial',
@@ -2641,7 +2644,7 @@ async function ingresarConCodigo(email, codigo){
 // en otro dispositivo, revocada, o vencida). Mismo punto de partida en ambos casos.
 function estadoTrasCerrarSesion(){
   olvidarCargasPorVista();
-  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], ciclosCargados:false, cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
+  return { ...state, skuForm: skuFormInicial(), skuFormOpciones: { ubicaciones: [], bins: [] }, session:null, perfil:null, debeCrearPassword:false, empresaBloqueada:null, registroPlan:null, creandoCuentaAutoservicio:false, authRecuperar:false, otpAcceso:null, invitandoPersona:false, view:'dashboard', skus:[], dash:{total:[],diario:[],semanal:[],mensual:[]}, dashDesactualizado:false, fotoModal:null, editorFoto:null, descartarReconteoModal:null, cerrarAjusteErpModal:null, corregirConteoModal:null, ajusteBodegaModal:null, kardexModal:null, ubicacionSkuModal:null, devolucionModal:null, ordenes: ordenesEstadoInicial(), reservas: reservasEstadoInicial(), proveedorModal:null, mover:{texto:'',resultados:[],buscando:false,yaBuscado:false,error:null}, ubicaciones:{cargado:false,cargando:false,lista:[],materialesPorBodega:{},nuevaBodega:'',renombrando:null}, duenosStock:{cargado:false,cargando:false,lista:[],error:''}, resumenDuenos:{cargado:false,cargando:false,filas:[],error:''}, dashDueno:'', skusPagina:{rows:[],page:0,total:0}, skusSeleccionados:[], reconteos:[], reconteosCargados:false, reconteosError:'', reconteosHayMas:false, reconteosCargandoMas:false, reconteosSeleccionados:[], reconteosDesdeCache:null, cerrarLoteErpModal:null, descartarLoteModal:null, reconteosCerrados:{abierto:false, cargado:false, cargando:false, filas:[], error:null}, reconteosPorSemana:[], reconteoSemana:null, reconteoTexto:'', reconteoOrden:'fecha', reconteoSoloCalzan:false, reconteosYaCalzan:0, cargaPreview:null, cargaMasivaProgreso:null, busqueda:{texto:'',bodega:'',estado:'',ciclo:'',soloConFotos:false,dueno:'',resultados:[],buscando:false,yaBuscado:false,hayMas:false,buscandoMas:false,paginaOffset:0}, dashboardModo:'ejecutivo', dashDetalleAbierto:false, contarPlan:{cargado:false,cargando:false,fecha:fechaISO(new Date()),fechaManual:false,entradas:[],bodega:'',ubicacion:'',skusPendientes:null,desdeCache:false}, plan:{semanaInicio:fechaISO(inicioSemana(new Date())),cicloFiltro:'',cicloFiltroInicializado:false,diaFiltro:null,rango:'semana',mesInicio:null,anioInicio:null,entradas:[],universos:{},propios:{},generales:[],responsables:[],editando:null,detalle:{},seleccionados:[],universoError:null}, grupos:{cargado:false,cargando:false,lista:[],pausados:[],grupoAbierto:null,miembros:[],cargandoMiembros:false,creando:false,nombreNuevo:'',frecuenciaNuevaDias:'',fechaInicioNueva:'',automaticoCriticoNuevo:false,candidatoTexto:'',candidatoBodega:'',candidatos:[],buscandoCandidatos:false,personasDisponibles:1,horasPorDia:2,ritmoPorHora:15,diasSemanaPlan:[true,true,true,true,true,true,true],desdePlan:'',vistaPreviaCalculando:false,vistaPreviaDias:null,vistaPreviaTotalPendientes:0,vistaPreviaCupoUsado:0,generandoPlan:false,seguimiento:null,seguimientoCargando:false,historial:[],historialCargando:false,historialAbierto:null,historialDetalle:[],historialDetalleCargando:false,editandoFechaInicioId:null}, calendario:{mes:fechaISO(new Date()).slice(0,8)+'01',cargando:false,cargado:false,dias:[],diaSeleccionado:null}, skuSeleccionado:null, skusFiltroDueno:'', conteoFotos:[], superadmin:{empresas:[],resumen:[],leads:[],leadsHayMas:false,leadsCargandoMas:false,planes:[],cargado:false,personasEmpresaId:'',personas:[],cargandoPersonas:false}, equipo:{cargado:false,cargando:false,personas:[]}, reporte:null, tickets: ticketsEstadoInicial(), ciclos:[], ciclosCargados:false, cicloEditandoId:null, informesCiclo:{cargado:false,cargando:false,lista:[]}, bodega: bodegaEstadoInicial(), cargasHistorial:{cargado:false,cargando:false,filas:[]}, cargaSobrantes:null, cargaResultado:null, ubicacionesLista:{cargado:false,cargando:false,filas:[],error:null}, personasBuscar:{cargado:false,cargando:false,filas:[],error:null}, mfaDesafio:null, mfaFactores:[], mfaFactoresCargado:false, mfaEnrolando:null };
 }
 
 // El HTML de lo último que se imprimió vive fuera de #app, así que un render() no lo toca: hay
@@ -5869,7 +5872,7 @@ async function refrescarContarTrasSenal(){
 // funciona igual. Sin `fotos`: verlas necesita señal, y son lo más pesado (en Escondida, 541
 // pendientes eran ~0,9 MB con ellas).
 const RECONTEOS_CACHE_KEY = 'reconteos_cache';
-const CAMPOS_RECONTEO_SIN_SENAL = 'id,sku_code,descripcion,categoria,unidad_medida,ubicacion,bodega,stock_sistema,ultima_cantidad_contada,ultima_diferencia,ultimo_conteo_fecha,diferencia_abs,ubicacion_contada,bodega_contada,ubicacion_distinta,diferencia_recurrente,veces_con_diferencia,causa_probable,costo_unitario,valor_diferencia_linea,storage_bin,batch,critico,clase_abc,stock_sistema_anterior,stock_sistema_actualizado_en,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,conteo_id,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,ciclos_con_diferencia,reincidente,contado_por_id,capturado_en,observacion,cantidad_original,corregido_en,motivo_correccion,stock_consignado,total_consignado,stock_en_proveedor,total_en_proveedor,dueno';
+const CAMPOS_RECONTEO_SIN_SENAL = 'id,sku_code,descripcion,categoria,unidad_medida,ubicacion,bodega,stock_sistema,ultima_cantidad_contada,ultima_diferencia,ultimo_conteo_fecha,diferencia_abs,ubicacion_contada,bodega_contada,ubicacion_distinta,diferencia_recurrente,veces_con_diferencia,causa_probable,costo_unitario,valor_diferencia_linea,storage_bin,batch,critico,clase_abc,stock_sistema_anterior,stock_sistema_actualizado_en,stock_bloqueado,stock_transito_1,stock_transito_2,stock_transferencia,conteo_id,total_bloqueado,total_transito_1,total_transito_2,total_transferencia,ciclos_con_diferencia,reincidente,contado_por_id,capturado_en,observacion,cantidad_original,corregido_en,motivo_correccion,stock_consignado,total_consignado,stock_en_proveedor,total_en_proveedor,dueno,valor_diferencia_abs,stock_ya_calza';
 const MINUTOS_REFRESCO_RECONTEOS_CACHE = 15;
 function leerReconteosCache(usuarioId){
   try{ return (JSON.parse(localStorage.getItem(RECONTEOS_CACHE_KEY)||'{}'))[usuarioId] || null; }catch(e){ return null; }
@@ -5895,6 +5898,11 @@ function reconteosDeCacheFiltrados(filas){
   }
   const t = (state.reconteoTexto||'').trim().toLowerCase();
   if(t) r = r.filter(f=> (f.sku_code||'').toLowerCase().includes(t) || (f.descripcion||'').toLowerCase().includes(t));
+  if(state.reconteoSoloCalzan && !ocultarStockOperador()) r = r.filter(f=> f.stock_ya_calza);
+  if(state.reconteoOrden==='valor' && !ocultarStockOperador()){
+    const v = f=> f.valor_diferencia_abs==null ? -1 : Number(f.valor_diferencia_abs);
+    r = r.slice().sort((a,b)=> v(b) - v(a));
+  }
   return r;
 }
 // Como reconteo_pendiente_por_semana: lunes de la semana local del último conteo, de menor a mayor.
@@ -7902,6 +7910,29 @@ function filtroTextoReconteo(){
   return `&or=(sku_code.ilike.${p},descripcion.ilike.${p})`;
 }
 
+// Orden y filtro por valor (Joel, 22/10/2026): en Escondida había 582 pendientes por $9,7 millones y
+// los 20 de mayor valor eran la mitad; ordenados por fecha, lo caro se perdía entre lo barato. Con
+// conteo ciego el valor no llega (delataría el stock), así que ahí solo existe el orden por fecha.
+function ordenReconteo(){
+  return state.reconteoOrden==='valor' && !ocultarStockOperador()
+    ? 'valor_diferencia_abs.desc.nullslast,ultimo_conteo_fecha.desc'
+    : 'ultimo_conteo_fecha.desc';
+}
+// stock_ya_calza (ver reconteo_pendiente): el stock del sistema cambió después del conteo y hoy es
+// igual a lo contado -- probablemente se ajustó en el ERP. Siguen en la lista porque la diferencia
+// del conteo queda fija; este filtro es para que un admin los encuentre y los cierre.
+function filtroCalzanReconteo(){
+  return state.reconteoSoloCalzan && !ocultarStockOperador() ? '&stock_ya_calza=is.true' : '';
+}
+function elegirOrdenReconteo(orden){
+  setState({reconteoOrden: orden==='valor' ? 'valor' : 'fecha', reconteos: [], reconteosHayMas:false});
+  return cargarReconteos();
+}
+function alternarSoloCalzanReconteo(){
+  setState({reconteoSoloCalzan: !state.reconteoSoloCalzan, reconteos: [], reconteosHayMas:false, reconteosSeleccionados: []});
+  return cargarReconteos();
+}
+
 // Fija el texto del buscador y vuelve a pedir la primera página. Con texto vacío limpia la búsqueda.
 function buscarReconteo(texto){
   setState({reconteoTexto: (texto||'').trim(), reconteos: [], reconteosHayMas:false});
@@ -7914,9 +7945,13 @@ async function cargarReconteos(){
     // paralelo con la primera página; es una consulta de agregación sobre la misma vista (~60 ms
     // con datos reales), en la zona horaria del navegador para que calce con filtroSemanaReconteo.
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'America/Santiago';
-    const [rows, semanas] = await Promise.all([
-      rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}${filtroSemanaReconteo()}${filtroTextoReconteo()}`),
+    // Cuántos ya calzan con el stock: solo para un admin (es quien puede cerrarlos con "Ajustado en
+    // ERP"), y sin conteo ciego. Si falla, el botón del filtro no se muestra y nada más cambia.
+    const verCalzan = state.perfil && state.perfil.rol==='admin' && !ocultarStockOperador();
+    const [rows, semanas, calzan] = await Promise.all([
+      rest(`/reconteo_pendiente?select=*&order=${ordenReconteo()}&limit=${TAM_PAGINA_LISTA}${filtroSemanaReconteo()}${filtroTextoReconteo()}${filtroCalzanReconteo()}`),
       rest('/rpc/reconteo_pendiente_por_semana', {method:'POST', body:{p_tz: tz}}).catch(()=>null),
+      verCalzan ? rest('/reconteo_pendiente?select=conteo_id&stock_ya_calza=is.true&limit=1000').catch(()=>null) : Promise.resolve(null),
     ]);
     const porSemana = Array.isArray(semanas) ? semanas.map(f=>({semana:f.semana, pendientes:Number(f.pendientes)||0})) : state.reconteosPorSemana;
     // Si la semana elegida se queda sin pendientes (se descartó o recontó el último), la vista
@@ -7925,7 +7960,7 @@ async function cargarReconteos(){
     // Descartar no había hecho nada (o que aparecían pendientes nuevos de golpe).
     // La selección solo conserva lo que sigue en pantalla: lo cerrado o recontado sale de ella.
     const enPantalla = new Set((rows||[]).map(r=>r.conteo_id));
-    setState({reconteos: rows||[], reconteosCargados: true, reconteosError: '', reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteosDesdeCache: null, reconteosSeleccionados: (state.reconteosSeleccionados||[]).filter(id=>enPantalla.has(id))});
+    setState({reconteos: rows||[], reconteosCargados: true, reconteosError: '', reconteosHayMas: (rows||[]).length === TAM_PAGINA_LISTA, reconteosPorSemana: porSemana, reconteosYaCalzan: Array.isArray(calzan) ? calzan.length : 0, reconteosDesdeCache: null, reconteosSeleccionados: (state.reconteosSeleccionados||[]).filter(id=>enPantalla.has(id))});
     // De paso, la lista completa queda en el celular para usarla sin señal (ver
     // guardarReconteosParaSinSenal). En segundo plano y como mucho cada 15 minutos; si falla, no
     // cambia nada de lo que se ve: sin señal, Reconteo muestra la hora de lo que sí alcanzó a guardar.
@@ -7968,7 +8003,7 @@ async function cargarMasReconteos(){
   state.reconteosCargandoMas = true;
   render();
   try{
-    const rows = await rest(`/reconteo_pendiente?select=*&order=ultimo_conteo_fecha.desc&limit=${TAM_PAGINA_LISTA}&offset=${state.reconteos.length}${filtroSemanaReconteo()}${filtroTextoReconteo()}`);
+    const rows = await rest(`/reconteo_pendiente?select=*&order=${ordenReconteo()}&limit=${TAM_PAGINA_LISTA}&offset=${state.reconteos.length}${filtroSemanaReconteo()}${filtroTextoReconteo()}${filtroCalzanReconteo()}`);
     state.reconteos = state.reconteos.concat(rows||[]);
     state.reconteosHayMas = (rows||[]).length === TAM_PAGINA_LISTA;
   }catch(e){ toast(e.message,'err'); }
@@ -14967,6 +15002,14 @@ function renderReconteo(){
         </div>
         ${textoBusqueda ? `<div class="hint" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>Mostrando pendientes que coinciden con <strong>${esc(textoBusqueda)}</strong>${semanaActiva ? ` en la semana ${etiquetaSemana(semanaActiva)}` : ''}.</span><button type="button" class="link-btn" id="btn-limpiar-reconteo">Limpiar búsqueda</button></div>` : ''}
       </form>
+      ${ocultarSistema ? '' : `<div id="reconteo-orden" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <div class="segmented" style="margin:0;flex:none" role="group" aria-label="Ordenar pendientes">
+          <button type="button" class="segmented-btn${state.reconteoOrden==='valor'?'':' active'}" data-orden-reconteo="fecha" style="white-space:nowrap" aria-pressed="${state.reconteoOrden!=='valor'}">Más recientes</button>
+          <button type="button" class="segmented-btn${state.reconteoOrden==='valor'?' active':''}" data-orden-reconteo="valor" style="white-space:nowrap" aria-pressed="${state.reconteoOrden==='valor'}">Mayor valor</button>
+        </div>
+        ${esAdmin && (state.reconteosYaCalzan || state.reconteoSoloCalzan) ? `<button type="button" class="fchip fchip-sm" id="btn-reconteo-calzan" aria-pressed="${!!state.reconteoSoloCalzan}" style="${state.reconteoSoloCalzan?'border-color:var(--ok);background:var(--surface-2)':''}" title="El stock del sistema cambió después del conteo y hoy es igual a lo contado">${state.reconteoSoloCalzan ? 'Ver todos los pendientes' : `Stock ya calza: ${state.reconteosYaCalzan}`}</button>` : ''}
+      </div>
+      ${esAdmin && state.reconteoSoloCalzan ? `<p class="hint" id="reconteo-calzan-ayuda" style="margin:-4px 0 12px">Solo los que ya calzan: el stock del sistema cambió después del conteo y hoy es igual a lo contado. Ciérralos con «Ajustado en ERP».</p>` : ''}`}
       ${state.reconteosDesdeCache || sinSenal ? `<div class="aviso-sin-senal" id="reconteo-sin-senal">${ICONS.alerta.replace('<svg','<svg style="width:15px;height:15px;stroke:var(--warn);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;margin-top:2px"')}<span>${state.reconteosDesdeCache ? `<b>Sin señal:</b> lista guardada en este celular el ${esc(new Date(state.reconteosDesdeCache).toLocaleString('es-CL',{day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}))}.` : '<b>Sin señal.</b>'} Puedes recontar: queda en el celular y se envía al volver la señal.${esAdmin || bodegaActiva ? ' Descartar, Ajustado en ERP, Editar y Ajustar stock necesitan señal.' : ''}</span></div>` : ''}
       ${recontadosPorEnviar.length ? `<div class="hint" id="reconteo-por-enviar" style="margin-bottom:10px">✓ ${recontadosPorEnviar.length===1 ? '1 recontado' : `${recontadosPorEnviar.length} recontados`}, por enviar: ${esc(recontadosPorEnviar.slice(0,6).map(r=>r.sku_code).join(', '))}${recontadosPorEnviar.length>6?'…':''}</div>` : ''}
       ${esAdmin && seleccionados.length ? `<div id="acciones-reconteo-lote" class="card" style="border-color:var(--amber);display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px">
@@ -14990,8 +15033,8 @@ function renderReconteo(){
           <td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>
           <td class="num">${ocultarSistema
             ? `<span class="badge badge-warn">Con diferencia</span>`
-            : `<span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span>`}</td>
-          <td>${causaProbableBadge(r.causa_probable)} ${badgeReincidente(r)}</td>
+            : `<span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span>${r.valor_diferencia_linea!=null?`<div class="hint" style="font-size:12px;margin-top:2px;white-space:nowrap">${Number(r.valor_diferencia_linea)<0?'−':''}$${Math.round(Math.abs(Number(r.valor_diferencia_linea))).toLocaleString('es-CL')}</div>`:''}`}</td>
+          <td>${causaProbableBadge(r.causa_probable)} ${badgeReincidente(r)}${r.stock_ya_calza && !ocultarSistema ? ` <span class="badge badge-ok" title="El stock del sistema cambió después del conteo y hoy es igual a lo contado${esAdmin?': ciérralo con «Ajustado en ERP»':''}">Stock ya calza</span>` : ''}</td>
           <td class="mono" style="font-size:12px">${fmtFecha(r.ultimo_conteo_fecha)}</td>
           <td class="num">${(r.fotos||[]).length
             ? `<button class="icon-btn" data-ver-fotos="${esc(JSON.stringify(r.fotos))}" aria-label="Ver fotos">${ICONS.camera}${r.fotos.length>1?` ${r.fotos.length}`:''}</button>`
@@ -19944,6 +19987,10 @@ function bind(){
     });
     const btnLimpiarReconteo = document.getElementById('btn-limpiar-reconteo');
     if(btnLimpiarReconteo) btnLimpiarReconteo.addEventListener('click', ()=> buscarReconteo(''));
+    document.querySelectorAll('[data-orden-reconteo]').forEach(btn=>
+      btn.addEventListener('click', ()=>{ if(btn.dataset.ordenReconteo !== state.reconteoOrden) elegirOrdenReconteo(btn.dataset.ordenReconteo); }));
+    const btnReconteoCalzan = document.getElementById('btn-reconteo-calzan');
+    if(btnReconteoCalzan) btnReconteoCalzan.addEventListener('click', alternarSoloCalzanReconteo);
     const btnEscanearReconteo = document.getElementById('btn-escanear-reconteo');
     if(btnEscanearReconteo) btnEscanearReconteo.addEventListener('click', ()=> setState({escanerModal: {codigo:null, error:null, destino:'reconteo'}}));
     document.querySelectorAll('[data-ver-fotos]').forEach(btn=>{

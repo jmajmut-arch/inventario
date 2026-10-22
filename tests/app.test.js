@@ -873,6 +873,12 @@ const fakeFetchImpl = async (url, opts) => {
       {id:'rp-a2', sku_code:'SKU-A', bodega:'Nave', batch:null, ubicacion:'P1', storage_bin:'A-2'},
     ]) };
   }
+  // Los pendientes cuyo stock del sistema ya calza con lo contado (ver filtroCalzanReconteo).
+  if(path.startsWith('/rest/v1/reconteo_pendiente') && path.includes('stock_ya_calza=is.true')){
+    const filas = [{id:'rc1', conteo_id:'conteo-calza-1', sku_code:'SKU-CALZA', descripcion:'Ya ajustado', stock_sistema:8, ultima_cantidad_contada:8, ultima_diferencia:-2, ultimo_conteo_fecha:'2026-08-10', causa_probable:'Sin patrón detectado', stock_ya_calza:true, valor_diferencia_linea:-5000, valor_diferencia_abs:5000},
+                   {id:'rc2', conteo_id:'conteo-calza-2', sku_code:'SKU-CALZA-2', descripcion:'Ya ajustado 2', stock_sistema:3, ultima_cantidad_contada:3, ultima_diferencia:1, ultimo_conteo_fecha:'2026-08-11', causa_probable:'Sin patrón detectado', stock_ya_calza:true, valor_diferencia_linea:700, valor_diferencia_abs:700}];
+    return { status:200, ok:true, headers:{get:()=>null}, text: async()=>JSON.stringify(filas) };
+  }
   if(path.startsWith('/rest/v1/reconteo_pendiente')){
     const offsetMatch = path.match(/offset=(\d+)/);
     const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
@@ -10876,6 +10882,59 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
     ctx.__appstate.bodega = ctx.bodegaEstadoInicial();
     ctx.__appstate.view = 'dashboard';
+  }
+
+  // ===== Reconteo: ordenar por valor y ver los que el stock ya calza (Joel, 22/10/2026). En Escondida,
+  // los 20 pendientes de mayor valor eran la mitad de $9,7 millones, perdidos entre los más recientes. =====
+  {
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
+    ctx.__appstate.reconteoSemana = null; ctx.__appstate.reconteoTexto = '';
+    ctx.__appstate.reconteoOrden = 'fecha'; ctx.__appstate.reconteoSoloCalzan = false;
+    calls.length = 0;
+    await ctx.cargarReconteos();
+    const getFecha = calls.find(c=>c.url.includes('/reconteo_pendiente?select=*'));
+    assert(getFecha && getFecha.url.includes('order=ultimo_conteo_fecha.desc'), 'por omisión sigue el orden por fecha, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(calls.some(c=>c.url.includes('/reconteo_pendiente?select=conteo_id&stock_ya_calza=is.true')), 'un admin pide cuántos ya calzan con el stock');
+    assert(ctx.__appstate.reconteosYaCalzan===2, 'guarda cuántos ya calzan, obtuvo: '+ctx.__appstate.reconteosYaCalzan);
+    let html = ctx.renderReconteo();
+    assert(html.includes('data-orden-reconteo="valor"') && html.includes('Mayor valor'), 'se ofrece ordenar por mayor valor, obtuvo: '+html);
+    assert(html.includes('id="btn-reconteo-calzan"') && html.includes('Stock ya calza: 2'), 'el admin ve cuántos ya calzan con el stock, obtuvo: '+html);
+
+    calls.length = 0;
+    await ctx.elegirOrdenReconteo('valor');
+    const getValor = calls.find(c=>c.url.includes('/reconteo_pendiente?select=*'));
+    assert(getValor && getValor.url.includes('order=valor_diferencia_abs.desc.nullslast,ultimo_conteo_fecha.desc'), 'Mayor valor ordena en el servidor por el valor absoluto de la diferencia, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    calls.length = 0;
+    await ctx.cargarMasReconteos();
+    const getMasValor = calls.find(c=>c.url.includes('/reconteo_pendiente?select=*') && c.url.includes('offset='));
+    assert(getMasValor && getMasValor.url.includes('order=valor_diferencia_abs.desc'), '"Cargar más" conserva el orden por valor');
+
+    calls.length = 0;
+    await ctx.alternarSoloCalzanReconteo();
+    const getCalzan = calls.find(c=>c.url.includes('/reconteo_pendiente?select=*'));
+    assert(getCalzan && getCalzan.url.includes('stock_ya_calza=is.true'), 'el filtro pide solo los que ya calzan, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    html = ctx.renderReconteo();
+    assert(html.includes('badge-ok" title="El stock del sistema cambió después del conteo y hoy es igual a lo contado: ciérralo con «Ajustado en ERP»">Stock ya calza'), 'cada fila que ya calza lo dice y sugiere cerrarla, obtuvo: '+html);
+    assert(html.includes('−$5.000') && html.includes('$700'), 'bajo la diferencia se ve su valor, con signo, obtuvo: '+html);
+    assert(html.includes('Ver todos los pendientes'), 'con el filtro activo, el botón vuelve a todos');
+    await ctx.alternarSoloCalzanReconteo();
+
+    // Sin señal: la lista guardada se ordena y filtra igual.
+    ctx.__appstate.reconteoOrden = 'valor';
+    const ordenCache = ctx.reconteosDeCacheFiltrados([{sku_code:'A', valor_diferencia_abs:10}, {sku_code:'B', valor_diferencia_abs:900}, {sku_code:'C', valor_diferencia_abs:null}]).map(f=>f.sku_code).join('');
+    assert(ordenCache==='BAC', 'sin señal, la lista guardada también se ordena por valor, obtuvo: '+ordenCache);
+
+    // Con conteo ciego no hay valor ni "ya calza" (delatarían el stock): ni orden por valor ni filtro.
+    ctx.__appstate.perfil = { id:2, nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+    calls.length = 0;
+    await ctx.cargarReconteos();
+    const getCiego = calls.find(c=>c.url.includes('/reconteo_pendiente?select=*'));
+    assert(getCiego && getCiego.url.includes('order=ultimo_conteo_fecha.desc') && !getCiego.url.includes('valor_diferencia_abs'), 'con conteo ciego se ordena siempre por fecha, obtuvo: '+getCiego.url);
+    assert(!calls.some(c=>c.url.includes('stock_ya_calza=is.true')), 'con conteo ciego no se pregunta por los que ya calzan');
+    html = ctx.renderReconteo();
+    assert(!html.includes('data-orden-reconteo') && !html.includes('btn-reconteo-calzan'), 'con conteo ciego no se ofrece ordenar por valor, obtuvo: '+html);
+    ctx.__appstate.reconteoOrden = 'fecha';
+    ctx.__appstate.perfil = { id:1, nombre:'Ana', rol:'admin', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes'} };
   }
 
   // ===== Reconteo: buscador por código o descripción (pedido de Joel: "para que sea más fácil
