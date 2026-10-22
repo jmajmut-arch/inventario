@@ -3009,6 +3009,46 @@ async function loguear(page, perfil, prepararRutas){
     await context.close();
   }
 
+  // ===== Plan según la pantalla (22/10/2026) =====
+  // Computador e iPad horizontal (desde 1024 px): el plan a la izquierda y resumen y Agregar al lado;
+  // desde 1400 px la página crece y los días van de a dos. iPad vertical y celular: una columna.
+  {
+    const isoLocal = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const lun = new Date(); lun.setDate(lun.getDate()-((lun.getDay()+6)%7));
+    const dia = n => { const d = new Date(lun); d.setDate(lun.getDate()+n); return isoLocal(d); };
+    const entradasPlan = []; const universoPlan = {};
+    for(let d=0; d<4; d++) for(let k=0; k<2; k++){
+      const id = 'pl'+d+k;
+      entradasPlan.push({ id, fecha:dia(d), bodega:'B501', ubicacion:'010'+k, storage_bin:'N1E-0'+d+k, solo_sin_ubicacion:false, ubicacion_nula:false, por_sku:false, responsable_id:null, responsable_nombre:null, nota:null, ciclo_id:'c1', ciclo_nombre:'Q1', skus_excluidos:[], skus_incluidos:[] });
+      universoPlan[id] = [{ id:id+'s', sku_code:'1040'+d+k, descripcion:'MATERIAL' }];
+    }
+    for (const [ancho, alto, lateral, diasDeADos] of [[1440,900,true,true],[1024,1366,true,false],[820,1180,false,false],[420,900,false,false]]) {
+      const context = await browser.newContext({ viewport:{ width:ancho, height:alto } });
+      const page = await context.newPage();
+      page.on('pageerror', err => erroresPagina.push('plan-pantalla-'+ancho+': '+err.message));
+      await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+      const J = (route, x) => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify(x) });
+      await page.route('**/rest/v1/ciclos_conteo?**', r => J(r, [{ id:'c1', nombre:'Q1', es_actual:true, fecha_inicio:'2026-01-01' }]));
+      await page.route('**/rest/v1/rpc/plan_ventana_pantalla**', r => { const b = r.request().postDataJSON(); const en = entradasPlan.filter(e => (!b.p_desde || e.fecha >= b.p_desde) && (!b.p_hasta || e.fecha <= b.p_hasta)); return J(r, b.p_resumido ? { entradas:en, resumen: en.map(e => ({ plan_id:e.id, total:1, propios:1 })) } : { entradas:en, universo: Object.fromEntries(en.map(e => [e.id, universoPlan[e.id]])) }); });
+      await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+      await page.fill('#f-email', 'ana@minera-andes.cl');
+      await page.fill('#f-pass', '123456');
+      await page.click('#auth-form button[type="submit"]');
+      await page.waitForSelector('.tabbar', { timeout:ESPERA });
+      await page.click('.tabbar [data-tab="plan"]');
+      await esperarVisible(page, '.plan-dia-bloque, .plan-dia');
+      const m = await page.evaluate(() => {
+        const r = s => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; };
+        const lat = r('.plan-lateral'), lis = r('.plan-lista');
+        const dias = [...document.querySelectorAll('.plan-dias > *')].slice(0, 2).map(e => e.getBoundingClientRect());
+        return { main: Math.round(r('main').width), lateralAlLado: !!(lat && lis && lat.left >= lis.right - 1), diasDeADos: dias.length === 2 && Math.abs(dias[0].top - dias[1].top) < 2 && dias[1].left > dias[0].right - 1, resumenAbierto: !!(document.getElementById('plan-resumen') || {}).open, desborde: document.documentElement.scrollWidth - innerWidth };
+      });
+      assert(m.lateralAlLado === lateral && m.diasDeADos === diasDeADos && m.resumenAbierto === lateral && m.desborde <= 0, `a ${ancho} px Plan ${lateral ? 'pone resumen y Agregar al lado' : 'va en una columna'}${diasDeADos ? ' y los días de a dos' : ''}, sin desbordar, obtuvo ${JSON.stringify(m)}`);
+      if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + `/plan-${ancho}.png` });
+      await context.close();
+    }
+  }
+
   // ===== Calendario (Fase 5 del rediseño): estados por día en el navegador =====
   // Un día pasado con pendientes se marca atrasado, uno sin pendientes cumplido, uno por venir
   // futuro; el resumen de cumplimiento aparece; tocar un día abre su detalle con el estado.

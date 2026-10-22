@@ -714,6 +714,24 @@ textarea{resize:vertical;min-height:60px;}
 .plan-sin-periodo-acciones .btn{width:auto;padding:0 16px;}
 @media (max-width:520px){.plan-sin-periodo-form{grid-template-columns:minmax(0,1fr);}}
 .plan-item-detalle{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
+/* Plan según la pantalla (Joel, 22/10/2026). Celular e iPad vertical: una columna, como siempre
+   (resumen y Agregar arriba, el plan abajo). Desde 1024 px (iPad horizontal y computador): el plan
+   a la izquierda y, al lado, resumen y Agregar fijos al bajar. Desde 1400 px la página crece y los
+   días van de a dos. Solo cambia la disposición: mismos ids, mismo orden en el documento. */
+main.plan-ancho{max-width:1600px;}
+@media (min-width:1024px){
+  .plan-layout.con-lista{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:0 22px;align-items:start;}
+  .plan-layout.con-lista>.plan-lateral{grid-column:2;grid-row:1;position:sticky;top:72px;max-height:calc(100vh - 150px);overflow-y:auto;overscroll-behavior:contain;padding-right:2px;}
+  .plan-layout.con-lista>.plan-lista{grid-column:1;grid-row:1;min-width:0;}
+  .plan-layout.con-lista>.plan-lateral details.plegable{margin-top:0;border-top:0;}
+  .plan-layout.con-lista .plan-dia-bloque>.section-head:first-child,.plan-layout.con-lista .plan-dias>.plan-dia:first-child{margin-top:0;}
+  .plan-layout.con-lista>.plan-lateral .row2-plan-sitio{grid-template-columns:minmax(0,1fr);}
+}
+@media (min-width:1400px){
+  .plan-layout.con-lista{grid-template-columns:minmax(0,1fr) 400px;}
+  .plan-layout.con-lista .plan-dias{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;align-items:start;}
+  .plan-layout.con-lista .plan-dias>.plan-dia{margin-bottom:12px;}
+}
 .plan-sku-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
 .plan-sku-lista li{font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .plan-sku-lista .icon-btn{padding:2px;flex:none;}
@@ -16013,6 +16031,11 @@ function htmlPlanSinPeriodo(f){
     </div>`;
 }
 
+// Desde 1024 px el resumen va en la columna de al lado del plan (ver .plan-layout): ahí parte
+// abierto, porque no empuja la lista hacia abajo. En el celular parte cerrado, como siempre.
+function planConColumnaLateral(){
+  return typeof window!=='undefined' && typeof window.matchMedia==='function' && window.matchMedia('(min-width:1024px)').matches;
+}
 function renderPlanificacion(){
   const p = state.plan;
   const inicio = new Date(p.semanaInicio+'T00:00:00');
@@ -16273,8 +16296,10 @@ function renderPlanificacion(){
     ` : ''}
     </div>
 
+    <div class="plan-layout${entradasVisibles.length? ' con-lista' : ''}">
+    <div class="plan-lateral">
     ${entradasVisibles.length? `
-      <details class="plegable" id="plan-resumen" ${p.resumenAbierto? 'open' : ''}>
+      <details class="plegable" id="plan-resumen" ${(typeof p.resumenAbierto==='boolean' ? p.resumenAbierto : planConColumnaLateral())? 'open' : ''}>
         <summary>
           <div class="section-head"><h2 style="font-size:15px">${tituloResumen}${resumido? ' '+campoConInfo('Vista resumida: totales por entrada, sin listar los SKU. Para verlos o quitar alguno, usa Día o Semana. El PDF trae el listado completo.') : ''}</h2></div>
           <span class="plegable-sub">${totalSemana.toLocaleString('es-CL')} SKU a contar · ${entradasVisibles.length} entrada${entradasVisibles.length===1?'':'s'}${entradasSinResponsable? ` · <span class="plan-dia-sin-resp">${entradasSinResponsable} sin responsable</span>` : ''}</span>
@@ -16389,6 +16414,8 @@ function renderPlanificacion(){
       </form>
       </div>
     </div>
+    </div>
+    <div class="plan-lista">
 
     ${entradasVisibles.length? `
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;${p.seleccionados.length?'border-color:var(--danger)':''}">
@@ -16415,12 +16442,18 @@ function renderPlanificacion(){
       </div>
     ` : ''}
 
+    <div class="plan-dias">
     ${grupos.filter(d=>d.entradas.length).map(d=> diasPlegables ? htmlDiaPlegable(d) : `
+      <div class="plan-dia-bloque">
       <div class="section-head${p.diaFiltro? '' : ' plan-dia-head'}">${checkDia(d)}<h2 style="font-size:15px;text-transform:capitalize">${esc(d.label)}${modo==='semana'? ' · '+d.corta : ''}</h2></div>
       <div class="card">
         ${d.entradas.map(htmlEntradaPlan).join('')}
       </div>
+      </div>
     `).join('')}
+    </div>
+    </div>
+    </div>
   `;
 }
 
@@ -18647,7 +18680,7 @@ function renderShell(){
     </div>
     ` : ''}
     ${renderBannerInstalarApp()}
-    <main${VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
+    <main${state.view==='plan'?' class="ancho plan-ancho"':VISTAS_ANCHAS.includes(state.view)?' class="ancho"':''}>${content}</main>
     ${barraBodega ? `<nav class="tabbar">
       ${tabBtn('inicio','Inicio')}
       ${tabBtn('ingreso','Recepción')}
