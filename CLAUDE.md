@@ -55,6 +55,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   así; el 29/09/2026 se corrigieron siete funciones de lectura (ranking_responsable pasó de 185 a
   ~5 ms; el Dashboard de 0,56 a 0,41 s; resumen_plan_grupos de 224 a 121 ms). Toda función nueva
   que las use en un filtro va con `(select ...)`.
+- **Una función `LANGUAGE sql` con `SET search_path` se planifica a ciegas.** No se inlinea, y su
+  cuerpo se planifica sin conocer los parámetros: con una lista (`id = any(p_ids)`) Postgres elige un
+  plan pensado para cualquier lista. Pasó de verdad: `skus_universo_entrada_plan_lote` tardaba 2,7-3 s
+  con las ~300-400 entradas de un período de Escondida, y la misma consulta con la lista conocida,
+  130 ms; Grupos esperaba 2,9 s en cada visita. Se arregló el 22/10/2026 pasándola a plpgsql con
+  `RETURN QUERY EXECUTE ... USING`, que planifica cada llamada con la lista real. Para medir una
+  función así, compararla contra una copia en `pg_temp` dentro de una transacción que se revierte,
+  no contra su cuerpo pegado a mano (ese sí conoce los valores y engaña).
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
@@ -88,8 +96,8 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
     ahí**, no en la puerta.
   - Cada conteo toma un turno por material (`trg_conteos_turno_sku`, advisory lock) antes de tocar
     `skus`, para que dos conteos del mismo material no entren en deadlock.
-  - Claves de advisory locks en uso: 74100, 74101 y 74102. Una función nueva que use advisory
-    locks elige otra.
+  - Claves de advisory locks en uso: 74100, 74101, 74102 y 74103 (recálculo ABC por empresa,
+    `privado.recalcular_abc_empresa`). Una función nueva que use advisory locks elige otra.
   - **Lo que la protección no resuelve:** la tercera prueba del 13/10/2026, ya con la
     protección, no tuvo deadlocks (antes 211 y 116) y el Dashboard quedó limitado, pero la base
     igual se cayó con 500 personas (≈2 min). El techo lo pone el tamaño del servidor, no el
@@ -146,6 +154,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   la política `auditoria_select` quedó solo por `empresa_actual()`. Si alguna vez hace falta ver la
   auditoría de un cliente para soporte, se hace con su permiso y desde su propia cuenta, no
   abriendo la política. Un usuario normal no ve nada ajeno en ninguna relación.
+- **Qué escribe un operador, exactamente** (desde `20261022_operadores_escritura_acotada.sql`; el
+  visitante de la demo pública es operador). Plan y sus tablas hijas, `cargas_masivas` y
+  `responsables_proceso` solo los escribe un administrador o súper admin. En `skus`, un pedido
+  directo a `/skus` de un operador solo puede cambiar `codigo_barras`, `bodega`, `ubicacion` y
+  `storage_bin` (trigger `trg_skus_limita_edicion_directa`, que mira `request.path`); crear materiales
+  sigue abierto, y las funciones (`/rpc/...`) y los triggers de otros pedidos no pasan por esa
+  revisión. **Si una pantalla nueva deja a un operador cambiar otra columna de `skus` directo, hay
+  que agregarla al trigger** (y a la prueba de `tests/esquema.test.js`), o hacerlo por una función.
 - **Nunca borrar ni purgar datos sin preguntar antes.**
 
 ## Manejo de errores en la app

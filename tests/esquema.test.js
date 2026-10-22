@@ -160,29 +160,42 @@ test('exclusiones e incluidos del plan filtran por su propio empresa_id y el tri
   assert.deepStrictEqual(problemas, [], problemas.join('\n'));
 });
 
-// skus_valor_abc lee solo la clasificación ABC de la empresa del usuario. Antes la vista
-// materializada no tenía empresa_id y cada lectura (resumen ABC del Dashboard, pagina_skus)
-// recorría las ~182.000 filas de todas las empresas (20261013_abc_por_empresa.sql). Además, la
-// vista, el refresco nocturno y refrescar_clasificacion_abc() tienen que usar la misma vista
-// materializada: si uno queda apuntando a otra, la clasificación que se ve deja de actualizarse.
-test('la clasificación ABC se lee por empresa y se refresca la misma vista materializada que se lee', () => {
+// Clasificación ABC por empresa (20261022_abc_por_empresa.sql). Antes refrescar_clasificacion_abc
+// (al terminar cada carga de Excel) refrescaba una vista materializada con TODAS las empresas: una
+// carga de Agunsa esperaba el recálculo de los ~64.500 materiales de Escondida (5,8 s de promedio, una
+// vez más de 20 s y error) y escribía en materiales ajenos. Ahora la clase vive en skus y se recalcula
+// solo para la empresa de quien llama. Esta prueba cuida que nadie vuelva a: leer la clasificación sin
+// filtrar por empresa, recalcular todas las empresas desde la app, o leer la vista materializada vieja.
+test('la clasificación ABC se lee y se recalcula por empresa', () => {
   const dirMig = path.join(RAIZ, 'supabase', 'migrations');
-  let vista = null, funcion = null, cron = null;
+  let vista = null, funcion = null, porEmpresa = null, cron = null;
+  const cuerpo = /\$(\w*)\$[\s\S]*?\$\1\$/;
   for (const archivo of fs.readdirSync(dirMig).sort()) {
     const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
     const v = /create\s+or\s+replace\s+view\s+public\.skus_valor_abc\b[\s\S]*?;/i.exec(sql);
     if (v) vista = { archivo, def: v[0] };
-    const f = /create\s+or\s+replace\s+function\s+public\.refrescar_clasificacion_abc\s*\(\)[\s\S]*?\$\$[\s\S]*?\$\$/i.exec(sql);
+    const f = new RegExp(/create\s+or\s+replace\s+function\s+public\.refrescar_clasificacion_abc\s*\(\)[\s\S]*?/.source + cuerpo.source, 'i').exec(sql);
     if (f) funcion = { archivo, def: f[0] };
+    const e = new RegExp(/create\s+or\s+replace\s+function\s+privado\.recalcular_abc_empresa\s*\([\s\S]*?/.source + cuerpo.source, 'i').exec(sql);
+    if (e) porEmpresa = { archivo, def: e[0], sql };
     const c = /cron\.schedule\(\s*'refrescar-clasificacion-abc-nocturno'[\s\S]*?\);/i.exec(sql);
     if (c) cron = { archivo, def: c[0] };
   }
-  assert.ok(vista && funcion && cron, 'faltan en las migraciones la vista skus_valor_abc, refrescar_clasificacion_abc o el refresco nocturno');
+  assert.ok(vista && funcion && porEmpresa && cron, 'faltan en las migraciones skus_valor_abc, refrescar_clasificacion_abc, privado.recalcular_abc_empresa o el recálculo nocturno');
   assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: skus_valor_abc tiene que ser security_invoker`);
-  assert.match(vista.def, /mv\.empresa_id\s*=\s*\(\s*select\s+public\.empresa_actual\(\)\s*\)/i, `${vista.archivo}: skus_valor_abc no filtra la vista materializada por empresa`);
-  const mv = /join\s+(privado\.\w+)/i.exec(vista.def)[1];
-  assert.match(funcion.def, new RegExp(`refresh\\s+materialized\\s+view\\s+concurrently\\s+${mv.replace('.', '\\.')}\\b`, 'i'), `${funcion.archivo}: refrescar_clasificacion_abc no refresca ${mv}, que es la que lee skus_valor_abc`);
-  assert.match(cron.def, new RegExp(`${mv.replace('.', '\\.')}\\b`, 'i'), `${cron.archivo}: el refresco nocturno no refresca ${mv}, que es la que lee skus_valor_abc`);
+  assert.match(vista.def, /empresa_id\s*=\s*\(\s*select\s+(public\.)?empresa_actual\(\)/i, `${vista.archivo}: skus_valor_abc tiene que filtrar por la empresa de quien consulta`);
+  assert.doesNotMatch(vista.def, /skus_valor_abc_empresa_mv/i, `${vista.archivo}: skus_valor_abc no puede volver a leer la vista materializada de todas las empresas`);
+  assert.doesNotMatch(funcion.def, /refresh\s+materialized\s+view/i, `${funcion.archivo}: refrescar_clasificacion_abc no puede refrescar una vista de todas las empresas`);
+  assert.match(funcion.def, /privado\.recalcular_abc_empresa\(\s*\(\s*select\s+empresa_actual\(\)\s*\)\s*\)/i, `${funcion.archivo}: refrescar_clasificacion_abc tiene que recalcular solo la empresa de quien llama`);
+  assert.match(porEmpresa.def, /where\s+s\.empresa_id\s*=\s*p_empresa\s+and\s+s\.activo/i, `${porEmpresa.archivo}: recalcular_abc_empresa tiene que calcular solo con los materiales de esa empresa`);
+  assert.match(porEmpresa.def, /pg_advisory_xact_lock\(\s*74103/i, `${porEmpresa.archivo}: recalcular_abc_empresa tiene que tomar su turno por empresa (clave 74103)`);
+  assert.match(porEmpresa.sql, /revoke\s+all\s+on\s+function\s+privado\.recalcular_abc_empresa\(uuid\)\s+from\s+public,\s*anon,\s*authenticated/i, `${porEmpresa.archivo}: recalcular_abc_empresa no se puede llamar directo (recibe la empresa como parámetro)`);
+  assert.match(cron.def, /privado\.recalcular_abc_todas\(\)/i, `${cron.archivo}: el recálculo nocturno tiene que ir empresa por empresa`);
+  const posteriores = fs.readdirSync(dirMig).sort().filter(a => a > '20261022_abc_por_empresa.sql');
+  for (const archivo of posteriores) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    assert.doesNotMatch(sql, /from\s+privado\.skus_valor_abc_empresa_mv|join\s+privado\.skus_valor_abc_empresa_mv/i, `${archivo}: no volver a leer la vista materializada vieja (sin uso desde 20261022_abc_por_empresa.sql)`);
+  }
 });
 
 // Protección contra sobrecarga (20261013_proteccion_sobrecarga.sql). En la prueba de carga del
@@ -359,4 +372,49 @@ test('la diferencia de un conteo es una foto: modificarlo no la recalcula con el
   assert.match(def, /new\.cantidad_contada\s*-\s*\(\s*old\.cantidad_contada\s*-\s*old\.diferencia\s*\)/i,
     `${archivoDef}: corregir la cantidad se mide contra el stock que había al contar (cantidad anterior - diferencia anterior)`);
   assert.doesNotMatch(def, /security\s+definer/i, `${archivoDef}: el trigger no necesita SECURITY DEFINER`);
+});
+
+test('un operador no escribe el plan, las cargas ni los responsables, y en skus solo código de barras y ubicación', () => {
+  // Joel, 22/10/2026: las reglas solo pedían ser de la empresa, así que un operador -- o el visitante
+  // de la demo pública -- podía saltarse la app y cambiar stock, costo o el plan por la API.
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  const archivos = fs.readdirSync(dirMig).sort();
+  const sqlDe = a => fs.readFileSync(path.join(dirMig, a), 'utf8').replace(/--[^\n]*/g, '');
+  const politicas = [
+    ['plan_semanal', 'auth_write_plan_semanal'], ['plan_semanal', 'auth_update_plan_semanal'], ['plan_semanal', 'auth_delete_plan_semanal'],
+    ['plan_semanal_exclusiones', 'auth_insert_plan_semanal_exclusiones'], ['plan_semanal_exclusiones', 'auth_delete_plan_semanal_exclusiones'],
+    ['plan_semanal_incluidos', 'auth_insert_plan_semanal_incluidos'], ['plan_semanal_incluidos', 'auth_delete_plan_semanal_incluidos'],
+    ['plan_semanal_skus', 'auth_insert'], ['plan_semanal_skus', 'auth_delete'],
+    ['cargas_masivas', 'auth_all_cargas'],
+    ['responsables_proceso', 'auth_insert_responsables_proceso'], ['responsables_proceso', 'auth_update_responsables_proceso'],
+  ];
+  for (const [tabla, nombre] of politicas) {
+    const re = new RegExp(`(?:create|alter)\\s+policy\\s+"?${nombre}"?\\s+on\\s+(?:public\\.)?${tabla}\\b[^;]*;`, 'gi');
+    let def = null, archivo = null;
+    for (const a of archivos) for (const m of sqlDe(a).matchAll(re)) { def = m[0]; archivo = a; }
+    assert.ok(def, `no se encontró la regla ${nombre} de ${tabla}`);
+    assert.match(def, /es_admin_actual\(\)[\s\S]*es_super_admin\(\)/i, `${archivo}: ${nombre} (${tabla}) tiene que exigir administrador o súper admin`);
+  }
+  let fn = null, archivoFn = null;
+  for (const a of archivos) {
+    const m = /create\s+(?:or\s+replace\s+)?function\s+public\.skus_limita_edicion_directa\s*\([\s\S]*?\$function\$[\s\S]*?\$function\$/i.exec(sqlDe(a));
+    if (m) { fn = m[0]; archivoFn = a; }
+  }
+  assert.ok(fn, 'no se encontró public.skus_limita_edicion_directa');
+  assert.match(fn, /request\.path/, `${archivoFn}: solo mira los pedidos directos a /skus`);
+  assert.match(fn, /es_admin_actual\(\)[\s\S]*es_super_admin\(\)/i, `${archivoFn}: administradores y súper admin quedan libres`);
+  const libres = /n\.key\s+not\s+in\s*\(([^)]*)\)/i.exec(fn);
+  assert.ok(libres, `${archivoFn}: falta la lista de columnas que un operador puede cambiar`);
+  const columnas = libres[1].match(/'[^']+'/g).map(c => c.slice(1, -1)).sort();
+  assert.deepEqual(columnas, ['batch_key', 'bodega', 'bodega_key', 'codigo_barras', 'storage_bin', 'storage_bin_key', 'ubicacion', 'ubicacion_key', 'updated_at'],
+    `${archivoFn}: un operador solo puede cambiar código de barras y ubicación (más lo que la base calcula sola)`);
+  assert.doesNotMatch(fn, /security\s+definer/i, `${archivoFn}: el trigger no necesita SECURITY DEFINER`);
+  const todo = archivos.map(sqlDe).join('\n');
+  assert.match(todo, /create\s+trigger\s+trg_skus_limita_edicion_directa\s+before\s+update\s+on\s+public\.skus/i, 'falta el trigger en skus');
+  assert.doesNotMatch(todo, /(drop|disable)\s+trigger\s+(if\s+exists\s+)?trg_skus_limita_edicion_directa/i, 'ninguna migración apaga el trigger');
+  // Lo que la app le deja hacer a un operador sobre /skus directo: asociar el código de barras y
+  // cambiar la ubicación (Bodega > Ubicación). Si aparece otra columna, hay que agregarla arriba.
+  const html = fs.readFileSync(path.join(RAIZ, 'app', 'index.html'), 'utf8');
+  assert.match(html, /rest\(`\/skus\?id=eq\.\$\{skuId\}`, \{method:'PATCH', body:\{codigo_barras: codigo\}/, 'el escáner asocia solo codigo_barras');
+  assert.match(html, /const destino = \{\s*bodega:[^\n]*\n\s*ubicacion:[^\n]*\n\s*storage_bin:[^\n]*\n\s*\};/, 'cambiar de ubicación manda solo bodega, ubicacion y storage_bin');
 });
