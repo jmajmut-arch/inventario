@@ -96,8 +96,8 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
     ahí**, no en la puerta.
   - Cada conteo toma un turno por material (`trg_conteos_turno_sku`, advisory lock) antes de tocar
     `skus`, para que dos conteos del mismo material no entren en deadlock.
-  - Claves de advisory locks en uso: 74100, 74101 y 74102. Una función nueva que use advisory
-    locks elige otra.
+  - Claves de advisory locks en uso: 74100, 74101, 74102 y 74103 (recálculo ABC por empresa,
+    `privado.recalcular_abc_empresa`). Una función nueva que use advisory locks elige otra.
   - **Lo que la protección no resuelve:** la tercera prueba del 13/10/2026, ya con la
     protección, no tuvo deadlocks (antes 211 y 116) y el Dashboard quedó limitado, pero la base
     igual se cayó con 500 personas (≈2 min). El techo lo pone el tamaño del servidor, no el
