@@ -154,6 +154,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   la política `auditoria_select` quedó solo por `empresa_actual()`. Si alguna vez hace falta ver la
   auditoría de un cliente para soporte, se hace con su permiso y desde su propia cuenta, no
   abriendo la política. Un usuario normal no ve nada ajeno en ninguna relación.
+- **Qué escribe un operador, exactamente** (desde `20261022_operadores_escritura_acotada.sql`; el
+  visitante de la demo pública es operador). Plan y sus tablas hijas, `cargas_masivas` y
+  `responsables_proceso` solo los escribe un administrador o súper admin. En `skus`, un pedido
+  directo a `/skus` de un operador solo puede cambiar `codigo_barras`, `bodega`, `ubicacion` y
+  `storage_bin` (trigger `trg_skus_limita_edicion_directa`, que mira `request.path`); crear materiales
+  sigue abierto, y las funciones (`/rpc/...`) y los triggers de otros pedidos no pasan por esa
+  revisión. **Si una pantalla nueva deja a un operador cambiar otra columna de `skus` directo, hay
+  que agregarla al trigger** (y a la prueba de `tests/esquema.test.js`), o hacerlo por una función.
 - **Nunca borrar ni purgar datos sin preguntar antes.**
 
 ## Manejo de errores en la app

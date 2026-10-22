@@ -373,3 +373,48 @@ test('la diferencia de un conteo es una foto: modificarlo no la recalcula con el
     `${archivoDef}: corregir la cantidad se mide contra el stock que había al contar (cantidad anterior - diferencia anterior)`);
   assert.doesNotMatch(def, /security\s+definer/i, `${archivoDef}: el trigger no necesita SECURITY DEFINER`);
 });
+
+test('un operador no escribe el plan, las cargas ni los responsables, y en skus solo código de barras y ubicación', () => {
+  // Joel, 22/10/2026: las reglas solo pedían ser de la empresa, así que un operador -- o el visitante
+  // de la demo pública -- podía saltarse la app y cambiar stock, costo o el plan por la API.
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  const archivos = fs.readdirSync(dirMig).sort();
+  const sqlDe = a => fs.readFileSync(path.join(dirMig, a), 'utf8').replace(/--[^\n]*/g, '');
+  const politicas = [
+    ['plan_semanal', 'auth_write_plan_semanal'], ['plan_semanal', 'auth_update_plan_semanal'], ['plan_semanal', 'auth_delete_plan_semanal'],
+    ['plan_semanal_exclusiones', 'auth_insert_plan_semanal_exclusiones'], ['plan_semanal_exclusiones', 'auth_delete_plan_semanal_exclusiones'],
+    ['plan_semanal_incluidos', 'auth_insert_plan_semanal_incluidos'], ['plan_semanal_incluidos', 'auth_delete_plan_semanal_incluidos'],
+    ['plan_semanal_skus', 'auth_insert'], ['plan_semanal_skus', 'auth_delete'],
+    ['cargas_masivas', 'auth_all_cargas'],
+    ['responsables_proceso', 'auth_insert_responsables_proceso'], ['responsables_proceso', 'auth_update_responsables_proceso'],
+  ];
+  for (const [tabla, nombre] of politicas) {
+    const re = new RegExp(`(?:create|alter)\\s+policy\\s+"?${nombre}"?\\s+on\\s+(?:public\\.)?${tabla}\\b[^;]*;`, 'gi');
+    let def = null, archivo = null;
+    for (const a of archivos) for (const m of sqlDe(a).matchAll(re)) { def = m[0]; archivo = a; }
+    assert.ok(def, `no se encontró la regla ${nombre} de ${tabla}`);
+    assert.match(def, /es_admin_actual\(\)[\s\S]*es_super_admin\(\)/i, `${archivo}: ${nombre} (${tabla}) tiene que exigir administrador o súper admin`);
+  }
+  let fn = null, archivoFn = null;
+  for (const a of archivos) {
+    const m = /create\s+(?:or\s+replace\s+)?function\s+public\.skus_limita_edicion_directa\s*\([\s\S]*?\$function\$[\s\S]*?\$function\$/i.exec(sqlDe(a));
+    if (m) { fn = m[0]; archivoFn = a; }
+  }
+  assert.ok(fn, 'no se encontró public.skus_limita_edicion_directa');
+  assert.match(fn, /request\.path/, `${archivoFn}: solo mira los pedidos directos a /skus`);
+  assert.match(fn, /es_admin_actual\(\)[\s\S]*es_super_admin\(\)/i, `${archivoFn}: administradores y súper admin quedan libres`);
+  const libres = /n\.key\s+not\s+in\s*\(([^)]*)\)/i.exec(fn);
+  assert.ok(libres, `${archivoFn}: falta la lista de columnas que un operador puede cambiar`);
+  const columnas = libres[1].match(/'[^']+'/g).map(c => c.slice(1, -1)).sort();
+  assert.deepEqual(columnas, ['batch_key', 'bodega', 'bodega_key', 'codigo_barras', 'storage_bin', 'storage_bin_key', 'ubicacion', 'ubicacion_key', 'updated_at'],
+    `${archivoFn}: un operador solo puede cambiar código de barras y ubicación (más lo que la base calcula sola)`);
+  assert.doesNotMatch(fn, /security\s+definer/i, `${archivoFn}: el trigger no necesita SECURITY DEFINER`);
+  const todo = archivos.map(sqlDe).join('\n');
+  assert.match(todo, /create\s+trigger\s+trg_skus_limita_edicion_directa\s+before\s+update\s+on\s+public\.skus/i, 'falta el trigger en skus');
+  assert.doesNotMatch(todo, /(drop|disable)\s+trigger\s+(if\s+exists\s+)?trg_skus_limita_edicion_directa/i, 'ninguna migración apaga el trigger');
+  // Lo que la app le deja hacer a un operador sobre /skus directo: asociar el código de barras y
+  // cambiar la ubicación (Bodega > Ubicación). Si aparece otra columna, hay que agregarla arriba.
+  const html = fs.readFileSync(path.join(RAIZ, 'app', 'index.html'), 'utf8');
+  assert.match(html, /rest\(`\/skus\?id=eq\.\$\{skuId\}`, \{method:'PATCH', body:\{codigo_barras: codigo\}/, 'el escáner asocia solo codigo_barras');
+  assert.match(html, /const destino = \{\s*bodega:[^\n]*\n\s*ubicacion:[^\n]*\n\s*storage_bin:[^\n]*\n\s*\};/, 'cambiar de ubicación manda solo bodega, ubicacion y storage_bin');
+});
