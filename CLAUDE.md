@@ -63,6 +63,16 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   `RETURN QUERY EXECUTE ... USING`, que planifica cada llamada con la lista real. Para medir una
   función así, compararla contra una copia en `pg_temp` dentro de una transacción que se revierte,
   no contra su cuerpo pegado a mano (ese sí conoce los valores y engaña).
+- **Un `NOT EXISTS` contra una vista con `DISTINCT ON` puede reordenarla por cada fila.**
+  `skus_planificables` sacaba los ya contados preguntando a `ultimo_conteo_por_sku`; cuando
+  Postgres creía que una rama traía pocas filas elegía un nested loop y reordenaba los ~2.300 conteos
+  del período por cada material. Pasó de verdad: con un plan que abarca ubicaciones o bodegas
+  completas, `skus_disponibles_planificar` y las listas de ubicaciones tardaban 32 s (picos de 8-10 s
+  en producción desde el 13/10, cuando el plan de Escondida tuvo más de mil entradas). Preguntado
+  directo a `conteos` (índice por `sku_id`) bajó a 0,7-0,9 s (`20261024_planificables_sin_reordenar_conteos.sql`).
+  Para saber si algo existe, se pregunta a la tabla con índice, no a una vista que ordena. Y una
+  vista que hoy va rápido puede no ir con el plan de mañana: medirla con un plan grande simulado
+  dentro de una transacción que se revierte.
 - **Dos llaves entre las mismas tablas hacen ambiguo el embebido.** `conteos.sku_id` apunta a
   `skus` y `skus.ultimo_conteo_id` apunta a `conteos`: `conteos?select=...,skus(...)` responde 300
   (PGRST201) en vez de los datos. Pasó de verdad: "Cerrados sin recontar" y el aviso de

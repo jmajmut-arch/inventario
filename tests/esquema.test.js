@@ -223,6 +223,25 @@ test('el Dashboard pasa por turnos y los conteos toman turno por material', () =
   assert.ok(trigger, 'falta el trigger trg_conteos_turno_sku: sin él, dos conteos del mismo material pueden entrar en deadlock');
 });
 
+// Pasó de verdad (24/10/2026): skus_planificables sacaba los ya contados con NOT EXISTS sobre
+// ultimo_conteo_por_sku (un DISTINCT ON ordenado de todos los conteos del período). Con un plan que
+// abarca ubicaciones o bodegas completas, Postgres lo reordenaba por cada material: 31,8 s en
+// Escondida, más que los 20 s del rol authenticator. Preguntado directo a conteos usa el índice por
+// material (0,69 s). Se revisa la última definición de la vista.
+test('skus_planificables no vuelve a pasar por ultimo_conteo_por_sku', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let vista = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const v = /create\s+(?:or\s+replace\s+)?view\s+public\.skus_planificables\b[\s\S]*?;/i.exec(sql);
+    if (v) vista = { archivo, def: v[0] };
+  }
+  assert.ok(vista, 'no se encontró la definición de public.skus_planificables');
+  assert.doesNotMatch(vista.def, /ultimo_conteo_por_sku/i, `${vista.archivo}: skus_planificables volvió a usar ultimo_conteo_por_sku (31,8 s con un plan grande)`);
+  assert.match(vista.def, /not\s*\(\s*exists\s*\(\s*select\s+1\s+from\s+conteos\s+u\s+where\s+u\.sku_id\s*=\s*s\.id/i, `${vista.archivo}: skus_planificables tiene que preguntar a conteos por material`);
+  assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: skus_planificables tiene que seguir con security_invoker`);
+});
+
 test('cada opción de Estado en Buscar la entiende el servidor', () => {
   // Un valor que el servidor no reconoce cae en "estado literal" (s.ultimo_conteo_estado = valor)
   // y devuelve cero filas sin ningún error: el filtro se vería vacío, no roto. Los daños
