@@ -14182,7 +14182,9 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     }
     const externos = [...html.matchAll(/<script[^>]*\ssrc="(https?:[^"]+)"/g)].map(m=>m[1]);
     assert(externos.length===1 && externos[0].startsWith('https://js.sentry-cdn.com/'), 'el único script externo permitido es el Loader de Sentry (xlsx y html5-qrcode van en app/lib), obtuvo: '+JSON.stringify(externos));
-    assert(html.includes('src="lib/xlsx.full.min.js"') && html.includes('src="lib/html5-qrcode.min.js"'), 'xlsx y html5-qrcode deben cargarse desde app/lib');
+    assert(html.includes("cargarScriptUnaVez('lib/xlsx.full.min.js')") && html.includes("cargarScriptUnaVez('lib/html5-qrcode.min.js')"), 'xlsx y html5-qrcode deben cargarse desde app/lib');
+    // Se cargan al usarlos, no al abrir: eran el 51% de la descarga en frío (412 de 801 KB).
+    assert(!/<script[^>]*\ssrc="lib\/(xlsx|html5-qrcode)/.test(html), 'xlsx y html5-qrcode no deben ir en el head: se cargan recién al usarlos (xlsxLib, lectorCodigosLib)');
     for(const f of ['xlsx.full.min.js','xlsx.LICENSE','html5-qrcode.min.js','html5-qrcode.LICENSE','pdf-lib.min.js']){
       assert(fs.existsSync(path.join(__dirname, '..', 'app', 'lib', f)), 'falta app/lib/'+f);
     }
@@ -14205,8 +14207,12 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(doc.paginas[1].imagenes.length===1 && calls.some(c=>c.url.includes('/object/sign/fotos-inventario/a.jpg?token=fake') && !c.url.includes('transform')), 'la ficha igual lleva foto (la original firmada), obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
   // Sin canvas (navegador muy viejo), va la original.
   canvasMockDisponible = false; imagenMockCarga = null;
+  calls.length = 0;
   await ctx.exportarSeleccionadosBusquedaPDF();
   assert(ultimoPdf().paginas[1].imagenes.length===1, 'sin canvas ni transform, la foto original igual se incrusta');
+  // Regresión (23/10/2026, 37 firmas con 400 en un día): una vez que el servidor rechazó la foto
+  // reducida, la sesión no vuelve a pedirla en cada foto de cada PDF.
+  assert(!calls.some(c=>c.url.includes('/object/sign/') && c.opts && c.opts.body && JSON.parse(c.opts.body).transform), 'tras el primer rechazo no vuelve a pedir la foto reducida al servidor, obtuvo: '+JSON.stringify(calls.filter(c=>c.url.includes('/object/sign/')).map(c=>c.opts && c.opts.body)));
   // Si la descarga de la foto falla, la ficha dice "Sin foto" y el PDF sale igual.
   fotoBytesFalla = true;
   await ctx.exportarSeleccionadosBusquedaPDF();

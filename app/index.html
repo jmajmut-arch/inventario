@@ -6,7 +6,7 @@
      cabeceras HTTP, así que va como meta. Qué permite y por qué:
      - script-src: la propia app y el Loader Script de Sentry (que a su vez baja el SDK desde
        browser.sentry-cdn.com). 'unsafe-inline' es inevitable: la app es un solo HTML con su
-       script adentro. xlsx y html5-qrcode se sirven desde app/lib, ya no desde jsDelivr.
+       script adentro. xlsx y html5-qrcode se sirven desde app/lib (se cargan al usarlos), ya no desde jsDelivr.
      - connect-src: Supabase (REST, Auth, Storage, Realtime) y los servidores de Sentry.
      - img-src: fotos firmadas de Storage, logos en data: y blob: para vistas previas y PDF.
      - style/font: Google Fonts (las tres familias del diseño).
@@ -58,8 +58,6 @@
 <meta name="apple-mobile-web-app-title" content="InventIA">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<script defer src="lib/xlsx.full.min.js"></script>
-<script defer src="lib/html5-qrcode.min.js"></script>
 <style>
 /* =====================================================================
    TOKENS DEL DESIGN SYSTEM (Fase 0, 06/10/2026). La base es "Negro y Ámbar", la identidad de
@@ -1846,7 +1844,7 @@ async function crearUrlFirmada(fotoUrlORuta, transform){
     body: JSON.stringify(body)
   });
   const data = await res.json().catch(()=>({}));
-  if(!res.ok || !data.signedURL) throw new Error(data.message || 'No se pudo abrir la foto');
+  if(!res.ok || !data.signedURL){ const err = new Error(data.message || 'No se pudo abrir la foto'); err.status = res.status; throw err; }
   return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
 }
 
@@ -5302,8 +5300,8 @@ function filasHojaExportacion(filas){
 let exportandoEmpresa = false;
 async function exportarDatosEmpresa(){
   if(exportandoEmpresa || !perfilCargado() || !state.perfil || state.perfil.rol!=='admin') return;
-  if(typeof XLSX==='undefined'){ toast('La herramienta de Excel todavía no carga. Intenta de nuevo en unos segundos.', 'err'); return; }
   exportandoEmpresa = true;
+  try{ await xlsxLib(); }catch(e){ exportandoEmpresa = false; toast(e.message, 'err'); return; }
   const empresaId = state.perfil.empresa_id;
   const empresaNombre = (state.perfil.empresas && state.perfil.empresas.nombre) || 'empresa';
   const hojas = hojasExportacionEmpresa(empresaId);
@@ -7738,6 +7736,7 @@ async function exportarBusquedaExcel(){
   const b = state.busqueda;
   setState({busqueda: {...state.busqueda, exportando:true}});
   try{
+    await xlsxLib();
     let filas;
     if(listaFiltroBuscar(b.filtroContadoPor).length || listaFiltroBuscar(b.filtroEstado).length){
       filas = filtrarResultadosCargadosBuscar(b);
@@ -7817,6 +7816,21 @@ function toggleSeleccionTodosBusqueda(ids, marcar){
    las siguientes, logo de la empresa en todas, pie con la página. Papel carta. */
 const PDF_FICHAS = { ancho:612, alto:792, margen:36, fichaAlto:231, fila:13, foto:150, etiqueta:105, porHoja:3 };
 const FOTO_PDF_TRANSFORM = {width:FOTO_PDF_LADO_PX, height:FOTO_PDF_LADO_PX, resize:'cover', quality:70};
+// El proyecto no tiene Image Transformations (depende del plan de Supabase): cada firma con
+// transform responde 400. Medido el 23/10/2026: 37 de las 585 firmas de fotos del día fueron
+// esos 400, todas de PDF, y cada una era una ida y vuelta perdida antes de reducir la foto en el
+// navegador. Después del primer rechazo del servidor, el resto de la sesión va directo a la
+// reducción en el navegador. Un error de red o de sesión (401) no cuenta: eso no dice nada de la
+// función. Si algún día se activa, basta con recargar la app.
+let fotosReducidasNoDisponibles = false;
+async function crearUrlFirmadaReducida(rutaFoto){
+  if(fotosReducidasNoDisponibles) throw new Error('Fotos reducidas por el servidor no disponibles');
+  try{ return await crearUrlFirmada(rutaFoto, FOTO_PDF_TRANSFORM); }
+  catch(e){
+    if(e && e.status>=400 && e.status<500 && e.status!==401) fotosReducidasNoDisponibles = true;
+    throw e;
+  }
+}
 
 const scriptsCargados = {};
 function cargarScriptUnaVez(src){
@@ -7835,6 +7849,20 @@ async function pdfLib(){
   if(typeof PDFLib === 'undefined') await cargarScriptUnaVez('lib/pdf-lib.min.js');
   if(typeof PDFLib === 'undefined') throw new Error('No se pudo cargar el generador de PDF');
   return PDFLib;
+}
+// Excel (SheetJS, 307 KB comprimidos) y el lector de códigos (html5-qrcode, 105 KB) también se
+// cargan recién al usarlos. Antes iban en el head con defer: eran el 51% de lo que bajaba la app
+// al abrir en frío (412 de 801 KB) y el celular los interpretaba en cada apertura, aunque solo
+// sirven para Carga, las exportaciones y el escáner. El service worker los sigue guardando en el
+// shell, así que sin señal cargan igual desde la copia del teléfono.
+async function xlsxLib(){
+  if(typeof XLSX === 'undefined') await cargarScriptUnaVez('lib/xlsx.full.min.js');
+  if(typeof XLSX === 'undefined') throw new Error('No se pudo cargar la herramienta de Excel. Revisa la conexión y vuelve a intentar.');
+  return XLSX;
+}
+async function lectorCodigosLib(){
+  if(typeof Html5Qrcode === 'undefined') await cargarScriptUnaVez('lib/html5-qrcode.min.js');
+  if(typeof Html5Qrcode === 'undefined') throw new Error('No se pudo cargar el lector de códigos');
 }
 
 // Las fuentes estándar del PDF (Helvetica, Courier) solo saben WinAnsi: acentos, ñ, €, "…",
@@ -7892,7 +7920,7 @@ function imagenIncrustable(img){
 // si el proyecto no la tiene o falla, la reduce el navegador (JPEG); si tampoco, la original.
 // Sin foto no se rompe nada: la ficha dice "Sin foto".
 async function fotoParaPdf(rutaFoto){
-  try{ const img = await bytesDeImagenPdf(await crearUrlFirmada(rutaFoto, FOTO_PDF_TRANSFORM)); if(imagenIncrustable(img)) return img; }catch(e){ /* sigue */ }
+  try{ const img = await bytesDeImagenPdf(await crearUrlFirmadaReducida(rutaFoto)); if(imagenIncrustable(img)) return img; }catch(e){ /* sigue */ }
   try{ const img = await bytesDeImagenPdf(await fotoReducidaEnNavegadorOOriginal(rutaFoto)); if(imagenIncrustable(img)) return img; }catch(e){ /* sigue */ }
   try{ const img = await bytesDeImagenPdf(await crearUrlFirmada(rutaFoto)); if(imagenIncrustable(img)) return img; }catch(e){ /* sigue */ }
   return null;
@@ -8158,7 +8186,7 @@ function entregarArchivoPdf(bytes, nombre){
 // puede, va la original. Devuelve {url, ruta}: `ruta` permite reintentar en el navegador si la
 // imagen transformada falla recién al cargarse (ver esperarFotosDelPDF).
 async function resolverFotoParaPDF(rutaFoto){
-  try{ return { url: await crearUrlFirmada(rutaFoto, FOTO_PDF_TRANSFORM), ruta: rutaFoto }; }
+  try{ return { url: await crearUrlFirmadaReducida(rutaFoto), ruta: rutaFoto }; }
   catch(e){ /* sin transform: sigue abajo */ }
   return { url: await fotoReducidaEnNavegadorOOriginal(rutaFoto), ruta: null };
 }
@@ -8255,6 +8283,7 @@ async function exportarConteosExcel(){
   if(hastaReal < desde){ toast('"Hasta" no puede ser anterior a "Desde"','err'); return; }
   setState({exportConteos: {...state.exportConteos, exportando:true}});
   try{
+    await xlsxLib();
     // Se construye el instante real (no un string con "Z" a la fuerza) a partir de la
     // medianoche LOCAL de cada fecha elegida, para que el rango coincida con el día calendario
     // que la persona ve en su pantalla, sin importar en qué huso horario esté.
@@ -9325,8 +9354,8 @@ async function guardarTipoMaterial(skuId, tipo){
   }catch(e){ toast(e.message,'err'); }
 }
 
-function exportarReporteBodegaExcel(){
-  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+async function exportarReporteBodegaExcel(){
+  try{ await xlsxLib(); }catch(e){ toast(e.message,'err'); return; }
   const r = state.bodega.reportes;
   if(!r.consumo.length && !r.ingresos.length){ toast('No hay datos para exportar','err'); return; }
   const hoja = (filas, etiqueta) => filas.map(f=>({[etiqueta]: f.clave, 'Cantidad': Number(f.cantidad), 'Valor': Number(f.valor), 'Movimientos': Number(f.movimientos)}));
@@ -10043,8 +10072,8 @@ function renderFiltroDuenoPanel(){
     ${d? `<div class="hint" style="margin:6px 0 0">Panel de <strong>${esc(d==='__sin' ? 'lo que no tiene dueño' : (etiquetaDueno({dueno:d})||d))}</strong>: avance, diferencias y valores son solo de sus materiales.${moduloBodegaActivo()? ' Las tarjetas de bodega muestran toda la empresa.' : ''}</div>` : ''}
   </div>`;
 }
-function exportarResumenDuenosExcel(){
-  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+async function exportarResumenDuenosExcel(){
+  try{ await xlsxLib(); }catch(e){ toast(e.message,'err'); return; }
   const conValor = !ocultarStockOperador();
   const rows = filasResumenDuenosOrdenadas().map(f=>{
     const total = Number(f.total_activo)||0, contados = Number(f.contados)||0;
@@ -10079,7 +10108,7 @@ function selectorDuenoStock(){
 }
 // Excel del stock actual completo (no solo los 300 de pantalla): pagina por limit/offset.
 async function exportarStockExcel(){
-  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+  try{ await xlsxLib(); }catch(e){ toast(e.message,'err'); return; }
   const TAM = 1000, MAX = 20000; let filas = [];
   try{
     for(let offset=0; offset<MAX; offset+=TAM){
@@ -10183,11 +10212,11 @@ function parseCSV(text){
 }
 
 /* =======================================================================
-   EXCEL — lectura de .xlsx/.xls via SheetJS (cargada en el head)
+   EXCEL — lectura de .xlsx/.xls via SheetJS (se carga al usarla: xlsxLib)
    ======================================================================= */
 async function leerExcel(file){
-  if(typeof XLSX === 'undefined'){
-    throw new Error('No se pudo cargar el lector de Excel (revisa tu conexion) e intenta de nuevo, o sube el archivo como .csv.');
+  try{ await xlsxLib(); }catch(e){
+    throw new Error('No se pudo cargar el lector de Excel (revisa tu conexión) e intenta de nuevo, o sube el archivo como .csv.');
   }
   const buf = await file.arrayBuffer();
   const libro = XLSX.read(buf, {type:'array'});
@@ -12404,10 +12433,12 @@ function origenPlanParaSku(sku){
 
 async function iniciarEscaner(){
   if(escanerInstancia) return; // ya hay una lectura en curso para este modal
-  if(typeof Html5Qrcode === 'undefined'){
-    setState({escanerModal: {...state.escanerModal, error:'El lector de códigos no cargó. Revisa tu conexión e inténtalo de nuevo.'}});
+  try{ await lectorCodigosLib(); }catch(e){
+    if(state.escanerModal) setState({escanerModal: {...state.escanerModal, error:'El lector de códigos no cargó. Revisa tu conexión e inténtalo de nuevo.'}});
     return;
   }
+  // Mientras cargaba, la persona pudo cerrar el modal o abrir otro lector.
+  if(escanerInstancia || !state.escanerModal) return;
   // Se listan los formatos explícitamente (en vez de dejar que pruebe todos los que sabe
   // decodificar) para que la librería se concentre en QR y los formatos de barras 1D más
   // comunes en maestros de materiales — mejora la velocidad y tasa de lectura de barras,
@@ -18762,7 +18793,7 @@ function renderListasBodegaConfig(){
       `<input type="text" name="nombre" required placeholder="Nombre de la persona" style="margin:0;flex:2;min-width:0"><input type="text" name="area" placeholder="Área" style="margin:0;flex:1;min-width:0">`);
 }
 
-function exportarMovimientosExcel(){
+async function exportarMovimientosExcel(){
   const rows = state.bodega.movimientos.map(m=>({
     'N°': m.numero, 'Tipo': etiquetaTipoMovimiento(m.tipo), 'Fecha': m.fecha, 'SKU': m.sku_code, ...(usaDuenosStock() ? {'Dueño': m.dueno ? (etiquetaDueno(m) || m.dueno) : ''} : {}), 'Descripción': m.descripcion, 'Batch': m.batch||'', 'Bin': m.storage_bin||'',
     'Cantidad': m.cantidad, 'Unidad': m.unidad_medida||'', 'Estado': m.estado, 'Proveedor': m.proveedor_nombre||'', 'Guía': m.numero_guia||'', 'OC': m.numero_oc||'',
@@ -18770,7 +18801,7 @@ function exportarMovimientosExcel(){
     'Tipo material': m.tipo_material||'', 'Costo unitario': m.costo_aplicado!=null?Number(m.costo_aplicado):'', 'Monto': m.costo_aplicado!=null?Number(m.costo_aplicado)*Number(m.cantidad):'',
   }));
   if(!rows.length){ toast('No hay movimientos para exportar','err'); return; }
-  if(typeof XLSX==='undefined'){ toast('Exportación no disponible sin conexión','err'); return; }
+  try{ await xlsxLib(); }catch(e){ toast(e.message,'err'); return; }
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
