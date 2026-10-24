@@ -1476,6 +1476,8 @@ async function loguear(page, perfil, prepararRutas){
     });
     await page.evaluate(() => setState({ view:'config' }));
     await page.waitForSelector('#btn-exportar-empresa', { timeout:ESPERA });
+    // Excel y el lector de códigos se cargan al usarlos, no al abrir (eran el 51% de la descarga).
+    assert(await page.evaluate(() => typeof XLSX === 'undefined' && typeof Html5Qrcode === 'undefined'), 'al abrir la app no se cargan xlsx ni html5-qrcode');
     const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desborde <= 0, 'a 420 px Configuraciones con la descarga no desborda, obtuvo '+desborde);
     const descarga = page.waitForEvent('download', { timeout:ESPERA*3 }).catch(()=>null);
