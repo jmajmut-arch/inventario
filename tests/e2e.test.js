@@ -455,24 +455,10 @@ async function loguear(page, perfil, prepararRutas){
     assert(postsConteo.length >= 1, '"Guardar sin foto" debe guardar el conteo');
     const cuerpo = cuerposConteo.find(c => c && c.cantidad_contada === 5);
     assert(cuerpo && cuerpo.packing_danado === true && cuerpo.material_danado === true && cuerpo.cantidad_danada === 2, 'el conteo viaja con las marcas de daño y las unidades dañadas, obtuvo '+JSON.stringify(cuerpo));
-    // "Agregar foto" al conteo recién guardado (22/10/2026): sin contar de nuevo, la foto se enlaza
-    // al mismo conteo.
-    assert(await esperarVisible(page, '#conteo-recien-guardado'), 'tras guardar, Contar ofrece agregar una foto a ese conteo');
-    // Tras guardar, la lista de pendientes se vuelve a pedir: se espera a que esté antes de medir.
-    await esperarVisible(page, '.contar-lista-cab');
-    const recienSobreLista = await page.evaluate(() => { const r = document.getElementById('conteo-recien-guardado'), l = document.querySelector('.contar-lista-cab'); return { ok: !!(r && l && r.getBoundingClientRect().bottom <= l.getBoundingClientRect().top && document.querySelectorAll('#conteo-recien-guardado').length === 1), aviso: r && Math.round(r.getBoundingClientRect().bottom), lista: l && Math.round(l.getBoundingClientRect().top), avisos: document.querySelectorAll('#conteo-recien-guardado').length }; });
-    assert(recienSobreLista.ok, 'el aviso va una sola vez, justo sobre la lista de pendientes del lugar, obtuvo '+JSON.stringify(recienSobreLista));
-    const enlaces = [];
-    page.on('request', req => { if (req.method() === 'POST' && req.url().includes('/rest/v1/conteo_fotos')) { try { enlaces.push(...JSON.parse(req.postData())); } catch(e) {} } });
-    const nConteosAntes = postsConteo.length;
-    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-    await page.setInputFiles('#c-foto-recien', { name:'foto.png', mimeType:'image/png', buffer: png });
-    for (let i = 0; i < 40 && !enlaces.length; i++) await page.waitForTimeout(100);
-    assert(enlaces.length === 1 && enlaces[0].conteo_id === 'c-e2e-recien' && postsConteo.length === nConteosAntes, 'la foto se enlaza al conteo guardado, sin crear otro conteo, obtuvo '+JSON.stringify({enlaces, conteos: postsConteo.length - nConteosAntes}));
-    assert(await esperarVisible(page, '#conteo-recien-guardado >> text=1 foto'), 'el aviso cuenta la foto agregada');
-    const desbordeRecien = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    assert(desbordeRecien <= 0, 'a 420 px el aviso del conteo guardado no desborda, obtuvo '+desbordeRecien);
-    if (process.env.E2E_CAPTURAS) await (await page.$('#conteo-recien-guardado')).screenshot({ path: process.env.E2E_CAPTURAS + '/contar-agregar-foto-420.png' });
+    // Desde el 26/10/2026 Contar no muestra el aviso "Guardado · Agregar foto": la foto se agrega
+    // desde Editar en Buscar o Reconteo (ver la prueba de Buscar → Editar → Agregar foto).
+    await page.waitForTimeout(400);
+    assert(!(await page.$('#conteo-recien-guardado')) && !(await page.$('#c-foto-recien')), 'tras guardar, Contar ya no muestra el aviso de agregar foto');
     await context.close();
   }
 
@@ -2872,6 +2858,48 @@ async function loguear(page, perfil, prepararRutas){
     const desbordeSkus = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(desbordeSkus <= 0, 'a 420 px la tabla de SKU con filtro no desborda, obtuvo '+desbordeSkus);
     if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/skus-filtro-dueno-420.png', fullPage: true });
+    await context.close();
+  }
+
+  // ===== Buscar → Editar → Agregar foto, a 420 px (Joel, 26/10/2026) =====
+  // La foto se suma al MISMO conteo y se guarda al tiro, sin corregir la cantidad; lo escrito en la
+  // ventana no se pierde al repintarla.
+  {
+    const context = await browser.newContext({ viewport:{ width:420, height:900 } });
+    const page = await context.newPage();
+    page.on('pageerror', err => erroresPagina.push('editar-foto: '+err.message));
+    await mockearSupabaseApp(page, PERFIL_ADMIN_PRO);
+    const fila = { sku_id:'s1', sku_code:'10445721', descripcion:'Stud cont thd', bodega:'CD1', ubicacion:'RK', storage_bin:'R-01-02', batch:null, conteo_id:'c-77', cantidad_contada:12, estado:'aprobado', diferencia:0, fecha_conteo:new Date().toISOString(), capturado_en:new Date().toISOString(), contado_por_id:'perfil-admin', fotos:[], clase_abc:'A', critico:false, fuera_de_plan:false, stock_sistema:12 };
+    await page.route('**/rest/v1/rpc/filas_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body: JSON.stringify([fila]) }));
+    await page.route('**/rest/v1/rpc/contar_busqueda_skus**', route => route.fulfill({ status:200, contentType:'application/json', body:'1' }));
+    await page.route('**/storage/v1/object/fotos-inventario/**', r => r.fulfill({ status:200, contentType:'application/json', body: JSON.stringify({ Key:'ok' }) }));
+    const enlaces = [], correcciones = [];
+    await page.route('**/rest/v1/conteo_fotos**', r => { try { enlaces.push(...JSON.parse(r.request().postData()||'[]')); } catch(e) {} return r.fulfill({ status:201, body:'' }); });
+    page.on('request', req => { if (req.url().includes('/rpc/corregir_conteo') || (req.method()==='POST' && /\/rest\/v1\/conteos(\?|$)/.test(req.url()))) correcciones.push(req.url()); });
+    await page.goto(`http://localhost:${PORT}/app/index.html`, { waitUntil:'networkidle' });
+    await page.fill('#f-email', 'ana@minera-andes.cl');
+    await page.fill('#f-pass', '123456');
+    await page.click('#auth-form button[type="submit"]');
+    await page.waitForSelector('.tabbar', { timeout:ESPERA });
+    await page.click('#btn-ir-buscar');
+    await page.waitForSelector('#b-texto', { timeout:ESPERA });
+    await page.fill('#b-texto', '10445721');
+    await page.click('.buscar-btn');
+    assert(await esperarVisible(page, '[data-corregir-conteo="c-77"]'), 'la fila contada ofrece Editar');
+    await page.click('[data-corregir-conteo="c-77"]');
+    assert(await esperarVisible(page, '#corregir-conteo-modal-backdrop >> text=Agregar foto'), 'la ventana Editar ofrece Agregar foto');
+    await page.fill('#corregir-conteo-motivo', 'aparecieron 3 cajas');
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    await page.setInputFiles('#corregir-conteo-foto', { name:'foto.png', mimeType:'image/png', buffer: png });
+    for (let i = 0; i < 40 && !enlaces.length; i++) await page.waitForTimeout(100);
+    assert(enlaces.length === 1 && enlaces[0].conteo_id === 'c-77' && !correcciones.length, 'la foto se enlaza al conteo, sin corregir ni crear otro conteo, obtuvo '+JSON.stringify({enlaces, correcciones}));
+    assert(await esperarVisible(page, '#corregir-conteo-modal-backdrop >> text=1 foto agregada'), 'la ventana cuenta la foto agregada');
+    assert((await page.inputValue('#corregir-conteo-motivo')) === 'aparecieron 3 cajas', 'lo escrito en el motivo sigue ahí tras subir la foto');
+    const desborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert(desborde <= 0, 'a 420 px la ventana Editar no desborda, obtuvo '+desborde);
+    if (process.env.E2E_CAPTURAS) await page.screenshot({ path: process.env.E2E_CAPTURAS + '/buscar-editar-agregar-foto-420.png' });
+    await page.click('#corregir-conteo-cancelar');
+    assert(await esperarVisible(page, 'button[data-ver-fotos][aria-label="Ver fotos"]'), 'la fila de Buscar ya muestra la cámara con la foto nueva');
     await context.close();
   }
 

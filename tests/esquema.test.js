@@ -228,6 +228,24 @@ test('el Dashboard pasa por turnos y los conteos toman turno por material', () =
 // abarca ubicaciones o bodegas completas, Postgres lo reordenaba por cada material: 31,8 s en
 // Escondida, más que los 20 s del rol authenticator. Preguntado directo a conteos usa el índice por
 // material (0,69 s). Se revisa la última definición de la vista.
+// El límite de bodegas del plan es SECURITY DEFINER (cuenta las bodegas de toda la empresa) y no
+// puede volver a contar el maestro por cada fila de una carga (20261024_carga_masiva_triggers_por_fila.sql).
+test('el límite de bodegas sigue protegiendo y no cuenta el maestro por cada fila', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let fn = null, archivoFn = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const m = /create\s+(?:or\s+replace\s+)?function\s+public\.chequear_limite_bodegas\s*\(\)[\s\S]*?\$function\$[\s\S]*?\$function\$/i.exec(sql);
+    if (m) { fn = m[0]; archivoFn = archivo; }
+  }
+  if (!fn) return; // definida antes de que las migraciones vivieran en el repo
+  assert.match(fn, /security\s+definer/i, `${archivoFn}: chequear_limite_bodegas tiene que seguir SECURITY DEFINER`);
+  assert.match(fn, /raise\s+exception\s+'El plan actual permite hasta/i, `${archivoFn}: el límite tiene que seguir frenando una bodega nueva`);
+  const salida = fn.search(/exists\s*\(\s*select\s+1\s+from\s+public\.skus/i);
+  const cuenta = fn.search(/count\s*\(\s*distinct\s+bodega\s*\)/i);
+  assert.ok(salida > 0 && salida < cuenta, `${archivoFn}: antes de contar bodegas, sale si la empresa ya tiene esa bodega`);
+});
+
 test('skus_planificables no vuelve a pasar por ultimo_conteo_por_sku', () => {
   const dirMig = path.join(RAIZ, 'supabase', 'migrations');
   let vista = null;
@@ -428,6 +446,12 @@ test('un operador no escribe el plan, las cargas ni los responsables, y en skus 
   assert.deepEqual(columnas, ['batch_key', 'bodega', 'bodega_key', 'codigo_barras', 'storage_bin', 'storage_bin_key', 'ubicacion', 'ubicacion_key', 'updated_at'],
     `${archivoFn}: un operador solo puede cambiar código de barras y ubicación (más lo que la base calcula sola)`);
   assert.doesNotMatch(fn, /security\s+definer/i, `${archivoFn}: el trigger no necesita SECURITY DEFINER`);
+  // La respuesta "es administrador" se recuerda por transacción y usuario (20261024): la marca tiene
+  // que llevar los dos, o un operador podría heredar la de otro pedido.
+  if (/inventia\.edicion_admin/.test(fn)) {
+    assert.match(fn, /txid_current\(\)[\s\S]*auth\.uid\(\)/i, `${archivoFn}: la marca de administrador tiene que llevar la transacción y el usuario`);
+    assert.match(fn, /set_config\(\s*'inventia\.edicion_admin'\s*,\s*v_marca\s*,\s*true\s*\)/i, `${archivoFn}: la marca es local de la transacción (set_config(..., true))`);
+  }
   const todo = archivos.map(sqlDe).join('\n');
   assert.match(todo, /create\s+trigger\s+trg_skus_limita_edicion_directa\s+before\s+update\s+on\s+public\.skus/i, 'falta el trigger en skus');
   assert.doesNotMatch(todo, /(drop|disable)\s+trigger\s+(if\s+exists\s+)?trg_skus_limita_edicion_directa/i, 'ninguna migración apaga el trigger');

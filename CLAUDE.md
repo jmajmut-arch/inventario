@@ -73,6 +73,14 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   Para saber si algo existe, se pregunta a la tabla con índice, no a una vista que ordena. Y una
   vista que hoy va rápido puede no ir con el plan de mañana: medirla con un plan grande simulado
   dentro de una transacción que se revierte.
+- **Un trigger por fila paga cada llamada, y en un upsert corre dos veces.** Una tanda de carga
+  (2.000 materiales, `POST /skus` con `on_conflict`) tardaba 933 ms y el 79% eran triggers:
+  `trg_skus_limita_edicion_directa` preguntaba "¿es administrador?" por cada fila (510 ms) y
+  `trg_limite_bodegas` bloqueaba la empresa y leía su plan 4.000 veces (al proponer la inserción y al
+  convertirla en actualización). Desde `20261024_carga_masiva_triggers_por_fila.sql` el primero
+  recuerda la respuesta por transacción y usuario y el segundo sale si la bodega no cambia o ya
+  existe: 337 ms. Un trigger nuevo por fila sobre `skus` o `conteos` se mide con una tanda real
+  (EXPLAIN ANALYZE muestra el tiempo de cada trigger) y lo que no cambia por fila se pregunta una vez.
 - **Dos llaves entre las mismas tablas hacen ambiguo el embebido.** `conteos.sku_id` apunta a
   `skus` y `skus.ultimo_conteo_id` apunta a `conteos`: `conteos?select=...,skus(...)` responde 300
   (PGRST201) en vez de los datos. Pasó de verdad: "Cerrados sin recontar" y el aviso de
@@ -83,7 +91,12 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   `create or replace` con un parámetro más (aunque tenga default) deja las dos, y PostgREST no sabe
   a cuál llamar si los argumentos que manda la app calzan con ambas. La versión anterior se renombra
   (`alter function ... rename to ..._obsoleta`) y se le revoca `EXECUTE`, como en
-  `20261022_plan_bins_dueno_y_codigos_exactos.sql`.
+  `20261022_plan_bins_dueno_y_codigos_exactos.sql`. **La otra salida, igual de válida:** que la
+  nueva tenga todos sus parámetros obligatorios y la de siempre quede como envoltorio que la llama.
+  Así están `contar_busqueda_skus`, `filas_busqueda_skus` y `resumen_busqueda_skus`
+  (`20261021_duenos_stock_filtros.sql`): sin filtro de dueño la app manda los parámetros de siempre
+  y entra por el envoltorio. **Esos envoltorios no se borran ni se les quita el permiso**: Buscar
+  dejaría de funcionar en todas las empresas, incluso en celulares con una versión vieja guardada.
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
