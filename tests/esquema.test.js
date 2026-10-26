@@ -246,6 +246,25 @@ test('el límite de bodegas sigue protegiendo y no cuenta el maestro por cada fi
   assert.ok(salida > 0 && salida < cuenta, `${archivoFn}: antes de contar bodegas, sale si la empresa ya tiene esa bodega`);
 });
 
+test('al borrar el único conteo de un material, su último conteo se limpia completo', () => {
+  // La llave skus_ultimo_conteo_id_fkey (ON DELETE SET NULL) deja ultimo_conteo_id en null antes
+  // que corra el trigger: si la limpieza exige ultimo_conteo_id no nulo, quedan fecha, estado y
+  // cantidad del conteo borrado (pasó con 11111221 el 26/10/2026).
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let fn = null, archivoFn = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const m = /create\s+(?:or\s+replace\s+)?function\s+public\.sincronizar_ultimo_conteo_sku\s*\(\)[\s\S]*?\$function\$[\s\S]*?\$function\$/i.exec(sql);
+    if (m) { fn = m[0]; archivoFn = archivo; }
+  }
+  assert.ok(fn, 'no se encontró la definición de public.sincronizar_ultimo_conteo_sku');
+  assert.match(fn, /security\s+definer/i, `${archivoFn}: sincronizar_ultimo_conteo_sku tiene que seguir SECURITY DEFINER`);
+  const limpieza = /set\s+ultimo_conteo_id\s*=\s*null[\s\S]*?;/i.exec(fn);
+  assert.ok(limpieza, `${archivoFn}: falta la limpieza del material que se queda sin conteos`);
+  assert.match(limpieza[0], /ultimo_conteo_fecha\s+is\s+not\s+null/i, `${archivoFn}: la limpieza no puede depender solo de ultimo_conteo_id (la llave ya lo dejó en null)`);
+  assert.match(limpieza[0], /not\s+exists\s*\(\s*select\s+1\s+from\s+public\.conteos/i, `${archivoFn}: la limpieza solo toca materiales sin ningún conteo`);
+});
+
 test('skus_planificables no vuelve a pasar por ultimo_conteo_por_sku', () => {
   const dirMig = path.join(RAIZ, 'supabase', 'migrations');
   let vista = null;

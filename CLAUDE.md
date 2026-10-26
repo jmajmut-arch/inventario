@@ -97,6 +97,13 @@ Esto no es una aspiración: es el criterio con el que se acepta o se rechaza un 
   (`20261021_duenos_stock_filtros.sql`): sin filtro de dueño la app manda los parámetros de siempre
   y entra por el envoltorio. **Esos envoltorios no se borran ni se les quita el permiso**: Buscar
   dejaría de funcionar en todas las empresas, incluso en celulares con una versión vieja guardada.
+- **Una llave `ON DELETE SET NULL` actúa antes que los triggers AFTER de la tabla borrada.**
+  `skus.ultimo_conteo_id` apunta a `conteos` con `SET NULL`: al borrar el único conteo de un
+  material, la llave ya lo dejó en null cuando corre `trg_sincronizar_ultimo_conteo_sku`, y la
+  limpieza que exigía `ultimo_conteo_id is not null` no hacía nada. Pasó de verdad: el 26/10/2026
+  Joel borró una prueba y el material siguió "contado: 48, aprobado" (había otro igual desde el
+  03/09). Desde `20261026_ultimo_conteo_se_limpia_al_borrar.sql` la limpieza mira también la fecha.
+  Un trigger que repare columnas copiadas no puede confiar en la llave que la base ya tocó.
 - **Agregar una columna a una tabla no la agrega a las vistas que la leen.** Revisar
   `skus_lectura`, `stock_actual`, `movimientos_bodega_detalle` y las que correspondan.
 - **El costo suele ser la cantidad de idas y vueltas, no la consulta.** El Dashboard tardaba con
