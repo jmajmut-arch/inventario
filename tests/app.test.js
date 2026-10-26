@@ -6608,38 +6608,48 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
     calls.length = 0;
     await ctx.guardarConteo({cantidad:0, ubicacion:'', bodega:''});
     assert(calls.some(c=>c.url.includes('/conteos?on_conflict=idempotency_key')), 'contar 0 sin foto debe guardarse igual, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+    assert(/sin foto/.test(ultimoToast()) && /Buscar → Editar/.test(ultimoToast()), 'guardado sin foto, el aviso dice dónde agregarla después, obtuvo: "'+ultimoToast()+'"');
     // Con foto: se guarda.
     ctx.__appstate.skuSeleccionado = { id:'sku-1', sku_code:'SKU-999', bodega:'Nave' };
     ctx.__appstate.conteoFotos = [{ file: { name:'foto.jpg', type:'image/jpeg' } }];
     calls.length = 0;
     await ctx.guardarConteo({cantidad:5, ubicacion:'', bodega:''});
     assert(calls.some(c=>c.url.includes('/conteos?on_conflict=idempotency_key')) && calls.some(c=>c.url.includes('/conteo_fotos')), 'con foto obligatoria y una foto adjunta, debe guardar el conteo y su foto, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-    // "Agregar foto" al conteo recién guardado (22/10/2026): en Escondida se repetían conteos solo
-    // para sumar una foto. Tras guardar, Contar ofrece agregarla a ESE conteo, sin contar de nuevo.
+    // Desde el 26/10/2026 Contar ya no muestra el aviso "Guardado · Agregar foto" (no le gustó a
+    // Joel): la foto que faltó se agrega desde Editar en Buscar o Reconteo, sobre el mismo conteo.
     {
-      const recien = ctx.__appstate.conteoRecienGuardado;
-      assert(recien && recien.conteo_id==='conteo-nuevo-1' && recien.sku_code==='SKU-999' && recien.fotos===1 && recien.idempotency_key, 'al guardar con señal, queda recordado el conteo recién guardado, obtuvo: '+JSON.stringify(recien));
-      const htmlRecien = ctx.renderConteo();
-      assert(htmlRecien.includes('id="conteo-recien-guardado"') && htmlRecien.includes('id="c-foto-recien"') && htmlRecien.includes('1 foto') && /Agregar foto/.test(htmlRecien), 'Contar muestra el conteo guardado con "Agregar foto", obtuvo: '+(htmlRecien.match(/id="conteo-recien-guardado"[\s\S]{0,700}/)||[''])[0]);
+      assert(!/Agregar foto/.test(ctx.renderConteo()) && ctx.__appstate.conteoRecienGuardado===undefined, 'Contar ya no ofrece agregar foto tras guardar');
+      assert(ultimoToast()==='Conteo registrado', 'con foto, el aviso de guardado es el de siempre, obtuvo: "'+ultimoToast()+'"');
+      ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados:[
+        { conteo_id:'c-77', sku_code:'SKU-999', fecha_conteo:'2026-10-26T15:00:00Z', fotos:[{ foto_url:'emp-1/SKU-999/vieja.jpg', conteo_id:'c-77', conteo:2, reconteo:0, ciclo_id:'ci-1', ciclo_nombre:'T4' }] },
+        { conteo_id:'c-otro', sku_code:'SKU-1', fotos:[] },
+      ]};
+      ctx.__appstate.reconteos = [{ id:'r-1', conteo_id:'c-77', sku_code:'SKU-999', fotos:[] }];
+      ctx.__appstate.corregirConteoModal = { conteoId:'c-77', skuCode:'SKU-999', cantidad:'12', cantidadActual:'12', observacion:'', motivo:'', guardando:false, subiendoFotos:false, fotosAgregadas:0 };
+      const htmlModal = ctx.renderCorregirConteoModal();
+      assert(htmlModal.includes('id="corregir-conteo-foto"') && /Agregar foto/.test(htmlModal) && /Editar conteo/.test(htmlModal), 'la ventana Editar ofrece agregar foto, obtuvo: '+htmlModal.slice(0,300));
       calls.length = 0;
-      await ctx.agregarFotosConteoRecien([{ name:'nueva.jpg', type:'image/jpeg' }, { name:'otra.jpg', type:'image/jpeg' }]);
+      await ctx.agregarFotosConteoEditado([{ name:'nueva.jpg', type:'image/jpeg' }, { name:'otra.jpg', type:'image/jpeg' }]);
       const subidas = calls.filter(c=>c.url.includes('/storage/v1/object/fotos-inventario/')).map(c=>c.url.split('/fotos-inventario/')[1]);
       const enlace = calls.find(c=>c.opts && c.opts.method==='POST' && c.url.includes('/rest/v1/conteo_fotos'));
-      assert(JSON.stringify(subidas)===JSON.stringify([`emp-1/SKU-999/${recien.idempotency_key}-1.jpg`, `emp-1/SKU-999/${recien.idempotency_key}-2.jpg`]), 'las fotos nuevas siguen la numeración del conteo, sin pisar la que ya tenía, obtuvo: '+JSON.stringify(subidas));
-      assert(enlace && JSON.parse(enlace.opts.body).every(f=>f.conteo_id==='conteo-nuevo-1') && JSON.parse(enlace.opts.body).length===2 && !calls.some(c=>c.url.includes('/conteos?on_conflict')), 'se enlazan al MISMO conteo y no se crea otro, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
-      assert(ctx.__appstate.conteoRecienGuardado.fotos===3 && !ctx.__appstate.conteoRecienGuardado.subiendo && /2 fotos agregadas al conteo de SKU-999/.test(ultimoToast()), 'el aviso cuenta las fotos y lo confirma, obtuvo: '+JSON.stringify({r:ctx.__appstate.conteoRecienGuardado, t:ultimoToast()}));
-      // Si la subida falla, se ve el error y el aviso sigue ahí para reintentar.
-      const fetchAntesRecien = ctx.fetch;
-      ctx.fetch = async (url, opts)=> String(url).includes('/storage/v1/object/fotos-inventario/') ? { status:413, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'Payload too large'}), json: async()=>({message:'Payload too large'}) } : fetchAntesRecien(url, opts);
-      await ctx.agregarFotosConteoRecien([{ name:'grande.jpg', type:'image/jpeg' }]);
-      ctx.fetch = fetchAntesRecien;
-      assert(/No se pudo agregar la foto/.test(ultimoToast()) && ctx.__appstate.conteoRecienGuardado.fotos===3 && !ctx.__appstate.conteoRecienGuardado.subiendo, 'un error al subir se muestra y no cambia la cuenta de fotos, obtuvo: '+JSON.stringify({t:ultimoToast(), r:ctx.__appstate.conteoRecienGuardado}));
-      // Pasados 15 minutos ya no se ofrece; "Listo" lo oculta.
-      ctx.__appstate.conteoRecienGuardado = {...ctx.__appstate.conteoRecienGuardado, en: Date.now() - 16*60*1000};
-      const skuAntes = ctx.__appstate.skuSeleccionado; ctx.__appstate.skuSeleccionado = null;
-      assert(!ctx.renderConteo().includes('id="conteo-recien-guardado"'), 'pasada la ventana, Contar ya no lo ofrece');
-      ctx.__appstate.skuSeleccionado = skuAntes;
-      ctx.__appstate.conteoRecienGuardado = null;
+      assert(subidas.length===2 && subidas.every(u=>u.startsWith('emp-1/SKU-999/c-77-')) && subidas[0]!==subidas[1], 'las fotos se suben a la carpeta del material, con nombres distintos, obtuvo: '+JSON.stringify(subidas));
+      assert(enlace && JSON.parse(enlace.opts.body).length===2 && JSON.parse(enlace.opts.body).every(f=>f.conteo_id==='c-77'), 'se enlazan al MISMO conteo, obtuvo: '+JSON.stringify(enlace && enlace.opts.body));
+      assert(!calls.some(c=>c.url.includes('/conteos') || c.url.includes('corregir_conteo')), 'no crea otro conteo ni corrige la cantidad, obtuvo: '+JSON.stringify(calls.map(c=>c.url)));
+      const mod = ctx.__appstate.corregirConteoModal;
+      assert(mod && mod.fotosAgregadas===2 && !mod.subiendoFotos && mod.cantidad==='12' && /2 fotos agregadas al conteo de SKU-999/.test(ultimoToast()), 'la ventana sigue abierta, cuenta las fotos y lo confirma, obtuvo: '+JSON.stringify({mod, t:ultimoToast()}));
+      assert(/2 fotos agregadas/.test(ctx.renderCorregirConteoModal()) && /id="corregir-conteo-cancelar"[^>]*>Cerrar</.test(ctx.renderCorregirConteoModal()), 'la ventana muestra cuántas fotos se agregaron y ofrece Cerrar (la foto ya quedó guardada)');
+      const fila = ctx.__appstate.busqueda.resultados[0];
+      assert(fila.fotos.length===3 && fila.fotos[2].conteo===2 && fila.fotos[2].ciclo_nombre==='T4' && fila.fotos[2].foto_url===subidas[1] && ctx.__appstate.busqueda.resultados[1].fotos.length===0, 'la cámara de la fila de Buscar muestra las fotos nuevas, con el número de conteo, obtuvo: '+JSON.stringify(fila.fotos));
+      assert(ctx.__appstate.reconteos[0].fotos.length===2, 'y también la de Reconteo, obtuvo: '+JSON.stringify(ctx.__appstate.reconteos[0].fotos));
+      // Si la subida falla, se ve el error y la ventana sigue ahí para reintentar.
+      const fetchAntesEditar = ctx.fetch;
+      ctx.fetch = async (url, opts)=> String(url).includes('/storage/v1/object/fotos-inventario/') ? { status:413, ok:false, headers:{get:()=>null}, text: async()=>JSON.stringify({message:'Payload too large'}), json: async()=>({message:'Payload too large'}) } : fetchAntesEditar(url, opts);
+      await ctx.agregarFotosConteoEditado([{ name:'grande.jpg', type:'image/jpeg' }]);
+      ctx.fetch = fetchAntesEditar;
+      assert(/No se pudo agregar la foto/.test(ultimoToast()) && ctx.__appstate.corregirConteoModal.fotosAgregadas===2 && !ctx.__appstate.corregirConteoModal.subiendoFotos && fila.fotos.length===3, 'un error al subir se muestra y no cambia la cuenta, obtuvo: '+JSON.stringify({t:ultimoToast(), m:ctx.__appstate.corregirConteoModal}));
+      ctx.__appstate.corregirConteoModal = null;
+      ctx.__appstate.busqueda = {...ctx.__appstate.busqueda, resultados:[]};
+      ctx.__appstate.reconteos = [];
     }
     // Interruptor apagado (el default): sin foto se guarda, como siempre.
     ctx.__appstate.perfil.empresas.foto_obligatoria_conteo = false;
