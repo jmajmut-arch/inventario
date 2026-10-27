@@ -14381,6 +14381,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   await ctx.exportarConteosExcel();
   assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-01_a_2026-08-31.xlsx', 'con un rango de fechas, el archivo debe nombrarse con ambos extremos, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
 
+  // Conteo ciego (27/10/2026): un operador exporta sin stock, cantidad, diferencia ni valor (la vista
+  // ya no se los manda); el resto de las columnas sigue igual.
+  {
+    const perfilAntes = ctx.__appstate.perfil;
+    ctx.__appstate.perfil = { id:'op-1', nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+    xlsxEscrituras.length = 0;
+    await ctx.exportarConteosExcel();
+    const filaCiega = xlsxEscrituras[0].libro.hojas['Conteos'][0];
+    assert(['Stock sistema','Cantidad contada','Diferencia','Valor diferencia'].every(k=>!(k in filaCiega)) && filaCiega['SKU']==='SKU-EXP1' && filaCiega['Responsable']==='Ana Torres', 'con conteo ciego, el Excel de conteos va sin stock, cantidad, diferencia ni valor, obtuvo: '+JSON.stringify(filaCiega));
+    ctx.__appstate.perfil = perfilAntes;
+  }
+
   // Sin fecha "Desde": no debe llegar a pedir nada ni intentar exportar.
   ctx.__appstate.exportConteos = { desde: '', hasta: '', exportando:false };
   calls.length = 0;

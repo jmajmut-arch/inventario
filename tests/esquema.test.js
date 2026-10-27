@@ -298,6 +298,22 @@ test('con conteo ciego, skus_busqueda (Buscar) no manda lo contado', () => {
   assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: skus_busqueda tiene que seguir con security_invoker`);
 });
 
+test('con conteo ciego, conteos_exportables (Exportar) no manda stock, cantidad, diferencia ni valor', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let vista = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const v = /create\s+(?:or\s+replace\s+)?view\s+public\.conteos_exportables\b[\s\S]*?;/i.exec(sql);
+    if (v) vista = { archivo, def: v[0] };
+  }
+  assert.ok(vista, 'no se encontró la definición de public.conteos_exportables');
+  for (const col of ['stock_sistema', 'cantidad_contada', 'diferencia', 'valor_diferencia']) {
+    const re = new RegExp('debe_ocultar_stock_operador\\(\\)[^)]*\\)\\s*THEN\\s+NULL::numeric\\s+ELSE\\s+[a-z_.*\\s]+?\\s+END\\s+AS\\s+' + col + '\\b', 'i');
+    assert.match(vista.def, re, `${vista.archivo}: con conteo ciego, ${col} tiene que ir en null para el operador`);
+  }
+  assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: conteos_exportables tiene que seguir con security_invoker`);
+});
+
 test('skus_planificables no vuelve a pasar por ultimo_conteo_por_sku', () => {
   const dirMig = path.join(RAIZ, 'supabase', 'migrations');
   let vista = null;

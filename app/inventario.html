@@ -8322,6 +8322,9 @@ async function exportarConteosExcel(){
       setState({exportConteos: {...state.exportConteos, exportando:false}});
       return;
     }
+    // Con conteo ciego (27/10/2026) el operador exporta sin stock, cantidad, diferencia ni valor: la
+    // vista ya no se los manda, y una columna vacía confundiría más que no tenerla.
+    const ciego = ocultarStockOperador();
     const filasExcel = filas.map(f=>({
       'SKU': f.sku_code,
       ...(usaDuenosStock() ? {'Dueño': f.dueno ? (etiquetaDueno(f) || f.dueno) : ''} : {}),
@@ -8336,11 +8339,13 @@ async function exportarConteosExcel(){
       'Bodega contada': f.bodega_contada,
       'Ubicación contada': f.ubicacion_contada,
       'Ubicación distinta': f.ubicacion_distinta ? 'Sí' : 'No',
-      'Stock sistema': f.stock_sistema,
-      'Cantidad contada': f.cantidad_contada,
-      'Diferencia': f.diferencia,
+      ...(ciego ? {} : {
+        'Stock sistema': f.stock_sistema,
+        'Cantidad contada': f.cantidad_contada,
+        'Diferencia': f.diferencia,
+      }),
       'Costo unitario': f.costo_unitario,
-      'Valor diferencia': f.valor_diferencia,
+      ...(ciego ? {} : {'Valor diferencia': f.valor_diferencia}),
       'Estado': f.estado,
       'Fuera de plan': f.fuera_de_plan ? 'Sí' : 'No',
       'Packing dañado': f.packing_danado ? 'Sí' : 'No',
