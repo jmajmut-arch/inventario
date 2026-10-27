@@ -7754,11 +7754,14 @@ async function exportarBusquedaExcel(){
       setState({busqueda: {...state.busqueda, exportando:false}});
       return;
     }
+    // Con conteo ciego, el Excel dice lo mismo que la pantalla: sin cantidad contada ni el monto de
+    // la diferencia (antes salía "Con diferencia +3" aunque la pantalla lo ocultaba).
+    const ciego = ocultarStockOperador();
     const filasExcel = filas.map(r=>{
       const contado = !!r.conteo_id;
       const tieneDiferencia = contado && r.diferencia && Number(r.diferencia)!==0;
       const estadoTexto = !contado ? 'No contado'
-        : tieneDiferencia ? `Con diferencia ${r.diferencia>0?'+':''}${r.diferencia}`
+        : tieneDiferencia ? (ciego ? 'Con diferencia' : `Con diferencia ${r.diferencia>0?'+':''}${r.diferencia}`)
         : r.estado==='pendiente_revision' ? 'Pendiente'
         : r.estado==='aprobado' ? 'Cuadrado' : (r.estado || 'ok');
       return {
@@ -7768,7 +7771,7 @@ async function exportarBusquedaExcel(){
         'Batch': r.batch,
         'Descripción': r.descripcion,
         'Ubicación general': r.bodega,
-        'Cantidad contada': contado ? r.cantidad_contada : '',
+        ...(ciego ? {} : {'Cantidad contada': contado ? r.cantidad_contada : ''}),
         'Estado': estadoTexto,
         'Daños': contado ? danosTextoPdf(r) : '',
         'Origen': contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '',
@@ -8009,7 +8012,9 @@ function filasFichaPdf(r, ocultarMagnitud){
     ['Batch', r.batch || '—'],
     ['Clase ABC', r.clase_abc || 'Sin clasificar'],
     ['Crítico', r.critico ? 'Sí' : 'No', !!r.critico, false, r.critico ? 'alerta' : null],
-    ['Cantidad contada', contado ? r.cantidad_contada : '—'],
+    // Con conteo ciego la ficha mantiene sus 14 filas (3 por hoja) pero sin la cantidad: anclaría
+    // el próximo conteo (Joel, 27/10/2026), y la base ya no la manda.
+    ['Cantidad contada', !contado ? '—' : ocultarMagnitud ? 'Oculta (conteo ciego)' : r.cantidad_contada],
     ['Estado', estadoTexto, false, false, marcadorEstadoPdf(r, ocultarMagnitud)],
     ['Daños', danosTextoPdf(r), conDanos, false, conDanos ? 'alerta' : null],
     ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
@@ -8317,6 +8322,9 @@ async function exportarConteosExcel(){
       setState({exportConteos: {...state.exportConteos, exportando:false}});
       return;
     }
+    // Con conteo ciego (27/10/2026) el operador exporta sin stock, cantidad, diferencia ni valor: la
+    // vista ya no se los manda, y una columna vacía confundiría más que no tenerla.
+    const ciego = ocultarStockOperador();
     const filasExcel = filas.map(f=>({
       'SKU': f.sku_code,
       ...(usaDuenosStock() ? {'Dueño': f.dueno ? (etiquetaDueno(f) || f.dueno) : ''} : {}),
@@ -8331,11 +8339,13 @@ async function exportarConteosExcel(){
       'Bodega contada': f.bodega_contada,
       'Ubicación contada': f.ubicacion_contada,
       'Ubicación distinta': f.ubicacion_distinta ? 'Sí' : 'No',
-      'Stock sistema': f.stock_sistema,
-      'Cantidad contada': f.cantidad_contada,
-      'Diferencia': f.diferencia,
+      ...(ciego ? {} : {
+        'Stock sistema': f.stock_sistema,
+        'Cantidad contada': f.cantidad_contada,
+        'Diferencia': f.diferencia,
+      }),
       'Costo unitario': f.costo_unitario,
-      'Valor diferencia': f.valor_diferencia,
+      ...(ciego ? {} : {'Valor diferencia': f.valor_diferencia}),
       'Estado': f.estado,
       'Fuera de plan': f.fuera_de_plan ? 'Sí' : 'No',
       'Packing dañado': f.packing_danado ? 'Sí' : 'No',
@@ -15485,7 +15495,8 @@ function renderReconteo(){
   const apagado = sinSenal ? ' disabled title="Necesita señal"' : '';
   // Conteo ciego (ver ocultarStockOperador): sin la columna "Sistema" no alcanza con solo
   // quitarla -- "Contado" + "Diferencia" numérica igual la delatan (sistema = contado - diferencia),
-  // así que la diferencia también se neutraliza a una etiqueta sin monto.
+  // así que la diferencia también se neutraliza a una etiqueta sin monto. Desde el 27/10/2026
+  // tampoco va "Contado": lo contado antes ancla el reconteo (Joel), y la vista ya no lo manda.
   const ocultarSistema = ocultarStockOperador();
   // "Descartar" (solo admin, ver descartarReconteo): saca un material de la lista sin recontarlo
   // físicamente, para cuando el problema era un error en el dato maestro y no algo por verificar.
@@ -15549,12 +15560,12 @@ function renderReconteo(){
       </div>` : ''}
       ${!state.reconteosCargados? (state.reconteosError? '' : `<div class="empty" style="padding:14px 8px"><span class="spinner"></span> Cargando…</div>`) :
       rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?`<th style="width:1%"><input type="checkbox" id="chk-reconteo-todos" aria-label="Seleccionar todos" ${todosSeleccionados?'checked':''}></th>`:''}<th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
+        <thead><tr>${esAdmin?`<th style="width:1%"><input type="checkbox" id="chk-reconteo-todos" aria-label="Seleccionar todos" ${todosSeleccionados?'checked':''}></th>`:''}<th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}${ocultarSistema?'':'<th class="num">Contado</th>'}<th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-reconteo-fila" data-conteo-id="${esc(r.conteo_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${seleccionados.includes(r.conteo_id)?'checked':''}></td>`:''}
           <td class="mono">${esc(r.sku_code)}<div style="font-size:12px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div>${chipDuenoBajoCodigo(r)}</td>
           ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}${r.stock_sistema_anterior!=null?`<div class="hint" style="font-size:12px;margin-top:2px;white-space:nowrap">antes: ${r.stock_sistema_anterior}${r.stock_sistema_actualizado_en?` · ${fmtFechaHora(r.stock_sistema_actualizado_en)}`:''}</div>`:''}${infoStockPorTipo(r)}</td>`}
-          <td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>
+          ${ocultarSistema?'':`<td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>`}
           <td class="num">${ocultarSistema
             ? `<span class="badge badge-warn">Con diferencia</span>`
             : `<span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span>${r.valor_diferencia_linea!=null?`<div class="hint" style="font-size:12px;margin-top:2px;white-space:nowrap">${Number(r.valor_diferencia_linea)<0?'−':''}$${Math.round(Math.abs(Number(r.valor_diferencia_linea))).toLocaleString('es-CL')}</div>`:''}`}</td>
@@ -15871,7 +15882,7 @@ function renderBuscar(){
     <div class="card">
       ${listaTabla.length? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalTabla.toLocaleString('es-CL')}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
+        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${ocultarStockOperador()? '' : thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = fotosFilaBuscar(r).map(f=>({...f, etiqueta: etiquetaFotoBuscar(f, r)}));
           const contado = !!r.conteo_id;
@@ -15882,7 +15893,7 @@ function renderBuscar(){
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
             <td class="mono">${esc(r.storage_bin||'—')}</td>
-            <td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>
+            ${ocultarStockOperador()? '' : `<td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>`}
             <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}${contado? badgeNumeroConteo(r) : ''}${(contado && r.reconteo_cierre_tipo)? ` ${badgeCierreReconteo(r.reconteo_cierre_tipo, r.ajuste_erp_referencia)}` : ''}</td>
             <td>${(danosUltimoConteo(r)||[]).map(d=>`<span class="badge badge-danger" style="white-space:nowrap">${esc(d)}</span>`).join(' ') || '—'}</td>
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>

@@ -11786,8 +11786,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlReconteoCiego.includes('<th class="num">Sistema</th>'), 'con conteo ciego, la columna "Sistema" no debe mostrarse en Reconteo, obtuvo: '+htmlReconteoCiego);
   assert(!htmlReconteoCiego.includes('>10<') && !htmlReconteoCiego.includes('>-2<'), 'con conteo ciego, ni el stock ni el monto de la diferencia deben aparecer, obtuvo: '+htmlReconteoCiego);
   assert(htmlReconteoCiego.includes('badge-warn">Con diferencia<'), 'con conteo ciego, la diferencia debe mostrarse sin monto ("Con diferencia"), obtuvo: '+htmlReconteoCiego);
+  // Lo contado antes tampoco (27/10/2026): ancla el reconteo. La vista lo manda en null; la columna no va.
+  assert(!htmlReconteoCiego.includes('<th class="num">Contado</th>') && !htmlReconteoCiego.includes('>8<') && !htmlReconteoCiego.includes('>null<'), 'con conteo ciego, Reconteo no debe mostrar lo contado antes, obtuvo: '+htmlReconteoCiego);
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
   const htmlReconteoNormal = ctx.renderReconteo();
+  assert(htmlReconteoNormal.includes('<th class="num">Contado</th>') && htmlReconteoNormal.includes('<td class="num">8'), 'con conteo ciego apagado, "Contado" se ve normal, obtuvo: '+htmlReconteoNormal);
   assert(htmlReconteoNormal.includes('<th class="num">Sistema</th>') && htmlReconteoNormal.includes('badge-warn">-2<'), 'con conteo ciego apagado, "Sistema" y el monto de la diferencia deben verse normal, obtuvo: '+htmlReconteoNormal);
 
   // Render de Buscar: la magnitud de "Diferencia" (que junto con "Contado" delata el stock) se
@@ -11798,7 +11801,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   const htmlBuscarCiego = ctx.renderBuscar();
   assert(htmlBuscarCiego.includes('badge-warn">Con diferencia<') && !htmlBuscarCiego.includes('>-3<'), 'con conteo ciego, Buscar no debe mostrar el monto de la diferencia, obtuvo: '+htmlBuscarCiego);
-  assert(htmlBuscarCiego.includes('<td class="num">12</td>'), 'lo "Contado" solo, sin la diferencia, no delata el stock -- sigue visible, obtuvo: '+htmlBuscarCiego);
+  // Ni lo contado (27/10/2026): anclaría el próximo conteo. Sin columna, y la ficha PDF lo dice.
+  assert(!htmlBuscarCiego.includes('>Contado<') && !/<td class="num">12/.test(htmlBuscarCiego), 'con conteo ciego, Buscar no debe mostrar lo contado, obtuvo: '+htmlBuscarCiego);
+  {
+    const filaFicha = {conteo_id:'c-9', cantidad_contada:12, estado:'con_diferencia', diferencia:-3, fecha_conteo:'2026-08-20T10:00:00Z'};
+    const cantCiega = ctx.filasFichaPdf(filaFicha, true).find(f=>f[0]==='Cantidad contada');
+    const cantNormal = ctx.filasFichaPdf(filaFicha, false).find(f=>f[0]==='Cantidad contada');
+    assert(cantCiega[1]==='Oculta (conteo ciego)' && String(cantNormal[1])==='12' && ctx.filasFichaPdf(filaFicha, true).length===14, 'la ficha PDF oculta la cantidad con conteo ciego y conserva sus 14 filas, obtuvo: '+JSON.stringify([cantCiega, cantNormal]));
+  }
+  // Hasta el 26/10/2026 "Contado" seguía visible (solo no delata el stock); desde el 27/10 tampoco
+  // va, porque ancla el próximo conteo (decisión de Joel). Ver la aserción de más abajo.
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
   const htmlBuscarNormal = ctx.renderBuscar();
   assert(htmlBuscarNormal.includes('badge-warn">Diferencia -3<'), 'con conteo ciego apagado, Buscar debe mostrar el monto normal, obtuvo: '+htmlBuscarNormal);
@@ -14368,6 +14380,18 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   xlsxEscrituras.length = 0;
   await ctx.exportarConteosExcel();
   assert(xlsxEscrituras[0].nombreArchivo==='conteos_2026-08-01_a_2026-08-31.xlsx', 'con un rango de fechas, el archivo debe nombrarse con ambos extremos, obtuvo: '+xlsxEscrituras[0].nombreArchivo);
+
+  // Conteo ciego (27/10/2026): un operador exporta sin stock, cantidad, diferencia ni valor (la vista
+  // ya no se los manda); el resto de las columnas sigue igual.
+  {
+    const perfilAntes = ctx.__appstate.perfil;
+    ctx.__appstate.perfil = { id:'op-1', nombre:'Beto', rol:'operador', es_super_admin:false, empresa_id:'emp-1', empresas:{nombre:'Minera Andes', conteo_ciego_habilitado:true} };
+    xlsxEscrituras.length = 0;
+    await ctx.exportarConteosExcel();
+    const filaCiega = xlsxEscrituras[0].libro.hojas['Conteos'][0];
+    assert(['Stock sistema','Cantidad contada','Diferencia','Valor diferencia'].every(k=>!(k in filaCiega)) && filaCiega['SKU']==='SKU-EXP1' && filaCiega['Responsable']==='Ana Torres', 'con conteo ciego, el Excel de conteos va sin stock, cantidad, diferencia ni valor, obtuvo: '+JSON.stringify(filaCiega));
+    ctx.__appstate.perfil = perfilAntes;
+  }
 
   // Sin fecha "Desde": no debe llegar a pedir nada ni intentar exportar.
   ctx.__appstate.exportConteos = { desde: '', hasta: '', exportando:false };
