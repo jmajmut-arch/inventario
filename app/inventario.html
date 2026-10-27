@@ -7754,11 +7754,14 @@ async function exportarBusquedaExcel(){
       setState({busqueda: {...state.busqueda, exportando:false}});
       return;
     }
+    // Con conteo ciego, el Excel dice lo mismo que la pantalla: sin cantidad contada ni el monto de
+    // la diferencia (antes salía "Con diferencia +3" aunque la pantalla lo ocultaba).
+    const ciego = ocultarStockOperador();
     const filasExcel = filas.map(r=>{
       const contado = !!r.conteo_id;
       const tieneDiferencia = contado && r.diferencia && Number(r.diferencia)!==0;
       const estadoTexto = !contado ? 'No contado'
-        : tieneDiferencia ? `Con diferencia ${r.diferencia>0?'+':''}${r.diferencia}`
+        : tieneDiferencia ? (ciego ? 'Con diferencia' : `Con diferencia ${r.diferencia>0?'+':''}${r.diferencia}`)
         : r.estado==='pendiente_revision' ? 'Pendiente'
         : r.estado==='aprobado' ? 'Cuadrado' : (r.estado || 'ok');
       return {
@@ -7768,7 +7771,7 @@ async function exportarBusquedaExcel(){
         'Batch': r.batch,
         'Descripción': r.descripcion,
         'Ubicación general': r.bodega,
-        'Cantidad contada': contado ? r.cantidad_contada : '',
+        ...(ciego ? {} : {'Cantidad contada': contado ? r.cantidad_contada : ''}),
         'Estado': estadoTexto,
         'Daños': contado ? danosTextoPdf(r) : '',
         'Origen': contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '',
@@ -8009,7 +8012,9 @@ function filasFichaPdf(r, ocultarMagnitud){
     ['Batch', r.batch || '—'],
     ['Clase ABC', r.clase_abc || 'Sin clasificar'],
     ['Crítico', r.critico ? 'Sí' : 'No', !!r.critico, false, r.critico ? 'alerta' : null],
-    ['Cantidad contada', contado ? r.cantidad_contada : '—'],
+    // Con conteo ciego la ficha mantiene sus 14 filas (3 por hoja) pero sin la cantidad: anclaría
+    // el próximo conteo (Joel, 27/10/2026), y la base ya no la manda.
+    ['Cantidad contada', !contado ? '—' : ocultarMagnitud ? 'Oculta (conteo ciego)' : r.cantidad_contada],
     ['Estado', estadoTexto, false, false, marcadorEstadoPdf(r, ocultarMagnitud)],
     ['Daños', danosTextoPdf(r), conDanos, false, conDanos ? 'alerta' : null],
     ['Origen', contado ? (r.fuera_de_plan ? 'Fuera de plan' : 'Plan') : '—'],
@@ -15872,7 +15877,7 @@ function renderBuscar(){
     <div class="card">
       ${listaTabla.length? `<div class="hint" style="margin-bottom:8px">Mostrando ${desdeTabla}–${hastaTabla} de ${totalTabla.toLocaleString('es-CL')}</div>` : ''}
       ${resultadosPagina.length? `<div class="table-wrap"><table>
-        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
+        <thead><tr><th style="width:1%"><input type="checkbox" id="chk-buscar-todos" aria-label="Seleccionar todos" ${resultadosPagina.length && resultadosPagina.every(r=>(b.seleccionados||[]).includes(r.sku_id))?'checked':''}></th>${thOrdenBuscar('sku_code','SKU')}${thOrdenBuscar('batch','Batch')}${thOrdenBuscar('descripcion','Descripción')}${thOrdenBuscar('bodega','Ubic. general')}${thOrdenBuscar('storage_bin','Storage bin')}${ocultarStockOperador()? '' : thOrdenBuscar('cantidad_contada','Contado','num')}${thOrdenBuscar('estado','Estado')}<th>Daños</th>${thOrdenBuscar('fuera_de_plan','Origen')}${thOrdenBuscar('fecha_conteo','Fecha')}${thOrdenBuscar('ciclo_nombre','Ciclo')}<th class="num">Fotos</th>${thOrdenBuscar('clase_abc','Clase')}</tr></thead>
         <tbody>${resultadosPagina.map(r=>{
           const fotos = fotosFilaBuscar(r).map(f=>({...f, etiqueta: etiquetaFotoBuscar(f, r)}));
           const contado = !!r.conteo_id;
@@ -15883,7 +15888,7 @@ function renderBuscar(){
             <td>${esc(r.descripcion||'—')}</td>
             <td>${esc(r.bodega||'—')}</td>
             <td class="mono">${esc(r.storage_bin||'—')}</td>
-            <td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>
+            ${ocultarStockOperador()? '' : `<td class="num">${contado? r.cantidad_contada : '—'}${contado? marcaConteoCorregido(r) : ''}</td>`}
             <td>${contado? estadoBadge(r.estado, r.diferencia, ocultarStockOperador()) : `<span class="badge badge-neutral">No contado</span>`}${contado? badgeNumeroConteo(r) : ''}${(contado && r.reconteo_cierre_tipo)? ` ${badgeCierreReconteo(r.reconteo_cierre_tipo, r.ajuste_erp_referencia)}` : ''}</td>
             <td>${(danosUltimoConteo(r)||[]).map(d=>`<span class="badge badge-danger" style="white-space:nowrap">${esc(d)}</span>`).join(' ') || '—'}</td>
             <td>${contado? (r.fuera_de_plan? `<span class="badge badge-warn">Fuera de plan</span>` : `<span class="badge badge-ok">Plan</span>`) : '—'}</td>

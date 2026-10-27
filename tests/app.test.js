@@ -11801,7 +11801,16 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   ], buscando:false, yaBuscado:true, hayMas:false, buscandoMas:false, paginaOffset:0, busquedaPagina:0};
   const htmlBuscarCiego = ctx.renderBuscar();
   assert(htmlBuscarCiego.includes('badge-warn">Con diferencia<') && !htmlBuscarCiego.includes('>-3<'), 'con conteo ciego, Buscar no debe mostrar el monto de la diferencia, obtuvo: '+htmlBuscarCiego);
-  assert(htmlBuscarCiego.includes('<td class="num">12</td>'), 'lo "Contado" solo, sin la diferencia, no delata el stock -- sigue visible, obtuvo: '+htmlBuscarCiego);
+  // Ni lo contado (27/10/2026): anclaría el próximo conteo. Sin columna, y la ficha PDF lo dice.
+  assert(!htmlBuscarCiego.includes('>Contado<') && !/<td class="num">12/.test(htmlBuscarCiego), 'con conteo ciego, Buscar no debe mostrar lo contado, obtuvo: '+htmlBuscarCiego);
+  {
+    const filaFicha = {conteo_id:'c-9', cantidad_contada:12, estado:'con_diferencia', diferencia:-3, fecha_conteo:'2026-08-20T10:00:00Z'};
+    const cantCiega = ctx.filasFichaPdf(filaFicha, true).find(f=>f[0]==='Cantidad contada');
+    const cantNormal = ctx.filasFichaPdf(filaFicha, false).find(f=>f[0]==='Cantidad contada');
+    assert(cantCiega[1]==='Oculta (conteo ciego)' && String(cantNormal[1])==='12' && ctx.filasFichaPdf(filaFicha, true).length===14, 'la ficha PDF oculta la cantidad con conteo ciego y conserva sus 14 filas, obtuvo: '+JSON.stringify([cantCiega, cantNormal]));
+  }
+  // Hasta el 26/10/2026 "Contado" seguía visible (solo no delata el stock); desde el 27/10 tampoco
+  // va, porque ancla el próximo conteo (decisión de Joel). Ver la aserción de más abajo.
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
   const htmlBuscarNormal = ctx.renderBuscar();
   assert(htmlBuscarNormal.includes('badge-warn">Diferencia -3<'), 'con conteo ciego apagado, Buscar debe mostrar el monto normal, obtuvo: '+htmlBuscarNormal);

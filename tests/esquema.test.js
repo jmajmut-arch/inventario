@@ -282,6 +282,22 @@ test('con conteo ciego, reconteo_pendiente no manda lo contado antes', () => {
   assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: reconteo_pendiente tiene que seguir con security_invoker`);
 });
 
+test('con conteo ciego, skus_busqueda (Buscar) no manda lo contado', () => {
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let vista = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const v = /create\s+(?:or\s+replace\s+)?view\s+public\.skus_busqueda\b[\s\S]*?;/i.exec(sql);
+    if (v) vista = { archivo, def: v[0] };
+  }
+  assert.ok(vista, 'no se encontró la definición de public.skus_busqueda');
+  for (const col of ['cantidad_contada', 'cantidad_original']) {
+    const re = new RegExp('debe_ocultar_stock_operador\\(\\)[^)]*\\)\\s*THEN\\s+NULL::numeric\\s+ELSE\\s+[a-z_.]+\\s+END\\s+AS\\s+' + col + '\\b', 'i');
+    assert.match(vista.def, re, `${vista.archivo}: con conteo ciego, ${col} tiene que ir en null para el operador`);
+  }
+  assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: skus_busqueda tiene que seguir con security_invoker`);
+});
+
 test('skus_planificables no vuelve a pasar por ultimo_conteo_por_sku', () => {
   const dirMig = path.join(RAIZ, 'supabase', 'migrations');
   let vista = null;
