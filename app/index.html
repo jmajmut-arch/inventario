@@ -15485,7 +15485,8 @@ function renderReconteo(){
   const apagado = sinSenal ? ' disabled title="Necesita señal"' : '';
   // Conteo ciego (ver ocultarStockOperador): sin la columna "Sistema" no alcanza con solo
   // quitarla -- "Contado" + "Diferencia" numérica igual la delatan (sistema = contado - diferencia),
-  // así que la diferencia también se neutraliza a una etiqueta sin monto.
+  // así que la diferencia también se neutraliza a una etiqueta sin monto. Desde el 27/10/2026
+  // tampoco va "Contado": lo contado antes ancla el reconteo (Joel), y la vista ya no lo manda.
   const ocultarSistema = ocultarStockOperador();
   // "Descartar" (solo admin, ver descartarReconteo): saca un material de la lista sin recontarlo
   // físicamente, para cuando el problema era un error en el dato maestro y no algo por verificar.
@@ -15549,12 +15550,12 @@ function renderReconteo(){
       </div>` : ''}
       ${!state.reconteosCargados? (state.reconteosError? '' : `<div class="empty" style="padding:14px 8px"><span class="spinner"></span> Cargando…</div>`) :
       rows.length? `<div class="table-wrap"><table>
-        <thead><tr>${esAdmin?`<th style="width:1%"><input type="checkbox" id="chk-reconteo-todos" aria-label="Seleccionar todos" ${todosSeleccionados?'checked':''}></th>`:''}<th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}<th class="num">Contado</th><th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
+        <thead><tr>${esAdmin?`<th style="width:1%"><input type="checkbox" id="chk-reconteo-todos" aria-label="Seleccionar todos" ${todosSeleccionados?'checked':''}></th>`:''}<th>SKU</th>${ocultarSistema?'':'<th class="num">Sistema</th>'}${ocultarSistema?'':'<th class="num">Contado</th>'}<th class="num">Diferencia</th><th>Causa probable</th><th>Fecha</th><th class="num">Foto</th><th></th></tr></thead>
         <tbody>${rows.map(r=>`<tr>
           ${esAdmin?`<td><input type="checkbox" class="chk-reconteo-fila" data-conteo-id="${esc(r.conteo_id)}" aria-label="Seleccionar ${esc(r.sku_code)}" ${seleccionados.includes(r.conteo_id)?'checked':''}></td>`:''}
           <td class="mono">${esc(r.sku_code)}<div style="font-size:12px;color:var(--text-faint);font-family:'Inter',sans-serif">${esc(r.descripcion||'')}</div>${chipDuenoBajoCodigo(r)}</td>
           ${ocultarSistema?'':`<td class="num">${r.stock_sistema!==null? r.stock_sistema:'—'}${r.stock_sistema_anterior!=null?`<div class="hint" style="font-size:12px;margin-top:2px;white-space:nowrap">antes: ${r.stock_sistema_anterior}${r.stock_sistema_actualizado_en?` · ${fmtFechaHora(r.stock_sistema_actualizado_en)}`:''}</div>`:''}${infoStockPorTipo(r)}</td>`}
-          <td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>
+          ${ocultarSistema?'':`<td class="num">${r.ultima_cantidad_contada}${marcaConteoCorregido(r)}</td>`}
           <td class="num">${ocultarSistema
             ? `<span class="badge badge-warn">Con diferencia</span>`
             : `<span class="badge badge-warn">${r.ultima_diferencia>0?'+':''}${r.ultima_diferencia}</span>${r.valor_diferencia_linea!=null?`<div class="hint" style="font-size:12px;margin-top:2px;white-space:nowrap">${Number(r.valor_diferencia_linea)<0?'−':''}$${Math.round(Math.abs(Number(r.valor_diferencia_linea))).toLocaleString('es-CL')}</div>`:''}`}</td>

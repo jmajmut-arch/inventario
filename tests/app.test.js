@@ -11786,8 +11786,11 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
   assert(!htmlReconteoCiego.includes('<th class="num">Sistema</th>'), 'con conteo ciego, la columna "Sistema" no debe mostrarse en Reconteo, obtuvo: '+htmlReconteoCiego);
   assert(!htmlReconteoCiego.includes('>10<') && !htmlReconteoCiego.includes('>-2<'), 'con conteo ciego, ni el stock ni el monto de la diferencia deben aparecer, obtuvo: '+htmlReconteoCiego);
   assert(htmlReconteoCiego.includes('badge-warn">Con diferencia<'), 'con conteo ciego, la diferencia debe mostrarse sin monto ("Con diferencia"), obtuvo: '+htmlReconteoCiego);
+  // Lo contado antes tampoco (27/10/2026): ancla el reconteo. La vista lo manda en null; la columna no va.
+  assert(!htmlReconteoCiego.includes('<th class="num">Contado</th>') && !htmlReconteoCiego.includes('>8<') && !htmlReconteoCiego.includes('>null<'), 'con conteo ciego, Reconteo no debe mostrar lo contado antes, obtuvo: '+htmlReconteoCiego);
   ctx.__appstate.perfil.empresas.conteo_ciego_habilitado = false;
   const htmlReconteoNormal = ctx.renderReconteo();
+  assert(htmlReconteoNormal.includes('<th class="num">Contado</th>') && htmlReconteoNormal.includes('<td class="num">8'), 'con conteo ciego apagado, "Contado" se ve normal, obtuvo: '+htmlReconteoNormal);
   assert(htmlReconteoNormal.includes('<th class="num">Sistema</th>') && htmlReconteoNormal.includes('badge-warn">-2<'), 'con conteo ciego apagado, "Sistema" y el monto de la diferencia deben verse normal, obtuvo: '+htmlReconteoNormal);
 
   // Render de Buscar: la magnitud de "Diferencia" (que junto con "Contado" delata el stock) se

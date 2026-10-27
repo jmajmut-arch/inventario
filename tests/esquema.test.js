@@ -265,6 +265,23 @@ test('al borrar el único conteo de un material, su último conteo se limpia com
   assert.match(limpieza[0], /not\s+exists\s*\(\s*select\s+1\s+from\s+public\.conteos/i, `${archivoFn}: la limpieza solo toca materiales sin ningún conteo`);
 });
 
+test('con conteo ciego, reconteo_pendiente no manda lo contado antes', () => {
+  // ultima_cantidad_contada y cantidad_original anclan el reconteo de un operador (Joel, 27/10/2026).
+  const dirMig = path.join(RAIZ, 'supabase', 'migrations');
+  let vista = null;
+  for (const archivo of fs.readdirSync(dirMig).sort()) {
+    const sql = fs.readFileSync(path.join(dirMig, archivo), 'utf8').replace(/--[^\n]*/g, '');
+    const v = /create\s+(?:or\s+replace\s+)?view\s+public\.reconteo_pendiente\b[\s\S]*?;/i.exec(sql);
+    if (v) vista = { archivo, def: v[0] };
+  }
+  assert.ok(vista, 'no se encontró la definición de public.reconteo_pendiente');
+  for (const col of ['ultima_cantidad_contada', 'cantidad_original', 'ultima_diferencia', 'stock_sistema']) {
+    const re = new RegExp('debe_ocultar_stock_operador\\(\\)[^)]*\\)\\s*THEN\\s+NULL::numeric\\s+ELSE\\s+[a-z_.]+\\s+END\\s+AS\\s+' + col + '\\b', 'i');
+    assert.match(vista.def, re, `${vista.archivo}: con conteo ciego, ${col} tiene que ir en null para el operador`);
+  }
+  assert.match(vista.def, /security_invoker\s*=\s*true/i, `${vista.archivo}: reconteo_pendiente tiene que seguir con security_invoker`);
+});
+
 test('skus_planificables no vuelve a pasar por ultimo_conteo_por_sku', () => {
   const dirMig = path.join(RAIZ, 'supabase', 'migrations');
   let vista = null;
