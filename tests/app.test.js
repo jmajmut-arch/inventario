@@ -6469,6 +6469,42 @@ vm.runInContext(script, ctx, {filename:'index-inline.js'});
 
   const htmlHistorial = ctx.renderCargaMasiva();
   assert(htmlHistorial.includes('Historial de cargas'), 'Carga masiva debe mostrar la sección de historial, obtuvo: '+htmlHistorial);
+
+  // El historial muestra las 5 últimas y "Cargar más" suma de a 5 (Joel, 28/10/2026). Se siguen
+  // pidiendo 20 de una vez: el aviso de sobrantes busca la última carga del maestro entre ellas.
+  const filaHist = (i)=>({ id:'h'+i, nombre_archivo:'archivo_'+i+'.xlsx', tipo:'stock_sistema', filas_totales:10, filas_ok:10, filas_error:0, created_at:'2026-10-'+String(28-(i%27)).padStart(2,'0')+'T12:00:00Z', usuarios:{nombre:'Joel'}, detalle_errores:[] });
+  const urlsHist = [];
+  const fetchAntesPagHist = ctx.fetch;
+  ctx.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if(u.pathname==='/rest/v1/cargas_masivas' && (!opts || !opts.method || opts.method==='GET')){
+      urlsHist.push(u.search);
+      const offset = Number(u.searchParams.get('offset')||0);
+      const todas = Array.from({length:23}, (_,i)=>filaHist(i+1));
+      const pagina = todas.slice(offset, offset + Number(u.searchParams.get('limit')));
+      return new Response(JSON.stringify(pagina), {status:200, headers:{'Content-Type':'application/json'}});
+    }
+    return fetchAntesPagHist(url, opts);
+  };
+  ctx.__appstate.cargasHistorial = {cargado:false, cargando:false, filas:[]};
+  await ctx.cargarHistorialCargas();
+  assert(urlsHist.length===1 && urlsHist[0].includes('limit=20') && !urlsHist[0].includes('offset'), 'la primera carga del historial sigue pidiendo 20 de una vez, obtuvo: '+JSON.stringify(urlsHist));
+  let htmlPag = ctx.renderCargaMasiva();
+  assert(htmlPag.includes('archivo_5.xlsx') && !htmlPag.includes('archivo_6.xlsx'), 'el historial muestra solo las 5 últimas cargas');
+  assert(htmlPag.includes('id="btn-ver-mas-historial-cargas"') && htmlPag.includes('Cargar más'), 'con más cargas, aparece el botón "Cargar más"');
+  await ctx.verMasHistorialCargas();
+  htmlPag = ctx.renderCargaMasiva();
+  assert(urlsHist.length===1, '"Cargar más" usa primero las que ya están en memoria, sin pedir nada');
+  assert(htmlPag.includes('archivo_10.xlsx') && !htmlPag.includes('archivo_11.xlsx'), '"Cargar más" suma 5');
+  await ctx.verMasHistorialCargas(); await ctx.verMasHistorialCargas();
+  assert(urlsHist.length===1 && ctx.renderCargaMasiva().includes('archivo_20.xlsx'), 'hasta 20 se muestran desde memoria');
+  await ctx.verMasHistorialCargas();
+  htmlPag = ctx.renderCargaMasiva();
+  assert(urlsHist.length===2 && urlsHist[1].includes('offset=20') && urlsHist[1].includes('limit=20'), 'pasadas las 20 en memoria, pide la página siguiente con offset, obtuvo: '+JSON.stringify(urlsHist));
+  assert(htmlPag.includes('archivo_23.xlsx') && !htmlPag.includes('id="btn-ver-mas-historial-cargas"'), 'al llegar al final, se ven todas y el botón desaparece');
+  ctx.__appstate.cargasHistorial = {cargado:true, cargando:false, filas:[filaHist(1), filaHist(2)]};
+  assert(!ctx.renderCargaMasiva().includes('id="btn-ver-mas-historial-cargas"'), 'con 5 o menos cargas no hay botón');
+  ctx.fetch = fetchAntesPagHist;
   // "Lista primero": en Carga el archivo va antes que la explicación larga (plegada bajo "Cómo
   // preparar el archivo"); en SKU el alta manual va plegada sobre la tabla y parte abierta solo con
   // el maestro vacío; en Períodos la lista va antes que el formulario, que parte abierto sin ciclos.
