@@ -11336,12 +11336,21 @@ async function limpiarSobrantesDeCarga(){
 
 const TIPO_CARGA_LABEL = { skus:'Maestro de SKU', stock_sistema:'Stock del sistema', otro:'Otro' };
 
+// El historial muestra las últimas HISTORIAL_CARGAS_VISIBLES y "Cargar más" suma otras tantas. Se
+// siguen pidiendo HISTORIAL_CARGAS_PAGINA de una vez (igual que antes de paginar): el aviso de
+// sobrantes busca la última carga del maestro entre ellas, y mostrar 5 no puede cambiar eso.
+const HISTORIAL_CARGAS_VISIBLES = 5;
+const HISTORIAL_CARGAS_PAGINA = 20;
+const SELECT_HISTORIAL_CARGAS = 'id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,detalle_errores,created_at,marca_tiempo,usuarios(nombre)';
+
 async function cargarHistorialCargas(){
   state.cargasHistorial.cargando = true;
   render();
   try{
-    const filas = await rest('/cargas_masivas?select=id,nombre_archivo,tipo,filas_totales,filas_ok,filas_error,detalle_errores,created_at,marca_tiempo,usuarios(nombre)&order=created_at.desc&limit=20');
+    const filas = await rest(`/cargas_masivas?select=${SELECT_HISTORIAL_CARGAS}&order=created_at.desc&limit=${HISTORIAL_CARGAS_PAGINA}`);
     state.cargasHistorial.filas = filas || [];
+    state.cargasHistorial.visibles = HISTORIAL_CARGAS_VISIBLES;
+    state.cargasHistorial.hayMasEnServidor = (filas||[]).length === HISTORIAL_CARGAS_PAGINA;
     // Igual que cargarEquipo/cargarAuditoria/cargarPlanDeHoy: marcar cargado solo si el pedido
     // realmente funcionó, para que un corte de red en el primer ingreso no deje el historial
     // vacío para siempre (ver el resguardo en bind(), "if(!state.cargasHistorial.cargado)").
@@ -11358,6 +11367,23 @@ async function cargarHistorialCargas(){
   }catch(e){ toast(e.message,'err'); }
   state.cargasHistorial.cargando = false;
   render();
+}
+
+// Muestra 5 más: primero las que ya están en memoria y, cuando se acaban, pide la página siguiente.
+async function verMasHistorialCargas(){
+  const h = state.cargasHistorial;
+  if(h.cargandoMas) return;
+  const visibles = (h.visibles || HISTORIAL_CARGAS_VISIBLES) + HISTORIAL_CARGAS_VISIBLES;
+  if(visibles <= h.filas.length || !h.hayMasEnServidor){ setState({cargasHistorial:{...h, visibles}}); return; }
+  setState({cargasHistorial:{...h, cargandoMas:true}});
+  try{
+    const filas = await rest(`/cargas_masivas?select=${SELECT_HISTORIAL_CARGAS}&order=created_at.desc&limit=${HISTORIAL_CARGAS_PAGINA}&offset=${h.filas.length}`);
+    const actual = state.cargasHistorial;
+    setState({cargasHistorial:{...actual, filas: actual.filas.concat(filas||[]), visibles, hayMasEnServidor: (filas||[]).length === HISTORIAL_CARGAS_PAGINA, cargandoMas:false}});
+  }catch(e){
+    setState({cargasHistorial:{...state.cargasHistorial, cargandoMas:false}});
+    toast(e.message,'err');
+  }
 }
 
 /* =======================================================================
@@ -14876,7 +14902,7 @@ function renderCargaMasiva(){
     <div class="section-head"><h2 style="font-size:15px">Historial de cargas</h2></div>
     <div class="card">
       ${h.cargando? `<div class="hint" style="padding:14px 8px">Cargando…</div>` : h.filas.length? `
-      <div>${h.filas.map(f=>`
+      <div>${h.filas.slice(0, h.visibles || HISTORIAL_CARGAS_VISIBLES).map(f=>`
         <div class="plan-item" style="display:block;padding:10px 0">
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
             <span style="font-weight:600">${esc(f.nombre_archivo)}</span>
@@ -14898,6 +14924,9 @@ function renderCargaMasiva(){
           ` : ''}
         </div>
       `).join('')}</div>
+      ${(h.visibles || HISTORIAL_CARGAS_VISIBLES) < h.filas.length || h.hayMasEnServidor ? `<div style="text-align:center;margin-top:12px">
+        <button type="button" class="btn btn-secondary" id="btn-ver-mas-historial-cargas" style="width:auto;padding:8px 16px" ${h.cargandoMas?'disabled':''}>${h.cargandoMas?'Cargando…':'Cargar más'}</button>
+      </div>` : ''}
       ` : `<div class="empty" style="padding:14px 8px">Todavía no se ha cargado nada.</div>`}
     </div>
   `;
@@ -20416,6 +20445,8 @@ function bind(){
         await prepararCargaMasiva(file);
       });
       if(!state.cargasHistorial.cargado && !state.cargasHistorial.cargando) cargarHistorialCargas();
+      const btnVerMasHistorial = document.getElementById('btn-ver-mas-historial-cargas');
+      if(btnVerMasHistorial) btnVerMasHistorial.addEventListener('click', verMasHistorialCargas);
       const btnLimpiar = document.getElementById('btn-limpiar-sobrantes');
       if(btnLimpiar) btnLimpiar.addEventListener('click', limpiarSobrantesDeCarga);
       const btnOmitir = document.getElementById('btn-omitir-sobrantes');
